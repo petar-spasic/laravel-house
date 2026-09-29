@@ -30,8 +30,8 @@ set — extend the table as the project defines its surfaces:
 <!-- if:htmx -->
 - **Prefetch**: the layout sets `hx-ext="preload"` on `<body>` (extension
   imported in `app.ts`); navigation blocks set `hx-boost`, card links add
-  `preload="mouseover"`. Safe by construction: a prefetch that would miss the
-  page cache gets a 503, never PHP.
+  `preload="mouseover"`. A prefetch miss renders and warms the page cache like any
+  request (`app/Http/CLAUDE.md`); hover eagerness and `throttle:public` bound the volume.
 - **Named routes everywhere**, `route()` in Blade and in htmx attributes; no
   hand-typed paths.
 - **Public URLs are SEO assets**: lowercase, hyphenated slugs (route-model
