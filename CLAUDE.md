@@ -24,9 +24,7 @@ Consumers read `README.md` and the Boost skill (`resources/boost/skills/kanban`)
 
 ## Load-bearing constraints
 
-- **`bin/kanban-guard` + `src/Guard/*` have zero dependencies.** They are loaded with `require_once` and use no Composer or Illuminate. The guard runs on every tool call, so p95 must stay under 50 ms; `tests/E2E/Guard` asserts this.
-  - Subagents fail **closed**: an internal error means a deny.
-  - The main session fails **open**: no output.
+- **`bin/kanban-guard` + `src/Guard/Guard.php` have zero dependencies.** They are loaded with `require_once` and use no Composer or Illuminate. The hook runs on tool calls, so p95 must stay under 50 ms; `tests/E2E/Guard` asserts this. It never allows or denies: it binds an agent to its card at EnterWorktree, refreshes the heartbeat and records kanban spawns. Any error prints nothing. Agents are steered by their instructions (`stubs/claude/agents`, the SubagentStart context), not fenced: do not add deny rules.
 - **`bin/kanban` never boots the host app.** It is Illuminate Console standalone: `.env` via Dotenv, `config/kanban.php` merged over the package config. Hooks and workers depend on this when a branch breaks the app. The same command classes run under artisan (`kanban:*`); only `kanban:install` is artisan-only (`KanbanServiceProvider::ARTISAN_COMMANDS`).
 - **Commands are discovered,** not listed: every `src/Console/*Command.php` extending `Console\Command` (implement `perform(): int`).
 - **Board writes go only through `Store`** (`Store\Git\GitStore`). Each write takes a flock on `.git/laravel-kanban/lock`, checks the rev, validates, writes atomically in canonical JSON, and makes one commit.
@@ -46,7 +44,7 @@ Consumers read `README.md` and the Boost skill (`resources/boost/skills/kanban`)
 | `src/Console/*`, `src/Console/Install/*` | CLI commands; install steps (settings hooks, agents, Boost, .gitignore) |
 | `src/Code/*` | Worktrees, worktree `.env`, machine-wide port registry, compose stacks, merge checks |
 | `src/Protocol/*`, `src/Hooks/*` | Runtime files, staged reports and verdicts, stop gates, lease, SessionStart brief, context, the 5 hook handlers |
-| `src/Guard/*`, `bin/kanban-guard`, `githooks/*` | PreToolUse guard; commit-msg and pre-push hooks |
+| `src/Guard/Guard.php`, `bin/kanban-guard`, `githooks/*` | PreToolUse binder (binding, heartbeat, spawn record); commit-msg and pre-push hooks |
 | `src/Http/*`, `routes/web.php`, `resources/views`, `resources/dist` | Local UI (no build step, vanilla JS, CSP-safe) |
 | `src/Import/*` | House docs importer (`docs/decisions.md`, `docs/ideas.md`) |
 | `stubs/board`, `stubs/claude` | Board skeleton; hooks JSON and agent definitions written by install |

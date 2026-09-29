@@ -12,7 +12,7 @@ use Throwable;
 
 /**
  * Claude Code WorktreeCreate (`claude -w`, isolated subagents, background sessions). A name that is a card in
- * doing or review returns that card's worktree; so does the oldest pending spawn the guard recorded when the main
+ * doing or review returns that card's worktree; so does the oldest pending spawn the PreToolUse hook recorded when the main
  * session spawned a kanban agent (an isolated subagent's name is generated, so the spawn record carries the card);
  * otherwise `.claude/worktrees/<name>` on `worktree-<name>` from local main, dependencies copied, `.env` with a
  * slot, no containers. The realpath is the last stdout line.
@@ -20,6 +20,9 @@ use Throwable;
 final class WorktreeCreate
 {
     private const SPAWN_TTL = 120;
+
+    /** Claude Code names an isolated subagent's worktree `agent-` + its agent id. */
+    private const ISOLATED_AGENT = '/^agent-a[0-9a-f]{16}$/';
 
     /** @param  array<string, mixed>  $config  the whole `kanban` config */
     public function __construct(
@@ -44,7 +47,7 @@ final class WorktreeCreate
 
                 return ['stdout' => $path."\n", 'stderr' => "kanban: {$name} is card {$id}; entering its worktree\n", 'exit' => 0];
             }
-            if (($spawn = $this->pendingSpawn()) !== null) {
+            if (preg_match(self::ISOLATED_AGENT, $name) === 1 && ($spawn = $this->pendingSpawn()) !== null) {
                 [$id, $path, $type] = $spawn;
 
                 return ['stdout' => $path."\n", 'stderr' => "kanban: {$name} is the {$type} spawned for {$id}; entering its worktree\n", 'exit' => 0];

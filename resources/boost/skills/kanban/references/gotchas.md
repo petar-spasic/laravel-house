@@ -9,7 +9,7 @@ start, and the old session holds the lease until 15 min idle. → Restart Claude
 `vendor/bin/kanban lease --takeover`.
 
 **`migrate:fresh`, `db:wipe` or odd tinker probes are denied, even on a worktree's own database.** → Permission rules
-or the auto-mode classifier may soft-deny destructive database commands; the guard's allow does not override them.
+or the auto-mode classifier may soft-deny destructive database commands; an allow rule does not override them.
 → `php artisan migrate --force`, then `php artisan db:seed --force` when the seeders are idempotent; prove behaviour
 with tests and curl.
 
@@ -39,3 +39,8 @@ shared object file`.** → The host lacks the browser's system libraries. → Ru
 --remote-debugging-port=9333` in a throwaway `debian:trixie-slim` container on the host network and drive the card's
 stack URL over CDP from Node ≥ 22 (global `WebSocket`); record the result with `set <ID> note="…"`. While it runs,
 workers and evaluators can drive it too (`http://127.0.0.1:9333`, no `docker` needed): say so when you SendMessage them.
+
+**A worker or evaluator runs `move`, `finish` or another main-only command.** → `KANBAN_SESSION` is exported for the whole
+session (CLAUDE_ENV_FILE), so a subagent's Bash counts as `main`; only the agent's instructions keep it to `report`,
+`verdict` and `stack`. → Tighten the agent's instructions or send it back with a note; the board is a git branch, so
+`git -C docs/kanban log` shows what it changed.

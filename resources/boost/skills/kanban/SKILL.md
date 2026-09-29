@@ -42,7 +42,7 @@ You drive the board; agents do the card work. Exact flags, every exit code and t
    - exit 0 prints the worktree, branch, stack URL and ports, and the spawn line as its last line:
      `Agent(subagent_type="kanban-worker", description="KEY-XXXXXX <title words>", isolation="worktree", prompt="Card KEY-XXXXXX. Worktree /…/.claude/worktrees/xxxxxx-<slug>")`.
      Spawn exactly that, in the background, unchanged (no `name`: a named spawn can become a teammate without isolation).
-     The guard records the spawn and the WorktreeCreate hook hands the card's worktree to it, oldest spawn first,
+     The PreToolUse hook records the spawn and the WorktreeCreate hook hands the card's worktree to it, oldest spawn first,
      within 2 minutes: never spawn another isolated agent (a fork with `isolation`) in the same message.
    - exit 3 refused (policy, capacity, not on main, merge in progress, no stack slot): read the message; skip the
      card. Cards in review hold stacks too: finish approved ones first.

@@ -64,6 +64,7 @@ final class GuardSandbox
         $this->git('init -q -b main');
         $this->git('config user.email test@example.com');
         $this->git('config user.name Test');
+        $this->git('config commit.gpgsign false');
         file_put_contents($this->main.'/README.md', "app\n");
         file_put_contents($this->main.'/boost.json', json_encode(['skills' => ['kanban']]));
         file_put_contents($this->main.'/.env', "DB_PORT=5435\n");
@@ -74,7 +75,6 @@ final class GuardSandbox
         $this->git('worktree add -q --orphan -b kanban docs/kanban');
         $this->json('docs/kanban/kanban.json', array_replace_recursive([
             'version' => 1, 'key' => 'ACME', 'id_length' => 6, 'stale_after_minutes' => 20,
-            'guard' => ['strict' => false, 'main_write_paths' => []],
         ], $kanban));
         $this->json('docs/kanban/project/work/board.json', ['title' => 'Work', 'kind' => 'work']);
         $this->card(self::DOING, 'doing', '.claude/worktrees/acme-7k2m9q');

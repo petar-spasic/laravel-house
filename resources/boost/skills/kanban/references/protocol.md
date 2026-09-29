@@ -23,8 +23,8 @@ text, one fact per line; errors go to stderr. Card ids accept a unique prefix of
 ## Actors
 
 - `main`: `KANBAN_SESSION` set (SessionStart exports it). `owner`: a terminal without it, or the UI.
-- `worker` / `evaluator`: bound by the guard at `EnterWorktree` (even when Claude Code then refuses the switch);
-  `report` / `verdict` also require the cwd to be the card's worktree (`cd <worktree> && …` in guard-only mode).
+- `worker` / `evaluator`: bound by the PreToolUse hook at `EnterWorktree` (even when Claude Code then refuses the switch);
+  `report` / `verdict` also require the cwd to be the card's worktree (`cd <worktree> && …` when Claude Code refused the switch).
 - `--force` is main-only and logged.
 
 ## Read (anyone)
@@ -102,7 +102,7 @@ epic order, board order, oldest in ready, id; `urgent` may exceed capacity by 1.
 
 | Failure | Do |
 |---|---|
-| Hook error | The guard fails closed for subagents, open for main. SubagentStop writes `inbox/` first: `apply --all` retries. `doctor` checks paths |
+| Hook error | The PreToolUse hook never blocks and ignores its own errors. SubagentStop writes `inbox/` first: `apply --all` retries. `doctor` checks paths |
 | UI and CLI write at once | Same lock; stale rev → 409 in the UI; every write is one commit |
 | Teammate without the merge driver | `attach` / `doctor --fix` configure it; SessionStart verifies |
 | Container git unusable (UI) | Writes go to the journal; the next host write, `sweep` or `sync` commits them |

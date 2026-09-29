@@ -74,6 +74,9 @@ final class GitStore implements Store
 
     public function snapshot(?BoardRef $board = null): Snapshot
     {
+        if ($this->repo->interrupted()) {
+            $this->write(fn () => null);
+        }
         $snapshot = $this->read(fn () => $this->load());
         if ($board === null) {
             return $snapshot;
@@ -393,6 +396,7 @@ final class GitStore implements Store
         $this->locked = true;
         $this->wrote = false;
         try {
+            $this->repo->recover();
             $this->flushJournal();
             $result = $fn();
         } finally {

@@ -42,7 +42,7 @@ it('merges settings, writes agents, .gitignore and the CLAUDE.md block, and is i
         ->toEndWith("next: restart Claude Code (agents and hooks load at session start); then `vendor/bin/kanban lease --takeover` if an old session holds the lease\n");
 
     $settings = json_decode(file_get_contents($sandbox->root.'/.claude/settings.json'), true);
-    $kanban = fn (string $event) => ['type' => 'command', 'command' => 'php', 'args' => ['${CLAUDE_PROJECT_DIR}/vendor/bin/kanban', 'hook', $event]];
+    $kanban = fn (string $event) => ['type' => 'command', 'command' => 'php', 'args' => ['-d', 'display_errors=0', '-d', 'display_startup_errors=0', '${CLAUDE_PROJECT_DIR}/vendor/bin/kanban', 'hook', $event]];
     expect(file_get_contents($sandbox->root.'/.claude/settings.json'))->toContain('"env": {}')
         ->and($settings['hooks']['SessionStart'])->toBe([
             ['matcher' => 'startup|resume|clear|compact|fork', 'hooks' => [$kanban('session-start') + ['timeout' => 30]]],
@@ -50,8 +50,8 @@ it('merges settings, writes agents, .gitignore and the CLAUDE.md block, and is i
         ])
         ->and($settings['hooks']['PreToolUse'])->toBe([
             ['matcher' => 'Bash', 'hooks' => [['type' => 'command', 'command' => 'echo foreign-guard']]],
-            ['matcher' => 'Bash|Monitor|Edit|Write|NotebookEdit|EnterWorktree|ExitWorktree|Agent', 'hooks' => [
-                ['type' => 'command', 'command' => 'php', 'args' => ['${CLAUDE_PROJECT_DIR}/vendor/petar-spasic/laravel-kanban/bin/kanban-guard'], 'timeout' => 10],
+            ['matcher' => 'Bash|Edit|Write|NotebookEdit|EnterWorktree|Agent', 'hooks' => [
+                ['type' => 'command', 'command' => 'php', 'args' => ['-d', 'display_errors=0', '-d', 'display_startup_errors=0', '${CLAUDE_PROJECT_DIR}/vendor/petar-spasic/laravel-kanban/bin/kanban-guard'], 'timeout' => 10],
             ]],
         ])
         ->and($settings['hooks']['SubagentStop'])->toBe([['matcher' => 'kanban-worker|kanban-evaluator', 'hooks' => [$kanban('subagent-stop') + ['timeout' => 300]]]])

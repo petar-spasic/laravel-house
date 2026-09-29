@@ -42,34 +42,68 @@ final class WorktreeRemove
                 return ['stdout' => '', 'stderr' => "kanban: {$path} is the worktree of {$id}; left for `kanban finish` or `kanban stop`\n", 'exit' => 0];
             }
 
-            $worktrees = new Worktrees($this->paths, $this->config);
-            $stderr = '';
-            $branch = is_dir($path) ? $worktrees->git($path)->line(['symbolic-ref', '--short', '-q', 'HEAD']) : null;
-            $entry = $worktrees->registry()->find($path);
-            if ($entry !== null) {
-                if ($worktrees->down($path, $entry['project'])) {
-                    $stderr .= "kanban: stack {$entry['project']} down, slot {$entry['slot']} released\n";
-                } else {
-                    $stderr .= "kanban: stack {$entry['project']} down failed; slot kept for `kanban stack gc`\n";
-                }
-            }
-            if (is_dir($path)) {
-                $worktrees->remove($path, true);
-                $stderr .= "kanban: removed worktree {$path}\n";
-            }
-            $worktrees->prune();
-            if ($branch !== null && str_starts_with($branch, 'worktree-') && $worktrees->branchExists($branch)) {
-                if ($worktrees->commitsAhead($branch) === 0 && $worktrees->deleteBranch($branch, true)) {
-                    $stderr .= "kanban: deleted branch {$branch}\n";
-                } else {
-                    $stderr .= "kanban: kept branch {$branch} (it has commits)\n";
-                }
-            }
+            $stderr = $this->cleanUp($path, true);
 
             return ['stdout' => '', 'stderr' => $stderr, 'exit' => 0];
         } catch (Throwable $e) {
             return ['stdout' => '', 'stderr' => "kanban worktree-remove: {$e->getMessage()}\n", 'exit' => 1];
         }
+    }
+
+    /**
+     * Removes isolated-agent worktrees (`agent-a<16 hex>`) that are clean and older than $olderThan seconds:
+     * Claude Code never calls WorktreeRemove for them. Their branch is kept when it has commits.
+     *
+     * @return int worktrees removed
+     */
+    public function reclaim(int $olderThan = 86400): int
+    {
+        $worktrees = new Worktrees($this->paths, $this->config);
+        $removed = 0;
+        foreach (glob($this->paths->worktrees().'/agent-a*', GLOB_ONLYDIR) ?: [] as $dir) {
+            if (preg_match('/^agent-a[0-9a-f]{16}$/', basename($dir)) !== 1 || (int) filemtime($dir) > time() - $olderThan) {
+                continue;
+            }
+            if ((string) $worktrees->git($dir)->line(['status', '--porcelain']) !== '') {
+                continue;
+            }
+            try {
+                $this->cleanUp(realpath($dir) ?: $dir, false);
+                $removed++;
+            } catch (Throwable) {
+            }
+        }
+
+        return $removed;
+    }
+
+    private function cleanUp(string $path, bool $force): string
+    {
+        $worktrees = new Worktrees($this->paths, $this->config);
+        $stderr = '';
+        $branch = is_dir($path) ? $worktrees->git($path)->line(['symbolic-ref', '--short', '-q', 'HEAD']) : null;
+        $entry = $worktrees->registry()->find($path);
+        if ($entry !== null) {
+            if ($worktrees->down($path, $entry['project'])) {
+                $stderr .= "kanban: stack {$entry['project']} down, slot {$entry['slot']} released\n";
+            } else {
+                $stderr .= "kanban: stack {$entry['project']} down failed; slot kept for `kanban stack gc`\n";
+            }
+        }
+        if (is_dir($path)) {
+            $worktrees->remove($path, $force);
+            $stderr .= "kanban: removed worktree {$path}\n";
+        }
+        $worktrees->prune();
+        if ($branch !== null && str_starts_with($branch, 'worktree-') && $worktrees->branchExists($branch)) {
+            if ($worktrees->commitsAhead($branch) === 0 && $worktrees->deleteBranch($branch, true)) {
+                $stderr .= "kanban: deleted branch {$branch}\n";
+            } else {
+                $stderr .= "kanban: kept branch {$branch} (it has commits)\n";
+            }
+        }
+
+        return $stderr;
     }
 
     private function cardOf(string $path): ?string

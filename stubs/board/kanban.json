@@ -6,6 +6,5 @@
     "ready_buffer": 12,
     "wip": { "review": 6 },
     "stale_after_minutes": 20,
-    "guard": { "strict": false, "main_write_paths": [] },
     "updated": "{{now}}"
 }

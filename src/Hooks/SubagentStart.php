@@ -9,7 +9,7 @@ use PetarSpasic\Kanban\Support\Clock;
 use PetarSpasic\Kanban\Support\Paths;
 
 /**
- * SubagentStart: records kanban agents in the runtime (a resume keeps the guard's binding) and gives every
+ * SubagentStart: records kanban agents in the runtime (a resume keeps the binding) and gives every
  * subagent except Explore and Plan a short additionalContext with the board rules and the cards in doing.
  */
 final class SubagentStart
@@ -51,7 +51,7 @@ final class SubagentStart
             $snapshot->cards(fn (Card $c) => $c->stage() === 'doing' && ! $c->isDecision()));
         $context = 'Kanban board: '.$this->paths->board().' (branch kanban). Read: `vendor/bin/kanban status|list|show ID|context`; '
             .'change it only via vendor/bin/kanban, never edit it. Git: add/commit only in your own card worktree; '
-            .'push/pull/fetch/stash/reset/checkout/switch/merge/rebase/worktree are the main session\'s. '
+            .'push/pull/fetch/stash/reset/checkout/switch/merge/rebase/worktree are the main session\'s: do not run them. '
             .'Doing: '.($doing === [] ? 'none' : implode(', ', $doing)).'.';
         $json = ['hookSpecificOutput' => ['hookEventName' => 'SubagentStart', 'additionalContext' => $context]];
 

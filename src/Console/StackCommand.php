@@ -6,6 +6,7 @@ use PetarSpasic\Kanban\Code\EnvWriter;
 use PetarSpasic\Kanban\Code\Stack;
 use PetarSpasic\Kanban\Code\StackFailed;
 use PetarSpasic\Kanban\Code\Worktrees;
+use PetarSpasic\Kanban\Hooks\WorktreeRemove;
 use PetarSpasic\Kanban\Store\Exceptions\Invalid;
 use PetarSpasic\Kanban\Store\Exceptions\NotFound;
 use PetarSpasic\Kanban\Store\Exceptions\PolicyRefused;
@@ -275,6 +276,8 @@ class StackCommand extends Command
             }
         }
         if ($this->paths()->inRepo) {
+            $reclaimed = (new WorktreeRemove($this->paths(), $this->config()))->reclaim();
+            $reclaimed === 0 || $this->say("reclaimed {$reclaimed} idle agent worktree(s)");
             $this->worktrees->prune();
             $this->say('pruned worktrees');
         }

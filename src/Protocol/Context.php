@@ -11,6 +11,9 @@ use PetarSpasic\Kanban\Support\Paths;
 /** What an agent needs about its card: `kanban context` and the SessionStart context of a card worktree. */
 final class Context
 {
+    /** Claude Code keeps only a 2 KB preview of hook output over 10,000 characters: the gates and protocol lines come after the body. */
+    private const BODY_LIMIT = 6000;
+
     /** @param  array<string, mixed>  $config  the `kanban` config */
     public function __construct(
         private readonly Paths $paths,
@@ -114,9 +117,13 @@ final class Context
             }
         }
         if (trim((string) ($card->data['body'] ?? '')) !== '') {
+            $body = rtrim((string) $card->data['body']);
             $lines[] = 'body:';
-            foreach (explode("\n", rtrim((string) $card->data['body'])) as $line) {
+            foreach (explode("\n", mb_strimwidth($body, 0, self::BODY_LIMIT, '')) as $line) {
                 $lines[] = '  '.$line;
+            }
+            if (mb_strlen($body) > self::BODY_LIMIT) {
+                $lines[] = "  … cut here; the whole body: `vendor/bin/kanban show {$card->id()}`";
             }
         }
 

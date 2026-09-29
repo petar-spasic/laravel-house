@@ -101,7 +101,8 @@ it('applies an evaluator approval for the branch HEAD and a rejection back to do
     stop($this->p, $this->wt);
 
     $this->p->hook('subagent-start', $this->p->payload('subagent-start', ['agent' => 'e1', 'type' => 'kanban-evaluator']));
-    expect($this->p->enter($this->wt, 'e1', 'kanban-evaluator'))->toContain('"allow"');
+    $this->p->enter($this->wt, 'e1', 'kanban-evaluator');
+    expect($this->p->agent('e1')['card'])->toBe($this->id);
     $none = stop($this->p, $this->wt, 'e1', 'kanban-evaluator');
     expect($none['json']['reason'])->toStartWith("No verdict staged for {$this->id}.");
 

@@ -2,6 +2,7 @@
 
 namespace PetarSpasic\Kanban\Protocol;
 
+use PetarSpasic\Kanban\Store\Snapshot;
 use PetarSpasic\Kanban\Support\Clock;
 use PetarSpasic\Kanban\Support\Json;
 use PetarSpasic\Kanban\Support\Lock;
@@ -13,6 +14,12 @@ use PetarSpasic\Kanban\Support\Paths;
  */
 final class Runtime
 {
+    public const AGENT_DAYS = 14;
+
+    public const APPLIED_DAYS = 7;
+
+    private const SPAWN_SECONDS = 300;
+
     public function __construct(public readonly Paths $paths, private readonly int $staleMinutes = 20) {}
 
     /** @return array<string, mixed>|null */
@@ -95,6 +102,47 @@ final class Runtime
         }
 
         return $marked;
+    }
+
+    /**
+     * Removes runtime files nothing reads any more: stopped agents, applied reports, an expired lease, unclaimed spawns and staged
+     * files of cards that are gone, done or dropped.
+     *
+     * @return int files removed
+     */
+    public function prune(Snapshot $snapshot): int
+    {
+        $removed = 0;
+        $drop = function (string $file, int $maxAge) use (&$removed): bool {
+            if ((int) @filemtime($file) < time() - $maxAge && @unlink($file)) {
+                $removed++;
+
+                return true;
+            }
+
+            return false;
+        };
+
+        foreach ($this->agents() as $agent) {
+            if (! empty($agent['stopped_at'])) {
+                $drop($this->paths->agents((string) $agent['agent_id']), self::AGENT_DAYS * 86400);
+            }
+        }
+        foreach (glob($this->paths->applied('*.json')) ?: [] as $file) {
+            $drop($file, self::APPLIED_DAYS * 86400);
+        }
+        $drop($this->paths->leaseFile(), Lease::IDLE_SECONDS);
+        foreach (glob($this->paths->runtime('spawns').'/*.json') ?: [] as $file) {
+            $drop($file, self::SPAWN_SECONDS);
+        }
+        foreach (glob($this->paths->staged('*.json')) ?: [] as $file) {
+            $card = $snapshot->card(strstr(basename($file), '.', true) ?: '');
+            if ($card === null || in_array($card->stage(), ['done', 'dropped'], true)) {
+                $drop($file, 86400);
+            }
+        }
+
+        return $removed;
     }
 
     public function stagedFile(string $cardId, string $kind): string

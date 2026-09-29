@@ -25,8 +25,9 @@ it('records a kanban worker and gives it the board rules and the cards in doing'
 
 it('keeps the guard binding when a bound worker is resumed', function () {
     $this->p->hook('subagent-start', $this->p->payload('subagent-start'));
-    expect($this->p->enter($this->wt))->toContain("kanban: bound to {$this->id}");
+    $this->p->enter($this->wt);
     $bound = $this->p->agent('a4d2c0ffee');
+    expect($bound['card'])->toBe($this->id);
     $this->p->hook('subagent-stop', $this->p->payload('subagent-stop', ['cwd' => $this->wt]));
 
     $this->p->hook('subagent-start', $this->p->payload('subagent-start', ['cwd' => $this->wt]));

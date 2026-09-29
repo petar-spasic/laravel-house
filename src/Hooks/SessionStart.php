@@ -10,6 +10,7 @@ use PetarSpasic\Kanban\Store\Exceptions\KanbanException;
 use PetarSpasic\Kanban\Store\Git\Bootstrap;
 use PetarSpasic\Kanban\Store\Store;
 use PetarSpasic\Kanban\Support\Paths;
+use Throwable;
 
 /**
  * SessionStart: attach when needed, flush the journal, retry the inbox, mark stale agents, export KANBAN_SESSION,
@@ -46,7 +47,13 @@ final class SessionStart
             $stderr[] = $line;
         }
         $snapshot = $this->store->snapshot();
-        (new Runtime($this->paths, (int) $snapshot->setting('stale_after_minutes', 20)))->markStale();
+        $runtime = new Runtime($this->paths, (int) $snapshot->setting('stale_after_minutes', 20));
+        $runtime->markStale();
+        $runtime->prune($snapshot);
+        try {
+            (new WorktreeRemove($this->paths, $this->config))->reclaim();
+        } catch (Throwable) {
+        }
 
         $session = is_string($payload['session_id'] ?? null) && $payload['session_id'] !== '' ? $payload['session_id'] : null;
         $envFile = getenv('CLAUDE_ENV_FILE');

@@ -144,9 +144,14 @@ final class Worktrees
                 continue;
             }
             @mkdir(dirname($to), 0775, true);
-            $cp = new Process(['cp', '-a', '--reflink=auto', $from, $to], null, null, null, 600);
+            // Copied under a temporary name and renamed, so a killed copy is redone instead of taken for complete.
+            $partial = $to.'.copying';
+            (new Process(['rm', '-rf', $partial]))->run();
+            $cp = new Process(['cp', '-a', '--reflink=auto', $from, $partial], null, null, null, 600);
             $cp->run();
-            if (! $cp->isSuccessful()) {
+            if (! $cp->isSuccessful() || ! rename($partial, $to)) {
+                (new Process(['rm', '-rf', $partial]))->run();
+
                 throw new StackFailed("cp -a --reflink=auto {$item} failed: ".trim($cp->getErrorOutput()));
             }
             $copied[] = $item;

@@ -3,10 +3,6 @@
 
 use PetarSpasic\Kanban\Guard\Guard;
 
-require_once __DIR__.'/../src/Guard/ShellParser.php';
-require_once __DIR__.'/../src/Guard/GitCall.php';
-require_once __DIR__.'/../src/Guard/Locations.php';
-require_once __DIR__.'/../src/Guard/Rules.php';
 require_once __DIR__.'/../src/Guard/Guard.php';
 
 (new Guard)->run((string) stream_get_contents(STDIN));

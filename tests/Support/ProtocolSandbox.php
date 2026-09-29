@@ -100,13 +100,11 @@ final class ProtocolSandbox
     }
 
     /** The real PreToolUse guard: EnterWorktree binds the agent to the card of $worktree. */
-    public function enter(string $worktree, string $agent = 'a4d2c0ffee', string $type = 'kanban-worker'): string
+    public function enter(string $worktree, string $agent = 'a4d2c0ffee', string $type = 'kanban-worker'): void
     {
         $process = new Process([PHP_BINARY, Sandbox::package().'/bin/kanban-guard'], $this->main);
         $process->setInput($this->payload('enter-worktree', ['cwd' => $worktree, 'agent' => $agent, 'type' => $type]));
         $process->mustRun();
-
-        return $process->getOutput();
     }
 
     /** Runs `kanban …` from inside a worktree (as an agent does). */

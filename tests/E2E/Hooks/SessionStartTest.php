@@ -94,3 +94,48 @@ it('reports orphan card worktrees and the lease holder in the status checks', fu
     expect($p->sandbox->ok('status'))->toContain('· 1 orphan worktrees ('.strtolower($id).') · lease: held by orchestrator-1 (idle ')
         ->and($p->sandbox->ok('status', ['KANBAN_SESSION' => 'orchestrator-1']))->toContain('lease: this session');
 });
+
+it('prunes runtime files nothing reads any more and keeps the rest', function () {
+    $p = ProtocolSandbox::create();
+    [$id] = $p->started('Conditional clauses');
+    $old = time() - 30 * 86400;
+    $write = function (string $relative, array $data, int $mtime) use ($p): string {
+        $file = $p->runtime($relative);
+        @mkdir(dirname($file), 0775, true);
+        file_put_contents($file, json_encode($data));
+        touch($file, $mtime);
+
+        return $file;
+    };
+    $stopped = $write('agents/old-stopped.json', ['agent_id' => 'old-stopped', 'stopped_at' => '2026-01-01T00:00:00Z'], $old);
+    $liveButQuiet = $write('agents/old-live.json', ['agent_id' => 'old-live', 'stopped_at' => null, 'card' => $id], time() - 60);
+    $applied = $write('applied/ACME-OLD.report.abc.json', [], $old);
+    $spawn = $write('spawns/ACME-OLD.json', ['card' => 'ACME-OLD'], time() - 900);
+    $orphanStaged = $write('staged/ACME-GONE.report.json', [], $old);
+    $keptStaged = $write("staged/{$id}.report.json", [], $old);
+    $lease = $write('lease.json', ['session' => 'gone', 'since' => '2026-01-01T00:00:00Z'], time() - 3600);
+
+    $p->hook('session-start', $p->payload('session-start'));
+
+    expect($stopped)->not->toBeFile()
+        ->and($applied)->not->toBeFile()
+        ->and($spawn)->not->toBeFile()
+        ->and($orphanStaged)->not->toBeFile()
+        ->and($lease)->not->toBeFile()
+        ->and($liveButQuiet)->toBeFile()
+        ->and($keptStaged)->toBeFile();
+});
+
+it('cuts a very long card body so the gates and the protocol line survive', function () {
+    $p = ProtocolSandbox::create(['gates' => ['report' => ['php artisan test --compact']]]);
+    [$id, $wt] = $p->started('Long body');
+    $p->sandbox->ok(['set', $id, 'body=@-'], [], str_repeat("A long paragraph of background the card carries.\n", 400));
+
+    $start = $p->hook('session-start', $p->payload('session-start', ['cwd' => $wt]), cwd: $wt);
+    $context = json_decode($start->getOutput(), true)['hookSpecificOutput']['additionalContext'];
+
+    expect(strlen($context))->toBeLessThan(9000)
+        ->and($context)->toContain("… cut here; the whole body: `vendor/bin/kanban show {$id}`")
+        ->and($context)->toContain("gates:\n  php artisan test --compact")
+        ->and($context)->toContain('protocol: work and commit only in this worktree');
+});

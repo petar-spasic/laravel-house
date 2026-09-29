@@ -1,7 +1,7 @@
 # laravel-kanban
 
 A git-backed kanban board, a worktree-per-card workflow with its own Docker stack, and the Claude Code hooks, agents
-and guard that let a main session run parallel agents safely. Dev-only, for Laravel projects.
+and hooks that let a main session run parallel agents safely. Dev-only, for Laravel projects.
 
 - **The board is the plan of record.** JSON files on an orphan branch `kanban`, checked out at `docs/kanban`. Every
   change is one commit, made by the CLI, the local UI or a hook — never by hand.
@@ -9,8 +9,9 @@ and guard that let a main session run parallel agents safely. Dev-only, for Lara
   own branch, writes a `.env` with its own ports and brings up its own compose project. The worktree, the compose
   project, its containers and the agent's description carry the card's id and title, so what is being worked on reads
   at a glance in `docker ps` and the agent list.
-- **Agents are fenced.** A PreToolUse guard and git hooks let a subagent commit only inside its own worktree;
-  push, pull, reset, checkout, worktree commands and board edits are the main session's.
+- **Agents follow short rules.** Their instructions say a subagent commits only inside its own worktree;
+  push, pull, reset, checkout, worktree commands and board edits are the main session's. Git hooks reject
+  `Co-Authored-By` trailers and pushes from a code worktree.
 - **Done is proven.** A skeptical, read-only evaluator verifies every acceptance criterion; `finish` merges only an
   approved head; `publish` pushes once per run.
 
@@ -56,7 +57,7 @@ Everything on the main branch is left for you to review and commit. Every other 
 
 ```
 docs/kanban/kanban.json                   {"version":1,"key":"KEY","id_length":6,"max_parallel":6,"ready_buffer":12,
-                                           "wip":{"review":6},"stale_after_minutes":20,"guard":{"strict":false,"main_write_paths":[]}}
+                                           "wip":{"review":6},"stale_after_minutes":20}
 docs/kanban/<epic>/epic.json              {"title","goal","done_when":[…],"body","order"}
 docs/kanban/<epic>/<board>/board.json     {"title","kind":"work|decisions","body","order","wip":{"doing":6}}
 docs/kanban/<epic>/<board>/KEY-XXXXXX.json
@@ -87,7 +88,7 @@ hooks (SessionStart, SubagentStart/Stop, …) ──┘
   │ kanban start KEY-XXXXXX        claim · worktree · .env · port slot · compose up -d
   ▼
 .claude/worktrees/xxxxxx-<slug>   branch card/key-xxxxxx-<slug>   project {{app}}-wt-xxxxxx-<slug>   ports 2101x
-  ▲ spawned with isolation: worktree → WorktreeCreate hands it this worktree; EnterWorktree(path) → the guard binds it
+  ▲ spawned with isolation: worktree → WorktreeCreate hands it this worktree; EnterWorktree(path) → the PreToolUse hook binds it
 kanban-worker (background): commits on its branch → kanban report … (staged)
   │ SubagentStop: clean tree, ≥ 1 commit, gates.report → applied → stage review
 kanban refresh (merge main into the branch) → kanban-evaluator (read-only) → kanban verdict …
@@ -109,19 +110,19 @@ Merged into `.claude/settings.json` (exec form, so paths need no quoting):
 | SessionStart | `kanban hook session-start` | attach if missing, flush, retry the inbox, export `KANBAN_SESSION`, print the brief |
 | SubagentStart | `kanban hook subagent-start` | register kanban agents, add the board rules to their context |
 | SubagentStop (`kanban-worker\|kanban-evaluator`) | `kanban hook subagent-stop` | refuse a stop without a report, run the gates, apply the report or verdict |
-| PreToolUse (`Bash\|Monitor\|Edit\|Write\|NotebookEdit\|EnterWorktree\|ExitWorktree\|Agent`) | `bin/kanban-guard` | plain PHP, < 50 ms; binds agents to cards, denies writes outside the own worktree, board edits and non-own git |
-| WorktreeCreate / WorktreeRemove | `kanban hook worktree-create\|remove` | a kanban agent the guard saw spawned gets its card's worktree; `claude -w <ID>` too; anything else a fresh worktree with deps, `.env` and a port slot. Card worktrees are never removed by the hook |
+| PreToolUse (`Bash\|Edit\|Write\|NotebookEdit\|EnterWorktree\|Agent`) | `bin/kanban-guard` | plain PHP, < 50 ms, never denies: binds an agent to its card at `EnterWorktree`, refreshes its heartbeat, records the spawn of a kanban agent |
+| WorktreeCreate / WorktreeRemove | `kanban hook worktree-create\|remove` | a kanban agent spawned from the main session gets its card's worktree; `claude -w <ID>` too; anything else a fresh worktree with deps, `.env` and a port slot. Card worktrees are never removed by the hook |
 
 Git hooks (`core.hooksPath`): `commit-msg` rejects `Co-Authored-By` trailers unless `githooks.reject_co_authored` is
 off; `pre-push` rejects pushes from a code worktree.
 
 ### Agent isolation
 
-Both agents carry `isolation: worktree`. The guard records each kanban spawn (`.git/laravel-kanban/spawns/<ID>.json`)
+Both agents carry `isolation: worktree`. The PreToolUse hook records each kanban spawn (`.git/laravel-kanban/spawns/<ID>.json`)
 and the WorktreeCreate hook hands the isolated subagent the worktree of the oldest record (≤ 2 min old), so it starts
 pinned there; two isolated spawns in one message could swap worktrees, which the agent's first `EnterWorktree(path)`
-corrects. When Claude Code refuses `EnterWorktree`, the guard has bound the agent anyway (**guard-only mode**: absolute
-paths, `cd <worktree> && …`, writes outside its worktree denied).
+corrects. When Claude Code refuses `EnterWorktree`, the hook has bound the agent anyway: it then uses absolute
+paths and `cd <worktree> && …`.
 
 ## Worktree stacks
 

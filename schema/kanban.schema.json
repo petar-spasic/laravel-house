@@ -3,7 +3,7 @@
     "title": "kanban.json",
     "type": "object",
     "additionalProperties": false,
-    "required": ["version", "key", "id_length", "max_parallel", "ready_buffer", "wip", "stale_after_minutes", "guard", "updated"],
+    "required": ["version", "key", "id_length", "max_parallel", "ready_buffer", "wip", "stale_after_minutes", "updated"],
     "properties": {
         "version": { "const": 1 },
         "key": { "type": "string", "pattern": "^[A-Z][A-Z0-9]{1,9}$" },

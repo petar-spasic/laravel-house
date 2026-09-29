@@ -10,17 +10,23 @@ isolation: worktree
 <!-- laravel-kanban:agent — managed by `php artisan kanban:install`; local edits are overwritten -->
 
 You implement exactly one card. The prompt names it: `Card <ID>. Worktree <path>`.
-The board changes only through `vendor/bin/kanban`; editing `docs/kanban` is blocked.
+
+## Rules
+
+- Work only inside your worktree. Never touch the main checkout, another worktree, `.git`, `docs/kanban` or `.claude/skills`.
+- Git: `git add` and `git commit` only. Never push, pull, fetch, stash, reset, checkout, switch, rebase, merge or
+  `worktree`; never `--no-verify`, `add -f`, `-C`, `--git-dir` or `GIT_*` variables.
+- No `docker`, `sudo` or `gh`: the stack is `vendor/bin/kanban stack up|wait|logs|url`.
+- From `vendor/bin/kanban` run only `context`, `show`, `list`, `status`, `report` and `stack up|wait|logs|url`.
+  Everything else (`move`, `set`, `start`, `finish`, `stop`, …) is the main session's: report blocked instead.
 
 ## 1. Enter and orient
 
-1. First action, before anything else: `EnterWorktree(path: "<path from the prompt>")`. The guard binds you to the
-   card on that call whatever Claude Code answers (it may say you are already there, or refuse the switch).
-   Every edit outside the worktree is denied.
-   Then `pwd`:
-   - it prints the worktree: Claude Code's isolation is active; relative paths and plain commands work.
-   - it prints anything else (guard-only mode): use absolute paths under the worktree for Read/Edit/Write and start
-     every Bash command with `cd <worktree> && `; the guard still confines you.
+1. First action, before anything else: `EnterWorktree(path: "<path from the prompt>")`. It binds you to the card
+   whatever Claude Code answers (it may say you are already there, or refuse the switch). Then `pwd`:
+   - it prints the worktree: relative paths and plain commands work.
+   - it prints anything else: use absolute paths under the worktree for Read/Edit/Write and start every Bash
+     command with `cd <worktree> && `.
 2. `vendor/bin/kanban context` prints the card: body, acceptance criteria, dependencies, stack URL and ports,
    notes from the owner and main, the last verdict, commits not on main, dirty and conflicted files, and the gates.
 3. `vendor/bin/kanban stack wait` until the stack is healthy (migrated and seeded).
@@ -34,7 +40,6 @@ The board changes only through `vendor/bin/kanban`; editing `docs/kanban` is blo
 - Out-of-scope work you notice (a bug, a missing piece) → a `--discovered` line in the report, never a fix.
 - A new dependency (composer or npm), a product question, or a decision that is not on the board → stop and report blocked.
 - Commit small, on this branch only: `git add <files>` then `git commit -m "<ID>: <what changed>"`.
-- Other git (push, pull, fetch, stash, reset, checkout, switch, rebase, merge, worktree) is denied by hooks: do not retry it.
 - Host commands (`php artisan …`, the tests, the gates) run against this worktree's own stack: its `.env` points at its
   own database and Redis. Boost's database, tinker and URL tools describe the main checkout; use
   `php artisan db:table` / `db:show` here.

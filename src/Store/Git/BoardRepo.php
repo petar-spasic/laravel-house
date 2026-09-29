@@ -45,6 +45,41 @@ final class BoardRepo
         return new Git($board, ['--git-dir='.$derived, '--work-tree='.$board], $this->author());
     }
 
+    /**
+     * Undoes what a killed sync or claim left in the board worktree: a rebase in progress (detached HEAD) and a
+     * stale index.lock. Only call it while holding the board write lock, so no kanban process is mid-rebase.
+     */
+    public function recover(): void
+    {
+        $git = $this->git();
+        $gitdir = $this->adminDir();
+        if ($git === null || $gitdir === null) {
+            return;
+        }
+        $lock = $gitdir.'/index.lock';
+        if (is_file($lock) && (int) @filemtime($lock) < time() - 30) {
+            @unlink($lock);
+        }
+        if (is_dir($gitdir.'/rebase-merge') || is_dir($gitdir.'/rebase-apply')) {
+            $git->attempt(['rebase', '--abort']);
+        }
+    }
+
+    /** True while a rebase (killed before it finished) is still recorded in the board worktree. */
+    public function interrupted(): bool
+    {
+        $gitdir = $this->adminDir();
+
+        return $gitdir !== null && (is_dir($gitdir.'/rebase-merge') || is_dir($gitdir.'/rebase-apply'));
+    }
+
+    private function adminDir(): ?string
+    {
+        $gitdir = Paths::gitdirOf($this->paths->board('.git'));
+
+        return $gitdir === null || is_dir($gitdir) ? $gitdir : $this->paths->gitDir().'/worktrees/'.basename($gitdir);
+    }
+
     public function isContainer(): bool
     {
         $gitdir = Paths::gitdirOf($this->paths->board('.git'));

@@ -78,7 +78,7 @@ it('hands the card worktree to the isolated agent the main session spawned, once
     $guard->mustRun();
     expect($guard->getOutput())->toBe('');
 
-    $isolated = $code->hook('worktree-create', ['name' => 'agent-c0ffee12']);
+    $isolated = $code->hook('worktree-create', ['name' => 'agent-a0c0ffee123456789']);
     $next = $code->hook('worktree-create', ['name' => 'agent-0dd5']);
 
     expect($isolated->getExitCode())->toBe(0)
@@ -94,6 +94,58 @@ it('ignores a spawn record older than two minutes', function () {
     @mkdir($code->root().'/.git/laravel-kanban/spawns', 0775, true);
     file_put_contents($code->root()."/.git/laravel-kanban/spawns/{$id}.json", json_encode(['card' => $id, 'agent_type' => 'kanban-worker', 'at' => microtime(true) - 300]));
 
-    expect($code->hook('worktree-create', ['name' => 'agent-late'])->getOutput())->toBe($code->root()."/.claude/worktrees/agent-late\n")
+    expect($code->hook('worktree-create', ['name' => 'agent-a1a7e000000000000'])->getOutput())->toBe($code->root()."/.claude/worktrees/agent-a1a7e000000000000\n")
         ->and(glob($code->root().'/.git/laravel-kanban/spawns/*'))->toBe([]);
+});
+
+it('keeps a spawn record for the isolated agent that claims it, not for any other worktree request', function () {
+    $code = $this->code;
+    $id = $code->started('Only the agent');
+    @mkdir($code->root().'/.git/laravel-kanban/spawns', 0775, true);
+    $record = $code->root()."/.git/laravel-kanban/spawns/{$id}.json";
+    file_put_contents($record, json_encode(['card' => $id, 'agent_type' => 'kanban-worker', 'at' => microtime(true)]));
+
+    $other = $code->hook('worktree-create', ['name' => 'scratch-experiment']);
+
+    expect($other->getOutput())->toBe($code->root()."/.claude/worktrees/scratch-experiment\n")
+        ->and($record)->toBeFile()
+        ->and($code->hook('worktree-create', ['name' => 'agent-a0123456789abcdef'])->getOutput())->toBe($code->worktree($id)."\n");
+});
+
+it('reclaims idle isolated-agent worktrees at session start and frees their slots', function () {
+    $code = $this->code;
+    $idle = 'agent-a0000000000000001';
+    $dirty = 'agent-a0000000000000002';
+    $fresh = 'agent-a0000000000000003';
+    foreach ([$idle, $dirty, $fresh] as $name) {
+        $code->hook('worktree-create', ['name' => $name]);
+    }
+    file_put_contents($code->root()."/.claude/worktrees/{$dirty}/notes.txt", "unsaved\n");
+    foreach ([$idle, $dirty] as $name) {
+        touch($code->root()."/.claude/worktrees/{$name}", time() - 3 * 86400);
+    }
+
+    $start = $code->hook('session-start', []);
+
+    expect($start->getExitCode())->toBe(0)
+        ->and($code->root()."/.claude/worktrees/{$idle}")->not->toBeDirectory()
+        ->and($code->root()."/.claude/worktrees/{$dirty}")->toBeDirectory()
+        ->and($code->root()."/.claude/worktrees/{$fresh}")->toBeDirectory()
+        ->and(array_column($code->stacks(), 'worktree'))->not->toContain($code->root()."/.claude/worktrees/{$idle}")
+        ->and($code->stacks())->toHaveCount(2);
+});
+
+it('redoes a dependency copy that was killed halfway', function () {
+    $code = $this->code;
+    $code->hook('worktree-create', ['name' => 'redo']);
+    $wt = $code->root().'/.claude/worktrees/redo';
+    (new Process(['rm', '-rf', $wt.'/node_modules']))->run();
+    mkdir($wt.'/node_modules.copying/left-pad', 0775, true);
+    file_put_contents($wt.'/node_modules.copying/stale.txt', "half\n");
+
+    $run = $code->hook('worktree-create', ['name' => 'redo']);
+
+    expect($run->getExitCode())->toBe(0)
+        ->and(is_file($wt.'/node_modules/left-pad/index.js'))->toBeTrue()
+        ->and($wt.'/node_modules.copying')->not->toBeDirectory();
 });

@@ -11,13 +11,23 @@ isolation: worktree
 
 You evaluate exactly one card in review. The prompt names it: `Card <ID>. Worktree <path>`.
 Every criterion is incomplete until you hold evidence for it. The worker's report is a claim, not evidence.
-You never edit, commit or fix anything: hooks deny it. Your output is a verdict.
+You never edit, commit or fix anything. Your output is a verdict.
+
+## Rules
+
+- Read-only: never edit or write a file in the repository, and never commit. Tests, `curl` and `artisan` against this
+  worktree's own stack are fine.
+- Git: reads only (`status`, `diff`, `log`, `show`). Never `add`, `commit`, push, pull, fetch, stash, reset, checkout,
+  switch, rebase, merge or `worktree`; never `-C`, `--git-dir` or `GIT_*` variables.
+- Never touch the main checkout, another worktree, `.git`, `docs/kanban` or `.claude/skills`.
+- No `docker`, `sudo` or `gh`: the stack is `vendor/bin/kanban stack up|wait|logs|url`.
+- From `vendor/bin/kanban` run only `context`, `show`, `list`, `status`, `verdict` and `stack up|wait|logs|url`.
 
 ## 1. Enter and orient
 
-1. First action: `EnterWorktree(path: "<path from the prompt>")`; the guard binds you to the card on that call even if
-   Claude Code refuses the switch. Then `pwd`: anything but the worktree means guard-only mode, so start every Bash
-   command with `cd <worktree> && ` and read by absolute path.
+1. First action: `EnterWorktree(path: "<path from the prompt>")`; it binds you to the card even if Claude Code
+   refuses the switch. Then `pwd`: anything but the worktree means start every Bash command with
+   `cd <worktree> && ` and read by absolute path.
 2. `vendor/bin/kanban context <ID> --evaluate`: criteria, notes from the owner and main, the worker's report, the
    card's `diff --stat main...HEAD`, the gates. A note from main records a check agents cannot run (an image build, a
    container or browser check): it is evidence; cite it.
@@ -31,8 +41,8 @@ You never edit, commit or fix anything: hooks deny it. Your output is a verdict.
 - Every command in the `gates:` list of `context --evaluate`.
 - The tests the diff adds or touches, run as the project's `tests/CLAUDE.md` says.
 - When the diff adds migrations or seeders: `php artisan migrate --force` on this worktree's own database (its `.env`
-  points at its own stack), then `php artisan db:seed --force` when the project's seeders are idempotent. The guard
-  also allows `migrate:fresh` there, but permission rules may soft-deny it, and the stack was seeded when it came up.
+  points at its own stack), then `php artisan db:seed --force` when the project's seeders are idempotent.
+  `migrate:fresh` on that database is fine, but permission rules may soft-deny it, and the stack was seeded when it came up.
 - Tinker probes with odd payloads may be blocked by the permission classifier: prove behaviour with tests and `curl`.
 
 ## 3. Exercise each criterion

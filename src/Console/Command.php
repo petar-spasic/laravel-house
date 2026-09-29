@@ -24,6 +24,9 @@ use Throwable;
  */
 abstract class Command extends IlluminateCommand
 {
+    /** @var array<string, string>|null */
+    private ?array $agentStates = null;
+
     final public function handle(): int
     {
         try {
@@ -149,7 +152,9 @@ abstract class Command extends IlluminateCommand
     /** Agent bound to the card per the runtime (`4m`, `stopped`, `stale 25m`), or null. */
     protected function agent(string $cardId, Snapshot $snapshot): ?string
     {
-        return AgentStates::byCard($this->paths(), (int) $snapshot->setting('stale_after_minutes', 20))[$cardId] ?? null;
+        $this->agentStates ??= AgentStates::byCard($this->paths(), (int) $snapshot->setting('stale_after_minutes', 20));
+
+        return $this->agentStates[$cardId] ?? null;
     }
 
     /** @return array<string, mixed> */

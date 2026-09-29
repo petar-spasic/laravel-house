@@ -2,6 +2,7 @@
 
 namespace PetarSpasic\Kanban\Console;
 
+use PetarSpasic\Kanban\Protocol\Runtime;
 use Symfony\Component\Console\Attribute\AsCommand;
 
 #[AsCommand(name: 'kanban:sweep')]
@@ -11,8 +12,6 @@ class SweepCommand extends Command
 
     protected $description = 'Commit journaled board writes and prune old runtime files';
 
-    private const APPLIED_DAYS = 7;
-
     protected function perform(): int
     {
         $store = $this->store();
@@ -21,13 +20,9 @@ class SweepCommand extends Command
         $after = $store->pending();
         $this->say($before === 0 ? 'journal: empty' : 'journal: committed '.($before - $after).' of '.$before.' write(s)');
 
-        $pruned = 0;
-        foreach (glob($this->paths()->applied('*.json')) ?: [] as $file) {
-            if (filemtime($file) < time() - self::APPLIED_DAYS * 86400 && @unlink($file)) {
-                $pruned++;
-            }
-        }
-        $this->say("applied: pruned {$pruned}");
+        $snapshot = $store->snapshot();
+        $pruned = (new Runtime($this->paths(), (int) $snapshot->setting('stale_after_minutes', 20)))->prune($snapshot);
+        $this->say("runtime: pruned {$pruned}");
 
         return $after === 0 ? self::SUCCESS : 1;
     }
