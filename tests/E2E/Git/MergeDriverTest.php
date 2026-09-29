@@ -117,3 +117,41 @@ it('merges a card added on both sides (no ancestor: the newer side wins each dif
         'project/work/board.json');
     expect($exit)->toBe(0)->and($merged)->toBe(array_replace($board, ['order' => 30, 'wip' => ['doing' => 2], 'updated' => '2026-09-28T11:00:00.000+00:00']));
 });
+
+it('keeps the claim that is already on the upstream side when both sides claimed the card', function () {
+    $o = baseCard();
+    $held = ['by' => 'alice@laptop', 'session' => 'session-a', 'at' => '2026-09-28T10:05:00.000+00:00'];
+    $late = ['by' => 'bob@desktop', 'session' => 'session-b', 'at' => '2026-09-28T10:20:00.000+00:00'];
+    $a = baseCard(['stage' => 'doing', 'claim' => $held, 'work' => ['branch' => 'card/a'], 'updated' => '2026-09-28T10:05:00.000+00:00']);
+    $b = baseCard(['stage' => 'doing', 'claim' => $late, 'work' => ['branch' => 'card/b'], 'updated' => '2026-09-28T10:20:00.000+00:00']);
+
+    [$exit, $merged] = mergeDriver($o, $a, $b);
+
+    expect($exit)->toBe(0)
+        ->and($merged['claim'])->toBe($held)
+        ->and($merged['work'])->toBe(['branch' => 'card/a'])
+        ->and($merged['stage'])->toBe('doing');
+});
+
+it('still takes the newer side when only one side claimed', function () {
+    $o = baseCard();
+    $claim = ['by' => 'alice@laptop', 'session' => 'session-a', 'at' => '2026-09-28T10:05:00.000+00:00'];
+    $a = baseCard(['title' => 'Edited', 'updated' => '2026-09-28T10:30:00.000+00:00']);
+    $b = baseCard(['stage' => 'doing', 'claim' => $claim, 'updated' => '2026-09-28T10:05:00.000+00:00']);
+
+    [, $merged] = mergeDriver($o, $a, $b);
+
+    expect($merged['claim'])->toBe($claim)->and($merged['title'])->toBe('Edited');
+});
+
+it('takes the newer side when only the local side replaced a claim the ancestor already had', function () {
+    $held = ['by' => 'alice@laptop', 'session' => 'session-a', 'at' => '2026-09-28T10:05:00.000+00:00'];
+    $takeover = ['by' => 'bob@desktop', 'session' => 'session-b', 'at' => '2026-09-28T10:40:00.000+00:00'];
+    $o = baseCard(['stage' => 'doing', 'claim' => $held, 'work' => ['branch' => 'card/a'], 'updated' => '2026-09-28T10:05:00.000+00:00']);
+    $a = baseCard(['stage' => 'doing', 'claim' => $held, 'work' => ['branch' => 'card/a', 'head' => 'abc'], 'updated' => '2026-09-28T10:30:00.000+00:00']);
+    $b = baseCard(['stage' => 'doing', 'claim' => $takeover, 'work' => ['branch' => 'card/b'], 'updated' => '2026-09-28T10:40:00.000+00:00']);
+
+    [, $merged] = mergeDriver($o, $a, $b);
+
+    expect($merged['claim'])->toBe($takeover);
+});

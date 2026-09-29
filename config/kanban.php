@@ -25,7 +25,7 @@ return [
 
     'remote' => 'origin',
 
-    // off: board commits are pushed by `publish`; on: pull before and push after every write (teams).
+    // off: board commits are pushed by `publish`; on (also 1, true, yes): pull before and push after every write (teams).
     'sync' => env('KANBAN_SYNC', 'off'),
 
     'worktrees' => [

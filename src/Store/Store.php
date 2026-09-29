@@ -28,8 +28,13 @@ interface Store
     /** Creates or updates a board (and its epic when missing). @param  array<string, mixed>  $data */
     public function saveBoard(BoardRef $ref, array $data, Actor $by): void;
 
-    /** ready → doing with a claim; with sync=on the claim is pushed or the card is lost (LostClaim). */
-    public function claim(string $id, Claim $claim, Actor $by): Card;
+    /**
+     * ready → doing with a claim; with sync=on the claim is pushed or the card is lost (LostClaim). $verify gets the
+     * snapshot the claim is made against (origin's, after the pull, when sync=on) and throws to refuse.
+     *
+     * @param  (Closure(Snapshot): void)|null  $verify
+     */
+    public function claim(string $id, Claim $claim, Actor $by, ?Closure $verify = null): Card;
 
     public function sync(): SyncResult;
 

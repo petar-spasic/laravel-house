@@ -17,7 +17,7 @@ class StopCommand extends Command
         {id : Card id or unique prefix}
         {--to= : ready, backlog or dropped}
         {--keep-branch : Keep the branch even without commits}
-        {--force : Remove a dirty worktree}
+        {--force : Remove a dirty worktree, or stop a card another machine is working on}
         {--reason= : Why (required for dropped)}';
 
     protected $description = 'Stop work on a card: stack down, slot released, worktree removed; a branch with commits is parked';
@@ -39,6 +39,10 @@ class StopCommand extends Command
         $id = $card->id();
         if (! Stage::isActive($card->stage())) {
             throw new PolicyRefused("{$id} is {$card->stage()}; only doing or review cards are stopped");
+        }
+        $host = $card->host();
+        if ($host !== null && $host !== (string) gethostname() && ! $this->option('force')) {
+            throw new PolicyRefused("{$id} is being worked on at {$host}, not on this machine: stop it there, or use --force to revert it here anyway");
         }
         $work = $card->work() ?? [];
         $path = isset($work['worktree']) ? $this->paths()->main.'/'.$work['worktree'] : $this->paths()->worktree($id, $card->title());

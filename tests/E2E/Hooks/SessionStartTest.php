@@ -2,6 +2,7 @@
 
 use PetarSpasic\Kanban\Tests\Support\ProtocolSandbox;
 use PetarSpasic\Kanban\Tests\Support\Sandbox;
+use Symfony\Component\Process\Process;
 
 it('prints the brief and exports KANBAN_SESSION into CLAUDE_ENV_FILE', function () {
     $p = ProtocolSandbox::create();
@@ -138,4 +139,76 @@ it('cuts a very long card body so the gates and the protocol line survive', func
         ->and($context)->toContain("… cut here; the whole body: `vendor/bin/kanban show {$id}`")
         ->and($context)->toContain("gates:\n  php artisan test --compact")
         ->and($context)->toContain('protocol: work and commit only in this worktree');
+});
+
+it('still prints the brief while the owner is resolving a rebase in the board worktree', function () {
+    $p = ProtocolSandbox::create();
+    $p->started('Conditional clauses');
+    $rebase = Process::fromShellCommandline("GIT_SEQUENCE_EDITOR=\"sed -i '1s/^pick/break/'\" git rebase -i HEAD~1", $p->main.'/docs/kanban');
+    $rebase->run();
+
+    $start = $p->hook('session-start', $p->payload('session-start'));
+
+    expect($start->getExitCode())->toBe(0)
+        ->and($start->getOutput())->toStartWith('Kanban ACME:')
+        ->and($start->getErrorOutput())->toContain('a git rebase is in progress');
+});
+
+it('removes dependency-copy leftovers an hour old and keeps a fresh one', function () {
+    $p = ProtocolSandbox::create();
+    $staging = $p->main.'/.claude/worktrees/.copying';
+    mkdir($staging.'/old-node_modules-1/left-pad', 0775, true);
+    mkdir($staging.'/new-node_modules-2', 0775, true);
+    touch($staging.'/old-node_modules-1', time() - 7200);
+
+    $p->hook('session-start', $p->payload('session-start'));
+
+    expect($staging.'/old-node_modules-1')->not->toBeDirectory()
+        ->and($staging.'/new-node_modules-2')->toBeDirectory();
+});
+
+it('shows a body of wide characters whole while it is under the limit', function () {
+    $p = ProtocolSandbox::create();
+    [$id, $wt] = $p->started('Wide body');
+    $body = implode("\n", array_map(fn (int $n) => "行{$n}: これは長い説明です。背景をここに書きます。", range(1, 200)));
+    $p->sandbox->ok(['set', $id, 'body=@-'], [], $body);
+
+    $start = $p->hook('session-start', $p->payload('session-start', ['cwd' => $wt]), cwd: $wt);
+    $context = json_decode($start->getOutput(), true)['hookSpecificOutput']['additionalContext'];
+
+    expect(mb_strlen($body))->toBeLessThan(6000)
+        ->and($context)->toContain('行200: これは長い説明です。')
+        ->and($context)->not->toContain('cut here');
+});
+
+it('shows a card claimed on another machine as running there, not as agentless', function () {
+    $p = ProtocolSandbox::create();
+    [$id] = $p->started('Conditional clauses');
+    $file = $p->main."/docs/kanban/project/work/{$id}.json";
+    $card = json_decode(file_get_contents($file), true);
+    $card['work']['host'] = 'alice-laptop';
+    $card['claim']['by'] = 'alice@alice-laptop';
+    file_put_contents($file, json_encode($card, JSON_PRETTY_PRINT)."\n");
+
+    $lines = explode("\n", $p->hook('session-start', $p->payload('session-start'))->getOutput());
+
+    expect($lines[2])->toContain("doing  {$id}")->toContain('on alice-laptop')->not->toContain('no agent');
+});
+
+it('prints the same brief with hundreds of stopped agent records around', function () {
+    $p = ProtocolSandbox::create();
+    [$id, $wt] = $p->started('Conditional clauses');
+    $p->hook('subagent-start', $p->payload('subagent-start'));
+    $p->enter($wt);
+    $normalize = fn (string $brief) => preg_replace(['/\d{4}-\d\d-\d\d \d\d:\d\dZ/', '/ live \d+[smhd]/'], ['NOW', ' live AGE'], $brief);
+    $plain = $normalize($p->hook('session-start', $p->payload('session-start'))->getOutput());
+
+    @mkdir($p->runtime('agents'), 0775, true);
+    foreach (range(1, 300) as $n) {
+        file_put_contents($p->runtime("agents/old-{$n}.json"), json_encode(['agent_id' => "old-{$n}", 'agent_type' => 'kanban-worker', 'card' => $id, 'stopped_at' => '2026-01-01T00:00:00Z']));
+        touch($p->runtime("agents/old-{$n}.json"), time() - 3600);
+    }
+    $crowded = $normalize($p->hook('session-start', $p->payload('session-start'))->getOutput());
+
+    expect($crowded)->toBe($plain)->and($plain)->toContain("doing  {$id}")->toContain('worker a4d2 live AGE');
 });

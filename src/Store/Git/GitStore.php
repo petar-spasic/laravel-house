@@ -32,6 +32,8 @@ use PetarSpasic\Kanban\Support\Ids;
 use PetarSpasic\Kanban\Support\Json;
 use PetarSpasic\Kanban\Support\Lock;
 use PetarSpasic\Kanban\Support\Paths;
+use PetarSpasic\Kanban\Support\Sync;
+use Throwable;
 
 /**
  * Board files in the `docs/kanban` worktree. Every write: exclusive flock → flush the journal → rev check →
@@ -39,6 +41,9 @@ use PetarSpasic\Kanban\Support\Paths;
  */
 final class GitStore implements Store
 {
+    /** Epic slugs the local UI already uses as its own URL prefixes. */
+    private const RESERVED_EPICS = ['cards', 'assets'];
+
     private const WRITE_TIMEOUT = 10.0;
 
     private const CLAIM_TIMEOUT = 20.0;
@@ -74,7 +79,7 @@ final class GitStore implements Store
 
     public function snapshot(?BoardRef $board = null): Snapshot
     {
-        if ($this->repo->interrupted()) {
+        if ($this->repo->abandoned()) {
             $this->write(fn () => null);
         }
         $snapshot = $this->read(fn () => $this->load());
@@ -160,6 +165,9 @@ final class GitStore implements Store
             $files = [];
             $epic = $snapshot->epic($ref->epic);
             if ($epic === null) {
+                if (in_array($ref->epic, self::RESERVED_EPICS, true)) {
+                    throw new Invalid("epic '{$ref->epic}' is reserved: the local UI serves /kanban/{$ref->epic}/… itself");
+                }
                 $orders = array_map(fn (Epic $e) => $e->order(), $snapshot->epics);
                 $epic = new Epic($ref->epic, ['title' => Str::headline($ref->epic), 'goal' => '', 'done_when' => [], 'body' => '',
                     'order' => ($orders === [] ? 0 : max($orders)) + 10, 'updated' => $now], new Rev(''));
@@ -181,24 +189,28 @@ final class GitStore implements Store
         });
     }
 
-    public function claim(string $id, Claim $claim, Actor $by): Card
+    public function claim(string $id, Claim $claim, Actor $by, ?Closure $verify = null): Card
     {
         $online = $this->syncOn() && $this->repo->hasRemote();
         if ($online) {
             $this->repo->fetch();
         }
 
-        return $this->write(function () use ($id, $claim, $by, $online) {
+        return $this->write(function () use ($id, $claim, $by, $online, $verify) {
             if ($online) {
                 $this->repo->rebase();
             }
-            $card = $this->load()->resolve($id);
+            $snapshot = $this->load();
+            $card = $snapshot->resolve($id);
             $held = $card->claim();
             if ($held !== null && [$held['by'], $held['session']] !== [$claim->by, $claim->session]) {
                 throw new LostClaim("{$card->id()} is already claimed by {$held['by']}".($held['session'] ? " (session {$held['session']})" : ''));
             }
             if ($card->stage() !== 'ready') {
                 throw new PolicyRefused("{$card->id()} is {$card->stage()}, not ready");
+            }
+            if ($verify !== null) {
+                $verify($snapshot);
             }
             $claimed = $this->update($card->id(), function (array $data) use ($claim) {
                 $data['claim'] = $claim->toArray();
@@ -232,8 +244,22 @@ final class GitStore implements Store
             [$ahead, $pulled] = $this->write(function () use ($exists, &$renamed) {
                 $pulled = 0;
                 if ($exists) {
-                    $renamed += $this->reIdCollisions();
-                    $pulled = $this->repo->rebase();
+                    $behind = $this->repo->behind() > 0;
+                    $moves = [];
+                    $aside = [];
+                    $rebased = false;
+                    $original = $this->repo->headRev();
+                    try {
+                        if ($behind) {
+                            $this->undoLocalMoves($moves);
+                            $this->setAsideEditsOfMovedCards($aside);
+                        }
+                        $renamed += $this->reIdCollisions();
+                        $pulled = $this->repo->rebase();
+                        $rebased = true;
+                    } finally {
+                        $this->afterRebase($aside, $moves, $rebased, $original);
+                    }
                 }
                 $errors = $this->problems($this->load());
                 if ($errors !== []) {
@@ -426,7 +452,7 @@ final class GitStore implements Store
 
     private function syncOn(): bool
     {
-        return ($this->config['sync'] ?? 'off') === 'on';
+        return Sync::on($this->config['sync'] ?? 'off');
     }
 
     private function requestSync(): void
@@ -437,30 +463,203 @@ final class GitStore implements Store
         exec(sprintf('cd %s && %s %s sync --background > /dev/null 2>&1 &', escapeshellarg($this->paths->main), escapeshellarg($php), escapeshellarg($bin)));
     }
 
-    /** Pushes the claim commit at HEAD; a rejected push whose card blob changed on origin loses the claim. */
+    /** Pushes the claim commit at HEAD; a rejected push whose card blob changed on origin loses the claim. Whatever fails, the unpushed claim commit does not stay. */
     private function pushClaim(Card $card): void
     {
         $base = $this->repo->blob('HEAD~1', $card->path);
-        for ($attempt = 1; $attempt <= 3; $attempt++) {
-            try {
+        $dropped = false;
+        try {
+            for ($attempt = 1; $attempt <= 3; $attempt++) {
                 $pushed = $this->repo->push();
-            } catch (RemoteFailed $e) {
-                $this->repo->resetKeep('HEAD~1');
-                throw new RemoteFailed("claim of {$card->id()} dropped: ".$e->getMessage());
-            }
-            if ($pushed === 'ok') {
-                return;
-            }
-            $this->repo->fetch();
-            if ($this->repo->blob($this->repo->remoteRef(), $card->path) !== $base) {
-                $this->repo->resetKeep('HEAD~1');
+                if ($pushed === 'ok') {
+                    return;
+                }
+                $this->repo->fetch();
+                if ($this->repo->blob($this->repo->remoteRef(), $card->path) !== $base) {
+                    $this->repo->resetKeep('HEAD~1');
+                    $dropped = true;
+                    $this->repo->rebase();
+                    throw new LostClaim("{$card->id()} changed on ".$this->repo->remote().' first; the claim is lost, pick another card');
+                }
                 $this->repo->rebase();
-                throw new LostClaim("{$card->id()} changed on ".$this->repo->remote().' first; the claim is lost, pick another card');
             }
-            $this->repo->rebase();
+        } catch (LostClaim $e) {
+            throw $e;
+        } catch (Throwable $e) {
+            if (! $dropped) {
+                $this->repo->resetKeep('HEAD~1');
+            }
+
+            throw $e instanceof RemoteFailed && ! str_starts_with($e->getMessage(), 'claim of') ? new RemoteFailed("claim of {$card->id()} dropped: ".$e->getMessage()) : $e;
         }
         $this->repo->resetKeep('HEAD~1');
         throw new RemoteFailed("claim of {$card->id()} dropped: push kept being rejected");
+    }
+
+    /** Restores the merged edits and the moves; when the rebase failed a problem here must not hide why it failed. */
+    private function afterRebase(array $aside, array $moves, bool $rebased, ?string $original): void
+    {
+        if (! $rebased) {
+            // The rebase did not happen: back to the local history and files as they were before the sync began.
+            if ($original !== null && ($aside !== [] || $moves !== [])) {
+                try {
+                    $this->repo->resetKeep($original);
+                } catch (Throwable) {
+                }
+            }
+
+            return;
+        }
+        $failure = null;
+        try {
+            $this->restoreAside($aside);
+        } catch (Throwable $e) {
+            $failure = $e;
+        }
+        try {
+            $this->reapplyMoves($moves);
+        } catch (Throwable $e) {
+            $failure ??= $e;
+        }
+        if ($failure !== null) {
+            throw $failure;
+        }
+    }
+
+    /**
+     * Puts cards moved to another board here (and not yet pushed) back where origin has them and squashes the local
+     * commits, so the rebase merges their content with origin's edits instead of hitting a modify/delete conflict.
+     * $moves is filled once the undo is committed (card id => [path on origin, path here]); a failed commit puts the
+     * files back and leaves it empty.
+     *
+     * @param  array<string, array{0: string, 1: string}>  $moves
+     */
+    private function undoLocalMoves(array &$moves): void
+    {
+        $head = $this->repo->headIds();
+        $found = [];
+        foreach ($this->repo->baseIds() as $id => $from) {
+            if (isset($head[$id]) && $head[$id] !== $from) {
+                $found[$id] = [$from, $head[$id]];
+            }
+        }
+        if ($found === []) {
+            return;
+        }
+        $paths = [];
+        foreach ($found as [$from, $to]) {
+            @mkdir(dirname($this->paths->board($from)), 0775, true);
+            rename($this->paths->board($to), $this->paths->board($from));
+            array_push($paths, $from, $to);
+        }
+        if (! $this->repo->commit($paths, 'Undo local card moves for sync [hook]')) {
+            // Nothing was committed: put the files back where the owner moved them.
+            foreach ($found as [$from, $to]) {
+                if (is_file($this->paths->board($from)) && ! is_file($this->paths->board($to))) {
+                    rename($this->paths->board($from), $this->paths->board($to));
+                }
+            }
+            $this->repo->git()?->attempt(['reset', '-q', '--', ...$paths]);
+
+            throw new GitFailed('could not commit the undone card moves');
+        }
+        $moves = $found;
+        $this->repo->squashUnpushed('Local board changes [hook]');
+    }
+
+    /**
+     * Cards origin moved to another board that were edited here: git cannot pair the moved file with the edited one
+     * when the content differs a lot. Merges the two versions here, puts the edited file back to what it was at the
+     * fork (so the rebase applies origin's move cleanly) and returns what to write at the new path afterwards.
+     *
+     * $aside is filled once the set-aside is committed; a failed commit puts the local edits back and leaves it empty.
+     *
+     * @param  array<string, array{from: string, to: string, ours: string, merged: string, original: string}>  $aside
+     */
+    private function setAsideEditsOfMovedCards(array &$aside): void
+    {
+        $fork = $this->repo->mergeBase();
+        $head = $this->repo->headIds();
+        $remote = $this->repo->remoteIds();
+        $found = [];
+        foreach ($this->repo->baseIds() as $id => $from) {
+            $to = $remote[$id] ?? null;
+            if ($to === null || $to === $from || ($head[$id] ?? null) !== $from || $fork === null) {
+                continue;
+            }
+            $ours = $this->repo->show('HEAD', $from);
+            $original = $this->repo->show($fork, $from);
+            $theirs = $this->repo->show($this->repo->remoteRef(), $to);
+            if ($ours === null || $original === null || $theirs === null || $ours === $original) {
+                continue;
+            }
+            $merged = (new MergeDriver)->merge(Json::decode($original), Json::decode($theirs), Json::decode($ours), 'card');
+            if ($merged === null) {
+                continue;
+            }
+            $found[$id] = ['from' => $from, 'to' => $to, 'ours' => $ours, 'merged' => Json::encode($merged, 'card'), 'original' => $original];
+        }
+        if ($found === []) {
+            return;
+        }
+        foreach ($found as $entry) {
+            file_put_contents($this->paths->board($entry['from']), $entry['original']);
+        }
+        if (! $this->repo->commit(array_column($found, 'from'), 'Set aside local edits of cards moved on origin [hook]')) {
+            foreach ($found as $entry) {
+                file_put_contents($this->paths->board($entry['from']), $entry['ours']);
+            }
+            $this->repo->git()?->attempt(['reset', '-q', '--', ...array_column($found, 'from')]);
+
+            throw new GitFailed('could not commit the edits set aside for sync');
+        }
+        $aside = $found;
+        $this->repo->squashUnpushed('Local board changes [hook]');
+    }
+
+    /**
+     * After a successful rebase the merged card goes to origin's new path.
+     *
+     * @param  array<string, array{from: string, to: string, ours: string, merged: string}>  $aside
+     */
+    private function restoreAside(array $aside): void
+    {
+        if ($aside === []) {
+            return;
+        }
+        $paths = [];
+        foreach ($aside as $entry) {
+            @mkdir(dirname($this->paths->board($entry['to'])), 0775, true);
+            file_put_contents($this->paths->board($entry['to']), $entry['merged']);
+            $paths[] = $entry['to'];
+        }
+        if (! $this->repo->commit($paths, 'Local edits of cards moved on origin, merged [hook]')) {
+            throw new GitFailed('could not commit the merged card edits');
+        }
+    }
+
+    /**
+     * Moves the cards back to the boards they were moved to, unless origin moved them meanwhile (origin wins).
+     *
+     * @param  array<string, array{0: string, 1: string}>  $moves
+     */
+    private function reapplyMoves(array $moves): void
+    {
+        if ($moves === []) {
+            return;
+        }
+        $snapshot = $this->load();
+        $paths = [];
+        foreach ($moves as $id => [$from, $to]) {
+            if ($snapshot->card($id)?->path !== $from || ! is_dir(dirname($this->paths->board($to)))) {
+                continue;
+            }
+            rename($this->paths->board($from), $this->paths->board($to));
+            array_push($paths, $from, $to);
+        }
+        if ($paths !== [] && ! $this->repo->commit($paths, 'Card moves reapplied after sync [hook]')) {
+            throw new GitFailed('could not commit the reapplied card moves');
+        }
     }
 
     /**
@@ -471,12 +670,13 @@ final class GitStore implements Store
     private function reIdCollisions(): array
     {
         $remote = $this->repo->remoteIds();
+        $base = $this->repo->baseIds();
         $snapshot = $this->load();
         $renamed = [];
         foreach ($this->repo->addedLocally() as $path) {
             $old = basename($path, '.json');
             $card = $snapshot->card($old);
-            if (! isset($remote[$old]) || $card === null || $card->path !== $path
+            if (isset($base[$old]) || ! isset($remote[$old]) || $card === null || $card->path !== $path
                 || $this->repo->blob('HEAD', $path) === $this->repo->blob($this->repo->remoteRef(), $remote[$old])) {
                 continue;
             }

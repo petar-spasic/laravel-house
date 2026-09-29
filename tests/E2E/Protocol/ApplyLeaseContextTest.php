@@ -105,3 +105,31 @@ it('prints the card context with the configured gates from its worktree, with --
     $nowhere = $p->sandbox->kanban(['context']);
     expect($nowhere->getExitCode())->toBe(4);
 });
+
+it('counts every commit not on main and says when the list is cut', function () {
+    $p = ProtocolSandbox::create();
+    [$id, $wt] = $p->started('Long branch');
+    foreach (range(1, 23) as $n) {
+        $p->commit($wt, "file{$n}.php", "<?php // {$n}\n", "{$id}: step {$n}");
+    }
+
+    $context = $p->in($wt, ['context'])->getOutput();
+
+    expect($context)->toContain("commits not on main: 23 (newest 20 shown)\n")
+        ->toContain("{$id}: step 23")
+        ->and($context)->not->toContain("{$id}: step 3\n");
+});
+
+it('logs a forced send-back from review as forced', function () {
+    $p = ProtocolSandbox::create();
+    [$id, $wt] = $p->started('Sent back');
+    $p->commit($wt, 'app.php');
+    $p->in($wt, ['report', $id, '--status=review', '--summary=Done'])->mustRun();
+    $p->hook('subagent-stop', $p->payload('subagent-stop', ['cwd' => $wt]));
+    expect($p->card($id)['stage'])->toBe('review');
+
+    $p->sandbox->ok(['move', $id, 'doing', '--force'], ['KANBAN_SESSION' => 'session-1']);
+
+    $entry = array_values(array_filter($p->card($id)['log'], fn ($e) => $e['event'] === 'stage' && $e['from'] === 'review' && $e['to'] === 'doing'))[0];
+    expect($entry)->toMatchArray(['from' => 'review', 'forced' => true]);
+});

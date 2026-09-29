@@ -188,3 +188,244 @@ it('reports sync without a remote', function () {
 
     expect($sandbox->ok('sync'))->toBe("sync: no remote configured\n");
 });
+
+it('treats 1, true and yes like on for KANBAN_SYNC and reports it as on', function (string $value) {
+    [$origin, $a] = published();
+    $id = $a->readyCard('Synced with '.$value);
+    $a->ok('sync');
+    $env = ['KANBAN_SYNC' => $value, 'KANBAN_SESSION' => 'session-a'];
+
+    $a->ok(['claim', $id], $env);
+
+    expect($origin->show("kanban:project/work/{$id}.json"))->toContain('"session": "session-a"')
+        ->and($a->ok(['status', '--json'], $env))->toContain('"sync": "on"');
+})->with(['1', 'true', 'yes']);
+
+/** A synced card on project/work and an empty second board, on two clones. */
+function movable(): array
+{
+    [$origin, $a, $b] = published();
+    $a->ok(['board', 'platform/tooling', 'Tooling']);
+    $id = $a->card('Movable card', ['--accept=One']);
+    $a->ok('sync');
+    $b->ok('sync');
+
+    return [$origin, $a, $b, $id];
+}
+
+it('keeps the id of a card that was moved to another board and edited a lot before syncing', function () {
+    [$origin, $a, $b, $id] = movable();
+    $a->ok(['set', $id, 'body=@-'], [], implode("\n", array_map(fn (int $n) => "Paragraph {$n} of a long rewritten body that rename detection cannot pair with the short original.", range(1, 40))));
+    $a->ok(['move', $id, '--board=platform/tooling']);
+
+    $sync = $a->ok('sync');
+
+    expect($sync)->not->toContain('renamed')
+        ->and($origin->show("kanban:platform/tooling/{$id}.json"))->toContain($id)
+        ->and($a->root."/docs/kanban/platform/tooling/{$id}.json")->toBeFile()
+        ->and($a->root."/docs/kanban/project/work/{$id}.json")->not->toBeFile()
+        ->and($a->ok('validate'))->toContain('ok: 1 cards');
+});
+
+it('syncs a card moved on one machine and edited on another, whichever syncs first', function (bool $mover) {
+    [$origin, $a, $b, $id] = movable();
+    $b->ok(['set', $id, 'priority=high']);
+    $a->ok(['set', $id, 'body=@-'], [], implode("\n", array_map(fn (int $n) => "Paragraph {$n} of a long rewritten body.", range(1, 40))));
+    $a->ok(['move', $id, '--board=platform/tooling']);
+    [$first, $second] = $mover ? [$a, $b] : [$b, $a];
+
+    $first->ok('sync');
+    $sync = $second->kanban('sync');
+
+    expect($sync->getExitCode())->toBe(0, $sync->getErrorOutput());
+    $first->ok('sync');
+    $merged = $a->read($id);
+    expect($merged)->toBe($b->read($id))
+        ->and($a->root."/docs/kanban/platform/tooling/{$id}.json")->toBeFile()
+        ->and($a->root."/docs/kanban/project/work/{$id}.json")->not->toBeFile()
+        ->and($merged['priority'])->toBe('high')
+        ->and($merged['body'])->toContain('Paragraph 40')
+        ->and($a->ok('validate'))->toContain('ok: 1 cards')
+        ->and(trim($a->boardGit('rev-parse', 'HEAD')))->toBe(trim($b->boardGit('rev-parse', 'HEAD')));
+})->with([[true], [false]]);
+
+it('lets origin win when both machines moved the same card, and keeps both machines\' edits', function () {
+    [$origin, $a, $b, $id] = movable();
+    $a->ok(['board', 'platform/ops', 'Ops']);
+    $a->ok('sync');
+    $b->ok('sync');
+    $a->ok(['set', $id, 'priority=high']);
+    $a->ok(['move', $id, '--board=platform/tooling']);
+    $b->ok(['set', $id, 'labels=+area:pdf']);
+    $b->ok(['move', $id, '--board=platform/ops']);
+
+    $a->ok('sync');
+    $sync = $b->kanban('sync');
+
+    expect($sync->getExitCode())->toBe(0, $sync->getErrorOutput());
+    $a->ok('sync');
+    $merged = $a->read($id);
+    expect($merged)->toBe($b->read($id))
+        ->and($a->root."/docs/kanban/platform/tooling/{$id}.json")->toBeFile()
+        ->and($a->root."/docs/kanban/platform/ops/{$id}.json")->not->toBeFile()
+        ->and($merged['priority'])->toBe('high')
+        ->and($merged['labels'])->toBe(['area:pdf'])
+        ->and($a->ok('validate'))->toContain('ok: 1 cards');
+});
+
+it('checks blocked, area and capacity against origin\'s board when sync is on, not against a stale view', function () {
+    [$origin, $a, $b] = published();
+    $blocked = $a->readyCard('Blocked upstream');
+    $first = $a->readyCard('First in the area', ['--label=area:billing']);
+    $second = $a->readyCard('Second in the area', ['--label=area:billing']);
+    $a->ok('sync');
+    $b->ok('sync');
+    $on = ['KANBAN_SYNC' => 'on', 'KANBAN_SESSION' => 'session'];
+
+    $a->ok(['set', $blocked, 'blocked=hold on the owner']);
+    $a->ok(['claim', $first], $on);
+    $a->ok('sync');
+
+    $blockedClaim = $b->kanban(['claim', $blocked], $on);
+    $areaClaim = $b->kanban(['claim', $second], $on);
+
+    expect($blockedClaim->getExitCode())->toBe(3, $blockedClaim->getErrorOutput())
+        ->and($blockedClaim->getErrorOutput())->toContain('refused')
+        ->and($areaClaim->getExitCode())->toBe(3, $areaClaim->getErrorOutput())
+        ->and($b->read($blocked)['stage'])->toBe('ready')
+        ->and($b->read($second)['stage'])->toBe('ready')
+        ->and(trim($b->boardGit('rev-parse', 'HEAD')))->toBe(trim($b->boardGit('rev-parse', 'origin/kanban')));
+});
+
+it('does not report a remote outage when syncs overlap on one clone', function () {
+    [$origin, $a, $b] = published();
+    foreach (range(1, 3) as $round) {
+        $a->card("News {$round}");
+        $a->ok('sync');
+
+        $runs = array_map(fn () => $b->start(['sync']), range(1, 4));
+        foreach ($runs as $run) {
+            $run->wait();
+        }
+
+        expect(array_map(fn ($run) => $run->getExitCode(), $runs))->each->toBe(0);
+        expect(implode('', array_map(fn ($run) => $run->getErrorOutput(), $runs)))->not->toContain('remote unreachable');
+    }
+});
+
+it('drops its claim commit when the fetch after a rejected claim push fails', function () {
+    [$origin, $a, $b] = published();
+    $id = $a->readyCard('Phantom claim');
+    $a->ok('sync');
+    $b->ok('sync');
+    $on = ['KANBAN_SYNC' => 'on', 'KANBAN_SESSION' => 'session-b'];
+    $before = trim($b->boardGit('rev-parse', 'HEAD'));
+
+    $hooks = Sandbox::tmp();
+    $php = PHP_BINARY;
+    $bin = Sandbox::package().'/bin/kanban';
+    file_put_contents("{$hooks}/pre-push", <<<SH
+        #!/bin/sh
+        [ -f "{$hooks}/done" ] && exit 0
+        touch "{$hooks}/done"
+        cd "{$a->root}" && "{$php}" "{$bin}" new project/work "Moved origin" >/dev/null 2>&1 && "{$php}" "{$bin}" sync >/dev/null 2>&1
+        touch "{$b->root}/.git/refs/remotes/origin/kanban.lock"
+        exit 0
+        SH);
+    chmod("{$hooks}/pre-push", 0755);
+    $b->git('config', 'core.hooksPath', $hooks);
+
+    $claim = $b->kanban(['claim', $id], $on);
+    @unlink($b->root.'/.git/refs/remotes/origin/kanban.lock');
+
+    expect($claim->getExitCode())->toBe(9, $claim->getErrorOutput())
+        ->and($b->read($id)['stage'])->toBe('ready')
+        ->and(trim($b->boardGit('rev-parse', 'HEAD')))->toBe($before);
+});
+
+it('starts a card origin has since unblocked, even though this clone has not synced', function () {
+    [$origin, $a, $b] = published();
+    $id = $a->readyCard('Unblocked upstream');
+    $a->ok(['set', $id, 'blocked=waiting']);
+    $a->ok('sync');
+    $b->ok('sync');
+    $a->ok(['set', $id, 'blocked=']);
+    $a->ok('sync');
+    $on = ['KANBAN_SYNC' => 'on', 'KANBAN_SESSION' => 'session-b'];
+
+    $claim = $b->kanban(['claim', $id], $on);
+
+    expect($claim->getExitCode())->toBe(0, $claim->getErrorOutput())
+        ->and($origin->show("kanban:project/work/{$id}.json"))->toContain('"session": "session-b"');
+});
+
+it('leaves a moved card where it is when the undo commit before a sync fails, and syncs cleanly afterwards', function () {
+    [$origin, $a, $b, $id] = movable();
+    $b->ok(['set', $id, 'priority=high']);
+    $b->ok('sync');
+    $a->ok(['move', $id, '--board=platform/tooling']);
+    $gitdir = trim($a->boardGit('rev-parse', '--absolute-git-dir'));
+    $a->boardGit('fetch', '-q');
+    touch($gitdir.'/index.lock');
+
+    $failed = $a->kanban('sync');
+    unlink($gitdir.'/index.lock');
+
+    expect($failed->getExitCode())->not->toBe(0)
+        ->and($a->root."/docs/kanban/platform/tooling/{$id}.json")->toBeFile()
+        ->and($a->root."/docs/kanban/project/work/{$id}.json")->not->toBeFile()
+        ->and(trim($a->boardGit('status', '--porcelain')))->toBe('');
+
+    $ok = $a->kanban('sync');
+    expect($ok->getExitCode())->toBe(0, $ok->getErrorOutput())
+        ->and($a->root."/docs/kanban/platform/tooling/{$id}.json")->toBeFile()
+        ->and($a->read($id)['priority'])->toBe('high')
+        ->and($a->ok('validate'))->toContain('ok: 1 cards');
+});
+
+it('keeps a local edit of a card origin moved when setting it aside for the merge fails', function () {
+    [$origin, $a, $b, $id] = movable();
+    $b->ok(['move', $id, '--board=platform/tooling']);
+    $b->ok(['set', $id, 'body=@-'], [], implode("\n", array_map(fn (int $n) => "Paragraph {$n} rewritten so rename detection cannot pair it.", range(1, 40))));
+    $b->ok('sync');
+    $a->ok(['set', $id, 'priority=high']);
+    $a->boardGit('fetch', '-q');
+    $gitdir = trim($a->boardGit('rev-parse', '--absolute-git-dir'));
+    touch($gitdir.'/index.lock');
+
+    $failed = $a->kanban('sync');
+    unlink($gitdir.'/index.lock');
+
+    expect($failed->getExitCode())->not->toBe(0)
+        ->and($a->read($id)['priority'])->toBe('high')
+        ->and(trim($a->boardGit('status', '--porcelain')))->toBe('');
+
+    $ok = $a->kanban('sync');
+    expect($ok->getExitCode())->toBe(0, $ok->getErrorOutput())
+        ->and($a->read($id)['priority'])->toBe('high')
+        ->and($a->read($id)['body'])->toContain('Paragraph 40')
+        ->and($a->root."/docs/kanban/platform/tooling/{$id}.json")->toBeFile()
+        ->and($a->ok('validate'))->toContain('ok: 1 cards');
+});
+
+it('keeps its separate local board commits when a sync that had to undo a move fails on a conflict', function () {
+    [$origin, $a, $b, $id] = movable();
+    $other = $a->card('Edited on both sides');
+    $a->ok('sync');
+    $b->ok('sync');
+    $b->ok(['set', $other, 'title=Title from B']);
+    $b->ok('sync');
+    $a->ok(['set', $other, 'title=Title from A']);
+    $a->ok(['set', $other, 'priority=high']);
+    $a->ok(['move', $id, '--board=platform/tooling']);
+    $a->git('config', 'merge.kanban.driver', 'false');
+    $history = $a->boardLog();
+
+    $failed = $a->kanban('sync');
+
+    expect($failed->getExitCode())->toBe(5)
+        ->and($a->boardLog())->toBe($history)
+        ->and($a->root."/docs/kanban/platform/tooling/{$id}.json")->toBeFile()
+        ->and($a->read($other)['title'])->toBe('Title from A')
+        ->and(trim($a->boardGit('status', '--porcelain')))->toBe('');
+});

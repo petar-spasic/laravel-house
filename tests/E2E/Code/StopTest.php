@@ -71,3 +71,20 @@ it('keeps the slot and the worktree when the stack does not go down', function (
         ->and(is_dir($code->worktree($id)))->toBeTrue()
         ->and($code->sandbox->read($id)['stage'])->toBe('doing');
 });
+
+it('refuses to stop a card another machine is working on unless forced', function () {
+    $code = $this->code;
+    $id = $code->started('Elsewhere');
+    $file = $code->root()."/docs/kanban/project/work/{$id}.json";
+    $card = json_decode(file_get_contents($file), true);
+    $card['work']['host'] = 'alice-laptop';
+    $card['claim']['by'] = 'alice@alice-laptop';
+    file_put_contents($file, json_encode($card, JSON_PRETTY_PRINT)."\n");
+
+    $refused = $code->kanban(['stop', $id, '--to=ready']);
+
+    expect($refused->getExitCode())->toBe(3)
+        ->and($refused->getErrorOutput())->toContain('alice-laptop')->toContain('--force')
+        ->and($code->sandbox->read($id)['stage'])->toBe('doing')
+        ->and($code->calls())->not->toContain('compose --project-directory '.$code->worktree($id));
+});

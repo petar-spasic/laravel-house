@@ -5,6 +5,7 @@ namespace PetarSpasic\Kanban\Console;
 use PetarSpasic\Kanban\Policy\PullPolicy;
 use PetarSpasic\Kanban\Protocol\Brief;
 use PetarSpasic\Kanban\Store\Card;
+use PetarSpasic\Kanban\Support\Sync;
 use Symfony\Component\Console\Attribute\AsCommand;
 
 #[AsCommand(name: 'kanban:status')]
@@ -39,7 +40,7 @@ class StatusCommand extends Command
             'key' => $snapshot->key(),
             'head' => $repo?->head(),
             'unpushed' => $unpushed,
-            'sync' => $this->setting('sync', 'off'),
+            'sync' => Sync::label($this->setting('sync', 'off')),
             'pending' => $store->pending(),
             'counts' => $counts,
             'capacity' => $capacity,

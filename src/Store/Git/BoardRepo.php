@@ -12,6 +12,8 @@ use PetarSpasic\Kanban\Support\Paths;
 /** Git operations on the board worktree (`docs/kanban`, branch `kanban`). */
 final class BoardRepo
 {
+    private const REBASE_SECONDS = 600;
+
     public const BRANCH = 'kanban';
 
     private const DEFAULT_AUTHOR = 'Kanban UI <kanban-ui@localhost>';
@@ -46,8 +48,9 @@ final class BoardRepo
     }
 
     /**
-     * Undoes what a killed sync or claim left in the board worktree: a rebase in progress (detached HEAD) and a
-     * stale index.lock. Only call it while holding the board write lock, so no kanban process is mid-rebase.
+     * Undoes what a killed kanban sync or claim left in the board worktree: a rebase in progress and a stale
+     * index.lock. A rebase kanban did not start (no marker) is the owner's: it is left alone and the write is refused.
+     * Only call it while holding the board write lock, so no other kanban process is mid-rebase.
      */
     public function recover(): void
     {
@@ -56,21 +59,45 @@ final class BoardRepo
         if ($git === null || $gitdir === null) {
             return;
         }
+        $marker = is_file($this->markerFile()) ? json_decode((string) @file_get_contents($this->markerFile()), true) : null;
+        $marker = is_array($marker) ? $marker : null;
+        $alive = $marker !== null && self::alive((int) ($marker['pid'] ?? 0)) && time() - (int) ($marker['at'] ?? 0) < self::REBASE_SECONDS;
+        if (! $alive) {
+            @unlink($this->markerFile());
+        }
         $lock = $gitdir.'/index.lock';
-        if (is_file($lock) && (int) @filemtime($lock) < time() - 30) {
+        if (! $alive && is_file($lock) && (int) @filemtime($lock) < time() - 30) {
             @unlink($lock);
         }
-        if (is_dir($gitdir.'/rebase-merge') || is_dir($gitdir.'/rebase-apply')) {
-            $git->attempt(['rebase', '--abort']);
+        if (! is_dir($gitdir.'/rebase-merge') && ! is_dir($gitdir.'/rebase-apply')) {
+            return;
         }
+        if ($marker === null || $alive) {
+            throw new Conflict('a git rebase is in progress in '.$this->paths->relative($this->paths->board()).': finish or abort it there (`git rebase --continue|--abort`), then run kanban again');
+        }
+        $git->attempt(['rebase', '--abort']);
     }
 
-    /** True while a rebase (killed before it finished) is still recorded in the board worktree. */
-    public function interrupted(): bool
+    /** True when a kanban rebase was killed: its marker names a dead process and git still records the rebase. */
+    public function abandoned(): bool
     {
         $gitdir = $this->adminDir();
+        if ($gitdir === null || (! is_dir($gitdir.'/rebase-merge') && ! is_dir($gitdir.'/rebase-apply'))) {
+            return false;
+        }
+        $marker = is_file($this->markerFile()) ? json_decode((string) @file_get_contents($this->markerFile()), true) : null;
 
-        return $gitdir !== null && (is_dir($gitdir.'/rebase-merge') || is_dir($gitdir.'/rebase-apply'));
+        return is_array($marker) && ! (self::alive((int) ($marker['pid'] ?? 0)) && time() - (int) ($marker['at'] ?? 0) < self::REBASE_SECONDS);
+    }
+
+    private function markerFile(): string
+    {
+        return $this->paths->runtime('rebase.marker');
+    }
+
+    private static function alive(int $pid): bool
+    {
+        return $pid > 0 && function_exists('posix_kill') && posix_kill($pid, 0);
     }
 
     private function adminDir(): ?string
@@ -113,6 +140,12 @@ final class BoardRepo
         return $git->attempt(['commit', '-q', '--no-verify', '-m', $message, '--', ...$paths])->ok();
     }
 
+    /** The full id of HEAD, or null. */
+    public function headRev(): ?string
+    {
+        return $this->git()?->line(['rev-parse', 'HEAD']);
+    }
+
     public function head(): ?string
     {
         return $this->git()?->line(['rev-parse', '--short', 'HEAD']);
@@ -141,14 +174,20 @@ final class BoardRepo
     /** Fetches origin's kanban branch. False when origin has no such branch; RemoteFailed when unreachable. */
     public function fetch(): bool
     {
-        $result = $this->required()->attempt(['fetch', '-q', $this->remote(), '+refs/heads/'.self::BRANCH.':'.$this->remoteRef()]);
-        if ($result->ok()) {
-            return true;
+        for ($attempt = 1; ; $attempt++) {
+            $result = $this->required()->attempt(['fetch', '-q', $this->remote(), '+refs/heads/'.self::BRANCH.':'.$this->remoteRef()]);
+            if ($result->ok()) {
+                return true;
+            }
+            if (str_contains($result->err, "couldn't find remote ref")) {
+                return false;
+            }
+            // Two fetches of one clone racing for the same tracking ref: the loser fails, the retry finds it current.
+            if ($attempt >= 4 || preg_match('/incorrect old value|cannot lock ref|Unable to create .*\.lock/', $result->err) !== 1) {
+                throw new RemoteFailed('fetch failed: '.trim($result->err));
+            }
+            usleep(50000 * $attempt);
         }
-        if (str_contains($result->err, "couldn't find remote ref")) {
-            return false;
-        }
-        throw new RemoteFailed('fetch failed: '.trim($result->err));
     }
 
     /** Commits on HEAD that origin/kanban lacks (all of them when origin has no branch). */
@@ -173,9 +212,17 @@ final class BoardRepo
         }
         $git = $this->required();
         $git->attempt(['update-index', '-q', '--refresh']);
-        $result = $git->attempt(['rebase', '-q', $this->remoteRef()]);
+        $this->paths->ensureRuntime();
+        file_put_contents($this->markerFile(), json_encode(['pid' => getmypid(), 'at' => time()]));
+        try {
+            $result = $git->attempt(['rebase', '-q', $this->remoteRef()]);
+            if (! $result->ok()) {
+                $git->attempt(['rebase', '--abort']);
+            }
+        } finally {
+            @unlink($this->markerFile());
+        }
         if (! $result->ok()) {
-            $git->attempt(['rebase', '--abort']);
             throw new Conflict('rebase onto '.$this->remote().'/'.self::BRANCH.' failed; aborted: '.trim($result->err ?: $result->out));
         }
 
@@ -205,6 +252,9 @@ final class BoardRepo
         $base = trim($git->run(['merge-base', 'HEAD', $this->remoteRef()]));
         $subjects = trim($git->run(['log', '--reverse', '--format=%s', $base.'..HEAD']));
         $git->run(['reset', '-q', '--soft', $base]);
+        if ($git->attempt(['diff', '--cached', '--quiet'])->code === 0) {
+            return;
+        }
         $git->run(['commit', '-q', '--no-verify', '-m', $subject, '-m', $subjects]);
     }
 
@@ -229,6 +279,35 @@ final class BoardRepo
         }
 
         return $this->ids((string) $this->git()?->line(['ls-tree', '-r', '--name-only', $this->remoteRef()]));
+    }
+
+    /** The commit where HEAD forked from origin/kanban. */
+    public function mergeBase(): ?string
+    {
+        return $this->hasRemoteRef() ? $this->git()?->line(['merge-base', 'HEAD', $this->remoteRef()]) : null;
+    }
+
+    /** Contents of $path at $rev, or null when absent. */
+    public function show(string $rev, string $path): ?string
+    {
+        $result = $this->git()?->attempt(['show', $rev.':'.$path]);
+
+        return $result !== null && $result->ok() ? $result->out : null;
+    }
+
+    /** @return array<string, string> card id => path, where HEAD forked from origin/kanban */
+    public function baseIds(): array
+    {
+        $git = $this->git();
+        $base = $this->hasRemoteRef() ? $git?->line(['merge-base', 'HEAD', $this->remoteRef()]) : null;
+
+        return $base === null ? [] : $this->ids((string) $git?->line(['ls-tree', '-r', '--name-only', $base]));
+    }
+
+    /** @return array<string, string> card id => path, on HEAD */
+    public function headIds(): array
+    {
+        return $this->ids((string) $this->git()?->line(['ls-tree', '-r', '--name-only', 'HEAD']));
     }
 
     /** @return list<string> paths added on HEAD since it forked from origin/kanban */

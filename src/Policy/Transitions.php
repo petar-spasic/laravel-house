@@ -7,6 +7,7 @@ use PetarSpasic\Kanban\Store\Card;
 use PetarSpasic\Kanban\Store\Claim;
 use PetarSpasic\Kanban\Store\Exceptions\PolicyRefused;
 use PetarSpasic\Kanban\Store\Rev;
+use PetarSpasic\Kanban\Store\Snapshot;
 use PetarSpasic\Kanban\Store\Stage;
 use PetarSpasic\Kanban\Store\Store;
 use PetarSpasic\Kanban\Support\Clock;
@@ -133,7 +134,7 @@ final class Transitions
                 throw new PolicyRefused('sending back to doing needs a note (--reason)');
             }
 
-            return $this->sendBack($card->id(), 'move', $by, $reason, $expected ?? $card->rev);
+            return $this->sendBack($card->id(), 'move', $by, $reason, $expected ?? $card->rev, $force);
         }
         $moved = $this->store->update($card->id(), fn (array $data) => self::stage($data, $to, 'move', $reason, $force), $by, $expected ?? $card->rev);
         if ($moved->stage() === 'decided') {
@@ -167,11 +168,32 @@ final class Transitions
         if ($force && ! $by->canForce()) {
             throw new PolicyRefused('--force is for the main session only');
         }
-        $snapshot = $this->store->snapshot();
+        $card = $this->assertReady($this->store->snapshot(), $id);
+
+        $claimed = $this->store->claim($card->id(), $claim ?? Claim::here($by), $by, fn (Snapshot $fresh) => $this->assertStartable($fresh, $card->id(), $force));
+
+        return $work === null ? $claimed : $this->store->update($claimed->id(), function (array $data) use ($work) {
+            $data['work'] = array_merge($data['work'] ?? [], $work);
+
+            return $data;
+        }, $by);
+    }
+
+    /** The card when it is ready and unclaimed in $snapshot; PolicyRefused otherwise. */
+    private function assertReady(Snapshot $snapshot, string $id): Card
+    {
         $card = $snapshot->resolve($id);
         if ($card->stage() !== 'ready' || $card->claim() !== null) {
             throw new PolicyRefused("{$card->id()} is {$card->stage()}".($card->claim() ? ', claimed by '.$card->claim()['by'] : '').', not ready');
         }
+
+        return $card;
+    }
+
+    /** The card when it may be claimed against $snapshot (origin's, after the pull, when syncing); PolicyRefused otherwise. */
+    private function assertStartable(Snapshot $snapshot, string $id, bool $force): Card
+    {
+        $card = $this->assertReady($snapshot, $id);
         $refusals = $this->ready->refusals($card, $snapshot, false);
         if (! $snapshot->depsSatisfied($card)) {
             $refusals[] = 'dependencies not satisfied: '.implode(', ', array_filter($card->dependsOn(), fn ($d) => ! $snapshot->isSatisfied($d)));
@@ -184,13 +206,7 @@ final class Transitions
             throw new PolicyRefused("refused {$card->id()}: no capacity (".($capacity['reason'] ?? 'area or WIP limit').')');
         }
 
-        $claimed = $this->store->claim($card->id(), $claim ?? Claim::here($by), $by);
-
-        return $work === null ? $claimed : $this->store->update($claimed->id(), function (array $data) use ($work) {
-            $data['work'] = array_merge($data['work'] ?? [], $work);
-
-            return $data;
-        }, $by);
+        return $card;
     }
 
     /**
@@ -204,14 +220,14 @@ final class Transitions
     }
 
     /** review → doing: $via is reject (evaluator verdict), refresh (merge conflict) or move (owner send-back). */
-    public function sendBack(string $id, string $via, Actor $by, ?string $note = null, ?Rev $expected = null): Card
+    public function sendBack(string $id, string $via, Actor $by, ?string $note = null, ?Rev $expected = null, bool $force = false): Card
     {
-        return $this->store->update($id, function (array $data) use ($via, $note) {
+        return $this->store->update($id, function (array $data) use ($via, $note, $force) {
             if (isset($data['work'])) {
                 $data['work']['approved'] = null;
             }
 
-            return self::stage($data, 'doing', $via, $note);
+            return self::stage($data, 'doing', $via, $note, $force);
         }, $by, $expected);
     }
 

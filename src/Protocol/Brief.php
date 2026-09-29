@@ -12,6 +12,7 @@ use PetarSpasic\Kanban\Store\Store;
 use PetarSpasic\Kanban\Support\Clock;
 use PetarSpasic\Kanban\Support\Git;
 use PetarSpasic\Kanban\Support\Paths;
+use PetarSpasic\Kanban\Support\Sync;
 
 /** The factual board brief printed by `status` and SessionStart. */
 final class Brief
@@ -42,7 +43,7 @@ final class Brief
 
         $lines = [];
         $lines[] = "Kanban {$snapshot->key()}: branch kanban @".($repo?->head() ?? '-').', '
-            .($unpushed === null ? 'not published' : "{$unpushed} unpushed").', sync '.($this->config['sync'] ?? 'off').', '.gmdate('Y-m-d H:i').'Z';
+            .($unpushed === null ? 'not published' : "{$unpushed} unpushed").', sync '.Sync::label($this->config['sync'] ?? 'off').', '.gmdate('Y-m-d H:i').'Z';
         $lines[] = "WIP doing {$capacity['doing']}/{$capacity['max_parallel']}, review {$capacity['review']}/{$capacity['review_limit']}"
             .' · ready '.($counts['ready'] ?? 0).' · backlog '.($counts['backlog'] ?? 0).' · blocked '.count($blocked)
             .' · proposed decisions '.($counts['proposed'] ?? 0);
@@ -90,7 +91,9 @@ final class Brief
     {
         $agent = $runtime->agentFor($card->id(), $type);
         $parts = [];
-        if ($agent === null) {
+        if ($agent === null && ($host = $card->host()) !== null && $host !== (string) gethostname()) {
+            $parts[] = "on {$host}";
+        } elseif ($agent === null) {
             $parts[] = 'no agent';
         } else {
             $state = $runtime->state($agent);
