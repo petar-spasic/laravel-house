@@ -65,6 +65,7 @@ final class GuardSandbox
         $this->git('config user.email test@example.com');
         $this->git('config user.name Test');
         file_put_contents($this->main.'/README.md', "app\n");
+        file_put_contents($this->main.'/boost.json', json_encode(['skills' => ['kanban']]));
         file_put_contents($this->main.'/.env', "DB_PORT=5435\n");
         file_put_contents($this->main.'/.gitignore', "/docs/kanban/\n/.claude/worktrees/\n.env\n");
         $this->git('add README.md .gitignore');

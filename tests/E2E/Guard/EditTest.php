@@ -35,6 +35,10 @@ it('applies the Edit/Write table', function (string $actor, string $tool, string
     'evaluator writes outside' => ['evaluator', 'Write', '{outside}/notes.txt', null],
     'worker edits a notebook in main' => ['worker', 'NotebookEdit', '{main}/nb.ipynb', 'deny'],
     'board path through ..' => ['main', 'Write', '{wt}/../../../docs/kanban/x.json', 'deny', 'CLI-only'],
+    'worker edits a Boost-installed skill in its worktree' => ['worker', 'Edit', '{wt}/.claude/skills/kanban/SKILL.md', 'deny', 'boost:update overwrites it'],
+    'other subagent writes a Boost-installed skill in main' => ['other', 'Write', '{main}/.claude/skills/kanban/references/gotchas.md', 'deny', 'boost:update overwrites it'],
+    'worker edits a skill Boost does not install' => ['worker', 'Edit', '{wt}/.claude/skills/notes/SKILL.md', 'allow'],
+    'main edits a Boost-installed skill' => ['main', 'Edit', '{main}/.claude/skills/kanban/SKILL.md', null],
 ]);
 
 it('limits subagent writes in main to guard.main_write_paths when strict', function () {

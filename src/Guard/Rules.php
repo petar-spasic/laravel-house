@@ -38,6 +38,9 @@ final class Rules
     /** @var array<string, mixed>|null */
     private ?array $config = null;
 
+    /** @var list<string>|null */
+    private ?array $boostSkills = null;
+
     /** @var array<string, array<string, mixed>>|null */
     private ?array $cards = null;
 
@@ -80,6 +83,10 @@ final class Rules
 
         if ($this->actor === 'main') {
             return [null, ''];
+        }
+
+        if (($skill = $this->managedSkill($this->absolute($path, $this->cwd))) !== null) {
+            return ['deny', $this->managedSkillReason($skill)];
         }
 
         return match ($where) {
@@ -268,6 +275,9 @@ final class Rules
             }
             if ($where === Locations::GITDIR && $subagent) {
                 return ['deny', 'Writing into .git is the main session\'s: use plain git add/commit inside your worktree.'];
+            }
+            if ($subagent && ($skill = $this->managedSkill($target)) !== null) {
+                return ['deny', $this->managedSkillReason($skill)];
             }
             $outsideWrite = $outsideWrite || ! in_array($where, [Locations::OUTSIDE, Locations::OWN], true) && ! str_starts_with($target, '/dev/');
         }
@@ -683,6 +693,25 @@ final class Rules
     /**
      * @return array<string, mixed>
      */
+    /** The Boost-installed skill (a name in boost.json `skills`) that $path lies in under some `.claude/skills/`, or null. */
+    private function managedSkill(string $path): ?string
+    {
+        if (preg_match('#/\.claude/skills/([^/]+)(/|$)#', $this->locations->canonical($path), $m) !== 1) {
+            return null;
+        }
+        if ($this->boostSkills === null) {
+            $boost = json_decode((string) @file_get_contents($this->locations->main.'/boost.json'), true);
+            $this->boostSkills = array_values(array_filter((array) ($boost['skills'] ?? []), 'is_string'));
+        }
+
+        return in_array($m[1], $this->boostSkills, true) ? $m[1] : null;
+    }
+
+    private function managedSkillReason(string $skill): string
+    {
+        return ".claude/skills/{$skill} is installed by Boost and boost:update overwrites it: change its source instead (.ai/skills/{$skill} for a project skill); a package's skill is fixed in that package, so report it with --discovered.";
+    }
+
     private function config(): array
     {
         if ($this->config === null) {

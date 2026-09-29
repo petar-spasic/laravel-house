@@ -17,6 +17,8 @@ it('applies the other-Bash rules', function (string $actor, string $command, ?st
     }
 })->with([
     'worker shows its card' => ['worker', 'vendor/bin/kanban show ACME-7K2M9Q', 'allow', null, '{wt}'],
+    'worker seds a Boost-installed skill' => ['worker', "sed -i 's/a/b/' .claude/skills/kanban/SKILL.md", 'deny', 'boost:update overwrites it', '{wt}'],
+    'worker quotes a git command as evidence' => ['worker', 'vendor/bin/kanban report ACME-7K2M9Q --status=review --verified="git diff main...HEAD --stat → only routes/CLAUDE.md"', 'allow', null, '{wt}'],
     'worker reads status via artisan' => ['worker', 'php artisan kanban:status', 'allow'],
     'worker reports its card' => ['worker', $report, 'allow', null, '{wt}'],
     'worker reports another card' => ['worker', 'vendor/bin/kanban report ACME-A1B2C3 --status=review', 'deny', 'ACME-7K2M9Q only', '{wt}'],
