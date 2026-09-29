@@ -73,7 +73,7 @@ class StackCommand extends Command
             $card = $this->store()->card($target);
             $relative = $card->work()['worktree'] ?? null;
 
-            return [$relative !== null ? $this->paths()->main.'/'.$relative : $this->paths()->worktree($card->id()), $card->id()];
+            return [$relative !== null ? $this->paths()->main.'/'.$relative : $this->paths()->worktree($card->id(), $card->title()), $card->id()];
         } catch (NotFound $e) {
             $name = EnvWriter::name($target);
             if ($name !== strtolower($target) && $action !== 'create') {

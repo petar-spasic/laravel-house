@@ -5,8 +5,10 @@ and guard that let a main session run parallel agents safely. Dev-only, for Lara
 
 - **The board is the plan of record.** JSON files on an orphan branch `kanban`, checked out at `docs/kanban`. Every
   change is one commit, made by the CLI, the local UI or a hook — never by hand.
-- **One card = one worktree = one stack.** `kanban start` claims a card, creates `.claude/worktrees/<id>` on its own
-  branch, writes a `.env` with its own ports and brings up its own compose project.
+- **One card = one worktree = one stack.** `kanban start` claims a card, creates `.claude/worktrees/xxxxxx-<slug>` on its
+  own branch, writes a `.env` with its own ports and brings up its own compose project. The worktree, the compose
+  project, its containers and the agent's description carry the card's id and title, so what is being worked on reads
+  at a glance in `docker ps` and the agent list.
 - **Agents are fenced.** A PreToolUse guard and git hooks let a subagent commit only inside its own worktree;
   push, pull, reset, checkout, worktree commands and board edits are the main session's.
 - **Done is proven.** A skeptical, read-only evaluator verifies every acceptance criterion; `finish` merges only an
@@ -84,7 +86,7 @@ main session ── vendor/bin/kanban … ──────────┼─�
 hooks (SessionStart, SubagentStart/Stop, …) ──┘
   │ kanban start KEY-XXXXXX        claim · worktree · .env · port slot · compose up -d
   ▼
-.claude/worktrees/key-xxxxxx   branch card/key-xxxxxx-<slug>   project {{app}}-wt-key-xxxxxx   ports 2101x
+.claude/worktrees/xxxxxx-<slug>   branch card/key-xxxxxx-<slug>   project {{app}}-wt-xxxxxx-<slug>   ports 2101x
   ▲ spawned with isolation: worktree → WorktreeCreate hands it this worktree; EnterWorktree(path) → the guard binds it
 kanban-worker (background): commits on its branch → kanban report … (staged)
   │ SubagentStop: clean tree, ≥ 1 commit, gates.report → applied → stage review
@@ -126,15 +128,15 @@ Each worktree runs the project's own `docker-compose.local.yml` (`stack.compose_
 with ports from a machine-wide registry (`~/.local/state/laravel-kanban/stacks.json`, slots 1–99 × 10 ports from 21000):
 
 ```dotenv
-# written into .claude/worktrees/<id>/.env (main's .env minus these keys)
-COMPOSE_PROJECT_NAME={{app}}-wt-key-xxxxxx
+# written into .claude/worktrees/xxxxxx-<slug>/.env (main's .env minus these keys)
+COMPOSE_PROJECT_NAME={{app}}-wt-xxxxxx-<slug>
 WEB_PORT=21010
 DB_HOST_PORT=21011
 REDIS_HOST_PORT=21012
 DB_PORT=21011            # host artisan and tests hit this stack
 SIDECAR_BIND=127.0.0.1
 LOCAL_APP_URL=http://203.0.113.10:21010
-SESSION_COOKIE={{app}}-wt-key-xxxxxx-session
+SESSION_COOKIE={{app}}-wt-xxxxxx-<slug>-session
 ```
 
 The compose file must work for many stacks at once:

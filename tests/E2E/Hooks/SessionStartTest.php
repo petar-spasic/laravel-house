@@ -22,7 +22,7 @@ it('prints the brief and exports KANBAN_SESSION into CLAUDE_ENV_FILE', function 
     $lines = explode("\n", rtrim($start->getOutput()));
     expect($lines[0])->toMatch('/^Kanban ACME: branch kanban @[0-9a-f]{7}, not published, sync off, \d{4}-\d\d-\d\d \d\d:\d\dZ$/')
         ->and($lines[1])->toBe('WIP doing 1/6, review 0/6 · ready 1 · backlog 1 · blocked 1 · proposed decisions 0')
-        ->and($lines[2])->toMatch("/^doing  {$id} norm project\/work Conditional clauses: worker a4d2 live \d+s, wt ".strtolower($id).'$/')
+        ->and($lines[2])->toMatch("/^doing  {$id} norm project\/work Conditional clauses: worker a4d2 live \d+s, wt ".basename($wt).'$/')
         ->and($lines[3])->toBe("blocked {$blocked} Waiting on owner: \"needs owner decision\"")
         ->and($lines[4])->toBe("next: {$next} high")
         ->and($lines[5])->toBe("decided (latest 1): 2026-09-28 {$decided} Workspace per team")

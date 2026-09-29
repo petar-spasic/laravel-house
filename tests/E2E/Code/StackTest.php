@@ -14,7 +14,7 @@ it('waits for /up from inside the worktree, starting the stack when it is not ru
     $code = $this->code;
     $id = $code->started('Wait for me');
     $wt = $code->worktree($id);
-    $lc = strtolower($id);
+    $lc = basename($code->worktree($id));
     $web = $code->base + 10;
     $code->ok(['stack', 'down'], cwd: $wt);
 
@@ -43,9 +43,9 @@ it('downs a stack and releases its slot', function () {
     $code = $this->code;
     $id = $code->started('Down');
 
-    expect($code->ok(['stack', $id, 'down']))->toBe('down acme-wt-'.strtolower($id)."; slot 1 released\n")
+    expect($code->ok(['stack', $id, 'down']))->toBe('down acme-wt-'.basename($code->worktree($id))."; slot 1 released\n")
         ->and($code->stacks())->toBe([])
-        ->and($code->ok(['stack', $id, 'up']))->toContain('up acme-wt-'.strtolower($id))
+        ->and($code->ok(['stack', $id, 'up']))->toContain('up acme-wt-'.basename($code->worktree($id)))
         ->and($code->stacks())->toHaveCount(1);
 });
 
@@ -66,7 +66,7 @@ it('garbage-collects stacks whose worktree vanished and reports unregistered one
     $id = $code->started('Vanish');
     $keep = $code->started('Stay');
     exec('rm -rf '.escapeshellarg($code->worktree($id)));
-    $lc = strtolower($id);
+    $lc = basename($code->worktree($id));
     $board = $code->sandbox->boardGit('rev-parse', 'HEAD');
 
     $output = $code->ok(['stack', 'gc'], ['FAKE_DOCKER_PROJECTS' => 'other-wt-x,unrelated']);

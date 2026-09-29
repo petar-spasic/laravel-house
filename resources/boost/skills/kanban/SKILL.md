@@ -40,7 +40,7 @@ You drive the board; agents do the card work. Exact flags, every exit code and t
 3. **Pick.** `next --count=<free capacity>`. `none: review 6/6 (stop starting)` or `none: …` → go to step 5.
 4. **Start each.** `start <ID>`:
    - exit 0 prints the worktree, branch, stack URL and ports, and the spawn line as its last line:
-     `Agent(subagent_type="kanban-worker", description="KEY-XXXXXX", isolation="worktree", prompt="Card KEY-XXXXXX. Worktree /…/.claude/worktrees/key-xxxxxx")`.
+     `Agent(subagent_type="kanban-worker", description="KEY-XXXXXX <title words>", isolation="worktree", prompt="Card KEY-XXXXXX. Worktree /…/.claude/worktrees/xxxxxx-<slug>")`.
      Spawn exactly that, in the background, unchanged (no `name`: a named spawn can become a teammate without isolation).
      The guard records the spawn and the WorktreeCreate hook hands the card's worktree to it, oldest spawn first,
      within 2 minutes: never spawn another isolated agent (a fork with `isolation`) in the same message.
@@ -57,7 +57,7 @@ You drive the board; agents do the card work. Exact flags, every exit code and t
    its decision card (`set <DEC> body=@-`) first, since workers cannot write cards. Then `refresh <ID>` merges the
    current main into the branch:
    - `up to date` / `refreshed …` → spawn the evaluator in the background:
-     `Agent(subagent_type="kanban-evaluator", description="<ID> review", isolation="worktree", prompt="Card <ID>. Worktree <path>")`.
+     `Agent(subagent_type="kanban-evaluator", description="<ID> review <title words>", isolation="worktree", prompt="Card <ID>. Worktree <path>")`.
    - exit 5 conflict: the card is back in doing and `refresh` prints `SendMessage: …`. Send that text to the
      worker (the agent id the spawn returned; `status` shows its first 4 characters); if the worker is gone, spawn a fresh kanban-worker with the start line.
 7. **Worker finished, card blocked.** `show <ID>` has the reason. Questions for the owner go into the summary;

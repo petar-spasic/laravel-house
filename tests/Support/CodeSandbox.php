@@ -2,6 +2,7 @@
 
 namespace PetarSpasic\Kanban\Tests\Support;
 
+use PetarSpasic\Kanban\Code\Worktrees;
 use PetarSpasic\Kanban\Support\Json;
 use RuntimeException;
 use Symfony\Component\Process\Process;
@@ -143,9 +144,15 @@ final class CodeSandbox
         return is_file($file) ? array_values(json_decode((string) file_get_contents($file), true)['stacks'] ?? []) : [];
     }
 
+    /** The card's worktree: `work.worktree` once started, else where `start` puts it. */
     public function worktree(string $id): string
     {
-        return $this->root().'/.claude/worktrees/'.strtolower($id);
+        $card = $this->sandbox->read($id);
+        $relative = $card['work']['worktree'] ?? null;
+
+        return $relative !== null
+            ? $this->root().'/'.$relative
+            : $this->root().'/.claude/worktrees/'.strtolower(explode('-', $id, 2)[1]).'-'.Worktrees::slug($card['title'], 24);
     }
 
     /** A ready card, started. */

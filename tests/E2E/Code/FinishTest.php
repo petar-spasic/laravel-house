@@ -11,6 +11,7 @@ it('merges an approved card, marks it done and tears down its stack, worktree an
     $code->configure(['finish' => ['after' => ['echo migrated > after.txt', 'php artisan db:seed --class=ReferenceDataSeeder --force']]]);
     $id = $code->started('Add login page');
     $lc = strtolower($id);
+    $name = basename($code->worktree($id));
     $wt = $code->worktree($id);
     $code->commit($id, 'login.php', "<?php\n", 'Login page');
     $code->approve($id);
@@ -23,8 +24,8 @@ it('merges an approved card, marks it done and tears down its stack, worktree an
         "merged {$id} into main ".substr($sha, 0, 7),
         "{$id} review→done",
         'after: echo migrated > after.txt ok',
-        "stack down acme-wt-{$lc}; slot released",
-        "removed worktree .claude/worktrees/{$lc}",
+        "stack down acme-wt-{$name}; slot released",
+        "removed worktree .claude/worktrees/{$name}",
         "deleted branch {$branch}",
     ])."\n")
         ->and(trim($code->sandbox->git('log', '-1', '--format=%s%n%P', 'main')))->toMatch("/^{$id}: Add login page\n\\S+ \\S+$/")
@@ -32,9 +33,9 @@ it('merges an approved card, marks it done and tears down its stack, worktree an
         ->and(trim(file_get_contents($code->root().'/after.txt')))->toBe('migrated')
         ->and(is_dir($wt))->toBeFalse()
         ->and(trim($code->sandbox->git('branch', '--list', $branch)))->toBe('')
-        ->and(trim($code->sandbox->git('worktree', 'list')))->not->toContain($lc)
+        ->and(trim($code->sandbox->git('worktree', 'list')))->not->toContain($name)
         ->and($code->stacks())->toBe([])
-        ->and($code->calls())->toContain("compose --project-directory {$wt} -f {$wt}/docker-compose.local.yml -p acme-wt-{$lc} down -v --remove-orphans --rmi local -t 5");
+        ->and($code->calls())->toContain("compose --project-directory {$wt} -f {$wt}/docker-compose.local.yml -p acme-wt-{$name} down -v --remove-orphans --rmi local -t 5");
 
     $card = $code->sandbox->read($id);
     expect($card['stage'])->toBe('done')

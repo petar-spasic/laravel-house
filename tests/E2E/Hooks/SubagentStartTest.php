@@ -17,7 +17,7 @@ it('records a kanban worker and gives it the board rules and the cards in doing'
         ->toStartWith("Kanban board: {$this->p->main}/docs/kanban (branch kanban).")
         ->toContain('change it only via vendor/bin/kanban, never edit it')
         ->toContain('Git: add/commit only in your own card worktree')
-        ->toContain("Doing: {$this->id} .claude/worktrees/".strtolower($this->id).'.')
+        ->toContain("Doing: {$this->id} .claude/worktrees/".basename($this->wt).'.')
         ->and(mb_strlen($context['additionalContext']))->toBeLessThan(450)
         ->and($this->p->agent('a4d2c0ffee'))->toMatchArray(['agent_id' => 'a4d2c0ffee', 'agent_type' => 'kanban-worker', 'card' => null, 'stopped_at' => null, 'stop_blocks' => 0])
         ->and($this->p->agent('a4d2c0ffee')['started_at'])->toMatch('/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}\+00:00$/');
@@ -32,7 +32,7 @@ it('keeps the guard binding when a bound worker is resumed', function () {
     $this->p->hook('subagent-start', $this->p->payload('subagent-start', ['cwd' => $this->wt]));
 
     expect($this->p->agent('a4d2c0ffee'))->toMatchArray([
-        'card' => $this->id, 'worktree' => '.claude/worktrees/'.strtolower($this->id), 'bound_at' => $bound['bound_at'], 'stopped_at' => null, 'stop_blocks' => 1,
+        'card' => $this->id, 'worktree' => '.claude/worktrees/'.basename($this->wt), 'bound_at' => $bound['bound_at'], 'stopped_at' => null, 'stop_blocks' => 1,
     ]);
 });
 

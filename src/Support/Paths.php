@@ -2,6 +2,8 @@
 
 namespace PetarSpasic\Kanban\Support;
 
+use PetarSpasic\Kanban\Code\Worktrees;
+
 final class Paths
 {
     public const BOARD = 'docs/kanban';
@@ -135,10 +137,17 @@ final class Paths
         return $this->main.'/'.self::WORKTREES;
     }
 
-    /** Code worktree of a card: `<main>/.claude/worktrees/<id-lowercase>`. */
-    public function worktree(string $cardId): string
+    /**
+     * Code worktree of a card: `<main>/.claude/worktrees/<id without key, lowercase>-<title slug≤24>`, so the
+     * directory, compose project and containers read as the card at a glance. Fixed at `start`; later
+     * lookups go through the card's `work.worktree`.
+     */
+    public function worktree(string $cardId, string $title = ''): string
     {
-        return $this->worktrees().'/'.strtolower($cardId);
+        $suffix = strtolower(str_contains($cardId, '-') ? substr($cardId, strpos($cardId, '-') + 1) : $cardId);
+        $slug = Worktrees::slug($title, 24);
+
+        return $this->worktrees().'/'.$suffix.($slug === '' ? '' : '-'.$slug);
     }
 
     /** Relative to main when inside it, else unchanged. */

@@ -55,7 +55,7 @@ text, one fact per line; errors go to stderr. Card ids accept a unique prefix of
 
 | Command | Does |
 |---|---|
-| `start ID [--force]` | Claim, slot, worktree `.claude/worktrees/<id>` on `card/<id>-<slug>`, deps copied, `.env`, `compose up -d --build` (no wait); prints the Agent spawn line |
+| `start ID [--force]` | Claim, slot, worktree `.claude/worktrees/<id without key>-<slug≤24>` (compose project `{app}-wt-` + that name) on `card/<id>-<slug≤40>`, deps copied, `.env`, `compose up -d --build` (no wait); prints the Agent spawn line |
 | `refresh ID\|--all` | Merge main into the branch. Moved head → approval cleared. Conflict → card to doing, merge left in progress, exit 5, prints `SendMessage: …` |
 | `finish ID` | Needs review + approval of the current head + clean worktree + no live agent. Merge `--no-ff`, done, `finish.after` commands on main, stack down, slot freed, worktree and branch removed |
 | `stop ID --to=ready\|backlog\|dropped [--keep-branch --force --reason=]` | Stack down, slot freed, worktree removed (dirty → refused without `--force`); a branch with commits is parked and reused by the next `start` |

@@ -10,19 +10,20 @@ it('stops a card without commits: stack down, slot released, worktree and branch
     $code = $this->code;
     $id = $code->started('Not needed');
     $lc = strtolower($id);
+    $name = basename($code->worktree($id));
 
     $output = $code->ok(['stop', $id, '--to=backlog']);
 
     expect($output)->toBe(implode("\n", [
-        "stack down .claude/worktrees/{$lc}",
-        "removed worktree .claude/worktrees/{$lc}",
+        "stack down .claude/worktrees/{$name}",
+        "removed worktree .claude/worktrees/{$name}",
         "deleted branch card/{$lc}-not-needed",
         "{$id} doing→backlog",
     ])."\n")
         ->and($code->sandbox->read($id))->toMatchArray(['stage' => 'backlog', 'claim' => null, 'work' => null])
         ->and(is_dir($code->worktree($id)))->toBeFalse()
         ->and($code->stacks())->toBe([])
-        ->and(collect($code->calls())->last())->toEndWith("-p acme-wt-{$lc} down -v --remove-orphans --rmi local -t 5");
+        ->and(collect($code->calls())->last())->toEndWith("-p acme-wt-{$name} down -v --remove-orphans --rmi local -t 5");
 });
 
 it('parks a branch with commits, and keeps one on request', function () {

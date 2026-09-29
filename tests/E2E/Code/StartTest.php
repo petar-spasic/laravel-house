@@ -11,7 +11,8 @@ it('claims the card and creates its worktree, branch, .env, slot and stack', fun
     $id = $code->sandbox->readyCard('Add login page');
     $lc = strtolower($id);
     $wt = $code->worktree($id);
-    $project = "acme-wt-{$lc}";
+    $name = substr($lc, 5).'-add-login-page';
+    $project = "acme-wt-{$name}";
     $base = trim($code->sandbox->git('rev-parse', 'main'));
     $web = $code->base + 10;
 
@@ -24,7 +25,7 @@ it('claims the card and creates its worktree, branch, .env, slot and stack', fun
         "stack {$project} slot 1 http://".CodeSandbox::lanHost().":{$web}",
         'ports WEB_PORT='.$web.' DB_HOST_PORT='.($web + 1).' REDIS_HOST_PORT='.($web + 2),
         'starting: the worker runs `vendor/bin/kanban stack wait` before using it',
-        "Agent(subagent_type=\"kanban-worker\", description=\"{$id}\", isolation=\"worktree\", prompt=\"Card {$id}. Worktree {$wt}\")",
+        "Agent(subagent_type=\"kanban-worker\", description=\"{$id} Add login page\", isolation=\"worktree\", prompt=\"Card {$id}. Worktree {$wt}\")",
     ])."\n");
 
     $card = $code->sandbox->read($id);
@@ -32,7 +33,7 @@ it('claims the card and creates its worktree, branch, .env, slot and stack', fun
         ->and($card['claim']['by'])->toContain('@')
         ->and($card['blocked'])->toBeNull()
         ->and($card['work'])->toMatchArray([
-            'branch' => "card/{$lc}-add-login-page", 'base' => $base, 'worktree' => ".claude/worktrees/{$lc}", 'attempt' => 1,
+            'branch' => "card/{$lc}-add-login-page", 'base' => $base, 'worktree' => ".claude/worktrees/{$name}", 'attempt' => 1,
             'head' => null, 'approved' => null, 'merge' => null, 'finished' => null,
             'stack' => ['project' => $project, 'slot' => 1, 'ports' => ['WEB_PORT' => $web, 'DB_HOST_PORT' => $web + 1, 'REDIS_HOST_PORT' => $web + 2],
                 'url' => 'http://'.CodeSandbox::lanHost().":{$web}"],
@@ -141,7 +142,7 @@ it('keeps the card in doing, blocked, when the stack cannot start', function () 
 
     $card = $code->sandbox->read($id);
     expect($run->getExitCode())->toBe(7)
-        ->and($run->getErrorOutput())->toContain("names project 'acme-local', expected 'acme-wt-".strtolower($id)."'")
+        ->and($run->getErrorOutput())->toContain("names project 'acme-local', expected 'acme-wt-".basename($code->worktree($id))."'")
         ->and($card['stage'])->toBe('doing')
         ->and($card['blocked'])->toStartWith('start failed: docker compose config names project')
         ->and($card['work']['branch'])->toStartWith('card/')
@@ -180,4 +181,16 @@ it('refuses while another main session holds the orchestrator lease', function (
     expect($run->getExitCode())->toBe(6)
         ->and($run->getErrorOutput())->toContain('another session holds the orchestrator lease (session-a')
         ->and($code->sandbox->read($id)['stage'])->toBe('ready');
+});
+
+it('names the worktree and stack after the card, cutting a long title at a whole word', function () {
+    $code = $this->code;
+    $id = $code->sandbox->readyCard('Conditional clauses with grammatical agreement across parties');
+    $name = strtolower(substr($id, 5)).'-conditional-clauses-with';
+
+    $output = $code->ok(['start', $id]);
+
+    expect($code->sandbox->read($id)['work']['worktree'])->toBe(".claude/worktrees/{$name}")
+        ->and($output)->toContain("stack acme-wt-{$name} slot")
+        ->and($output)->toContain("description=\"{$id} Conditional clauses with\"");
 });

@@ -27,7 +27,7 @@ class StartCommand extends Command
 
         $card = $this->store()->card($this->argument('id'));
         $id = $card->id();
-        $path = $this->paths()->worktree($id);
+        $path = $this->paths()->worktree($id, $card->title());
         if (file_exists($path)) {
             throw new PolicyRefused("{$this->paths()->relative($path)} already exists; remove it or run `kanban stack gc` first");
         }
@@ -80,7 +80,7 @@ class StartCommand extends Command
         } else {
             $this->say('stack none (stack.compose_file unset or missing)');
         }
-        $this->say("Agent(subagent_type=\"kanban-worker\", description=\"{$id}\", isolation=\"worktree\", prompt=\"Card {$id}. Worktree {$path}\")");
+        $this->say("Agent(subagent_type=\"kanban-worker\", description=\"{$id} ".Worktrees::label($card->title())."\", isolation=\"worktree\", prompt=\"Card {$id}. Worktree {$path}\")");
         $this->reportPending();
 
         return self::SUCCESS;

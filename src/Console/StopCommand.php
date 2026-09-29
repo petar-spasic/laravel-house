@@ -41,7 +41,7 @@ class StopCommand extends Command
             throw new PolicyRefused("{$id} is {$card->stage()}; only doing or review cards are stopped");
         }
         $work = $card->work() ?? [];
-        $path = isset($work['worktree']) ? $this->paths()->main.'/'.$work['worktree'] : $this->paths()->worktree($id);
+        $path = isset($work['worktree']) ? $this->paths()->main.'/'.$work['worktree'] : $this->paths()->worktree($id, $card->title());
         $branch = $work['branch'] ?? null;
         $force = (bool) $this->option('force');
 

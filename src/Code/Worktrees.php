@@ -45,9 +45,35 @@ final class Worktrees
     /** `card/<id-lc>-<slug≤40>` */
     public function branchFor(string $id, string $title): string
     {
-        $slug = trim(substr(Str::slug($title), 0, 40), '-');
+        $slug = self::slug($title, 40);
 
         return ($this->config['worktrees']['branch_prefix'] ?? 'card/').strtolower($id).($slug === '' ? '' : '-'.$slug);
+    }
+
+    /** Str::slug of $title cut at the last whole word within $max characters (a longer first word is cut). */
+    public static function slug(string $title, int $max): string
+    {
+        $slug = Str::slug($title);
+        if (strlen($slug) <= $max) {
+            return $slug;
+        }
+        $cut = substr($slug, 0, $max + 1);
+        $end = strrpos($cut, '-');
+
+        return trim($end === false || $end === 0 ? substr($slug, 0, $max) : substr($cut, 0, $end), '-');
+    }
+
+    /** The title's leading words within $max characters, for names shown at a glance (agent descriptions). */
+    public static function label(string $title, int $max = 32): string
+    {
+        $title = trim((string) preg_replace('/\s+/u', ' ', $title));
+        if (mb_strlen($title) <= $max) {
+            return $title;
+        }
+        $cut = mb_substr($title, 0, $max + 1);
+        $end = mb_strrpos($cut, ' ');
+
+        return rtrim($end === false || $end === 0 ? mb_substr($title, 0, $max) : mb_substr($cut, 0, $end), ' ,.;:-');
     }
 
     public function branchExists(string $branch): bool
