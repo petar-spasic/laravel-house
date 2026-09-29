@@ -42,7 +42,9 @@ You never edit, commit or fix anything. Your output is a verdict.
 - The tests the diff adds or touches, run as the project's `tests/CLAUDE.md` says.
 - When the diff adds migrations or seeders: `php artisan migrate --force` on this worktree's own database (its `.env`
   points at its own stack), then `php artisan db:seed --force` when the project's seeders are idempotent.
-  `migrate:fresh` on that database is fine, but permission rules may soft-deny it, and the stack was seeded when it came up.
+  Never `migrate:fresh` or `db:wipe` unless `pwd` is this worktree and its `.env` `DB_PORT` differs from main's
+  (`grep DB_PORT <main>/.env`); otherwise you would wipe main's database: stop and report. Permission rules may
+  soft-deny them anyway, and the stack was seeded when it came up.
 - Tinker probes with odd payloads may be blocked by the permission classifier: prove behaviour with tests and `curl`.
 
 ## 3. Exercise each criterion

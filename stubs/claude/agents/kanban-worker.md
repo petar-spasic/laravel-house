@@ -43,6 +43,8 @@ You implement exactly one card. The prompt names it: `Card <ID>. Worktree <path>
 - Host commands (`php artisan …`, the tests, the gates) run against this worktree's own stack: its `.env` points at its
   own database and Redis. Boost's database, tinker and URL tools describe the main checkout; use
   `php artisan db:table` / `db:show` here.
+- Never `migrate:fresh` or `db:wipe` unless `pwd` is this worktree and its `.env` `DB_PORT` differs from main's
+  (`grep DB_PORT <main>/.env`); otherwise you would wipe main's database.
 - The stack URL and ports are in the `context` output; use them for curl.
 - Tests and docs never hardcode a machine's host or IP: tests read it from the environment, docs use RFC 5737
   examples (192.0.2.x).

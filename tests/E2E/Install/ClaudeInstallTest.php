@@ -50,7 +50,7 @@ it('merges settings, writes agents, .gitignore and the CLAUDE.md block, and is i
         ])
         ->and($settings['hooks']['PreToolUse'])->toBe([
             ['matcher' => 'Bash', 'hooks' => [['type' => 'command', 'command' => 'echo foreign-guard']]],
-            ['matcher' => 'Bash|Edit|Write|NotebookEdit|EnterWorktree|Agent', 'hooks' => [
+            ['matcher' => 'Bash|Monitor|Edit|Write|NotebookEdit|EnterWorktree|Agent', 'hooks' => [
                 ['type' => 'command', 'command' => 'php', 'args' => ['-d', 'display_errors=0', '-d', 'display_startup_errors=0', '${CLAUDE_PROJECT_DIR}/vendor/petar-spasic/laravel-kanban/bin/kanban-guard'], 'timeout' => 10],
             ]],
         ])

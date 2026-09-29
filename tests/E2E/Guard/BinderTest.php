@@ -60,6 +60,47 @@ it('keeps an agent on its first card', function () {
     expect(agentRecord($sandbox, 'w1')['card'])->toBe(GuardSandbox::DOING);
 });
 
+it('does not bind a second agent to a card a live agent already holds', function () {
+    $sandbox = new GuardSandbox;
+    $sandbox->case('worker:w1', 'EnterWorktree', ['path' => '{wt}']);
+
+    $sandbox->case('worker:w2', 'EnterWorktree', ['path' => '{wt}']);
+
+    expect(agentRecord($sandbox, 'w1')['card'])->toBe(GuardSandbox::DOING)
+        ->and(agentRecord($sandbox, 'w2'))->toBeNull();
+});
+
+it('binds to a card whose earlier agent stopped or has been silent for minutes', function (?string $stoppedAt, int $ageMinutes) {
+    $sandbox = new GuardSandbox;
+    $sandbox->bind('old', 'kanban-worker', GuardSandbox::DOING, ageMinutes: $ageMinutes, stoppedAt: $stoppedAt);
+
+    $sandbox->case('worker:new', 'EnterWorktree', ['path' => '{wt}']);
+
+    expect(agentRecord($sandbox, 'new')['card'])->toBe(GuardSandbox::DOING);
+})->with([
+    'stopped' => ['2026-09-28T19:00:00.000+00:00', 0],
+    'silent for ten minutes' => [null, 10],
+]);
+
+it('does not bind while the earlier agent beat a minute ago', function () {
+    $sandbox = new GuardSandbox;
+    $sandbox->bind('old', 'kanban-worker', GuardSandbox::DOING, ageMinutes: 1);
+
+    $sandbox->case('worker:new', 'EnterWorktree', ['path' => '{wt}']);
+
+    expect(agentRecord($sandbox, 'new'))->toBeNull();
+});
+
+it('binds an evaluator to a card a worker of the same card has not stopped yet', function () {
+    $sandbox = new GuardSandbox;
+    $sandbox->card(GuardSandbox::DOING, 'review', '.claude/worktrees/acme-7k2m9q');
+    $sandbox->bind('w-old', 'kanban-worker', GuardSandbox::DOING, ageMinutes: 1);
+
+    $sandbox->case('evaluator:e1', 'EnterWorktree', ['path' => '{wt}']);
+
+    expect(agentRecord($sandbox, 'e1')['card'])->toBe(GuardSandbox::DOING);
+});
+
 it('touches the bound agent heartbeat on every call', function () {
     $sandbox = new GuardSandbox;
     $file = $sandbox->bind('w1', 'kanban-worker', GuardSandbox::DOING, ageMinutes: 30);

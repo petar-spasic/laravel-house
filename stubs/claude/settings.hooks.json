@@ -10,7 +10,7 @@
             { "matcher": "kanban-worker|kanban-evaluator", "hooks": [ { "type": "command", "command": "php", "args": ["-d", "display_errors=0", "-d", "display_startup_errors=0", "${CLAUDE_PROJECT_DIR}/vendor/bin/kanban", "hook", "subagent-stop"], "timeout": 300 } ] }
         ],
         "PreToolUse": [
-            { "matcher": "Bash|Edit|Write|NotebookEdit|EnterWorktree|Agent", "hooks": [ { "type": "command", "command": "php", "args": ["-d", "display_errors=0", "-d", "display_startup_errors=0", "${CLAUDE_PROJECT_DIR}/vendor/petar-spasic/laravel-kanban/bin/kanban-guard"], "timeout": 10 } ] }
+            { "matcher": "Bash|Monitor|Edit|Write|NotebookEdit|EnterWorktree|Agent", "hooks": [ { "type": "command", "command": "php", "args": ["-d", "display_errors=0", "-d", "display_startup_errors=0", "${CLAUDE_PROJECT_DIR}/vendor/petar-spasic/laravel-kanban/bin/kanban-guard"], "timeout": 10 } ] }
         ],
         "WorktreeCreate": [
             { "hooks": [ { "type": "command", "command": "php", "args": ["-d", "display_errors=0", "-d", "display_startup_errors=0", "${CLAUDE_PROJECT_DIR}/vendor/bin/kanban", "hook", "worktree-create"], "timeout": 120 } ] }

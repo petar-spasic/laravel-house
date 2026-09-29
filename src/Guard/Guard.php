@@ -17,6 +17,8 @@ final class Guard
 
     private const EVALUATOR = 'kanban-evaluator';
 
+    private const HELD_SECONDS = 300;
+
     public function run(string $raw): void
     {
         try {
@@ -92,6 +94,9 @@ final class Guard
             if (! empty($binding['card']) && $binding['card'] !== $card['id']) {
                 return;
             }
+            if (self::heldByAnother($main, $agentId, $type, $card['id'])) {
+                return;
+            }
 
             self::write($file, [
                 'agent_id' => $agentId,
@@ -105,6 +110,27 @@ final class Guard
 
             return;
         }
+    }
+
+    /**
+     * True when a different agent of the same type is bound to the card, has not stopped and beat in the last five minutes (a live
+     * agent beats on every tool call; a crashed one must not keep its replacement out until stale_after_minutes).
+     */
+    private static function heldByAnother(string $main, string $agentId, string $type, string $card): bool
+    {
+        $stale = self::HELD_SECONDS;
+
+        foreach (glob($main.'/.git/laravel-kanban/agents/*.json') ?: [] as $file) {
+            if (basename($file, '.json') === $agentId || (int) @filemtime($file) < time() - $stale) {
+                continue;
+            }
+            $other = json_decode((string) @file_get_contents($file), true);
+            if (is_array($other) && empty($other['stopped_at']) && ($other['agent_type'] ?? null) === $type && strtoupper((string) ($other['card'] ?? '')) === strtoupper($card)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
