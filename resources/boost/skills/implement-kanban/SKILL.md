@@ -33,7 +33,6 @@ project: laravel-project-setup just ran, and its choices live only in this conve
 ## 2. Install
 
 ```bash
-composer config repositories.laravel-kanban vcs https://github.com/petar-spasic/laravel-kanban
 composer require --dev petar-spasic/laravel-kanban:^0.1
 php artisan kanban:install --key=XYZ --dry-run    # read every line
 php artisan kanban:install --key=XYZ

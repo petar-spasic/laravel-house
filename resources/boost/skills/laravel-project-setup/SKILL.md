@@ -82,8 +82,7 @@ template here too.
    only what is approved:
    - composer: `laravel/fortify`, `laravel/socialite`, `laravel/horizon`,
      `laravel/octane`; dev `laravel/boost`, `petar-spasic/laravel-kanban` and
-     `petar-spasic/laravel-house` (VCS repositories,
-     `https://github.com/petar-spasic/<name>`). Pest: keep the skeleton's major; a
+     `petar-spasic/laravel-house`. Pest: keep the skeleton's major; a
      PHPUnit skeleton gets the current `pestphp/pest` +
      `pestphp/pest-plugin-laravel` in place of `phpunit/phpunit`. Then
      `fortify:install` and `horizon:install` (`octane:install` is
