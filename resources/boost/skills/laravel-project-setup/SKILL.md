@@ -165,7 +165,7 @@ template here too.
    - `bootstrap/app.php` (`bootstrap-app.php`): no event discovery, `AcceptJson`
      ahead of `auth`; `htmx` loads routes through `then:` and defines the
      `public` group; `spa` adds `statefulApi()`.
-   - `.gitignore` += `/.claude/settings.local.json` and `.env.prod` (the
+   - `.gitignore` += `/.claude/settings.local.json`, `.env.prod` and `/frankenphp` (the
      skeleton covers `.env.production` only).
    - `htmx`: `vite.config.js` `input` and `welcome.blade.php`'s `@vite` →
      `resources/js/app.ts`; `package.json` `"check": "tsc"`; append

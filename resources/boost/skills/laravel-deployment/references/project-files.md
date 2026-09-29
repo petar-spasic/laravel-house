@@ -23,7 +23,7 @@ export default defineConfig({
         // Dev-only server behind a LAN proxy; nginx does the real serving.
         allowedHosts: true,
         // Vite serves files off disk (/@fs/…) to any LAN client: only the project root, never .env or the host.
-        fs: { strict: true, allow: [fileURLToPath(new URL('.', import.meta.url))], deny: ['.env', '.env.*', '*.{pem,crt,key}'] },
+        fs: { strict: true, allow: [fileURLToPath(new URL('.', import.meta.url))], deny: ['.env', '**/.git/**', '.env.*', '*.{pem,crt,key}'] },
         // Opening the stack under another host name (localhost vs the LAN name) makes assets cross-origin.
         cors: true,
         hmr: process.env.HMR_CLIENT_PORT ? { clientPort: Number(process.env.HMR_CLIENT_PORT) } : undefined,

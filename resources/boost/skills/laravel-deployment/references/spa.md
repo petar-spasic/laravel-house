@@ -35,7 +35,7 @@ relative (`''`); `VITE_API_URL` exists only for SSR/prerender.
 Replace the `route { … }` block of `docker/Caddyfile`. Fortify registers its routes at the root when its `prefix` is
 `''` (`POST /login`, `/logout`, `/register`, `/forgot-password`, `/reset-password`, `/two-factor-challenge`,
 `PUT /user/password`, `POST /passkeys/login`), so every request that is not GET or HEAD goes to PHP; the GET paths
-(webhook callbacks, `/email/verify/*`, Fortify's `/user/*` JSON endpoints, any other backend prefix the app has) join the `path(…)` list:
+(webhook callbacks, `/email/verify/*`, Fortify's GET `/user/…` JSON endpoints (a SPA may own other `/user/*` pages), any other backend prefix the app has) join the `path(…)` list:
 
 ```caddyfile
 	route {
@@ -47,7 +47,7 @@ Replace the `route { … }` block of `docker/Caddyfile`. Fortify registers its r
 
 		{$CADDY_SERVER_EXTRA_DIRECTIVES}
 
-		@backend expression `!method('GET', 'HEAD') || path('/api/*', '/sanctum/*', '/broadcasting/*', '/horizon*', '/up', '/email/verify/*', '/user/*')`
+		@backend expression `!method('GET', 'HEAD') || path('/api/*', '/sanctum/*', '/broadcasting/*', '/horizon*', '/up', '/email/verify/*', '/user/two-factor-qr-code', '/user/two-factor-secret-key', '/user/two-factor-recovery-codes', '/user/confirmed-password-status')`
 		handle @backend {
 			php_server {
 				index frankenphp-worker.php

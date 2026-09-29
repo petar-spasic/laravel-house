@@ -4,7 +4,7 @@
 // where the container's process env would win. Mirror every forced value there.
 require __DIR__.'/../vendor/autoload.php';
 
-$config = collect(['phpunit.xml', 'phpunit.xml.dist'])->map(fn ($f) => __DIR__.'/../'.$f)->first('is_file')
+$config = collect(['phpunit.xml', 'phpunit.xml.dist'])->map(fn ($f) => __DIR__.'/../'.$f)->first(fn ($f) => is_file($f))
     ?? throw new RuntimeException('tests/bootstrap.php: no phpunit.xml or phpunit.xml.dist to mirror');
 
 foreach (simplexml_load_file($config)->php->env ?? [] as $env) {
