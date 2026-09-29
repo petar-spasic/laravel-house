@@ -88,7 +88,9 @@ template here too.
      `fortify:install`, `horizon:install` and `octane:install
      --server=frankenphp --no-interaction` (publishes `config/octane.php`;
      the FrankenPHP binary it downloads stays out of the image via
-     laravel-deployment's `.dockerignore`).
+     laravel-deployment's `.dockerignore`, and out of git via the entries it
+     appends to `.gitignore` itself: `git check-ignore frankenphp
+     public/frankenphp-worker.php` must print both paths; add any it leaves out).
    - npm, each after the maintenance check (convention 6): `htmx` →
      `htmx.org`, `htmx-ext-preload` (htmx 2 ships extensions separately),
      `typescript`; `islands` → `svelte`, `@sveltejs/vite-plugin-svelte`,
@@ -151,11 +153,12 @@ template here too.
      `Laravel` log each other out.
    - **Seeding**: the installer wrote the four seeders and
      `database/data/.gitkeep` (`database/CLAUDE.md`); `config/auth.php` gets
-     `admins` + `operator` (`config-auth.php`); `.env` gets
+     `admins` + `operator` (`config-auth.php`; a missing key closes the gate
+     silently, so check `php artisan tinker --execute="var_export(config('auth.admins'));"`
+     lists the `ADMIN_EMAILS` addresses); `.env` gets
      `ADMIN_EMAILS=admin@{{app}}.test`, `.env.example` documents it commented.
-     `ProductionSeeder` creates each missing `ADMIN_EMAILS` address as a verified
-     user (the Horizon gate needs it); its owner sets a password through the
-     password-reset flow.
+     `ProductionSeeder` seeds the operator and each `ADMIN_EMAILS` address
+     (`database/CLAUDE.md`).
    - **Horizon**: the installer wrote the `viewHorizon` gate and the local
      host-only `authorization()`; `routes/console.php` gets
      `Schedule::command('horizon:snapshot')->everyFiveMinutes()->withoutOverlapping();` — without it

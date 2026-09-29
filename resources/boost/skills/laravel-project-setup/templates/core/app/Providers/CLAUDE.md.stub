@@ -32,9 +32,8 @@ fails silently** — treat every list here as an inventory, checked end to end.
 - **`HorizonServiceProvider::gate()`**: who may see `/horizon` — a **verified** email in `config('auth.admins')` (`ADMIN_EMAILS`) until roles exist;
   registration is open, so a bare email match would let anyone claim an admin's address. The consequence: an
   `ADMIN_EMAILS` address that only registered through the form never opens `/horizon`. `ProductionSeeder` creates
-  every missing one as a verified user with a random password, known to nobody; its owner sets one through the
-  password-reset flow. An existing account, verified or not, is never modified: for an unverified one the seeder
-  warns — confirm who holds the address, then remove the account and seed again, or verify it by hand. Never open:
+  the missing ones verified and leaves an existing account alone; the remedy for an unverified one is in
+  `database/CLAUDE.md`. Never open:
   `authorization()` replaces Horizon's "anyone when local" with "anyone when local **and** from the host itself"
   (loopback, or the container's default gateway). Who can reach the local stack at all is set by `WEB_BIND` /
   `SIDECAR_BIND` (root `CLAUDE.md`, Hosting);

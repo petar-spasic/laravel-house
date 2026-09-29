@@ -11,14 +11,14 @@ set — extend the table as the project defines its surfaces:
 
 | Group | Reachable by | Middleware |
 |-------|--------------|------------|
-| `guest` | anyone, unauthenticated | Fortify's auth routes (`/login`, `/register`, `/forgot-password`, `/two-factor-challenge`, `/passkeys/login`) — `guest`; `throttle:auth-forms` on every Fortify route (`config/fortify.php`) covers register, forgot-password and reset-password, which Fortify leaves unthrottled; Fortify's own limiters (login, two-factor, passkeys; verification when on) still apply |
+| `guest` | anyone, unauthenticated | Fortify's auth routes (`/login`, `/register`, `/forgot-password`, `/two-factor-challenge`, `/passkeys/login`) — `guest`; `throttle:auth-forms` is on every Fortify route (`config/fortify.php`) but only limits register, forgot-password and reset-password, which Fortify leaves unthrottled (the limit is in `FortifyServiceProvider`); Fortify's own limiters (login, two-factor, passkeys; verification when on) still apply |
 <!-- if:htmx -->
 | `web` (authenticated) | signed-in users | `auth`, `verified` where required, CSRF; Blade + htmx; policies decide per-record access |
 | `public` | the internet + crawlers | Declared explicitly in `routes/web.php` as `Route::middleware('public')` — `web.php` is loaded via `withRouting(then:)`, so **no route gets `web` implicitly**. Group = `CachePublicResponse` (first: a hit never reaches the limiter; root `CLAUDE.md`, Non-negotiables) + `throttle:public` + `SubstituteBindings` (a group outside `web` gets no route-model binding otherwise: a missing slug would render a blank model instead of a 404). The limiter is defined in `AppServiceProvider::boot()`, never in `bootstrap/app.php` (its `withRouting(then:)` closure does not run when routes are cached, and production caches them: a missing limiter is a 500), ceiling `config('{{app}}.public_per_minute')` (default 120); `RequestId` and `SecurityHeaders` are global. `/fragment/…` routes add the `htmx` alias (`HtmxOnly`: 404 without `HX-Request`). **No write routes at all** — no POST/PUT/DELETE, no forms. That absence is what makes "no auth, no CSRF, no moderation, no rate limiting, cache everything" correct; one input route invalidates all five and needs this file updated in the same commit. **No `StartSession`** here either: a session cookie on an anonymous page makes the response personal |
 <!-- endif -->
 <!-- if:spa -->
 | `spa` | anyone | The SPA is served same-origin: `Route::fallback` in `routes/web.php` returns the SPA shell (prod routing's source of truth is `docker/Caddyfile`) |
-| `api` (SPA) | signed-in users | `/api/v1`, `auth:sanctum` (stateful session cookie + XSRF), Resources only; policies decide per-record access. Auth endpoints are throttled: login by Fortify's `login` limiter, register, forgot-password and reset-password by `auth-forms` (5 per minute per route and IP) |
+| `api` (SPA) | signed-in users | `/api/v1`, `auth:sanctum` (stateful session cookie + XSRF), Resources only; policies decide per-record access. Auth endpoints are throttled as in the `guest` row |
 <!-- endif -->
 | `api` (only if needed) | machines | `/api/v1`, token/signature auth, Resources only, own throttle |
 | `ops` | operators | `/horizon` behind the `viewHorizon` gate |

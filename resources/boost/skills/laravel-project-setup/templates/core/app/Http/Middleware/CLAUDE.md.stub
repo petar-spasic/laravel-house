@@ -32,9 +32,8 @@ The load-bearing ones:
 <!-- endif -->
 <!-- endif -->
   **throttle** on the guest auth routes (`/login`, `/register`, `/forgot-password`,
-  `/two-factor-challenge`, `/passkeys/login`) and on anything public that accepts input.
-  Every Fortify route runs `throttle:auth-forms`, alongside Fortify's own limiters (login,
-  two-factor, passkeys; verification when on).
+  `/two-factor-challenge`, `/passkeys/login`) and on anything public that accepts input; the
+  guest limiters (`auth-forms` and Fortify's own) are listed in `routes/CLAUDE.md`.
 - **Trusted proxies** (`TRUSTED_PROXIES`, `bootstrap/app.php`) name the real
   deployment topology — the reverse proxy in prod, the Vite dev server locally —
   or every "real client IP" check (the local Horizon gate, rate limits) sees
