@@ -7,7 +7,7 @@
 #   (http://192.0.2.10:{{web_port}}): it becomes APP_URL, the Vite origin in public/hot.
 #
 # One file, many stacks: main is COMPOSE_PROJECT_NAME={{app}}-local (its .env), each
-# worktree gets {{app}}-wt-<id> and its own ports from its generated .env. Never add
+# worktree gets {{app}}-wt-<name> and its own ports from its generated .env. Never add
 # `container_name`, a volume or network `name:`, or `image:` on a built service —
 # any of them makes a worktree stack collide with (or recreate) main's.
 #

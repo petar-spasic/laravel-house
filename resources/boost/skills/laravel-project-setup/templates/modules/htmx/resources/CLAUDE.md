@@ -241,7 +241,7 @@ Configured once in `app.ts` — do not repeat any of this per element:
   something** (one token per meaning — never decoration, never colour alone)
   and **no spinner under 300 ms** (`hx-indicator` only on requests that can
   genuinely be slow).
-- A view is components, `@ui` partials and utilities over those tokens: no
+- A view is components, partials and utilities over those tokens: no
   hex, font family or one-off spacing in a view, no page-specific stylesheet.
   A pattern needed twice becomes a component first.
 - Money, numbers and time are formatted in exactly one place each (a partial

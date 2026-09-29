@@ -26,8 +26,8 @@ cp .env.prod.example .env.prod && docker compose --env-file .env.prod up -d --bu
   to start without it): main is `{{app}}-local` → containers
   `{{app}}-local-{app,postgres,redis}-1`. Never add `container_name`, a
   volume/network `name:` or `image:` to `docker-compose.local.yml`.
-- **Worktree stacks**: each `.claude/worktrees/<id>` runs its own stack
-  `{{app}}-wt-<id>` from the same compose file, with a generated `.env` (own
+- **Worktree stacks**: each `.claude/worktrees/<name>` runs its own stack
+  `{{app}}-wt-<name>` from the same compose file, with a generated `.env` (own
   ports, `SIDECAR_BIND=127.0.0.1`, Xdebug off) — `vendor/bin/kanban stack create`.
 - **Opened from another machine**: `LOCAL_APP_URL=http://<LAN address>:{{web_port}}`
   in `.env`. Compose passes it as the container's `APP_URL`, which Vite writes
