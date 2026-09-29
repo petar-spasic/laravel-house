@@ -143,3 +143,16 @@ it('leaves a conflicting refresh in progress and sends the card back to doing', 
         ->and($code->sandbox->read($id)['work']['approved'])->toBeNull()
         ->and(trim($code->gitIn($wt, 'rev-parse', '-q', '--verify', 'MERGE_HEAD')))->not->toBe('');
 });
+
+it('clears the approval when the card is sent back to doing', function () {
+    $code = $this->code;
+    $id = $code->started('Sent back');
+    $code->commit($id, 'app.php', "<?php\n");
+    $code->approve($id);
+
+    $code->ok(['move', $id, 'doing', '--reason=Put the table right after the title']);
+
+    expect($code->sandbox->read($id))->toMatchArray(['stage' => 'doing'])
+        ->and($code->sandbox->read($id)['work']['approved'])->toBeNull()
+        ->and($code->kanban(['finish', $id])->getExitCode())->toBe(3);
+});

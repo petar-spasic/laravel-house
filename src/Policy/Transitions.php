@@ -128,8 +128,12 @@ final class Transitions
         if (! $force && $to === 'ready' && $card->stage() === 'backlog') {
             return $this->promote($card->id(), $by, $expected);
         }
-        if (! $force && $card->stage() === 'review' && $to === 'doing' && ($reason === null || trim($reason) === '')) {
-            throw new PolicyRefused('sending back to doing needs a note (--reason)');
+        if ($card->stage() === 'review' && $to === 'doing') {
+            if (! $force && ($reason === null || trim($reason) === '')) {
+                throw new PolicyRefused('sending back to doing needs a note (--reason)');
+            }
+
+            return $this->sendBack($card->id(), 'move', $by, $reason, $expected ?? $card->rev);
         }
         $moved = $this->store->update($card->id(), fn (array $data) => self::stage($data, $to, 'move', $reason, $force), $by, $expected ?? $card->rev);
         if ($moved->stage() === 'decided') {
@@ -200,7 +204,7 @@ final class Transitions
     }
 
     /** review → doing: $via is reject (evaluator verdict), refresh (merge conflict) or move (owner send-back). */
-    public function sendBack(string $id, string $via, Actor $by, ?string $note = null): Card
+    public function sendBack(string $id, string $via, Actor $by, ?string $note = null, ?Rev $expected = null): Card
     {
         return $this->store->update($id, function (array $data) use ($via, $note) {
             if (isset($data['work'])) {
@@ -208,7 +212,7 @@ final class Transitions
             }
 
             return self::stage($data, 'doing', $via, $note);
-        }, $by);
+        }, $by, $expected);
     }
 
     /** review → done after the merge; `work` is trimmed and records the merge commit. */
