@@ -1,0 +1,60 @@
+# {{app}} — production compose. One container runs Octane, the scheduler and
+# Horizon under supervisor; Postgres and Redis are sidecars.
+#
+# ALWAYS pass --env-file .env.prod — without it compose substitutes ${VAR}
+# from the repo's dev .env. Usage:
+#   cp .env.prod.example .env.prod && edit
+#   docker compose --env-file .env.prod up -d --build
+# Required in .env.prod: APP_KEY, APP_URL, DB_PASSWORD, TRUSTED_PROXIES, OCTANE_WORKERS.
+name: {{app}}
+
+volumes:
+  app_storage:   { name: {{app}}-storage }
+  postgres_data: { name: {{app}}-postgres }
+  redis_data:    { name: {{app}}-redis }
+
+x-logging: &logging
+  logging: { driver: json-file, options: { max-size: 100m, max-file: "5" } }
+
+services:
+  app:
+    <<: *logging
+    image: {{app}}:prod
+    build: { context: ., dockerfile: Dockerfile }
+    container_name: {{app}}-app
+    restart: unless-stopped
+    env_file: .env.prod
+    # Loopback only: the on-host reverse proxy that terminates TLS is the sole entry.
+    ports:
+      - "127.0.0.1:${WEB_PORT:-{{web_port}}}:8080"
+    # storage/ only: a persisted bootstrap/cache would drop providers after an image update.
+    volumes:
+      - app_storage:/app/storage
+    # Docker's 10 s default would SIGKILL an in-flight job; supervisor gives Horizon 70 s.
+    stop_grace_period: 80s
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  postgres:
+    <<: *logging
+    image: postgres:16-alpine
+    container_name: {{app}}-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_DATABASE:-{{app}}}
+      POSTGRES_USER: ${DB_USERNAME:-{{app}}}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required in .env.prod}
+    volumes: [postgres_data:/var/lib/postgresql/data]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-{{app}}} -d ${DB_DATABASE:-{{app}}}"], interval: 10s, timeout: 5s, retries: 5 }
+
+  redis:
+    <<: *logging
+    image: redis:7-alpine
+    container_name: {{app}}-redis
+    restart: unless-stopped
+    # One instance holds queue, cache and sessions: noeviction makes a full instance
+    # error on writes instead of silently dropping sessions and queued jobs.
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "${REDIS_MAXMEMORY:-1gb}", "--maxmemory-policy", "noeviction"]
+    volumes: [redis_data:/data]
+    healthcheck: { test: ["CMD", "redis-cli", "ping"], interval: 10s, timeout: 5s, retries: 5 }

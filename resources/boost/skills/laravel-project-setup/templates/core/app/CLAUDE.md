@@ -1,0 +1,180 @@
+# CLAUDE.md — app/ (backend code design)
+
+Scope: `app/`. The stack, hosting model and project-wide facts live in the root
+`CLAUDE.md`. This file prescribes **how to write the code**.
+
+## Layout — flat by layer, no modules
+
+This app is deliberately **not** organised into modules: there is one domain,
+and a module layout would trade auto-discovery away for nothing. If the domain
+grows to the point where that stops being true, that is a decision recorded
+here, not an ad-hoc `app/Modules/` folder.
+
+```
+app/
+├── Actions/Fortify/    # Fortify's auth actions (CreateNewUser, ResetUserPassword, …)
+├── Console/Commands/   # artisan commands (scheduler entry points, ops)
+├── Contracts/          # interfaces — the seams to outside systems
+├── Enums/              # domain vocabulary + lifecycle state machines
+├── Events/             # domain events
+├── Http/
+│   ├── Controllers/    # thin HTTP translation
+│   └── Middleware/     # request-scoped cross-cutting only
+├── Jobs/               # queued work
+├── Listeners/
+├── Models/
+├── Policies/
+├── Providers/
+├── Requests/           # FormRequests — one per endpoint
+├── Resources/          # API Resources — one per exposed entity
+├── Services/           # domain services, list queries, external clients
+└── Support/            # small, security-relevant helpers only
+```
+
+`app/Requests` and `app/Resources` are the canonical namespaces here — **not**
+`app/Http/Requests` / `app/Http/Resources`. `app/Http/` holds framework plumbing
+only (see `app/Http/CLAUDE.md`).
+<!-- if:htmx -->
+<!-- if:islands -->
+Everything rendered lives under `resources/`
+(`resources/CLAUDE.md`): Blade views and anonymous components in
+`resources/views/`, Svelte islands in `resources/js/islands/`.
+<!-- endif -->
+<!-- unless:islands -->
+Everything rendered lives under `resources/`
+(`resources/CLAUDE.md`): Blade views and anonymous components in
+`resources/views/`.
+<!-- endif -->
+Class-based Blade components go in `app/View/Components/` only when one
+genuinely needs PHP (create the directory with its own `CLAUDE.md` at that
+point).
+<!-- endif -->
+<!-- if:spa -->
+Everything rendered lives in the SPA under `frontend/` (`frontend/CLAUDE.md`);
+Laravel serves its shell and the JSON API.
+<!-- endif -->
+
+**Each layer directory carries its own `CLAUDE.md`** with that layer's
+checklist, loaded automatically when you work on a file under it. This file is
+the standard the layer files elaborate; read the layer file before writing in
+that directory.
+
+## The layering rule
+
+A controller action is HTTP translation ONLY — authorize, validate in a
+FormRequest, delegate, return a view / fragment / Resource. The action-shape
+checklist lives in `app/Http/Controllers/CLAUDE.md`; what follows is the part
+that governs **every** layer, not just controllers.
+
+Five ownership rules — these are where logic defaults upward into controllers
+when nobody is watching, and it belongs below them:
+
+| Concern | Owner — never the controller |
+|---------|------------------------------|
+| **Transaction boundary** | The service or model that owns the write. A controller opening `DB::transaction` means the workflow wants a service. |
+| **Status transition** | The model's `transitionTo()` consulting the enum's `canTransitionTo()`. Never `$m->status = 'done'` or `update(['status' => …])` in an action. |
+| **Derived/aggregate computation** | A service or model method. Private controller helpers computing business values are the tell. |
+| **Event dispatch** | The layer that performs the state change dispatches its own events. |
+| **Export / bulk plumbing** | A shared concern, never a hand-rolled per-controller `export()` pair. |
+
+<!-- if:htmx -->
+And one rule the read path owes the whole app (root `CLAUDE.md`,
+Non-negotiables): **public reads are served from the response cache; the code
+path behind them must still be cheap.** Eager-load what the view renders
+(`Model::shouldBeStrict()` makes a lazy load throw), aggregate and paginate in
+SQL, `Cache::flexible` anything slow, and index every column a public page
+filters or sorts by. Every write to a
+publicly rendered entity **invalidates the response-cache keys/tags that show
+it** — that invalidation belongs to the model event / domain service that
+performs the write, never to the controller.
+<!-- endif -->
+<!-- unless:htmx -->
+And one rule the read path owes the whole app: **the code path behind every
+read must be cheap.** Eager-load what the Resource renders
+(`Model::shouldBeStrict()` makes a lazy load throw), aggregate and paginate in
+SQL, `Cache::flexible` anything slow, and index every column a list endpoint
+filters or sorts by.
+<!-- endif -->
+
+## Models — fat, in the Laravel sense
+
+Models own THEIR OWN state: casts, relations, scopes, accessors, predicates,
+guards, and state transitions. Multi-model orchestration goes to a service —
+avoid the god-model as much as the god-controller. File conventions, the state
+discipline and scopes: `app/Models/CLAUDE.md`.
+
+## Records that must not be rewritten
+
+Where a table is an audit trail or a record of what happened (interventions,
+decisions, anything a later reader must trust), treat it as **append-only**: a
+correction is a NEW row superseding an old one (`supersedes_id`), nothing is
+updated in place and nothing is deleted. Where a job observes external state,
+**snapshot absolute state, not deltas** — deltas cannot be re-derived after a
+missed tick — and stamp when the state was *observed*, not when the row was
+inserted. Which tables get this treatment is a domain decision; record it in
+`app/Models/CLAUDE.md` when it is made.
+
+## Services — a deliberate taxonomy, not a dumping ground
+
+**Single-model invariant → model method; multi-model workflow → domain service;
+external system → a contract-backed client; reusable filter → ListQuery.** The
+kinds and the client rules: `app/Services/CLAUDE.md`. Every external system goes
+behind a contract in `Contracts/` — the seam where an E2E test fakes the outside
+world and nothing else (`tests/CLAUDE.md`).
+
+## Octane: no request state in shared position
+
+Production runs **FrankenPHP + Octane**, so the application stays in memory
+between requests; the local stack's php-fpm does not (root `CLAUDE.md`,
+Hosting). Anything that works locally because state is discarded per request
+will leak in production — across requests, and across *users*.
+
+- **Never** store request-specific state in a singleton, a static property, or a
+  captured closure variable. Bind per-request services with
+  `$this->app->scoped()`, never `singleton()`; a binding never captures the
+  current request or user.
+- Transient flags reset in a `finally`, not at the end of the happy path.
+- A static cache keyed by "the user currently being handled" is a cross-user
+  leak.
+- `config('octane.server')` names the active driver when something genuinely
+  needs to branch.
+
+This is the one bug class the local tier cannot reveal — it only appears under a
+warm worker.
+
+## Off-request rules (jobs, listeners, commands)
+
+Everything queued or scheduled runs off-request: **no authenticated user, no
+request locale, no request context of any kind.**
+
+- Anything a job scopes by is **passed in explicitly** — the user/tenant/entity
+  id comes from the work item, never from ambient state (`auth()`, `request()`).
+- **Idempotent**: at-least-once delivery is the contract, so a re-run upserts on
+  the natural key and a duplicate delivery repeats no side effect (email,
+  charge, API call); `ShouldBeUnique` where a second concurrent copy is wrong.
+- Fan out **one job per item** (`Bus::batch()` when the group matters), never a
+  whole batch in one process. One hung item must not stall the rest.
+- Queued payloads serialize FQCNs — moving or renaming a job, event or listener
+  class breaks in-flight payloads. Drain the queues (`horizon:pause`) before a
+  release that moves one.
+
+## User-authored text is untrusted input
+
+Anything a user (or an external system) typed — names, descriptions, markdown,
+uploaded filenames, webhook payloads — is stored raw and treated the same way
+everywhere:
+
+<!-- if:htmx -->
+- Escape on output, always — Blade `{{ }}`; `{!! !!}` only for
+  `Markdown::render()` (allowlist sanitizer). CSP disallows inline script as the
+  second layer.
+<!-- endif -->
+<!-- if:spa -->
+- Escape on output, always — Svelte `{text}`; `{@html}` only for
+  `Markdown::render()` (allowlist sanitizer). CSP disallows inline script as the
+  second layer.
+<!-- endif -->
+- Validate for **size and shape**, never content-filter on write; a write-time
+  filter silently rewrites the data.
+- Never let it reach a component that can act on it (a shell, an LLM with tools,
+  an eval) without a deliberate, documented decision here.

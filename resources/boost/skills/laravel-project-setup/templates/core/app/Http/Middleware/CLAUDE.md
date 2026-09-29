@@ -1,0 +1,50 @@
+# CLAUDE.md — app/Http/Middleware
+
+Scope: `app/Http/Middleware/`. The design standard is `app/CLAUDE.md`; project-
+wide facts are in the root `CLAUDE.md`.
+
+Request-scoped cross-cutting concerns only. Registered declaratively in
+`bootstrap/app.php` (there is no `Http/Kernel.php`), and a missing
+registration fails **silently**.
+
+The load-bearing ones:
+
+- **Security headers + CSP** on every HTML response, disallowing inline script.
+  User-authored text is rendered on pages; escaping is the first layer and CSP
+  is the second.
+<!-- if:htmx -->
+  htmx runs with `allowEval = false` because of this (root `CLAUDE.md`).
+<!-- endif -->
+- **`RequestId`** correlation, prepended so it lands at position 0 and every log
+  line and exception carries it.
+- **Signature / token verification** on any endpoint reachable by an external
+  system (webhooks, machine API). **Verify before parsing the body.** A
+  receiver that parses first has already fed untrusted bytes to a decoder. The
+  verified key establishes the caller's identity; everything downstream scopes
+  from it — never from a path segment or body field.
+<!-- if:htmx -->
+- **Fortify's auth + CSRF** on the authenticated web group; **throttle** on the
+  guest auth routes (Fortify's `login` limiter) and on anything public that
+  accepts input.
+<!-- endif -->
+<!-- unless:htmx -->
+- **Fortify's auth + CSRF** on the authenticated groups;
+<!-- if:spa -->
+  Sanctum's stateful middleware on the SPA's `api` group;
+<!-- endif -->
+  **throttle** on the guest auth routes (Fortify's `login` limiter) and on
+  anything public that accepts input.
+<!-- endif -->
+- **Trusted proxies** (`TRUSTED_PROXIES`, `bootstrap/app.php`) name the real
+  deployment topology — the reverse proxy in prod, the Vite dev server locally —
+  or every "real client IP" check (the local Horizon gate, rate limits) sees
+  the proxy instead.
+
+Ordering is deliberate. Signature verification runs before anything that
+touches the body; `RequestId` runs before everything so failures inside the
+other middleware are still traceable.
+
+**Do not apply one surface's middleware to another's group.** The surfaces
+(`routes/CLAUDE.md`) have different trust levels, and mixing them is how a
+public path starts serving authenticated data — or an API path starts needing a
+session.

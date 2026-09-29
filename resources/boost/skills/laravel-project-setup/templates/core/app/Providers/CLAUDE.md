@@ -1,0 +1,46 @@
+# CLAUDE.md — app/Providers (the explicit-registration hub)
+
+Scope: `app/Providers/`. The design standard is `app/CLAUDE.md`; project-wide
+facts are in the root `CLAUDE.md`.
+
+Almost nothing in this app is auto-discovered, and **a missing registration
+fails silently** — treat every list here as an inventory, checked end to end.
+
+## What gets registered here
+
+- **Contract → implementation bindings.** Each external system
+  (`app/Contracts/`) is bound to its client. A consumer resolving an unbound
+  contract fails at runtime, not at boot, so a new contract needs its binding in
+  the same commit.
+- **`Gate::policy(Model::class, ModelPolicy::class)`** for every policy, in
+  `AppServiceProvider::boot()` (`app/Policies/CLAUDE.md`).
+- **`Event::listen` wiring.** The only event→listener registry (discovery is
+  off in `bootstrap/app.php`) — a listener without a wiring line silently never
+  fires. Check that the event actually reaches it by running the flow.
+- **Observer registration** via `Model::observe()` in `boot()`.
+<!-- if:htmx -->
+- **`FortifyServiceProvider`**: the auth actions (`app/Actions/Fortify/`), the
+  `login`/`two-factor` rate limiters, the mailed reset-link URL while the views
+  are off (`routes/CLAUDE.md`), and — once the auth Blade views exist — the
+  `Fortify::*View()` bindings. Fortify is headless; every view is ours.
+<!-- endif -->
+<!-- unless:htmx -->
+- **`FortifyServiceProvider`**: the auth actions (`app/Actions/Fortify/`), the
+  `login`/`two-factor` rate limiters and the mailed reset-link URL — Fortify is
+  headless (`config/fortify.php` `views => false`, `routes/CLAUDE.md`).
+<!-- endif -->
+- **`HorizonServiceProvider::gate()`**: who may see `/horizon` — an email in `config('auth.admins')` (`ADMIN_EMAILS`) until roles exist. Never open:
+  `authorization()` replaces Horizon's "anyone when local" with "anyone when local **and** from the host itself"
+  (loopback, or the container's default gateway), because the local stack listens on the LAN.
+- **`Model::shouldBeStrict()`** / `preventLazyLoading` in non-production so
+  N+1s and silent attribute misses fail loudly locally.
+
+## Rules
+
+- **A binding is the Octane leak site** (`app/CLAUDE.md`): `scoped()` for
+  anything per-request, never a `singleton()` holding request or user state.
+- Bindings are **deferred where possible** — the web tier should not construct
+  clients holding credentials it never uses on that request.
+- A new provider goes in `bootstrap/providers.php`, or none of its bindings,
+  observers, or policies exist.
+- Middleware is registered in `bootstrap/app.php`, not here.

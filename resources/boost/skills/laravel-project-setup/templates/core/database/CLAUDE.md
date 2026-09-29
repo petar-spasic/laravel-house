@@ -1,0 +1,98 @@
+# CLAUDE.md — database (migrations / factories / seeders)
+
+Scope: `database/`. Domain invariants for the tables live in `app/CLAUDE.md` and
+`app/Models/CLAUDE.md`. Run `database-schema` (Boost) before writing a
+migration — in a worktree `php artisan db:table`, since Boost sees main's database.
+
+## Standard table structure
+
+```php
+$table->prefixedId();              // string(20): {ID_PREFIX}_{16 base-62}, e.g. bd_7Kq2mZp9Xt4LwRc1
+$table->timestamps();
+```
+
+Foreign keys are `foreignPrefixedId('x_id')->constrained()` with an explicit
+`cascadeOnDelete()` / `restrictOnDelete()` decision — never the default left
+implicit. Both macros live in `AppServiceProvider::boot()`; `prefixedId()` adds
+the primary key as a command (not a fluent modifier) so self-referencing FKs in
+the same `create` work. Users are the skeleton's bigint (`foreignId('user_id')`).
+
+**bigint exception:** a hot table — tens of millions of rows, never exposed —
+may use `$table->id()`: index size and insert locality matter more than a
+self-describing id. List each here with its reason: _(none yet)_. Every column
+a query filters or sorts by gets an index in the same migration.
+
+**Reference tables** (`ReferenceDataSeeder`, below) carry no timestamps:
+_(none yet)_.
+
+Plus, on anything that records an observation of external state:
+
+```php
+$table->timestampTz('observed_at')->index();   // when the state was OBSERVED, not inserted
+```
+
+Deliberate exceptions:
+
+- **Append-only tables** (the list is in `app/Models/CLAUDE.md`) — no
+  `updated_at` semantics that imply in-place edits, no soft deletes, no hard
+  deletes. A correction is a new row with a `supersedes_id` back-link.
+- **High-volume event tables** are short-lived or live outside Postgres
+  entirely; keep only aggregates here or reporting queries get miserable and
+  backups get fat.
+- Runtime flags (`visibility`, feature toggles) are **columns with a default**,
+  so changing behaviour later is a config/data change, not a migration.
+
+## Migrations
+
+- One concern per migration, named for what it does. Never edit a migration
+  that has run anywhere but your machine — add a new one.
+- Secrets at rest use the `encrypted` cast on the model; the column is `text`.
+- Postgres everywhere, tests included: a migration never branches on
+  `DB::getDriverName()`. Partitions, `pg_trgm`/GiST indexes,
+  `CREATE EXTENSION`, materialised views are written plainly ("today" in a view
+  is `CURRENT_DATE`, never a binding). Partitioned tables: `bigserial` not
+  `IDENTITY` (PG 16 partitions don't inherit identity), PK must include the
+  partition key, never `CREATE INDEX CONCURRENTLY` inside a migration.
+- When modifying a column, restate ALL previously defined attributes or they
+  are dropped.
+- State-machine columns (`status`, `visibility`, …) are **not mass-assignable** —
+  writes go through the model's transition method.
+- Migrations run once at container start, before the app serves (root
+  `CLAUDE.md`, Hosting); a migration that locks a big table for minutes is a
+  deploy outage — do the backfill in a job. A data-fix migration must not
+  `REFRESH MATERIALIZED VIEW` inline (non-CONCURRENT = ACCESS EXCLUSIVE, public
+  reads block): dispatch the refresh job after it instead.
+- Indexes are proven, not assumed: a new one is justified by an EXPLAIN, and
+  `pg_stat_user_indexes` zero-scan indexes get a drop migration. A composite
+  `(a, b)` does not serve `WHERE b = ?` on PG 16 (no skip scan) — `b` needs its
+  own index if queried.
+
+## Factories and seeders
+
+| Seeder | Runs | Content |
+|---|---|---|
+| `DatabaseSeeder` | `db:seed` | `ProductionSeeder` in production, else `ReferenceDataSeeder` + `DevSeeder` |
+| `ReferenceDataSeeder` | every seed, every `auto` boot, the tests (`#[Seeder]`) | `database/data/<table>.json`, or `database/data/<table>/<slug>.json` for tables many branches add to. No faker |
+| `DevSeeder` | local and testing only (`LogicException` elsewhere) | `fake()->seed(20260928)`; `admin@{{app}}.test`, `dev@{{app}}.test` / `password`; demo content |
+| `ProductionSeeder` | prod boot with `DATABASE_SEED=true` | `ReferenceDataSeeder` + the operator from `OPERATOR_EMAIL`/`OPERATOR_PASSWORD` (created only if missing; skipped with a warning if unset) |
+
+- **Every seeder is idempotent**: a second `db:seed` that throws is a bug.
+  Users by `updateOrCreate` on email; non-fillable columns via `forceFill`.
+- **Reference ids are explicit** Stripe-style ids, never changed; the seeder
+  rejects a row without one (Eloquent `upsert` would invent a random id, different per stack).
+- **Loading is `upsert` on `id`, 500 rows per chunk**: no casts, events or
+  `$fillable` — the seeder `json_encode`s arrays, and nothing relies on observers.
+  `database/data/` always exists (`.gitkeep`).
+- **No timestamps on reference tables** (git is their history); list them
+  next to the bigint exceptions above. A table the product edits at runtime is not reference data.
+- **No deletion by omission**: removing a reference row is a migration.
+- **Admins before roles exist**: `config('auth.admins')` from `ADMIN_EMAILS`
+  (the `viewHorizon` gate). When roles land, only the gate body and the seeders change.
+- Every model gets a factory with **named states** for the lifecycle
+  (`->pending()`, `->archived()`) so tests never hand-set a status. Factories
+  bypass mass assignment — the sanctioned way to seed non-fillable state.
+- **Production seeders never touch factories or `fake()`.** Faker is a `--dev`
+  dependency, absent from the prod image; a factory there crash-loops the
+  container at boot.
+- Never put real credentials, real emails, or real external identifiers in a
+  seeder or factory.

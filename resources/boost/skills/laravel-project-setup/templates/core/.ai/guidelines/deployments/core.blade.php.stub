@@ -1,0 +1,1 @@
+{{-- Overrides Boost's Laravel Cloud pointer: hosting is Docker (root CLAUDE.md, "Hosting"). Renders empty, so Boost drops the section. --}}

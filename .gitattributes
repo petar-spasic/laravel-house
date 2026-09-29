@@ -1,0 +1,7 @@
+* text=auto eol=lf
+
+/.claude-plugin export-ignore
+/.claude export-ignore
+/.gitattributes export-ignore
+/.gitignore export-ignore
+/CLAUDE.md export-ignore

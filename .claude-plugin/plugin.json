@@ -1,0 +1,12 @@
+{
+    "name": "laravel-house",
+    "description": "Start a Laravel project on the house rules, dockerize it, and bring it onto the laravel-kanban board.",
+    "author": {
+        "name": "Petar Spasic"
+    },
+    "homepage": "https://github.com/petar-spasic/laravel-house",
+    "repository": "https://github.com/petar-spasic/laravel-house",
+    "license": "MIT",
+    "keywords": ["laravel", "docker", "octane", "horizon", "kanban", "boost"],
+    "skills": "./resources/boost/skills/"
+}

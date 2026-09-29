@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__laravel-boost__database-query",
+      "mcp__laravel-boost__search-docs",
+      "Bash(php artisan *)"
+    ]
+  },
+  "enabledMcpjsonServers": [
+    "laravel-boost"
+  ],
+  "outputStyle": "Concise"
+}

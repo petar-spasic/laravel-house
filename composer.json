@@ -1,0 +1,15 @@
+{
+    "name": "petar-spasic/laravel-house",
+    "description": "House skills for Laravel projects (project setup, Docker hosting, laravel-kanban adoption), installed into Claude Code by Laravel Boost.",
+    "type": "library",
+    "license": "MIT",
+    "keywords": ["laravel", "boost", "claude-code", "skills", "docker"],
+    "authors": [
+        { "name": "Petar Spasic", "email": "spasicpetar@gmail.com" }
+    ],
+    "require": {
+        "php": "^8.3"
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}

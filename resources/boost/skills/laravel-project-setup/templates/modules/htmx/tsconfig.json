@@ -1,0 +1,19 @@
+{
+    "compilerOptions": {
+        "target": "ESNext",
+        "module": "ESNext",
+        "moduleResolution": "bundler",
+        "strict": true,
+        "noEmit": true,
+        "isolatedModules": true,
+        "verbatimModuleSyntax": true,
+        "skipLibCheck": true,
+        "types": ["vite/client"]
+    },
+<!-- if:islands -->
+    "include": ["resources/js/**/*.ts", "resources/js/**/*.svelte"]
+<!-- endif -->
+<!-- unless:islands -->
+    "include": ["resources/js/**/*.ts"]
+<!-- endif -->
+}

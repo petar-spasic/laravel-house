@@ -1,0 +1,4 @@
+# Tests
+
+- No unit or component tests: none are written, run or updated.
+- When a test is worth writing it is an E2E test of a whole flow through its real entry point; fake only paid or outside systems.

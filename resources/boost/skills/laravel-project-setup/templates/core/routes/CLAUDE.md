@@ -1,0 +1,103 @@
+# CLAUDE.md — routes
+
+Scope: `routes/`. Middleware rules are in `app/Http/CLAUDE.md`; the process
+model in the root `CLAUDE.md`.
+
+## Every route belongs to exactly one surface
+
+Before adding a route, name which one it serves. The surfaces have different
+trust levels and a route in the wrong group is a security change. The starting
+set — extend the table as the project defines its surfaces:
+
+| Group | Reachable by | Middleware |
+|-------|--------------|------------|
+| `guest` | anyone, unauthenticated | Fortify's auth routes (`/login`, `/register`, `/forgot-password`, `/two-factor-challenge`) — throttled, `guest` |
+<!-- if:htmx -->
+| `web` (authenticated) | signed-in users | `auth`, `verified` where required, CSRF; Blade + htmx; policies decide per-record access |
+| `public` | the internet + crawlers | Declared explicitly in `routes/web.php` as `Route::middleware('public')` — `web.php` is loaded via `withRouting(then:)`, so **no route gets `web` implicitly**. Group = `CachePublicResponse` (first: a hit never reaches the limiter; root `CLAUDE.md`, Non-negotiables) + `throttle:public` (limiter defined in `bootstrap/app.php`, ceiling in `config/{{app}}.php`); `RequestId` and `SecurityHeaders` are global. `/fragment/…` routes add the `htmx` alias (`HtmxOnly`: 404 without `HX-Request`). **No write routes at all** — no POST/PUT/DELETE, no forms. That absence is what makes "no auth, no CSRF, no moderation, no rate limiting, cache everything" correct; one input route invalidates all five and needs this file updated in the same commit. **No `StartSession`** here either: a session cookie on an anonymous page makes the response personal |
+<!-- endif -->
+<!-- if:spa -->
+| `spa` | anyone | The SPA is served same-origin: `Route::fallback` in `routes/web.php` returns the SPA shell (prod routing's source of truth is `docker/Caddyfile`) |
+| `api` (SPA) | signed-in users | `/api/v1`, `auth:sanctum` (stateful session cookie + XSRF), Resources only; policies decide per-record access. Auth endpoints are throttled: login `throttle:5,1`, register `throttle:3,1` |
+<!-- endif -->
+| `api` (only if needed) | machines | `/api/v1`, token/signature auth, Resources only, own throttle |
+| `ops` | operators | `/horizon` behind the `viewHorizon` gate |
+| `console` | scheduler + operator | not HTTP |
+<!-- if:reverb -->
+| `channels` | signed-in users | Realtime channel auth lives in `routes/channels.php` — a channel's auth must mirror the policy that gates the record, never a looser check |
+<!-- endif -->
+
+<!-- if:htmx -->
+- **Prefetch**: the layout sets `hx-ext="preload"` on `<body>` (extension
+  imported in `app.ts`); navigation blocks set `hx-boost`, card links add
+  `preload="mouseover"`. Safe by construction: a prefetch that would miss the
+  page cache gets a 503, never PHP.
+- **Named routes everywhere**, `route()` in Blade and in htmx attributes; no
+  hand-typed paths.
+- **Public URLs are SEO assets**: lowercase, hyphenated slugs (route-model
+  binding on `slug`, never an id in a public URL), no trailing-slash
+  variants, one canonical URL per resource (redirect the rest with 301),
+  pagination as `?page=n` with `rel=next/prev`. Renaming a public route is a
+  breaking change: keep a 301 from the old one.
+- **Listings**: `?page=n` is self-canonical with `rel=prev/next`; **any filter,
+  sort, view or a page past the last makes the URL `noindex,follow`
+  canonicalised to the unfiltered page**. Query-string keys are allow-listed per
+  route; anything else is a 422.
+- `sitemap.xml` is served from files a job writes after the data changes —
+  never generated per request. `robots.txt` is rendered by a controller. Both
+  are non-HTML, so they sit outside the response cache and carry their own
+  `Cache-Control: public, max-age=3600`.
+- **htmx fragment endpoints are ordinary routes in the same group** as the page
+  they serve — same auth, same policy, same throttle. A fragment is not a
+  lower-trust surface.
+<!-- endif -->
+<!-- unless:htmx -->
+- **Named routes everywhere**, `route()`; no hand-typed paths.
+<!-- endif -->
+- **Authenticated routes scope to `$request->user()` server-side.** The user
+  identity never comes from a path or body parameter.
+- Route-model binding does the lookup; `->scopeBindings()` on nested resources
+  so `/projects/{project}/tasks/{task}` cannot fetch another project's task.
+- Fortify registers its own routes from `config/fortify.php` (`features`,
+  `views`, `prefix`, `middleware`); do not redeclare them.
+<!-- if:htmx -->
+  **`views` is off until the auth Blade views exist**, and that takes three things, all in place:
+<!-- endif -->
+<!-- unless:htmx -->
+  **`views` is off** — the client renders every auth page — and that takes three things, all in place:
+<!-- endif -->
+  - the GET pages (`login`, `register`, `password.request`, `password.reset`,
+    `two-factor.login`, `password.confirm`) are not registered — `GET /login` and
+    `/register` answer 405 beside their POST twins;
+  - every Fortify route runs `AcceptJson` (`fortify.middleware`, ahead of `auth` in the
+    priority list, `bootstrap/app.php`), so Fortify and `auth` answer in JSON (a guest
+    gets 401, a 2FA sign-in `{"two_factor": true}`, an unconfirmed password 423) instead
+    of redirecting to a named page that does not exist;
+  - `ResetPassword::createUrlUsing` (`FortifyServiceProvider`) builds the mailed link on
+    Fortify's `/reset-password/{token}?email=` path —
+<!-- if:htmx -->
+    no page answers it yet.
+  Turning `views` on: a `Fortify::*View()` per page, drop `AcceptJson` and the reset URL override.
+<!-- endif -->
+<!-- unless:htmx -->
+    the client's reset page.
+<!-- endif -->
+- Socialite callbacks live in the `guest` group with their own throttle.
+
+## Scheduler (`routes/console.php`)
+
+- The Laravel scheduler needs **one real cron entry** (`schedule:run` every
+  minute) or `schedule:work` — in Docker that is its own supervised process in
+  the app container (root `CLAUDE.md`, Hosting). Easy to forget and silently
+  get nothing for a week.
+- `->withoutOverlapping()` on every scheduled job; `->onOneServer()` once more
+  than one container runs the scheduler.
+- Stagger anything that fans out against a rate-limited external system.
+- `horizon:snapshot` every five minutes so the Horizon metrics page works.
+- New or changed scheduled command ⇒ update this file in the SAME commit. Currently
+  scheduled: `horizon:snapshot` (every five minutes).
+
+## Access logging
+
+Log denials on gated surfaces with the request id — a client *trying* to reach
+what it may not is worth knowing about.

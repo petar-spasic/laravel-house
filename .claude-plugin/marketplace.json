@@ -1,0 +1,14 @@
+{
+    "name": "laravel-house",
+    "description": "House skills for Laravel projects: project setup, Docker hosting and laravel-kanban adoption.",
+    "owner": {
+        "name": "Petar Spasic"
+    },
+    "plugins": [
+        {
+            "name": "laravel-house",
+            "source": "./",
+            "description": "Start a Laravel project on the house rules, dockerize it, and bring it onto the laravel-kanban board."
+        }
+    ]
+}

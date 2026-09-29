@@ -1,0 +1,7 @@
+{{--
+    Mounts resources/js/islands/{name}.svelte onto this element.
+    $props must be JSON-safe data built from a Resource — never a model.
+    The slot is the server-rendered placeholder shown until the island mounts.
+--}}
+@props(['name', 'props' => []])
+<div {{ $attributes }} data-island="{{ $name }}" data-props="{{ json_encode($props, JSON_THROW_ON_ERROR) }}">{{ $slot }}</div>

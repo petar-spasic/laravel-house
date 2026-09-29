@@ -1,0 +1,85 @@
+# {{app}} — local dev stack. Bind-mounted source, php-fpm + nginx + Vite HMR,
+# scheduler + Horizon, Postgres/Redis sidecars.
+#   docker compose -f docker-compose.local.yml up --build
+#   http://localhost:{{web_port}}   (Vite is the front door: serves assets + HMR and
+#   proxies everything else to nginx inside the container; Horizon at /horizon)
+#   From another machine set LOCAL_APP_URL in .env to the URL the browser uses
+#   (http://192.0.2.10:{{web_port}}): it becomes APP_URL, the Vite origin in public/hot.
+#
+# One file, many stacks: main is COMPOSE_PROJECT_NAME={{app}}-local (its .env), each
+# worktree gets {{app}}-wt-<id> and its own ports from its generated .env. Never add
+# `container_name`, a volume or network `name:`, or `image:` on a built service —
+# any of them makes a worktree stack collide with (or recreate) main's.
+#
+# Stack wiring is HARDCODED here on purpose: compose substitutes ${VAR} from
+# the repo's .env, which is the host-side env (127.0.0.1 + published ports)
+# and would silently override any same-named default. Only knobs Laravel's
+# .env never defines are substitutable (COMPOSE_PROJECT_NAME, LOCAL_APP_URL,
+# WEB_PORT, HMR_CLIENT_PORT, DB_HOST_PORT, REDIS_HOST_PORT, SIDECAR_BIND,
+# HOST_UID, HOST_GID, DATABASE_SEED, XDEBUG_MODE, XDEBUG_SERVER_NAME).
+name: "${COMPOSE_PROJECT_NAME:?COMPOSE_PROJECT_NAME unset - main: add COMPOSE_PROJECT_NAME={{app}}-local to .env; worktree: vendor/bin/kanban stack create}"
+
+volumes:
+  postgres_local:
+  redis_local:
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.local
+      args: { HOST_UID: "${HOST_UID:-1000}", HOST_GID: "${HOST_GID:-1000}" }
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    working_dir: /app
+    volumes:
+      - ./:/app
+      # Host caches, shared by every stack; a named volume would die with any `down -v`.
+      - ${HOME:?}/.cache/composer:/cache/composer
+      - ${HOME:?}/.npm:/cache/npm
+    ports:
+      - "${WEB_PORT:-{{web_port}}}:5173"
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    environment:
+      APP_ENV: local
+      APP_DEBUG: "true"
+      APP_URL: ${LOCAL_APP_URL:-http://localhost:{{web_port}}}
+      # Behind a TLS proxy set 443 so the HMR client connects to the proxy's port
+      # instead of the port in the page URL.
+      HMR_CLIENT_PORT: ${HMR_CLIENT_PORT:-}
+      # Vite (127.0.0.1) proxies every request to nginx; trusting it gives Laravel
+      # the real client IP, which the local /horizon exception depends on.
+      TRUSTED_PROXIES: 127.0.0.1
+      DB_CONNECTION: pgsql
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_DATABASE: {{app}}
+      DB_USERNAME: {{app}}
+      DB_PASSWORD: {{app}}
+      CACHE_STORE: redis
+      QUEUE_CONNECTION: redis
+      SESSION_DRIVER: redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      DATABASE_SEED: ${DATABASE_SEED:-auto}
+      XDEBUG_MODE: ${XDEBUG_MODE:-debug,develop}
+      # CLI processes (artisan, horizon, scheduler) carry no Host header; this
+      # names the IDE's server mapping for Xdebug.
+      PHP_IDE_CONFIG: serverName=${XDEBUG_SERVER_NAME:-{{app}}}
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  postgres:
+    image: postgres:16-alpine
+    environment: { POSTGRES_DB: {{app}}, POSTGRES_USER: {{app}}, POSTGRES_PASSWORD: {{app}} }
+    ports: ["${SIDECAR_BIND:-0.0.0.0}:${DB_HOST_PORT:-{{db_port}}}:5432"]
+    volumes:
+      - postgres_local:/var/lib/postgresql/data
+      - ./docker/postgres/init-test-db.sql:/docker-entrypoint-initdb.d/init-test-db.sql:ro
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U {{app}} -d {{app}}"], interval: 10s, timeout: 5s, retries: 5, start_period: 30s, start_interval: 1s }
+
+  redis:
+    image: redis:7-alpine
+    ports: ["${SIDECAR_BIND:-0.0.0.0}:${REDIS_HOST_PORT:-{{redis_port}}}:6379"]
+    volumes: [redis_local:/data]
+    healthcheck: { test: ["CMD", "redis-cli", "ping"], interval: 10s, timeout: 5s, retries: 5, start_period: 30s, start_interval: 1s }

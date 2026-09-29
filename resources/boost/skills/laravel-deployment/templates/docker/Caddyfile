@@ -1,0 +1,61 @@
+{
+	{$CADDY_GLOBAL_OPTIONS}
+
+	admin {$CADDY_SERVER_ADMIN_HOST}:{$CADDY_SERVER_ADMIN_PORT}
+
+	# TLS terminates at the reverse proxy in front of this container; trust
+	# X-Forwarded-* from private ranges only. Laravel's own TrustProxies is set
+	# from TRUSTED_PROXIES (bootstrap/app.php).
+	servers {
+		trusted_proxies static private_ranges
+	}
+
+	frankenphp {
+		worker {
+			file "{$APP_PUBLIC_PATH}/frankenphp-worker.php"
+			{$CADDY_SERVER_WORKER_DIRECTIVE}
+			{$CADDY_SERVER_WATCH_DIRECTIVES}
+		}
+	}
+}
+
+{$CADDY_EXTRA_CONFIG}
+
+{$CADDY_SERVER_SERVER_NAME} {
+	log {
+		level {$CADDY_SERVER_LOG_LEVEL}
+		format filter {
+			wrap {$CADDY_SERVER_LOGGER}
+			fields {
+				uri query {
+					replace authorization REDACTED
+				}
+			}
+		}
+	}
+
+	route {
+		root * "{$APP_PUBLIC_PATH}"
+		encode zstd br gzip
+
+		# Hashed Vite assets never change under the same name.
+		header /build/* Cache-Control "public, max-age=31536000, immutable"
+		# Chrome re-probes /favicon.ico on every URL change; a day of freshness makes that a memory hit.
+		header /favicon.ico Cache-Control "public, max-age=86400"
+
+		{$CADDY_SERVER_EXTRA_DIRECTIVES}
+
+		# Built assets straight from disk; everything else is Laravel.
+		@realfile file
+		handle @realfile {
+			file_server
+		}
+		handle {
+			php_server {
+				index frankenphp-worker.php
+				try_files {path} frankenphp-worker.php
+				resolve_root_symlink
+			}
+		}
+	}
+}
