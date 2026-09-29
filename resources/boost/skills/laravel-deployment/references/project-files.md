@@ -22,8 +22,9 @@ export default defineConfig({
         origin: process.env.APP_URL,
         // Dev-only server behind a LAN proxy; nginx does the real serving.
         allowedHosts: true,
-        // Vite serves files off disk (/@fs/…) to any LAN client: only the project root, never .env or the host.
-        fs: { strict: true, allow: [fileURLToPath(new URL('.', import.meta.url))], deny: ['.env', '**/.git/**', '.env.*', '*.{pem,crt,key}'] },
+        // Vite serves files off disk (/@fs/…) to any LAN client: only the project root, and not the secrets in it (a
+        // worktree's .git is a file). A slash-less deny glob matches any directory; one with a slash needs its `**/`.
+        fs: { strict: true, allow: [fileURLToPath(new URL('.', import.meta.url))], deny: ['.env', '.env.*', '*.{pem,crt,key}', 'auth.json', '**/.git', '**/.git/**', '**/.claude/settings.local.json', '**/database/*.sqlite', '**/storage/logs/**'] },
         // Opening the stack under another host name (localhost vs the LAN name) makes assets cross-origin.
         cors: true,
         hmr: process.env.HMR_CLIENT_PORT ? { clientPort: Number(process.env.HMR_CLIENT_PORT) } : undefined,
@@ -100,6 +101,9 @@ COMPOSE_PROJECT_NAME={{app}}-local
 # Only when the host user is not 1000 (id -u, id -g): www-data in the local image takes these.
 # HOST_UID=1000
 # HOST_GID=1000
+# Host addresses the published ports bind (defaults: references/hosting-section.md).
+# WEB_BIND=127.0.0.1
+# SIDECAR_BIND=127.0.0.1
 ```
 
 `.env.example` carries the same block with `COMPOSE_PROJECT_NAME` commented.

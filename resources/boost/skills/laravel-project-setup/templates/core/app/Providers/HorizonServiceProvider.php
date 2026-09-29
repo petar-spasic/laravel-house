@@ -51,6 +51,8 @@ class HorizonServiceProvider extends HorizonApplicationServiceProvider
     /**
      * Register the Horizon gate: the admins in `config('auth.admins')` with a verified email, in every
      * environment. Registration is open, so an unverified address proves nothing about who holds it.
+     * An admin address that only registered through the form stays locked out: ProductionSeeder creates
+     * every missing one verified, and it signs in through the reset-password mail.
      */
     protected function gate(): void
     {

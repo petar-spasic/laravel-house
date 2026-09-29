@@ -74,7 +74,7 @@ Deliberate exceptions:
 | `DatabaseSeeder` | `db:seed` | `ProductionSeeder` in production, else `ReferenceDataSeeder` + `DevSeeder` |
 | `ReferenceDataSeeder` | every seed, every `auto` boot, the tests (`#[Seeder]`) | `database/data/<table>.json`, or `database/data/<table>/<slug>.json` for tables many branches add to. No faker |
 | `DevSeeder` | local and testing only (`LogicException` elsewhere) | `fake()->seed(20260928)`; `admin@{{app}}.test`, `dev@{{app}}.test` / `password`; demo content |
-| `ProductionSeeder` | prod boot with `DATABASE_SEED=true` | `ReferenceDataSeeder` + the operator from `OPERATOR_EMAIL`/`OPERATOR_PASSWORD` (created only if missing; skipped with a warning if unset) |
+| `ProductionSeeder` | prod boot with `DATABASE_SEED=true` | `ReferenceDataSeeder` + every `ADMIN_EMAILS` address (verified, random password, created only if missing) + the operator from `OPERATOR_EMAIL`/`OPERATOR_PASSWORD` (created only if missing; skipped with a warning if unset) |
 
 - **Every seeder is idempotent**: a second `db:seed` that throws is a bug.
   Users by `updateOrCreate` on email; non-fillable columns via `forceFill`.
@@ -84,7 +84,8 @@ Deliberate exceptions:
   `$fillable` — the seeder `json_encode`s arrays, and nothing relies on observers.
   `database/data/` always exists (`.gitkeep`). Tables load in one transaction, **parents
   first** — the seeder orders them by their foreign keys (a cycle throws), so a child
-  file may sort before its parent's. A table of ids only loads with `insertOrIgnore`.
+  file may sort before its parent's; a self-referencing foreign key is not ordered, so rows
+  inside one table are listed parent-first. A table of ids only loads with `insertOrIgnore`.
   Ids are 2–3 lowercase letters + `_` + 16 characters, the `string(20)` column.
 - **No timestamps on reference tables** (git is their history); list them
   next to the bigint exceptions above. A table the product edits at runtime is not reference data.

@@ -62,7 +62,7 @@ are in the root `CLAUDE.md`.
   (one `INCR` per tag, whatever the page count). Reason: Laravel keys tagged
   items by tag namespace, so a URL-only lookup cannot read them, and a
   wildcard flush would walk every key. Stale entries die by
-  `page_cache.hard_ttl` (Redis is `noeviction`: nothing else removes them).
+  `{{app}}.page_cache.hard_ttl` (Redis is `noeviction`: nothing else removes them).
 - **The CSP nonce is stored with the entry** and restored on a hit
   (`Vite::useCspNonce($stored)`; `SecurityHeaders` reads the nonce after
   `$next`) so header and cached markup agree. A public page's nonce therefore

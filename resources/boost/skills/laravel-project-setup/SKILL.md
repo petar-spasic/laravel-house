@@ -126,7 +126,8 @@ template here too.
    `{{hosting}}` is laravel-deployment's (step 9).
 5. **Prefixed ids.** The installer wrote `app/Models/Concerns/HasPrefixedId.php`;
    merge `templates/snippets/AppServiceProvider-boot.php` into
-   `AppServiceProvider` (with `htmx`, its `public` rate limiter too). `users` stays the skeleton's bigint.
+   `AppServiceProvider`, its `htmx only` lines (imports and the `public` rate
+   limiter) only with `htmx`. `users` stays the skeleton's bigint.
 6. **Make the rules' stated facts true** — each is a line the rules claim;
    the snippets are in `${CLAUDE_SKILL_DIR}/templates/snippets/`:
    - **Tests**: `tests/E2E/` is the only test directory; the installer wrote
@@ -150,6 +151,8 @@ template here too.
      `database/data/.gitkeep` (`database/CLAUDE.md`); `config/auth.php` gets
      `admins` + `operator` (`config-auth.php`); `.env` gets
      `ADMIN_EMAILS=admin@{{app}}.test`, `.env.example` documents it commented.
+     `ProductionSeeder` creates each missing `ADMIN_EMAILS` address as a verified
+     user (the Horizon gate needs it); they sign in through the reset-password mail.
    - **Horizon**: the installer wrote the `viewHorizon` gate and the local
      host-only `authorization()`; `routes/console.php` gets
      `Schedule::command('horizon:snapshot')->everyFiveMinutes()->withoutOverlapping();` — without it
@@ -164,12 +167,19 @@ template here too.
      `#[Hidden]`, `two_factor_confirmed_at` cast to `datetime`.
    - `bootstrap/app.php` (`bootstrap-app.php`): no event discovery, `AcceptJson`
      ahead of `auth`; `htmx` loads routes through `then:` and defines the
-     `public` group; `spa` adds `statefulApi()`.
-   - `.gitignore` += `/.claude/settings.local.json`, `.env.prod` and `/frankenphp` (the
-     skeleton covers `.env.production` only).
+     `public` group; `spa` adds `statefulApi()`. Spa and API-only skip the
+     `htmx only` lines and their imports.
+   - `.gitignore` += `/.claude/settings.local.json`, `.env.prod`, `/frankenphp` and
+     `/public/frankenphp-worker.php` (the last two are written by `octane:install`;
+     the skeleton covers `.env.production` only).
    - `htmx`: `vite.config.js` `input` and `welcome.blade.php`'s `@vite` →
      `resources/js/app.ts`; `package.json` `"check": "tsc"`; append
-     `htmx-indicator.css` to `resources/css/app.css`.
+     `htmx-indicator.css` to `resources/css/app.css`; create `config/{{app}}.php`
+     with the keys `app/Http/CLAUDE.md` names (`public_per_minute`,
+     `page_cache.hard_ttl`, `fragment_targets`, `route_query_keys`).
+     `CachePublicResponse` and `HtmxOnly` are project code those rules describe,
+     not shipped files: `Route::middleware('public')` resolves only once the
+     project adds them.
    - `islands`: `"check": "svelte-check --tsconfig ./tsconfig.json"` and
      `svelte()` in the Vite plugins; the installer wrote the boot
      (`islands.ts`, `island.blade.php`, `svelte.config.js`, the mount lines in

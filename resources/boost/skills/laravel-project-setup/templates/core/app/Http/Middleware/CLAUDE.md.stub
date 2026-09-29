@@ -24,18 +24,19 @@ The load-bearing ones:
   from it — never from a path segment or body field.
 <!-- if:htmx -->
 - **Fortify's auth + CSRF** on the authenticated web group; **throttle** on the
-  guest auth routes (`throttle:auth-forms` on every Fortify route; login and
-  two-factor also keep Fortify's own limiters) and on anything public that
-  accepts input.
+  guest auth routes (`/login`, `/register`, `/forgot-password`, `/two-factor-challenge`,
+  `/passkeys/login`: `throttle:auth-forms` on every Fortify route; login, two-factor and
+  passkeys also keep Fortify's own limiters) and on anything public that accepts input.
 <!-- endif -->
 <!-- unless:htmx -->
 - **Fortify's auth + CSRF** on the authenticated groups;
 <!-- if:spa -->
   Sanctum's stateful middleware on the SPA's `api` group;
 <!-- endif -->
-  **throttle** on the guest auth routes (`throttle:auth-forms` on every
-  Fortify route; login and two-factor also keep Fortify's own limiters) and on
-  anything public that accepts input.
+  **throttle** on the guest auth routes (`/login`, `/register`,
+  `/forgot-password`, `/two-factor-challenge`, `/passkeys/login`: `throttle:auth-forms` on
+  every Fortify route; login, two-factor and passkeys also keep Fortify's own limiters) and
+  on anything public that accepts input.
 <!-- endif -->
 - **Trusted proxies** (`TRUSTED_PROXIES`, `bootstrap/app.php`) name the real
   deployment topology — the reverse proxy in prod, the Vite dev server locally —

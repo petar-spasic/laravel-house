@@ -25,7 +25,7 @@ it('refuses to run the dev seeder in production', function () {
 
 it('skips the operator with a warning when its env is unset', function () {
     $this->app['env'] = 'production';
-    config(['auth.operator' => ['email' => null, 'password' => null]]);
+    config(['auth.admins' => [], 'auth.operator' => ['email' => null, 'password' => null]]);
 
     $this->artisan('db:seed', ['--force' => true])
         ->expectsOutputToContain('no operator account seeded')

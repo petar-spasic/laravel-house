@@ -108,7 +108,7 @@ The local compose runs as main and as every worktree stack (laravel-kanban):
 - Every published port is a `${VAR:-default}`; the web port binds `${WEB_BIND:-0.0.0.0}` (IPv4 explicitly, see the
   Horizon trap), the sidecars `${SIDECAR_BIND:-127.0.0.1}`.
 - Tool caches are host bind mounts (`down -v` deletes named volumes), dependency sentinels hash the lockfiles, Vite
-  ignores `./.claude/worktrees` and `./docs`, and `phpunit.xml` never sets `DB_HOST`/`DB_PORT`.
+  ignores `./.claude/worktrees`, `./docs` and `./vendor`, and `phpunit.xml` never sets `DB_HOST`/`DB_PORT`.
 
 The generated worktree `.env`, the port pool, Docker address pools and env leaks into compose: the laravel-kanban
 README, "Worktree stacks".
@@ -128,6 +128,7 @@ README, "Worktree stacks".
 
 ## Traps
 
+- **supervisord aborts with "unsupported format character"** → a `%` in a `program` command: write `%%`.
 - **Container runs, zero services** → `supervisord.conf` lacks `[include] files = /etc/supervisor/conf.d/*.conf`.
 - **Providers missing after an image update** → a stale `bootstrap/cache` manifest; persist `storage/` only, never
   `bootstrap/cache`, and let the entrypoint rebuild the manifest.
@@ -148,7 +149,8 @@ README, "Worktree stacks".
 - **Anyone on the LAN opens `/horizon`** → Horizon admits every request in `local`, and the local stack listens on the
   LAN; the gate (laravel-project-setup) admits local requests only from the host itself, which needs the client address
   above. A publish without a host address also binds `[::]`, where Docker's proxy re-originates IPv6 clients as the
-  bridge gateway, i.e. as the host: the web port is published on an explicit IPv4 address.
+  bridge gateway, i.e. as the host: the web port is published on an explicit IPv4 address (`WEB_BIND`, default
+  `0.0.0.0`).
 - **An empty 500 with nothing in any log** → a fatal the handler cannot report, usually `memory_limit` (512M in both
   images). Reproduce it through the CLI front controller:
   `REQUEST_URI=/path REQUEST_METHOD=GET php -d variables_order=EGPCS -d log_errors=1 -d error_log=/tmp/e.log public/index.php`,

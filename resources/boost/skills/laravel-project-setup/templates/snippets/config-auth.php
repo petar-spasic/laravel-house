@@ -11,7 +11,8 @@ return [
     |
     | Admins are an email allow-list until roles exist (the viewHorizon gate,
     | which also requires a verified email: registration is open).
-    | The operator is the one account ProductionSeeder creates when missing.
+    | ProductionSeeder creates each missing admin as a verified user, and the
+    | operator when missing.
     |
     */
 

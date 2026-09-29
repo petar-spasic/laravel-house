@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\User;
+use Database\Seeders\ProductionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
 uses(RefreshDatabase::class);
@@ -47,6 +48,24 @@ it('opens /horizon to a guest on the host itself in local', function () {
 
 it('opens /horizon to admin@{{app}}.test from the LAN', function () {
     $this->actingAs(User::factory()->create(['email' => 'admin@{{app}}.test']))
+        ->withServerVariables(['REMOTE_ADDR' => lanClientAddress()])
+        ->get('/horizon')
+        ->assertOk()
+        ->assertSee('Horizon');
+});
+
+it('opens /horizon to a second ADMIN_EMAILS address after ProductionSeeder', function () {
+    config(['auth.admins' => ['admin@{{app}}.test', 'second@{{app}}.test']]);
+
+    $this->seed(ProductionSeeder::class);
+    $this->seed(ProductionSeeder::class);
+
+    $second = User::query()->where('email', 'second@{{app}}.test')->firstOrFail();
+
+    expect($second->email_verified_at)->not->toBeNull()
+        ->and(User::query()->count())->toBe(2);
+
+    $this->actingAs($second)
         ->withServerVariables(['REMOTE_ADDR' => lanClientAddress()])
         ->get('/horizon')
         ->assertOk()
