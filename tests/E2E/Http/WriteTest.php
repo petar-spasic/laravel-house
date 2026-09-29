@@ -1,14 +1,21 @@
 <?php
 
 use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
+use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
 use PetarSpasic\Kanban\Tests\Support\Sandbox;
 use PetarSpasic\Kanban\Tests\Support\UiSandbox;
+
+/** Laravel 13 renamed the CSRF middleware. */
+function csrfMiddleware(): string
+{
+    return class_exists(PreventRequestForgery::class) ? PreventRequestForgery::class : ValidateCsrfToken::class;
+}
 
 beforeEach(function () {
     $this->sandbox = Sandbox::create();
     $this->sandbox->install('ACME');
     UiSandbox::boot($this->sandbox->root);
-    $this->withoutMiddleware(PreventRequestForgery::class);
+    $this->withoutMiddleware(csrfMiddleware());
 });
 
 function cardFile(Sandbox $s, string $id): string
@@ -182,7 +189,7 @@ it('keeps CSRF protection on: a post without the page\'s token is refused', func
     $s = $this->sandbox;
     $id = $s->card('Forged');
     $before = cardFile($s, $id);
-    $this->withMiddleware(PreventRequestForgery::class);
+    $this->withMiddleware(csrfMiddleware());
 
     $this->post("/kanban/cards/{$id}/priority", ['priority' => 'urgent', 'rev' => sha1($before)])->assertStatus(419);
 

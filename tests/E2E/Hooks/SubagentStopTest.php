@@ -194,7 +194,7 @@ it('keeps the payload in the inbox when the hook fails and SessionStart retries 
         ->and(glob($this->p->runtime('inbox/*')))->toBe([])
         ->and($this->p->card($this->id)['stage'])->toBe('review')
         ->and($this->p->agent('a4d2c0ffee')['stopped_at'])->not->toBeNull();
-});
+})->skip(function_exists('posix_geteuid') && posix_geteuid() === 0, 'root ignores the read-only directory the failure relies on');
 
 it('lets non-kanban agents stop untouched', function () {
     $stop = stop($this->p, $this->wt, 'gp1', 'general-purpose');

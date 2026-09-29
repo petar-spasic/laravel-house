@@ -10,13 +10,21 @@
  * FAKE_DOCKER_PROJECTS=a,b     extra compose projects listed by `compose ls` (not started by us)
  * FAKE_DOCKER_ALLOCATED=p,q    `up` fails with "port is already allocated" when WEB_PORT is one of these
  * FAKE_DOCKER_CONFIG_NAME=x    `compose config` reports this project name instead of -p
- * FAKE_DOCKER_FAIL=up|down     that subcommand exits 1
+ * FAKE_DOCKER_FAIL=up|down|ps that subcommand exits 1
+ * FAKE_DOCKER_DELAY=n          every compose subcommand sleeps n seconds first
+ *
+ * Each call also appends {"args": …, "env": {…}} to $FAKE_DOCKER_DIR/env.log: the process environment it was started
+ * with, limited to WEB_PORT, DB_PORT, DB_HOST_PORT, REDIS_HOST_PORT and COMPOSE_*.
  */
 
 $dir = getenv('FAKE_DOCKER_DIR') ?: sys_get_temp_dir().'/fake-docker';
 @mkdir($dir, 0775, true);
 $args = array_slice($argv, 1);
 file_put_contents($dir.'/calls.log', implode(' ', $args)."\n", FILE_APPEND | LOCK_EX);
+file_put_contents($dir.'/env.log', json_encode([
+    'args' => implode(' ', $args),
+    'env' => array_filter(getenv(), fn ($key) => in_array($key, ['WEB_PORT', 'DB_PORT', 'DB_HOST_PORT', 'REDIS_HOST_PORT'], true) || str_starts_with($key, 'COMPOSE_'), ARRAY_FILTER_USE_KEY),
+])."\n", FILE_APPEND | LOCK_EX);
 
 $stateFile = $dir.'/state.json';
 $state = is_file($stateFile) ? json_decode(file_get_contents($stateFile), true) : ['projects' => []];
@@ -53,6 +61,9 @@ for ($i = 1; $i < count($args); $i++) {
     };
 }
 $sub = $rest[0] ?? '';
+if (($delay = (int) getenv('FAKE_DOCKER_DELAY')) > 0) {
+    sleep($delay);
+}
 $env = [];
 if ($directory !== null && is_file($directory.'/.env')) {
     foreach (file($directory.'/.env', FILE_IGNORE_NEW_LINES) as $line) {
@@ -93,6 +104,10 @@ switch ($sub) {
         $save($state);
         exit(0);
     case 'ps':
+        if ($fail('ps')) {
+            fwrite(STDERR, "fake docker: cannot connect to the Docker daemon\n");
+            exit(1);
+        }
         if (isset($state['projects'][$project])) {
             echo in_array('-q', $rest, true) ? "c0ffee{$project}\n" : "NAME STATUS\n{$project}-app-1 running\n";
         }

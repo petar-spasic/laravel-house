@@ -136,6 +136,14 @@ final class CodeSandbox
         return is_file($log) ? array_values(array_filter(explode("\n", (string) file_get_contents($log)))) : [];
     }
 
+    /** @return list<array{args: string, env: array<string, string>}> what each docker call saw of the host's port and compose variables */
+    public function composeEnv(): array
+    {
+        $log = $this->docker.'/env.log';
+
+        return is_file($log) ? array_map(fn (string $line) => json_decode($line, true), array_values(array_filter(explode("\n", (string) file_get_contents($log))))) : [];
+    }
+
     /** @return list<array<string, mixed>> */
     public function stacks(): array
     {

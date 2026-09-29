@@ -71,9 +71,9 @@ final class Sandbox
     }
 
     /** Starts `bin/kanban …` without waiting. */
-    public function start(array $args, array $env = []): Process
+    public function start(array $args, array $env = [], ?string $input = null): Process
     {
-        $process = new Process([PHP_BINARY, self::package().'/bin/kanban', ...$args], $this->root, $this->env($env), null, 120);
+        $process = new Process([PHP_BINARY, self::package().'/bin/kanban', ...$args], $this->root, $this->env($env), $input, 120);
         $process->start();
 
         return $process;

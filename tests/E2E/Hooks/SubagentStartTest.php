@@ -18,7 +18,7 @@ it('records a kanban worker and gives it the board rules and the cards in doing'
         ->toContain('change it only via vendor/bin/kanban, never edit it')
         ->toContain('Git: add/commit only in your own card worktree')
         ->toContain("Doing: {$this->id} .claude/worktrees/".basename($this->wt).'.')
-        ->and(mb_strlen($context['additionalContext']))->toBeLessThan(450)
+        ->and(mb_strlen(str_replace($this->p->main, '', $context['additionalContext'])))->toBeLessThan(450)
         ->and($this->p->agent('a4d2c0ffee'))->toMatchArray(['agent_id' => 'a4d2c0ffee', 'agent_type' => 'kanban-worker', 'card' => null, 'stopped_at' => null, 'stop_blocks' => 0])
         ->and($this->p->agent('a4d2c0ffee')['started_at'])->toMatch('/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}\+00:00$/');
 });

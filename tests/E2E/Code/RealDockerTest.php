@@ -18,16 +18,16 @@ it('runs a real compose stack per worktree: start, wait for /up, stop', function
     $code->sandbox->git('commit', '-q', '-am', 'real compose');
     $real = fn (array $env = []) => $env + ['PATH' => getenv('PATH')];
     $id = $code->sandbox->readyCard('Real stack');
-    $lc = strtolower($id);
 
     $code->ok(['start', $id], $real());
+    $project = 'kanban-e2e-wt-'.basename($code->worktree($id));
     $wait = $code->kanban(['stack', $id, 'wait'], $real());
     $ps = (new Process(['docker', 'compose', 'ls', '--format', 'json']))->mustRun()->getOutput();
     $code->ok(['stop', $id, '--to=ready'], $real());
 
     expect($wait->getExitCode())->toBe(0)
         ->and($wait->getOutput())->toContain('ready http://127.0.0.1:'.($code->base + 10).'/up')
-        ->and($ps)->toContain("kanban-e2e-wt-{$lc}")
-        ->and((new Process(['docker', 'compose', 'ls', '-a', '--format', 'json']))->mustRun()->getOutput())->not->toContain("kanban-e2e-wt-{$lc}")
+        ->and($ps)->toContain($project)
+        ->and((new Process(['docker', 'compose', 'ls', '-a', '--format', 'json']))->mustRun()->getOutput())->not->toContain($project)
         ->and($code->stacks())->toBe([]);
 })->skip(getenv('KANBAN_DOCKER_TESTS') !== '1', 'real Docker: set KANBAN_DOCKER_TESTS=1');

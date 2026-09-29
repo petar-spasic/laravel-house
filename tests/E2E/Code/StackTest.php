@@ -84,3 +84,16 @@ it('garbage-collects stacks whose worktree vanished and reports unregistered one
 
     expect($code->ok(['stack', 'gc', '--force'], ['FAKE_DOCKER_PROJECTS' => 'other-wt-x']))->toContain('removed other-wt-x');
 });
+
+it("hides the host's port and compose variables from docker", function () {
+    $code = $this->code;
+    $id = $code->started('Clean environment', env: [
+        'WEB_PORT' => '8011', 'DB_PORT' => '5435', 'COMPOSE_PROJECT_NAME' => 'acme-local', 'COMPOSE_FILE' => '/elsewhere.yml', 'COMPOSE_PROFILES' => 'extra',
+    ]);
+
+    $code->ok(['stack', $id, 'down'], ['WEB_PORT' => '8011', 'COMPOSE_PROJECT_NAME' => 'acme-local']);
+
+    $seen = array_values(array_filter($code->composeEnv(), fn ($call) => str_contains($call['args'], ' up ') || str_contains($call['args'], ' down ')));
+    expect($seen)->not->toBe([])
+        ->and(array_merge(...array_column($seen, 'env')))->toBe([]);
+});

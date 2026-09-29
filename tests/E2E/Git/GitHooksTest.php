@@ -16,7 +16,7 @@ function kanbanHookRepo(): array
     };
 
     $main = $root.'/app';
-    foreach (['init -q -b main', 'config user.email t@example.com', 'config user.name T', "config core.hooksPath {$hooks}"] as $args) {
+    foreach (['init -q -b main', 'config user.email t@example.com', 'config user.name T', 'config commit.gpgsign false', "config core.hooksPath {$hooks}"] as $args) {
         $git($args, $main);
     }
     file_put_contents($main.'/a.txt', "a\n");
