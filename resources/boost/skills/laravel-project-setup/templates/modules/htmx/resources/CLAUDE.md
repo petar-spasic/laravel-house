@@ -236,12 +236,14 @@ Configured once in `app.ts` — do not repeat any of this per element:
 <!-- endif -->
 ## Tailwind
 
-- Tailwind 4, config-less: theme tokens in `@theme` in `app.css`. No
-  `tailwind.config.js`. Two checklist rules: **semantic colour means
+- Tailwind 4, config-less: the design's tokens — colour, type, spacing, grid —
+  live only in `@theme` in `app.css`. No `tailwind.config.js`. Two checklist rules: **semantic colour means
   something** (one token per meaning — never decoration, never colour alone)
   and **no spinner under 300 ms** (`hx-indicator` only on requests that can
   genuinely be slow).
-- A component never hard-codes a hex.
+- A view is components, `@ui` partials and utilities over those tokens: no
+  hex, font family or one-off spacing in a view, no page-specific stylesheet.
+  A pattern needed twice becomes a component first.
 - Money, numbers and time are formatted in exactly one place each (a partial
   or a `Support` formatter). Never concatenate a price, a number or a date in
   Blade.
