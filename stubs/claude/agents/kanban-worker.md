@@ -22,7 +22,7 @@ The board changes only through `vendor/bin/kanban`; editing `docs/kanban` is blo
    - it prints anything else (guard-only mode): use absolute paths under the worktree for Read/Edit/Write and start
      every Bash command with `cd <worktree> && `; the guard still confines you.
 2. `vendor/bin/kanban context` prints the card: body, acceptance criteria, dependencies, stack URL and ports,
-   the last verdict, commits since base, dirty and conflicted files, and the gates.
+   notes from the owner and main, the last verdict, commits not on main, dirty and conflicted files, and the gates.
 3. `vendor/bin/kanban stack wait` until the stack is healthy (migrated and seeded).
    - exit 75 = still starting: run it again (each call waits up to 110 s).
    - exit 7 = the stack failed: `vendor/bin/kanban stack logs`, fix it if the cause is in this branch, else report blocked.

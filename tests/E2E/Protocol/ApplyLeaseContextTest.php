@@ -76,12 +76,14 @@ it('prints the card context with the configured gates from its worktree, with --
     $p = ProtocolSandbox::create($gates);
     [$id, $wt] = $p->started('Conditional clauses');
     $p->commit($wt, 'app.php', "<?php\n", "{$id}: clauses");
+    $p->sandbox->ok(['set', $id, 'note=The image builds: checked by main']);
     file_put_contents($wt.'/notes.txt', "wip\n");
 
     $context = $p->in($wt, ['context']);
     expect($context->getExitCode())->toBe(0)
         ->and($context->getOutput())->toContain("{$id} doing normal feature project/work Conditional clauses\n")
-        ->toContain("commits since base: 1\n")->toContain("{$id}: clauses")
+        ->toContain("commits not on main: 1\n")->toContain("{$id}: clauses")
+        ->toMatch('/notes from the owner and main:\n  \S+ (owner|main): The image builds: checked by main\n/')
         ->toContain("dirty: notes.txt\n")
         ->toContain("gates:\n  vendor/bin/pint --test --diff=main\n  npm run check\nprotocol: work and commit only in this worktree;");
 
@@ -96,7 +98,7 @@ it('prints the card context with the configured gates from its worktree, with --
     expect($evaluate)->toContain("{$id} review ")
         ->toContain("  [x] 1. It renders\n  [ ] 2. It is tested\n")
         ->toContain('worker report: review ')->toContain(" ticks 1\n  Built it\n  verified: pest → ok\n")
-        ->toContain("...HEAD:\n  app.php | 1 +\n")
+        ->toContain("this card's changes, diff --stat main...HEAD:\n  app.php | 1 +\n")
         ->toContain("gates:\n  vendor/bin/pint --test --diff=main\n  npm run check\n")
         ->toContain("protocol: read-only; verify each criterion, then `vendor/bin/kanban verdict {$id} approve|reject --check=1:pass|fail:\"evidence\" --check=2:pass|fail:\"evidence\" [--issue=\"…\"] [--discovered=\"bug: Title — body\"]`");
 

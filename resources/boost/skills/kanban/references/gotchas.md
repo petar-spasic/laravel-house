@@ -33,3 +33,8 @@ warns.
 **A tool finds no files inside a worktree.** → Symfony Finder's `ignoreVCSIgnored` takes the first parent with a
 `.git` directory as the repository root; a worktree's `.git` is a file, so it reaches main, whose `.gitignore` ignores
 `/.claude/worktrees`. → Pass explicit paths, or turn the VCS filter off.
+
+**A criterion needs a real browser, and `chrome-headless-shell` on the host fails with `libatk-1.0.so.0: cannot open
+shared object file`.** → The host lacks the browser's system libraries. → Run `chromium --headless=new --no-sandbox
+--remote-debugging-port=9333` in a throwaway `debian:trixie-slim` container on the host network and drive the card's
+stack URL over CDP from Node ≥ 22 (global `WebSocket`); record the result with `set <ID> note="…"`.

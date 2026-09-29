@@ -35,6 +35,9 @@ class StartCommand extends Command
         $branch = is_string($parked) && $worktrees->branchExists($parked) ? $parked : $worktrees->branchFor($id, $card->title());
         $attempt = 1 + count(array_filter($card->log(), fn (array $e) => ($e['event'] ?? null) === 'stage' && ($e['to'] ?? null) === 'doing' && ($e['via'] ?? null) === 'start'));
 
+        if ($worktrees->stackEnabled() && $worktrees->registry()->find($path) === null && ($full = $worktrees->registry()->full()) !== null) {
+            throw new PolicyRefused("refused {$id}: {$full}");
+        }
         $this->transitions()->start($id, $this->actor(), force: (bool) $this->option('force'));
 
         $work = [

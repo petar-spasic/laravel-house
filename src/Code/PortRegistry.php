@@ -45,6 +45,21 @@ final class PortRegistry
         return $entries;
     }
 
+    /** Why no further stack fits under `stack.max_stacks`, or null when one does. */
+    public function full(): ?string
+    {
+        return $this->fullAt(count($this->all()));
+    }
+
+    private function fullAt(int $registered): ?string
+    {
+        $max = (int) ($this->stack['max_stacks'] ?? 6);
+
+        return $registered >= $max
+            ? "no stack slot: {$max} stacks registered on this machine (stack.max_stacks); finish or stop a card, or `kanban stack gc`"
+            : null;
+    }
+
     /** @return array<string, mixed>|null */
     public function find(string $worktree): ?array
     {
@@ -77,9 +92,8 @@ final class PortRegistry
                     unset($data['stacks'][$slot]);
                 }
             }
-            $max = (int) ($this->stack['max_stacks'] ?? 6);
-            if (count($data['stacks']) >= $max) {
-                throw new StackFailed("no stack slot: {$max} stacks registered on this machine (stack.max_stacks); finish or stop a card, or `kanban stack gc`", array_map(
+            if (($full = $this->fullAt(count($data['stacks']))) !== null) {
+                throw new StackFailed($full, array_map(
                     fn (array $e) => "slot {$e['slot']} {$e['project']} {$e['worktree']}", array_values($data['stacks'])));
             }
             $pool = $data['pool'];

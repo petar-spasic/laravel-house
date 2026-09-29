@@ -153,7 +153,7 @@ it('keeps the card in doing, blocked, when the stack cannot start', function () 
         ->and($code->stacks())->toBe([]);
 });
 
-it('refuses a stack over the machine cap and on low resources', function () {
+it('refuses a card over the machine stack cap before claiming it, and a stack on low resources', function () {
     $code = $this->code;
     $code->configure(['stack' => ['max_stacks' => 1]]);
     $code->started('One');
@@ -161,8 +161,9 @@ it('refuses a stack over the machine cap and on low resources', function () {
 
     $run = $code->kanban(['start', $id]);
 
-    expect($run->getExitCode())->toBe(7)
-        ->and($run->getErrorOutput())->toContain('no stack slot: 1 stacks registered on this machine (stack.max_stacks)');
+    expect($run->getExitCode())->toBe(3)
+        ->and($run->getErrorOutput())->toContain("refused {$id}: no stack slot: 1 stacks registered on this machine (stack.max_stacks)")
+        ->and($code->sandbox->read($id))->toMatchArray(['stage' => 'ready', 'claim' => null, 'work' => null]);
 
     $code->configure(['stack' => ['min_mem_available_gib' => 1_000_000]]);
     $third = $code->sandbox->readyCard('Three');

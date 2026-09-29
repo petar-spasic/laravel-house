@@ -81,10 +81,12 @@ final class MergeCheck
      * @param  list<string>  $files
      * @return list<string> the files among them that require a rebuild of the main stack
      */
-    public static function rebuildFiles(array $files): array
+    public static function rebuildFiles(array $files, ?string $compose = null): array
     {
-        return array_values(array_filter($files, function (string $file) {
-            foreach (self::REBUILD as $pattern) {
+        $patterns = $compose === null ? self::REBUILD : [...self::REBUILD, $compose];
+
+        return array_values(array_filter($files, function (string $file) use ($patterns) {
+            foreach ($patterns as $pattern) {
                 if ($file === $pattern || (str_ends_with($pattern, '/') && str_starts_with($file, $pattern))) {
                     return true;
                 }

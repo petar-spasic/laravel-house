@@ -44,7 +44,8 @@ You drive the board; agents do the card work. Exact flags, every exit code and t
      Spawn exactly that, in the background, unchanged (no `name`: a named spawn can become a teammate without isolation).
      The guard records the spawn and the WorktreeCreate hook hands the card's worktree to it, oldest spawn first,
      within 2 minutes: never spawn another isolated agent (a fork with `isolation`) in the same message.
-   - exit 3 refused (policy, capacity, not on main, merge in progress): read the message; skip the card.
+   - exit 3 refused (policy, capacity, not on main, merge in progress, no stack slot): read the message; skip the
+     card. Cards in review hold stacks too: finish approved ones first.
    - exit 8 claim lost (another machine took it): `next` again.
    - exit 7 or 1 after the claim: the card stays in doing with `blocked` set; `show <ID>`, fix the cause
      (`stack <ID> logs`, `doctor`), then `stop <ID> --to=ready` and start again.
@@ -54,7 +55,11 @@ You drive the board; agents do the card work. Exact flags, every exit code and t
    board; read state with `show <ID>`, never from the message alone. Do not poll in a loop; start more work
    (step 3) whenever a slot frees.
 6. **Worker finished, card in review.** A spike's findings are in its report summary (`show <ID>`): write them onto
-   its decision card (`set <DEC> body=@-`) first, since workers cannot write cards. Then `refresh <ID>` merges the
+   its decision card (`set <DEC> body=@-`) first, since workers cannot write cards. A criterion only a container or a
+   browser can prove (an image build, a process inside the app container, behaviour in a page): agents cannot run
+   `docker`, so check it yourself and record the evidence with `set <ID> note="…"` (`tick=N` when the worker could
+   not); `context` shows notes to the worker and the evaluator. A defect you can already show: `move <ID> doing
+   --reason="…"`, `set <ID> untick=N`, and SendMessage the worker what to fix. Then `refresh <ID>` merges the
    current main into the branch:
    - `up to date` / `refreshed …` → spawn the evaluator in the background:
      `Agent(subagent_type="kanban-evaluator", description="<ID> review <title words>", isolation="worktree", prompt="Card <ID>. Worktree <path>")`.

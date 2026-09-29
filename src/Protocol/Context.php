@@ -81,6 +81,13 @@ final class Context
         if ($card->dependsOn() !== []) {
             $lines[] = 'deps: '.implode(', ', array_map(fn (string $id) => $id.' '.($snapshot->card($id)?->stage() ?? 'missing'), $card->dependsOn()));
         }
+        $notes = $this->notes($card, (string) ($work['started'] ?? ''));
+        if ($notes !== []) {
+            $lines[] = 'notes from the owner and main:';
+            foreach ($notes as $note) {
+                $lines[] = '  '.$note;
+            }
+        }
         if (($verdict = $this->last($card, 'verdict')) !== null) {
             $lines[] = 'last verdict: '.$verdict['decision'].' '.substr((string) ($verdict['at'] ?? ''), 0, 16)
                 .(isset($verdict['head']) ? ' @'.substr($verdict['head'], 0, 7) : '');
@@ -91,10 +98,10 @@ final class Context
                 $lines[] = '  note: '.$verdict['note'];
             }
         }
+        $main = 'refs/heads/'.($this->config['main_branch'] ?? 'main');
         if ($git !== null) {
-            $range = ($base ?? 'refs/heads/'.($this->config['main_branch'] ?? 'main')).'..HEAD';
-            $commits = array_values(array_filter(explode("\n", $git->attempt(['log', '--format=%h %s', '-n', '20', $range])->out)));
-            $lines[] = 'commits since base: '.count($commits);
+            $commits = array_values(array_filter(explode("\n", $git->attempt(['log', '--no-merges', '--format=%h %s', '-n', '20', $main.'..HEAD'])->out)));
+            $lines[] = 'commits not on main: '.count($commits);
             foreach ($commits as $commit) {
                 $lines[] = '  '.$commit;
             }
@@ -125,9 +132,9 @@ final class Context
                     $lines[] = '  verified: '.$verified;
                 }
             }
-            if ($git !== null && $base !== null) {
-                $lines[] = 'diff --stat '.substr($base, 0, 7).'...HEAD:';
-                foreach (array_filter(explode("\n", rtrim($git->attempt(['diff', '--stat', $base.'...HEAD'])->out))) as $line) {
+            if ($git !== null) {
+                $lines[] = 'this card\'s changes, diff --stat main...HEAD:';
+                foreach (array_filter(explode("\n", rtrim($git->attempt(['diff', '--stat', $main.'...HEAD'])->out))) as $line) {
                     $lines[] = '  '.trim($line);
                 }
             }
@@ -145,6 +152,31 @@ final class Context
         }
 
         return $lines;
+    }
+
+    /**
+     * Notes and stage-change reasons the owner and main left since the card was started.
+     *
+     * @return list<string>
+     */
+    private function notes(Card $card, string $since): array
+    {
+        $notes = [];
+        foreach ($card->log() as $entry) {
+            if (($entry['at'] ?? '') < $since || ! in_array($entry['by'] ?? null, ['owner', 'main'], true)) {
+                continue;
+            }
+            $text = match ($entry['event'] ?? null) {
+                'note' => $entry['text'] ?? null,
+                'stage' => isset($entry['reason']) ? "{$entry['from']}→{$entry['to']}: {$entry['reason']}" : null,
+                default => null,
+            };
+            if (is_string($text) && $text !== '') {
+                $notes[] = substr((string) $entry['at'], 0, 16)." {$entry['by']}: {$text}";
+            }
+        }
+
+        return $notes;
     }
 
     /**

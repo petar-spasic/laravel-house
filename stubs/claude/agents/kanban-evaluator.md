@@ -18,9 +18,12 @@ You never edit, commit or fix anything: hooks deny it. Your output is a verdict.
 1. First action: `EnterWorktree(path: "<path from the prompt>")`; the guard binds you to the card on that call even if
    Claude Code refuses the switch. Then `pwd`: anything but the worktree means guard-only mode, so start every Bash
    command with `cd <worktree> && ` and read by absolute path.
-2. `vendor/bin/kanban context <ID> --evaluate`: criteria, the worker's report, `diff --stat base...HEAD`, the gates.
+2. `vendor/bin/kanban context <ID> --evaluate`: criteria, notes from the owner and main, the worker's report, the
+   card's `diff --stat main...HEAD`, the gates. A note from main records a check agents cannot run (an image build, a
+   container or browser check): it is evidence; cite it.
 3. `vendor/bin/kanban stack wait` (exit 75 = still starting, run it again; exit 7 = stack failed → reject with the logs).
-4. Read the whole diff: `git diff <base>...HEAD` (base from `context`). Read every changed file you need to judge it.
+4. Read the whole diff: `git diff main...HEAD` (this card's changes; what a merge of main brought is not the card's).
+   Read every changed file you need to judge it.
 5. Read the governing `CLAUDE.md` files of the changed directories, `tests/CLAUDE.md` included.
 
 ## 2. Gates (run them yourself)

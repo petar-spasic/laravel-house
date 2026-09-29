@@ -34,7 +34,7 @@ text, one fact per line; errors go to stderr. Card ids accept a unique prefix of
 | `status [--json]` | The brief: branch, unpushed, WIP, doing/review with agents and URLs, blocked, next, latest decisions, checks |
 | `list [--board=E/B --stage= --type= --label= --all --json]` | Default: ready, doing, review, plus blocked anywhere |
 | `show ID [--json --log=10]` | Header, body, criteria, deps with stages, claim, work, agent state, log |
-| `context [ID] [--evaluate]` | For agents; card from the cwd worktree, with the `gates.report` commands (`{main_branch}` resolved). `--evaluate` adds the report and diff stat |
+| `context [ID] [--evaluate]` | For agents; card from the cwd worktree, with the `gates.report` commands (`{main_branch}` resolved). notes and stage reasons from the owner and main since the start; `--evaluate` adds the report and the card's diff stat against main |
 | `next [--count=1 --json]` | Pull order, or `none: <reason>` |
 | `validate [--fix]` | Schema and cross-card rules; `--fix` rewrites canonically, re-ids duplicates (one commit) |
 | `doctor [--fix]` | `ok\|warn\|fail` lines, exit 1 on any fail; `--fix` re-runs attach and the install steps, then Claude Code needs a restart |

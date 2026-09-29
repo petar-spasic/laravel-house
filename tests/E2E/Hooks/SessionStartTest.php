@@ -44,7 +44,7 @@ it('gives a session in a card worktree the card context and a session title', fu
         ->and($json['hookSpecificOutput']['additionalContext'])
         ->toStartWith("{$id} doing normal feature project/work Conditional clauses\nworktree {$wt} branch card/".strtolower($id).'-conditional-clauses base ')
         ->toContain("acceptance:\n  [ ] 1. It renders\n  [ ] 2. It is tested")
-        ->toContain("commits since base: 1\n  ")
+        ->toContain("commits not on main: 1\n  ")
         ->toContain("{$id}: first step")
         ->toContain('dirty: none')
         ->toContain("protocol: work and commit only in this worktree; when done `vendor/bin/kanban report {$id} --status=review");
