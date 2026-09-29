@@ -5,6 +5,9 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Database\Schema\ColumnDefinition;
 use Illuminate\Database\Schema\ForeignIdColumnDefinition;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
 
 // boot():
 
@@ -28,3 +31,7 @@ use Illuminate\Database\Schema\ForeignIdColumnDefinition;
                 'length' => 20,
             ]));
         });
+
+        // htmx: the `public` group's limiter. Defined here, not in bootstrap/app.php: `withRouting(then:)` does not
+        // run when routes are cached, and a missing named limiter is a 500 on every throttled route.
+        RateLimiter::for('public', fn (Request $request): Limit => Limit::perMinute(120)->by($request->ip()));

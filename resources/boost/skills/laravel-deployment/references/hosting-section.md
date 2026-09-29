@@ -15,7 +15,8 @@ difference between local and prod (sqlite here, Postgres there; `sync` queue
 here, Redis there) — that is how "works locally" bugs are born. The E2E suite
 runs on the same Postgres (`{{app}}_test`, created by
 `docker/postgres/init-test-db.sql` on a fresh volume); `phpunit.xml` forces the
-test database and drivers, so `php artisan test` is safe on the host and in the container.
+test database and drivers and `tests/bootstrap.php` mirrors them into `$_SERVER` (where compose's env would
+otherwise win), so `php artisan test` is safe on the host and in the container.
 
 ```
 docker compose -f docker-compose.local.yml up --build          # http://localhost:{{web_port}} (Vite front → nginx), /horizon
@@ -35,10 +36,10 @@ cp .env.prod.example .env.prod && docker compose --env-file .env.prod up -d --bu
   loads but every asset fails with `ERR_CONNECTION_REFUSED`.
 - **PHP {{php_version}} everywhere** — the host (tests, artisan), the lock and both images.
 - **Boot** (`docker/docker-entrypoint*.sh`): deps (local), rebuild the package
-  manifest (never trust a `bootstrap/cache` from another image; only `storage/`
-  is a volume), wait for the database, migrate once and loudly, seed only as
-  `DATABASE_SEED` says (`database/CLAUDE.md`), then cache (prod) or clear
-  (local) config/routes/events/views, then supervisor.
+  manifest (never trust a `bootstrap/cache` from another image; only `storage/` is
+  a volume), clear config/routes/events/views (local), wait for the database,
+  migrate once and loudly, seed only as `DATABASE_SEED` says (`database/CLAUDE.md`),
+  cache config/routes/events/views (prod), then supervisor.
 - **Queues are Horizon's** (`config/horizon.php`), never `queue:work`: Redis
   `retry_after` (`REDIS_QUEUE_RETRY_AFTER`, 90 s) > Horizon's job `timeout`
   (60 s) > the longest job. A longer job raises both, in that order, plus

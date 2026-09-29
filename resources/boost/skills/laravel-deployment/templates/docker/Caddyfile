@@ -45,8 +45,15 @@
 
 		{$CADDY_SERVER_EXTRA_DIRECTIVES}
 
-		# Built assets straight from disk; everything else is Laravel.
-		@realfile file
+		# Built assets straight from disk, never PHP source or dotfiles (except /.well-known); everything else is Laravel.
+		@realfile {
+			file
+			not path *.php
+			not {
+				path */.*
+				not path /.well-known/*
+			}
+		}
 		handle @realfile {
 			file_server
 		}

@@ -85,15 +85,19 @@ template here too.
      `petar-spasic/laravel-house`. Pest: keep the skeleton's major; a
      PHPUnit skeleton gets the current `pestphp/pest` +
      `pestphp/pest-plugin-laravel` in place of `phpunit/phpunit`. Then
-     `fortify:install` and `horizon:install` (`octane:install` is
-     laravel-deployment's).
+     `fortify:install`, `horizon:install` and `octane:install
+     --server=frankenphp --no-interaction` (publishes `config/octane.php`;
+     the FrankenPHP binary it downloads stays out of the image via
+     laravel-deployment's `.dockerignore`).
    - npm, each after the maintenance check (convention 6): `htmx` →
      `htmx.org`, `htmx-ext-preload` (htmx 2 ships extensions separately),
      `typescript`; `islands` → `svelte`, `@sveltejs/vite-plugin-svelte`,
      `svelte-check`; `spa` → SvelteKit in `frontend/` with
      `@sveltejs/adapter-static`, `axios`, `zod`. No component-test tooling.
    - `spa`: `php artisan install:api` (Sanctum). `reverb`: `php artisan
-     install:broadcasting` (Reverb, laravel-echo, pusher-js).
+     install:broadcasting` (Reverb, laravel-echo, pusher-js); its stock
+     `REVERB_*` values and `BROADCAST_CONNECTION` are wrong for the container:
+     `references/reverb.md` of laravel-deployment sets them (step 9).
    - `git init` and the `origin` remote, if missing.
    - Deletions: `tests/Unit`, `tests/Feature`, `database/database.sqlite`,
      `AGENTS.md` and `.agents/`, `htmx`: `resources/js/app.js`; and the files
@@ -122,13 +126,13 @@ template here too.
    `{{hosting}}` is laravel-deployment's (step 9).
 5. **Prefixed ids.** The installer wrote `app/Models/Concerns/HasPrefixedId.php`;
    merge `templates/snippets/AppServiceProvider-boot.php` into
-   `AppServiceProvider`. `users` stays the skeleton's bigint.
+   `AppServiceProvider` (with `htmx`, its `public` rate limiter too). `users` stays the skeleton's bigint.
 6. **Make the rules' stated facts true** — each is a line the rules claim;
    the snippets are in `${CLAUDE_SKILL_DIR}/templates/snippets/`:
    - **Tests**: `tests/E2E/` is the only test directory; the installer wrote
      four flows (Fortify's endpoints, Horizon access, seeding, two-factor).
-     `phpunit.xml` has one `E2E` testsuite on `tests/E2E` (its `<php>` block is
-     laravel-deployment's, step 9); `tests/Pest.php` is
+     `phpunit.xml` has one `E2E` testsuite on `tests/E2E` (its `<php>` block and
+     `tests/bootstrap.php` are laravel-deployment's, step 9); `tests/Pest.php` is
      `pest()->extend(TestCase::class)->in('E2E');` and nothing else;
      `tests/TestCase.php` carries `#[Seeder(ReferenceDataSeeder::class)]`, and
      with `htmx` its `setUp()` calls `$this->withoutVite()`.
@@ -148,18 +152,19 @@ template here too.
      `ADMIN_EMAILS=admin@{{app}}.test`, `.env.example` documents it commented.
    - **Horizon**: the installer wrote the `viewHorizon` gate and the local
      host-only `authorization()`; `routes/console.php` gets
-     `Schedule::command('horizon:snapshot')->everyFiveMinutes();` — without it
+     `Schedule::command('horizon:snapshot')->everyFiveMinutes()->withoutOverlapping();` — without it
      the dashboard's metrics stay blank.
    - **Fortify headless**: `config/fortify.php` `views => false` and
-     `middleware => ['web', AcceptJson::class]` (`config-fortify.php`; the
-     installer wrote `AcceptJson`); the reset-link URL in
-     `FortifyServiceProvider` (`FortifyServiceProvider-boot.php`). `User`:
+     `middleware => ['web', AcceptJson::class, 'throttle:auth-forms']`
+     (`config-fortify.php`; the installer wrote `AcceptJson`); the reset-link
+     URL and the `auth-forms` limiter in `FortifyServiceProvider`
+     (`FortifyServiceProvider-boot.php`). `User`:
      `TwoFactorAuthenticatable`, `PasskeyAuthenticatable` + `implements
      PasskeyUser`, `two_factor_secret` and `two_factor_recovery_codes` in
      `#[Hidden]`, `two_factor_confirmed_at` cast to `datetime`.
    - `bootstrap/app.php` (`bootstrap-app.php`): no event discovery, `AcceptJson`
-     ahead of `auth`; `htmx` loads routes through `then:`, `spa` adds
-     `statefulApi()`.
+     ahead of `auth`; `htmx` loads routes through `then:` and defines the
+     `public` group; `spa` adds `statefulApi()`.
    - `.gitignore` += `/.claude/settings.local.json` and `.env.prod` (the
      skeleton covers `.env.production` only).
    - `htmx`: `vite.config.js` `input` and `welcome.blade.php`'s `@vite` →
@@ -183,15 +188,17 @@ template here too.
    `.agents/`, no `.claude/skills/deploying-to-cloud`;
    `.claude/skills/testing-best-practices/SKILL.md` is the E2E one ("end to
    end or not at all"), `.claude/skills/infer-conventions/SKILL.md` the stub.
-8. **Verify.** No `<!-- if:`, `<!-- unless:` or `<!-- endif -->` left, and no
-   `{{key}}` placeholder (`grep -rnE '\{\{[a-z_]+\}\}'` outside `vendor/` and
-   `node_modules/`) except `{{hosting}}`; `vendor/bin/pint --dirty --format
-   agent`; `php artisan route:list` boots; `htmx`: `npm run check` and `npm
-   run build`. The E2E tests need the stack's `{{app}}_test` (step 9).
+8. **Verify.** No unresolved marker or placeholder in the project's own
+   files — `grep -rnE '<!-- (if|unless):|<!-- endif|\{\{[a-z_]+\}\}' .
+   --exclude-dir={vendor,node_modules,.git,skills}` — except `{{hosting}}`
+   (`skills` holds the house skills' own templates, which keep theirs);
+   `vendor/bin/pint --dirty --format agent`; `php artisan route:list` boots;
+   `htmx`: `npm run check` and `npm run build`. The E2E tests need the
+   stack's `{{app}}_test` (step 9).
 9. **Hand off to `laravel-deployment`** (invoke it) with `{{app}}`,
    `{{app_name}}`, `{{php_version}}`, the ports, the LAN URL, `{{domain}}` and
    the modules. It merges its `references/project-files.md` (the Vite `server`
-   block, the forced phpunit `<php>` block, `TRUSTED_PROXIES`, the compose keys
+   block, the forced phpunit `<php>` block with its `tests/bootstrap.php`, `TRUSTED_PROXIES`, the compose keys
    in `.env`) and fills `{{hosting}}` from `references/hosting-section.md`.
    The Horizon gate's host check needs the real client IP that the Vite
    proxy's `xfwd` + `TRUSTED_PROXIES` provide. Done when `php artisan test
@@ -223,7 +230,9 @@ Symptom → cause → fix. Add a new one here in the session it is found.
 
 - A template that must reach a project as `*.blade.php` is stored as
   `*.blade.php.stub`: Boost renders every `*.blade.php` inside a skill it
-  copies and saves it as `.md`. The installer drops `.stub` on write.
+  copies and saves it as `.md`. Every `CLAUDE.md` template is stored as
+  `CLAUDE.md.stub` too, so it does not load as instructions in this
+  repository. The installer drops `.stub` on write.
 - `.ai/guidelines/foundation`, `laravel/core` and `boost/core` are Boost
   2.10's with the test lines, the dev-server lines, the rules section and the
   worktree database line changed. After a Boost upgrade, diff them against

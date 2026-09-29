@@ -32,6 +32,13 @@ it('refuses /horizon to a non-admin on the LAN in local', function () {
         ->assertForbidden();
 });
 
+it('refuses /horizon to an admin address whose email is unverified', function () {
+    $this->actingAs(User::factory()->unverified()->create(['email' => 'admin@{{app}}.test']))
+        ->withServerVariables(['REMOTE_ADDR' => lanClientAddress()])
+        ->get('/horizon')
+        ->assertForbidden();
+});
+
 it('opens /horizon to a guest on the host itself in local', function () {
     $this->withServerVariables(['REMOTE_ADDR' => '127.0.0.1'])
         ->get('/horizon')

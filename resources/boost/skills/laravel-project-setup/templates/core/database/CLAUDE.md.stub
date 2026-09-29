@@ -82,12 +82,16 @@ Deliberate exceptions:
   rejects a row without one (Eloquent `upsert` would invent a random id, different per stack).
 - **Loading is `upsert` on `id`, 500 rows per chunk**: no casts, events or
   `$fillable` — the seeder `json_encode`s arrays, and nothing relies on observers.
-  `database/data/` always exists (`.gitkeep`).
+  `database/data/` always exists (`.gitkeep`). Tables load in one transaction, **parents
+  first** — the seeder orders them by their foreign keys (a cycle throws), so a child
+  file may sort before its parent's. A table of ids only loads with `insertOrIgnore`.
+  Ids are 2–3 lowercase letters + `_` + 16 characters, the `string(20)` column.
 - **No timestamps on reference tables** (git is their history); list them
   next to the bigint exceptions above. A table the product edits at runtime is not reference data.
 - **No deletion by omission**: removing a reference row is a migration.
 - **Admins before roles exist**: `config('auth.admins')` from `ADMIN_EMAILS`
-  (the `viewHorizon` gate). When roles land, only the gate body and the seeders change.
+  (the `viewHorizon` gate, which also needs `email_verified_at`, so seeders set it on every
+  admin account). When roles land, only the gate body and the seeders change.
 - Every model gets a factory with **named states** for the lifecycle
   (`->pending()`, `->archived()`) so tests never hand-set a status. Factories
   bypass mass assignment — the sanctioned way to seed non-fillable state.

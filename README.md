@@ -26,7 +26,6 @@ Plugin skills are namespaced: `/laravel-house:laravel-project-setup`, `/laravel-
 The package pins the skills to the project; Laravel Boost 2.x installs them:
 
 ```bash
-composer config repositories.laravel-house vcs https://github.com/petar-spasic/laravel-house
 composer require --dev petar-spasic/laravel-house
 ```
 

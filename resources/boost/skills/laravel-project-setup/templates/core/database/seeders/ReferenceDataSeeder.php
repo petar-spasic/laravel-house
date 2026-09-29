@@ -5,16 +5,18 @@ namespace Database\Seeders;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Schema;
 use RuntimeException;
 
 /**
  * Upserts `database/data/<table>.json` (a list of rows) and
  * `database/data/<table>/…/*.json` (a row or a list per file) on `id`.
+ * Tables load parents first (foreign keys decide the order), all in one transaction.
  * Never deletes: removing a row is a migration.
  */
 class ReferenceDataSeeder extends Seeder
 {
-    private const ID_PATTERN = '/^[a-z]{2,6}_[A-Za-z0-9]{16}$/';
+    private const ID_PATTERN = '/^[a-z]{2,3}_[A-Za-z0-9]{16}$/';
 
     private const CHUNK = 500;
 
@@ -47,13 +49,46 @@ class ReferenceDataSeeder extends Seeder
             }
         }
 
-        ksort($tables);
-
-        return array_map(function (array $files): array {
+        $tables = array_map(function (array $files): array {
             sort($files);
 
             return $files;
         }, $tables);
+
+        return array_replace(array_flip($this->parentsFirst(array_keys($tables))), $tables);
+    }
+
+    /**
+     * @param  list<string>  $names
+     * @return list<string>
+     */
+    private function parentsFirst(array $names): array
+    {
+        sort($names);
+
+        $parents = [];
+        foreach ($names as $name) {
+            $parents[$name] = array_values(array_unique(array_filter(
+                array_column(Schema::getForeignKeys($name), 'foreign_table'),
+                fn (string $parent): bool => $parent !== $name && in_array($parent, $names, true),
+            )));
+        }
+
+        $ordered = [];
+        while ($parents !== []) {
+            $ready = array_keys(array_filter($parents, fn (array $waiting): bool => array_diff($waiting, $ordered) === []));
+
+            if ($ready === []) {
+                throw new RuntimeException('Foreign keys between reference tables form a cycle: '.implode(', ', array_keys($parents)));
+            }
+
+            foreach ($ready as $name) {
+                $ordered[] = $name;
+                unset($parents[$name]);
+            }
+        }
+
+        return $ordered;
     }
 
     /**
@@ -87,7 +122,10 @@ class ReferenceDataSeeder extends Seeder
         $update = array_values(array_diff($columns ?? [], ['id']));
 
         foreach (array_chunk($rows, self::CHUNK) as $chunk) {
-            DB::table($table)->upsert($chunk, ['id'], $update);
+            // A table of ids only has nothing to update; upsert() would degrade to a plain insert.
+            $update === []
+                ? DB::table($table)->insertOrIgnore($chunk)
+                : DB::table($table)->upsert($chunk, ['id'], $update);
         }
 
         $this->command?->info(sprintf('%s: %d rows', $table, count($rows)));

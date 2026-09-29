@@ -10,8 +10,15 @@ it('answers GET /login and /register without a server error while the auth views
     expect(Route::has('login'))->toBeFalse()
         ->and(Route::has('register'))->toBeFalse();
 
-    $this->get('/login')->assertMethodNotAllowed();
-    $this->get('/register')->assertMethodNotAllowed();
+    foreach (['/login', '/register'] as $path) {
+<!-- if:spa -->
+        // The SPA's Route::fallback answers these paths.
+        expect($this->get($path)->status())->toBeLessThan(500);
+<!-- endif -->
+<!-- unless:spa -->
+        $this->get($path)->assertMethodNotAllowed();
+<!-- endif -->
+    }
 });
 
 it('registers, signs out and signs in through the form endpoints, answering in JSON', function () {

@@ -177,7 +177,8 @@ case, not by default.
 
 Configured once in `app.ts` — do not repeat any of this per element:
 
-- `allowEval = false` (CSP) → **no `hx-on:*`, no `hx-vals='js:…'`.** Behaviour
+- `allowEval = false` (CSP) → **no `hx-on:*`, no `hx-vals='js:…'`, no `hx-trigger`
+  filters (`click[cond]` is evaluated).** Behaviour
 <!-- if:islands -->
   that needs JS is an island or a listener in `app.ts`.
 <!-- endif -->

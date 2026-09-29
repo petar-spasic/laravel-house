@@ -47,6 +47,9 @@ are in the root `CLAUDE.md`.
   → `304`. A prefetch/prerender miss (`Sec-Purpose`, `HX-Preloaded`) renders and is
   stored like any request — it warms the entry (a miss is ~20 ms; hover
   eagerness and `throttle:public` bound the volume).
+- **Bypassed while Vite is hot** (`public/hot` exists — the local stack): the manifest hash is null
+  then, so `build` no longer changes and an edited view or lang file would keep serving old HTML.
+  The middleware passes the request through, answers `X-Cache: BYPASS` and `Cache-Control: no-store`.
 - **Invalidation is by versioned tag, not by `Cache::tags()->flush()`.**
   Model events are wired: `Services/Cache/InvalidatesPages::register()`
   (AppServiceProvider) bumps the entity's own tag plus the reference tags on
@@ -58,8 +61,8 @@ are in the root `CLAUDE.md`.
   time and is stale once any moved; a write calls `CacheVersions::bump([...])`
   (one `INCR` per tag, whatever the page count). Reason: Laravel keys tagged
   items by tag namespace, so a URL-only lookup cannot read them, and a
-  wildcard flush would walk every key. Stale entries die by LRU;
-  `page_cache.hard_ttl` is the safety net.
+  wildcard flush would walk every key. Stale entries die by
+  `page_cache.hard_ttl` (Redis is `noeviction`: nothing else removes them).
 - **The CSP nonce is stored with the entry** and restored on a hit
   (`Vite::useCspNonce($stored)`; `SecurityHeaders` reads the nonce after
   `$next`) so header and cached markup agree. A public page's nonce therefore
@@ -99,8 +102,13 @@ The house names — create each under this name when it is first needed:
 <!-- if:htmx -->
   The CSP nonce is `Vite::useCspNonce()` per request, read in Blade with
   `Vite::cspNonce()`; only the JSON-LD tag and Vite's own tags use it.
-- Group `public` = `CachePublicResponse`, `throttle:public`; alias `htmx` = `HtmxOnly`,
-  prepended to `SubstituteBindings` in the priority list.
+  While `public/hot` exists (never in production) the CSP also allows the dev server's
+  origin, read from that file, in `script-src`, `style-src` and `connect-src` (with its
+  `ws:` twin); a strict `'self'` blocks Vite's client.
+- Group `public` = `CachePublicResponse`, `throttle:public`, `SubstituteBindings` (no
+  `web` group, so no route-model binding otherwise); alias `htmx` = `HtmxOnly`, prepended to
+  `SubstituteBindings` in the priority list. Named limiters are defined in a service provider,
+  never in `bootstrap/app.php` (`app/Providers/CLAUDE.md`).
 - `AcceptJson` on Fortify's routes (`config/fortify.php` `middleware`) while its views
   are off, prepended to `AuthenticatesRequests` in the priority list (`routes/CLAUDE.md`).
 - `Controller::render($view, $data, $fragment)` is the one htmx helper: it returns

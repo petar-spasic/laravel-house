@@ -31,7 +31,7 @@ the frontend over WebSocket.
 - **Reverb MUST be running in every non-local environment.** Without it,
   `ShouldBroadcast` dispatches silently fail to reach connected clients (Laravel
   still queues to the configured driver — there is no exception). Its listen,
-  connect and browser addresses: root `CLAUDE.md`, Hosting.
+  connect and browser addresses: `laravel-deployment`'s `references/reverb.md`.
 
 <!-- endif -->
 ## Inbound webhooks are NOT these events

@@ -20,18 +20,27 @@ fails silently** — treat every list here as an inventory, checked end to end.
 - **Observer registration** via `Model::observe()` in `boot()`.
 <!-- if:htmx -->
 - **`FortifyServiceProvider`**: the auth actions (`app/Actions/Fortify/`), the
-  `login`/`two-factor` rate limiters, the mailed reset-link URL while the views
+  `login`/`two-factor`/`auth-forms` rate limiters, the mailed reset-link URL while the views
   are off (`routes/CLAUDE.md`), and — once the auth Blade views exist — the
   `Fortify::*View()` bindings. Fortify is headless; every view is ours.
 <!-- endif -->
 <!-- unless:htmx -->
 - **`FortifyServiceProvider`**: the auth actions (`app/Actions/Fortify/`), the
-  `login`/`two-factor` rate limiters and the mailed reset-link URL — Fortify is
+  `login`/`two-factor`/`auth-forms` rate limiters and the mailed reset-link URL — Fortify is
   headless (`config/fortify.php` `views => false`, `routes/CLAUDE.md`).
 <!-- endif -->
-- **`HorizonServiceProvider::gate()`**: who may see `/horizon` — an email in `config('auth.admins')` (`ADMIN_EMAILS`) until roles exist. Never open:
-  `authorization()` replaces Horizon's "anyone when local" with "anyone when local **and** from the host itself"
-  (loopback, or the container's default gateway), because the local stack listens on the LAN.
+- **`HorizonServiceProvider::gate()`**: who may see `/horizon` — a **verified** email in `config('auth.admins')` (`ADMIN_EMAILS`) until roles exist;
+  registration is open, so a bare email match would let anyone claim an admin's address. Seed admins with
+  `email_verified_at` set. Never open: `authorization()` replaces Horizon's "anyone when local" with "anyone when
+  local **and** from the host itself" (loopback, or the container's default gateway), because the local stack
+  listens on the LAN. `comesFromHost` is safe only while the published web port is IPv4-only (an explicit IPv4
+  bind in the compose file): an IPv6-published port can arrive from the gateway address. `DevSeeder`'s known
+  password makes `admin@{{app}}.test` a working admin for anyone on the LAN who reaches the local stack — keep it
+  on a trusted network.
+- **Named rate limiters** (`RateLimiter::for`): `public` in `AppServiceProvider::boot()`,
+  `auth-forms` next to `login`/`two-factor` in `FortifyServiceProvider`. Never in
+  `bootstrap/app.php`: its `withRouting(then:)` closure does not run under `route:cache`,
+  and a route naming a missing limiter answers 500.
 - **`Model::shouldBeStrict()`** / `preventLazyLoading` in non-production so
   N+1s and silent attribute misses fail loudly locally.
 

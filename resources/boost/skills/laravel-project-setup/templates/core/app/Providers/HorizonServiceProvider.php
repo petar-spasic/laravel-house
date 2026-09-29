@@ -49,12 +49,13 @@ class HorizonServiceProvider extends HorizonApplicationServiceProvider
     }
 
     /**
-     * Register the Horizon gate: the admins in `config('auth.admins')`, in every environment.
+     * Register the Horizon gate: the admins in `config('auth.admins')` with a verified email, in every
+     * environment. Registration is open, so an unverified address proves nothing about who holds it.
      */
     protected function gate(): void
     {
         Gate::define('viewHorizon', function ($user = null) {
-            return in_array($user?->email, config('auth.admins'), true);
+            return $user?->email_verified_at !== null && in_array($user->email, config('auth.admins'), true);
         });
     }
 }

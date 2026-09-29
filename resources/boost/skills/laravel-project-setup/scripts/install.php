@@ -110,8 +110,8 @@ foreach ($sources as $source) {
             continue;
         }
         if (! $dryRun) {
-            is_dir(dirname($target)) || mkdir(dirname($target), 0775, true);
-            file_put_contents($target, $text);
+            is_dir(dirname($target)) || mkdir(dirname($target), 0775, true) || is_dir(dirname($target)) || fail("cannot create ".dirname($target));
+            file_put_contents($target, $text) === false && fail("cannot write {$target}");
         }
         $written[] = $relative;
     }

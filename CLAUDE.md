@@ -14,7 +14,7 @@ Consumers read `README.md`. This file is for working **on** the skills.
 | `.claude-plugin/marketplace.json` | The marketplace; its one plugin's `source` is the repository root (`"./"`) |
 | `.claude-plugin/plugin.json` | The plugin; `"skills": "./resources/boost/skills/"` makes the same directory its skills |
 
-`CLAUDE.md` files under `templates/` are data for the projects a skill sets up; they do not govern this repository.
+Template rule files are stored as `CLAUDE.md.stub` (the installer drops `.stub`): a real `CLAUDE.md` under `templates/` would load here as live instructions. Never rename one back.
 
 ## Rules
 
@@ -49,8 +49,9 @@ grep -rniE "pisar|pazarko|supply|fab-portal|192\.168|/home/petar" --exclude-dir=
 bash -n resources/boost/skills/laravel-deployment/templates/docker/*.sh
 ```
 
-Dry-run the setup installer against a scratch Laravel app for every module combination; it must resolve every block
-and placeholder:
+Dry-run the setup installer against a scratch Laravel app for every module combination, with every `--set` the skill's
+step 4 passes; it must exit 0 and print no `placeholders left` line except `what_we_are_building` and `hosting`
+(filled by hand):
 `php resources/boost/skills/laravel-project-setup/scripts/install.php <app> --modules=<m,…> --set app=<slug> --dry-run`.
 
 ## Release

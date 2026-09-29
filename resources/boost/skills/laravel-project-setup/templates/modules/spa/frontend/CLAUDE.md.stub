@@ -18,10 +18,10 @@ Any other package needs owner approval (root `CLAUDE.md`, convention 6).
 
 ## Build and serving
 
-- **Local:** Vite runs inside the container behind nginx (root `CLAUDE.md`,
-  Hosting): browse the web port — SPA + API on one origin — and edits
-  hot-reload. The HMR port carries only the HMR websocket; hitting it directly
-  bypasses nginx and `/api` 404s.
+- **Local:** nginx serves the built SPA and the API on the web port — one
+  origin (root `CLAUDE.md`, Hosting). There is no Vite dev server and no hot
+  reload: a frontend change needs a rebuild, `npm run build` in `frontend/`
+  (inside the container; `laravel-deployment`'s `references/spa.md`).
 - **Prod build:** `npm run build`. adapter-static emits into `frontend/build/`
   — its own directory, because it wipes its output (never Laravel's
   `public/`) — then the `postbuild` hook (`frontend/scripts/copy-spa.mjs`)

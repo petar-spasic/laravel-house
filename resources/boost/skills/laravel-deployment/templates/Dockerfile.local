@@ -15,6 +15,8 @@ COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 ADD --checksum=sha256:3f49c71fa66c79b8b2b96bc0ce92885dafd7946f3b5a46f545b390d6f1617e2c https://github.com/mlocati/docker-php-extension-installer/releases/download/2.12.0/install-php-extensions /usr/local/bin/
 RUN chmod +x /usr/local/bin/install-php-extensions && install-php-extensions pcntl pdo_pgsql redis opcache intl zip xdebug
 RUN printf 'memory_limit = 512M\n' > /usr/local/etc/php/conf.d/zz-{{app}}.ini
+# The image's zz-docker.conf listens on *:9000, open to every container on the compose network; nginx is in this one.
+RUN printf '[www]\nlisten = 127.0.0.1:9000\n' > /usr/local/etc/php-fpm.d/zz-listen.conf
 
 COPY docker/xdebug.ini /usr/local/etc/php/conf.d/zz-xdebug.ini
 COPY docker/nginx-local.conf /etc/nginx/sites-available/default

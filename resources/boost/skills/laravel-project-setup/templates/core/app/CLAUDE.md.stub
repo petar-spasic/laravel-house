@@ -155,8 +155,9 @@ request locale, no request context of any kind.**
 - Fan out **one job per item** (`Bus::batch()` when the group matters), never a
   whole batch in one process. One hung item must not stall the rest.
 - Queued payloads serialize FQCNs — moving or renaming a job, event or listener
-  class breaks in-flight payloads. Drain the queues (`horizon:pause`) before a
-  release that moves one.
+  class breaks in-flight payloads. Before a release that moves one, stop dispatching it
+  and wait until the queues are empty (`horizon:status`, queue sizes), or keep a
+  `class_alias` from the old FQCN (`horizon:pause` holds the payloads, it does not remove them).
 
 ## User-authored text is untrusted input
 

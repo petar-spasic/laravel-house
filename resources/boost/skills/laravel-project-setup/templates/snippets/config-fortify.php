@@ -6,8 +6,8 @@ use App\Http\Middleware\AcceptJson;
 
 return [
 
-    // AcceptJson while 'views' is off (routes/CLAUDE.md).
-    'middleware' => ['web', AcceptJson::class],
+    // AcceptJson while 'views' is off (routes/CLAUDE.md); `auth-forms` is defined in FortifyServiceProvider.
+    'middleware' => ['web', AcceptJson::class, 'throttle:auth-forms'],
 
     // Off until the auth views exist: on, with no Fortify::*View registered, every GET page 500s.
     'views' => false,

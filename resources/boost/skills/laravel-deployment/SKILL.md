@@ -47,6 +47,7 @@ differs between the tiers.
 | `docker/Caddyfile` | Blade apps: files off disk (`/build/*` immutable), everything else to the worker; proxy trust |
 | `docker/nginx-local.conf`, `docker/xdebug.ini` | `HTTP_HOST` with its port; Xdebug on trigger |
 | `docker/postgres/init-test-db.sql` | `{{app}}_test` on a fresh volume |
+| `tests/bootstrap.php` | forced phpunit `<env>` mirrored into `$_SERVER` |
 | `.dockerignore`, `.env.prod.example` | the build context (never `public/hot`, `vendor/` or the FrankenPHP binary); the production env |
 
 Placeholders: `{{app}}` the project slug · `{{app_name}}` its `APP_NAME` · `{{php_version}}` the one PHP minor of
@@ -57,7 +58,7 @@ production host name. The PHP minor and the ports are laravel-project-setup's ch
    template and merge, keeping what is project-specific. Show the owner either way.
 2. `chmod +x docker/*.sh`; `grep -rn '{{' Dockerfile* docker-compose*.yml docker .dockerignore .env.prod.example`
    finds nothing.
-3. Merge `references/project-files.md` into `vite.config.js`, `phpunit.xml`, `bootstrap/app.php`, `.env` and
+3. Merge `references/project-files.md` into `vite.config.js`, `phpunit.xml` (+ `tests/bootstrap.php`), `bootstrap/app.php`, `.env` and
    `.env.example`.
 4. Modules: `reverb` → `references/reverb.md`; `spa`, or API-only without a Vite front door → `references/spa.md`.
 5. Fill `{{hosting}}` in the root `CLAUDE.md` from `references/hosting-section.md`, adjusted to what was built.
@@ -69,7 +70,7 @@ Both entrypoints, in this order:
 
 1. Local: `.env` from `.env.example` when missing; `composer install` / `npm ci` only when the lockfile's sha256 differs
    from `vendor/.lock-sha` / `node_modules/.lock-sha` (never mtimes: `git worktree add` stamps lockfiles); `key:generate`
-   when `APP_KEY` is empty. Prod: print the env with every secret masked.
+   when `APP_KEY` is empty. Prod: print the env variable names, never values; refuse an `OCTANE_WORKERS` that is not a positive number.
 2. Prod: create the `storage/` and `bootstrap/cache` directories the volume may lack.
 3. `rm bootstrap/cache/{packages,services}.php` + `package:discover`: a manifest from another image or branch drops
    providers, and `optimize:clear` cannot help because artisan itself fails to boot.
@@ -81,8 +82,8 @@ Both entrypoints, in this order:
    Prod: `true` (`ProductionSeeder` only; the image has no faker), `false`. Anything else exits 1. The seeders are
    idempotent (laravel-project-setup's seeding standard), so a second boot never crash-loops.
 8. Prod: `config:cache`, `route:cache`, `event:cache`, `view:cache`, after migrating.
-9. `program` blocks (prod: web; local: php-fpm, nginx, vite; both: scheduler, horizon with `stopwaitsecs` 70), then
-   `exec supervisord -n`. Healthy therefore means migrated and seeded.
+9. `program` blocks (prod: web; local: php-fpm, nginx, vite; both: scheduler, horizon with `stopwaitsecs` 70; each `exec`s its
+   command, so SIGTERM reaches the real process and `stopwaitsecs` is honoured), then `exec supervisord -n`. Healthy therefore means migrated and seeded.
 
 ## Processes and limits
 
@@ -104,7 +105,8 @@ The local compose runs as main and as every worktree stack (laravel-kanban):
 - `name: "${COMPOSE_PROJECT_NAME:?…}"`: main's `.env` names `{{app}}-local`; a checkout without its own `.env` fails
   instead of taking over main's containers.
 - No `container_name`, no volume or network `name:`, no `image:` on a built service.
-- Every published port is a `${VAR:-default}`; sidecars bind `${SIDECAR_BIND:-0.0.0.0}`.
+- Every published port is a `${VAR:-default}`; the web port binds `${WEB_BIND:-0.0.0.0}` (IPv4 explicitly, see the
+  Horizon trap), the sidecars `${SIDECAR_BIND:-127.0.0.1}`.
 - Tool caches are host bind mounts (`down -v` deletes named volumes), dependency sentinels hash the lockfiles, Vite
   ignores `./.claude/worktrees` and `./docs`, and `phpunit.xml` never sets `DB_HOST`/`DB_PORT`.
 
@@ -136,15 +138,17 @@ README, "Worktree stacks".
 - **The container dials 127.0.0.1 or `redis:<host port>`** → compose substitutes `${VAR}` from the repo's `.env`,
   which is the host-side env; the local compose hardcodes every wiring value and driver, and prod always runs with
   `--env-file .env.prod`.
-- **`php artisan test` in the container empties the dev database** → unforced phpunit `<env>` lose to compose's process
-  env; force them (`references/project-files.md`).
+- **`php artisan test` in the container empties the dev database** → compose's process env sits in `$_SERVER`, which
+  Laravel reads before PHPUnit's `<env>`; force them and mirror them with `tests/bootstrap.php`
+  (`references/project-files.md`).
 - **Redirects drop the port (to `http://localhost/…`)** → Debian's `fastcgi_params` passes `HTTP_HOST` as `$host`;
   `nginx-local.conf` passes `$http_host`.
 - **Every request seems to come from 127.0.0.1** → Vite proxies all of them; `xfwd: true` plus
   `TRUSTED_PROXIES: 127.0.0.1` hand Laravel the client's address.
 - **Anyone on the LAN opens `/horizon`** → Horizon admits every request in `local`, and the local stack listens on the
   LAN; the gate (laravel-project-setup) admits local requests only from the host itself, which needs the client address
-  above.
+  above. A publish without a host address also binds `[::]`, where Docker's proxy re-originates IPv6 clients as the
+  bridge gateway, i.e. as the host: the web port is published on an explicit IPv4 address.
 - **An empty 500 with nothing in any log** → a fatal the handler cannot report, usually `memory_limit` (512M in both
   images). Reproduce it through the CLI front controller:
   `REQUEST_URI=/path REQUEST_METHOD=GET php -d variables_order=EGPCS -d log_errors=1 -d error_log=/tmp/e.log public/index.php`,

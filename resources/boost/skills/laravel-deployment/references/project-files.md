@@ -10,8 +10,9 @@ on 8080. Keep the project's `plugins`; add the rest:
 ```js
 import { fileURLToPath } from 'node:url';
 
-// Nested worktrees and the board are other checkouts; anchored so only these two top-level dirs are skipped.
-const unwatched = ['./.claude/worktrees', './docs'].map((d) => fileURLToPath(new URL(d, import.meta.url)));
+// Nested worktrees and the board are other checkouts, vendor/ is ~15k inotify watches; anchored so only
+// these top-level dirs are skipped.
+const unwatched = ['./.claude/worktrees', './docs', './vendor'].map((d) => fileURLToPath(new URL(d, import.meta.url)));
 
 export default defineConfig({
     plugins: [/* … */],
@@ -21,6 +22,8 @@ export default defineConfig({
         origin: process.env.APP_URL,
         // Dev-only server behind a LAN proxy; nginx does the real serving.
         allowedHosts: true,
+        // Vite serves files off disk (/@fs/…) to any LAN client: only the project root, never .env or the host.
+        fs: { strict: true, allow: [fileURLToPath(new URL('.', import.meta.url))], deny: ['.env', '.env.*', '*.{pem,crt,key}'] },
         // Opening the stack under another host name (localhost vs the LAN name) makes assets cross-origin.
         cors: true,
         hmr: process.env.HMR_CLIENT_PORT ? { clientPort: Number(process.env.HMR_CLIENT_PORT) } : undefined,
@@ -39,16 +42,20 @@ export default defineConfig({
 });
 ```
 
-A glob such as `**/docs/**` would also skip `resources/docs`: keep the anchored paths.
+A glob such as `**/docs/**` would also skip `resources/docs`: keep the anchored paths. Who can reach Vite at all is the
+compose publish (`WEB_BIND`), not `host`.
 
-## phpunit.xml — every `<env>` forced
+## phpunit.xml and tests/bootstrap.php — every `<env>` forced and mirrored
 
-Compose sets `APP_ENV`, `DB_DATABASE` and the drivers as process env in the local container. An `<env>` without
-`force="true"` loses to the process env, so `php artisan test` in the container would run `RefreshDatabase` on the dev
-database. `DB_HOST`, `DB_PORT` and `REDIS_*` are never listed: `.env` (host) or compose (container) point them at this
+Compose sets `APP_ENV`, `DB_DATABASE` and the drivers as process env in the local container. Laravel's `Env` reads
+`$_SERVER` first, where that process env sits; PHPUnit's `<env>` reaches `$_ENV` and `putenv()` only, forced or not. So
+`php artisan test` in the container would run `RefreshDatabase` on the dev database. `tests/bootstrap.php` (template)
+copies every `force="true"` value of `phpunit.xml` into `$_SERVER` too; `phpunit.xml` names it in `bootstrap=`.
+`DB_HOST`, `DB_PORT` and `REDIS_*` are never listed: `.env` (host) or compose (container) point them at this
 checkout's own stack.
 
 ```xml
+<phpunit bootstrap="tests/bootstrap.php" …>
 <php>
     <env name="APP_ENV" value="testing" force="true"/>
     <env name="APP_MAINTENANCE_DRIVER" value="file" force="true"/>
@@ -70,7 +77,7 @@ checkout's own stack.
 ->withMiddleware(function (Middleware $middleware): void {
     // env() here is deliberate: this closure runs before config is loaded,
     // and in Docker the value is a real process env var.
-    $trustedProxies = array_filter(explode(',', (string) env('TRUSTED_PROXIES', '')));
+    $trustedProxies = array_filter(array_map('trim', explode(',', (string) env('TRUSTED_PROXIES', ''))));
     if ($trustedProxies !== []) {
         $middleware->trustProxies(at: $trustedProxies);
     }

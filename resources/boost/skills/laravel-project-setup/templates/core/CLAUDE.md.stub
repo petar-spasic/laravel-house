@@ -19,9 +19,9 @@ test, a fail-first test, a tier choice, `composer test` or a passing suite befor
 
 ## ABSOLUTELY MUST FOLLOW CONVENTIONS
 
-1. Be concise always, being overly verbose is very dificult to follow
-2. Do not overcomment, reserve comments for genuinly hard logic that otherwise cannot be infered from code. **No provenance anywhere** — comments, docs, CLAUDE.md files and skills state what is, never what it was or where it came from ("was X, now Y", "copied from …", "previously …"); history lives in git and the board
-3. When commiting code do not use Co-Authored ever
+1. Be concise always, being overly verbose is very difficult to follow
+2. Do not overcomment, reserve comments for genuinely hard logic that otherwise cannot be inferred from code. **No provenance anywhere** — comments, docs, CLAUDE.md files and skills state what is, never what it was or where it came from ("was X, now Y", "copied from …", "previously …"); history lives in git and the board
+3. When committing code do not use Co-Authored ever
 4. YAGNI and KISS
 5. Every entity id is Stripe-style: `{prefix}_{16 base-62 chars}` (`bd_7Kq2mZp9Xt4LwRc1`) — the prefix is `ID_PREFIX` on the model, unique across models; migrations use `$table->prefixedId()` / `foreignPrefixedId()`. Only `users` and the hot tables listed in `database/CLAUDE.md` use bigint.
 6. Dependencies: Laravel core and first-party `laravel/*` only, plus own `petar-spasic/*`; nothing deprecated or likely to be abandoned; any other package, npm included, needs owner approval and a maintenance check (active releases, current with the Laravel major or the toolchain it plugs into, backed by more than one person).
@@ -100,8 +100,7 @@ ships.
   (`prefetch` for likely links, `prerender` for the single most probable next
   page) — under the CSP via the `'inline-speculation-rules'` source. A
   speculative miss renders and warms the cache; volume is bounded by hover
-  eagerness, one prerender per page, `throttle:public` and the single-flight
-  lock — never by eager prefetch of whole listings.
+  eagerness, one prerender per page, and `throttle:public` — never by eager prefetch of whole listings.
 
 <!-- if:islands -->
 **JavaScript policy:** the default amount of JS on a page is the shared

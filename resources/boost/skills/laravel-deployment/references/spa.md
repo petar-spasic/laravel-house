@@ -10,7 +10,9 @@ relative (`''`); `VITE_API_URL` exists only for SSR/prerender.
 
 ## Local
 
-- Publish nginx instead of Vite: `- "${WEB_PORT:-{{web_port}}}:8080"`; drop `program vite` from the local entrypoint
+- Publish nginx instead of Vite: `- "${WEB_BIND:-0.0.0.0}:${WEB_PORT:-{{web_port}}}:8080"`, with the IPv4 host address kept:
+  a bare publish also binds `[::]`, and Docker's proxy then shows Laravel every IPv6 client as the bridge gateway, which
+  the Horizon gate treats as the host itself; drop `program vite` from the local entrypoint
   and the `:5173` line from `docker/healthcheck.sh`.
 - The local entrypoint builds the SPA when the shell is missing or `SPA_BUILD=1` (PHP is there for npm hooks); a
   frontend change needs a rebuild:
@@ -30,8 +32,10 @@ relative (`''`); `VITE_API_URL` exists only for SSR/prerender.
 
 ## Prod Caddyfile — PHP only for backend routes
 
-Replace the `route { … }` block of `docker/Caddyfile`; every backend prefix the app has (Fortify's `prefix`,
-webhooks) joins `@backend`:
+Replace the `route { … }` block of `docker/Caddyfile`. Fortify registers its routes at the root when its `prefix` is
+`''` (`POST /login`, `/logout`, `/register`, `/forgot-password`, `/reset-password`, `/two-factor-challenge`,
+`PUT /user/password`, `POST /passkeys/login`), so every request that is not GET or HEAD goes to PHP; the GET paths
+(webhook callbacks, `/email/verify/*`, Fortify's `/user/*` JSON endpoints, any other backend prefix the app has) join the `path(…)` list:
 
 ```caddyfile
 	route {
@@ -43,7 +47,7 @@ webhooks) joins `@backend`:
 
 		{$CADDY_SERVER_EXTRA_DIRECTIVES}
 
-		@backend path /api/* /sanctum/* /broadcasting/* /horizon* /up
+		@backend expression `!method('GET', 'HEAD') || path('/api/*', '/sanctum/*', '/broadcasting/*', '/horizon*', '/up', '/email/verify/*', '/user/*')`
 		handle @backend {
 			php_server {
 				index frankenphp-worker.php
@@ -52,7 +56,15 @@ webhooks) joins `@backend`:
 			}
 		}
 
-		@realfile file
+		# Real files off disk, never PHP source or dotfiles.
+		@realfile {
+			file
+			not path *.php
+			not {
+				path */.*
+				not path /.well-known/*
+			}
+		}
 		handle @realfile {
 			file_server
 		}

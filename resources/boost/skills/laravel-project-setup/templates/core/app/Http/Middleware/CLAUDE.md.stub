@@ -24,7 +24,8 @@ The load-bearing ones:
   from it — never from a path segment or body field.
 <!-- if:htmx -->
 - **Fortify's auth + CSRF** on the authenticated web group; **throttle** on the
-  guest auth routes (Fortify's `login` limiter) and on anything public that
+  guest auth routes (`throttle:auth-forms` on every Fortify route; login and
+  two-factor also keep Fortify's own limiters) and on anything public that
   accepts input.
 <!-- endif -->
 <!-- unless:htmx -->
@@ -32,7 +33,8 @@ The load-bearing ones:
 <!-- if:spa -->
   Sanctum's stateful middleware on the SPA's `api` group;
 <!-- endif -->
-  **throttle** on the guest auth routes (Fortify's `login` limiter) and on
+  **throttle** on the guest auth routes (`throttle:auth-forms` on every
+  Fortify route; login and two-factor also keep Fortify's own limiters) and on
   anything public that accepts input.
 <!-- endif -->
 - **Trusted proxies** (`TRUSTED_PROXIES`, `bootstrap/app.php`) name the real
