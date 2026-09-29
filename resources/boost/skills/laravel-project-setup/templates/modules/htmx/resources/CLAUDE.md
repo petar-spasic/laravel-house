@@ -227,7 +227,7 @@ Configured once in `app.ts` — do not repeat any of this per element:
   survive a swap; that is the server's state.
 - Tailwind classes work inside islands (no shadow DOM). Styling in `<style>`
   blocks only for what utilities cannot express.
-- `{@html}` follows the `{!! !!}` rule: sanitized markdown only.
+- `{@html}` follows the `{!! !!}` rule: `Markdown::render()` output only.
 - No fetching inside islands by default (see "Who does what"). No global
   event bus; shared state is an explicit `*.svelte.ts` module.
 - `npm run check` must be clean. Suppress a Svelte warning only with a

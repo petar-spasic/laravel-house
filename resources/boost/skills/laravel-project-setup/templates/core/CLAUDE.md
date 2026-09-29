@@ -207,8 +207,8 @@ The full rules live in `resources/CLAUDE.md`; the load-bearing ones:
   JSON it is a Resource-backed route in the `api` group.
 <!-- endif -->
 - **Escape on output, always.** `{{ }}` for everything user-authored;
-  `{!! !!}` **only** for the output of `App\Support\Markdown::render()` (an
-  allowlist sanitizer).
+  `{!! !!}` **only** for the output of `App\Support\Markdown::render()`
+  (Markdown with raw HTML escaped).
 <!-- if:islands -->
   Svelte's `{text}` is safe; `{@html}` follows the same rule as `{!! !!}`.
 <!-- endif -->
@@ -248,7 +248,7 @@ The full rules live in `frontend/CLAUDE.md`; the load-bearing ones:
 - **Never make users type identifiers** — every entity reference goes through a
   searchable picker backed by `GET {resource}/search` + `GET {resource}/autocomplete`.
 - **Escape on output, always.** Svelte's `{text}` is safe; `{@html}` **only**
-  for the output of `App\Support\Markdown::render()` (an allowlist sanitizer).
+  for the output of `App\Support\Markdown::render()` (Markdown with raw HTML escaped).
 - Timestamps leave the server as ISO 8601 with offset.
 
 <!-- endif -->

@@ -166,12 +166,12 @@ everywhere:
 
 <!-- if:htmx -->
 - Escape on output, always — Blade `{{ }}`; `{!! !!}` only for
-  `Markdown::render()` (allowlist sanitizer). CSP disallows inline script as the
+  `Markdown::render()` (raw HTML escaped). CSP disallows inline script as the
   second layer.
 <!-- endif -->
 <!-- if:spa -->
 - Escape on output, always — Svelte `{text}`; `{@html}` only for
-  `Markdown::render()` (allowlist sanitizer). CSP disallows inline script as the
+  `Markdown::render()` (raw HTML escaped). CSP disallows inline script as the
   second layer.
 <!-- endif -->
 - Validate for **size and shape**, never content-filter on write; a write-time
