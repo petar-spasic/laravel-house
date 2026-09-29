@@ -11,15 +11,18 @@ return [
     |
     | Admins are an email allow-list until roles exist (the viewHorizon gate,
     | which also requires a verified email: registration is open).
-    | ProductionSeeder creates each missing admin as a verified user, and the
-    | operator when missing.
+    | ProductionSeeder creates the operator first (an address that is also an
+    | admin keeps OPERATOR_PASSWORD), then each missing admin, as verified
+    | users; an existing account is never modified. Both addresses are
+    | lower-cased: Fortify lower-cases the email at login (`lowercase_usernames`),
+    | so a mixed-case entry would seed an account that can never sign in.
     |
     */
 
-    'admins' => array_values(array_filter(array_map('trim', explode(',', (string) env('ADMIN_EMAILS', ''))))),
+    'admins' => array_values(array_filter(array_map(fn (string $email): string => mb_strtolower(trim($email)), explode(',', (string) env('ADMIN_EMAILS', ''))))),
 
     'operator' => [
-        'email' => env('OPERATOR_EMAIL'),
+        'email' => mb_strtolower(trim((string) env('OPERATOR_EMAIL'))),
         'password' => env('OPERATOR_PASSWORD'),
     ],
 

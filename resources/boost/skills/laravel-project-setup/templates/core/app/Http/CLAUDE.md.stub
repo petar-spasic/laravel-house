@@ -68,7 +68,7 @@ are in the root `CLAUDE.md`.
   `$next`) so header and cached markup agree. A public page's nonce therefore
   lives as long as its cache entry.
 - Headers on hit and miss, from `config/{{app}}.php`: `Cache-Control: public,
-  max-age=60, s-maxage=300, stale-while-revalidate=3600`, `ETag`, `Vary:
+  max-age=60, s-maxage=300, stale-while-revalidate=3600` (`{{app}}.page_cache.cache_control`), `ETag`, `Vary:
   HX-Request, HX-Target, Accept-Encoding`, `X-Cache: HIT|MISS`. `PageMeta::$ttl` caps
   them per page (`max-age=ttl`, `s-maxage`/`swr` = `2·ttl`).
 - **Under the page cache:** `Services/Cache/FragmentCache::remember(name, tags, fn)`

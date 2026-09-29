@@ -74,10 +74,11 @@ Deliberate exceptions:
 | `DatabaseSeeder` | `db:seed` | `ProductionSeeder` in production, else `ReferenceDataSeeder` + `DevSeeder` |
 | `ReferenceDataSeeder` | every seed, every `auto` boot, the tests (`#[Seeder]`) | `database/data/<table>.json`, or `database/data/<table>/<slug>.json` for tables many branches add to. No faker |
 | `DevSeeder` | local and testing only (`LogicException` elsewhere) | `fake()->seed(20260928)`; `admin@{{app}}.test`, `dev@{{app}}.test` / `password`; demo content |
-| `ProductionSeeder` | prod boot with `DATABASE_SEED=true` | `ReferenceDataSeeder` + every `ADMIN_EMAILS` address (verified, random password, created only if missing) + the operator from `OPERATOR_EMAIL`/`OPERATOR_PASSWORD` (created only if missing; skipped with a warning if unset) |
+| `ProductionSeeder` | prod boot with `DATABASE_SEED=true` | `ReferenceDataSeeder` + the operator from `OPERATOR_EMAIL`/`OPERATOR_PASSWORD` first (`OPERATOR_PASSWORD` applies when the account is first created; skipped with a warning if unset) + every `ADMIN_EMAILS` address (created verified with a random password only if missing; an existing unverified account is warned about) |
 
 - **Every seeder is idempotent**: a second `db:seed` that throws is a bug.
-  Users by `updateOrCreate` on email; non-fillable columns via `forceFill`.
+  `DevSeeder` writes users by `updateOrCreate` on email, non-fillable columns via
+  `forceFill`; `ProductionSeeder` never modifies an existing account.
 - **Reference ids are explicit** Stripe-style ids, never changed; the seeder
   rejects a row without one (Eloquent `upsert` would invent a random id, different per stack).
 - **Loading is `upsert` on `id`, 500 rows per chunk**: no casts, events or
@@ -91,8 +92,8 @@ Deliberate exceptions:
   next to the bigint exceptions above. A table the product edits at runtime is not reference data.
 - **No deletion by omission**: removing a reference row is a migration.
 - **Admins before roles exist**: `config('auth.admins')` from `ADMIN_EMAILS`
-  (the `viewHorizon` gate, which also needs `email_verified_at`, so seeders set it on every
-  admin account). When roles land, only the gate body and the seeders change.
+  (the `viewHorizon` gate, which also needs `email_verified_at`, so seeders create every
+  admin account verified). When roles land, only the gate body and the seeders change.
 - Every model gets a factory with **named states** for the lifecycle
   (`->pending()`, `->archived()`) so tests never hand-set a status. Factories
   bypass mass assignment — the sanctioned way to seed non-fillable state.

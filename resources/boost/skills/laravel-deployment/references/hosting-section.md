@@ -34,9 +34,10 @@ cp .env.prod.example .env.prod && docker compose --env-file .env.prod up -d --bu
   in `.env`. Compose passes it as the container's `APP_URL`, which Vite writes
   into `public/hot` as the one asset origin — with `localhost` there, the page
   loads but every asset fails with `ERR_CONNECTION_REFUSED`.
-- **Binds**: the web port publishes on `WEB_BIND` (default `0.0.0.0`, so the stack is LAN-visible; `127.0.0.1`
-  keeps it on this machine), the Postgres and Redis ports on `SIDECAR_BIND` (default `127.0.0.1`); override either in `.env`.
-  The web bind stays an explicit IPv4 address: the Horizon gate reads a bare publish's IPv6 clients as the host.
+- **Binds**: the web port (with the reverb module, the WebSocket port too) publishes on `WEB_BIND` (default `0.0.0.0`,
+  so the stack is LAN-visible; `127.0.0.1` keeps it on this machine), the Postgres and Redis ports on `SIDECAR_BIND`
+  (default `127.0.0.1`); override either in `.env`. The web bind stays an explicit IPv4 address: the Horizon gate reads
+  a bare publish's IPv6 clients as the host.
 - **PHP {{php_version}} everywhere** — the host (tests, artisan), the lock and both images.
 - **Boot** (`docker/docker-entrypoint*.sh`): deps (local), rebuild the package
   manifest (never trust a `bootstrap/cache` from another image; only `storage/` is

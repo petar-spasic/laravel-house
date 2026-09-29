@@ -55,7 +55,10 @@ it('opens /horizon to admin@{{app}}.test from the LAN', function () {
 });
 
 it('opens /horizon to a second ADMIN_EMAILS address after ProductionSeeder', function () {
-    config(['auth.admins' => ['admin@{{app}}.test', 'second@{{app}}.test']]);
+    config([
+        'auth.admins' => ['admin@{{app}}.test', 'second@{{app}}.test'],
+        'auth.operator' => ['email' => null, 'password' => null],
+    ]);
 
     $this->seed(ProductionSeeder::class);
     $this->seed(ProductionSeeder::class);

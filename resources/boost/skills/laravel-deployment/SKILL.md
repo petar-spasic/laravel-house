@@ -128,7 +128,9 @@ README, "Worktree stacks".
 
 ## Traps
 
-- **supervisord aborts with "unsupported format character"** → a `%` in a `program` command: write `%%`.
+- **supervisord aborts ("… is badly formatted"), or a command runs mangled** → a `%` in a `program` command is a format
+  specifier: `%Y` and `%d` abort, `%s` splices the whole expansion dict (environment included) into the command; write
+  `%%`.
 - **Container runs, zero services** → `supervisord.conf` lacks `[include] files = /etc/supervisor/conf.d/*.conf`.
 - **Providers missing after an image update** → a stale `bootstrap/cache` manifest; persist `storage/` only, never
   `bootstrap/cache`, and let the entrypoint rebuild the manifest.
@@ -149,8 +151,7 @@ README, "Worktree stacks".
 - **Anyone on the LAN opens `/horizon`** → Horizon admits every request in `local`, and the local stack listens on the
   LAN; the gate (laravel-project-setup) admits local requests only from the host itself, which needs the client address
   above. A publish without a host address also binds `[::]`, where Docker's proxy re-originates IPv6 clients as the
-  bridge gateway, i.e. as the host: the web port is published on an explicit IPv4 address (`WEB_BIND`, default
-  `0.0.0.0`).
+  bridge gateway, i.e. as the host: the web port is published on an explicit IPv4 address (`WEB_BIND`).
 - **An empty 500 with nothing in any log** → a fatal the handler cannot report, usually `memory_limit` (512M in both
   images). Reproduce it through the CLI front controller:
   `REQUEST_URI=/path REQUEST_METHOD=GET php -d variables_order=EGPCS -d log_errors=1 -d error_log=/tmp/e.log public/index.php`,

@@ -105,9 +105,11 @@ template here too.
      `database/seeders/DatabaseSeeder.php`, and `horizon:install`'s
      `app/Providers/HorizonServiceProvider.php`.
    - The PHP minor, the ports, the LAN URL and the decisions so far. Fortify ≥
-     1.40 turns passkeys on (a vendor-owned bigint `passkeys` table, like
-     `jobs`): which auth features the product keeps is open unless the owner
-     decides.
+     1.40 turns passkeys on, and the house baseline carries them: the `User`
+     traits, `TwoFactorAuthenticationTest`, the routes and Middleware rules,
+     laravel-deployment's `references/spa.md` and a vendor-owned bigint
+     `passkeys` table (like `jobs`). Which auth features the product keeps is
+     open unless the owner decides.
 4. **Install the templates** — dry run first, then for real:
    ```
    php "${CLAUDE_SKILL_DIR}/scripts/install.php" . --modules=htmx,islands --set app=acme \
@@ -152,7 +154,8 @@ template here too.
      `admins` + `operator` (`config-auth.php`); `.env` gets
      `ADMIN_EMAILS=admin@{{app}}.test`, `.env.example` documents it commented.
      `ProductionSeeder` creates each missing `ADMIN_EMAILS` address as a verified
-     user (the Horizon gate needs it); they sign in through the reset-password mail.
+     user (the Horizon gate needs it); its owner sets a password through the
+     password-reset flow.
    - **Horizon**: the installer wrote the `viewHorizon` gate and the local
      host-only `authorization()`; `routes/console.php` gets
      `Schedule::command('horizon:snapshot')->everyFiveMinutes()->withoutOverlapping();` — without it
@@ -169,14 +172,14 @@ template here too.
      ahead of `auth`; `htmx` loads routes through `then:` and defines the
      `public` group; `spa` adds `statefulApi()`. Spa and API-only skip the
      `htmx only` lines and their imports.
-   - `.gitignore` += `/.claude/settings.local.json`, `.env.prod`, `/frankenphp` and
-     `/public/frankenphp-worker.php` (the last two are written by `octane:install`;
-     the skeleton covers `.env.production` only).
+   - `.gitignore` += `/.claude/settings.local.json` and `.env.prod` (the skeleton
+     covers `.env.production` only).
    - `htmx`: `vite.config.js` `input` and `welcome.blade.php`'s `@vite` →
      `resources/js/app.ts`; `package.json` `"check": "tsc"`; append
      `htmx-indicator.css` to `resources/css/app.css`; create `config/{{app}}.php`
-     with the keys `app/Http/CLAUDE.md` names (`public_per_minute`,
-     `page_cache.hard_ttl`, `fragment_targets`, `route_query_keys`).
+     with the keys `routes/CLAUDE.md` and `app/Http/CLAUDE.md` name
+     (`public_per_minute`, `page_cache.hard_ttl`, `page_cache.cache_control`,
+     `fragment_targets`, `route_query_keys`).
      `CachePublicResponse` and `HtmxOnly` are project code those rules describe,
      not shipped files: `Route::middleware('public')` resolves only once the
      project adds them.
