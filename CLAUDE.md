@@ -57,4 +57,4 @@ Consumers read `README.md` and the Boost skill (`resources/boost/skills/kanban`)
 
 - **Check (local only, no CI):** `vendor/bin/pest` (all green) and `vendor/bin/pint --test` before every push. While other agents share the checkout, run pint on your own paths: `pint` and `--dirty` format every untracked file.
 - **Release:** semver tag (`git tag -a vX.Y.Z`), push the branch and the tag; consumers upgrade as the README says.
-- **Trying it in a consumer:** require it from the VCS repository; a path repository (`../laravel-kanban`) does not resolve inside the consumer's container.
+- **Trying it in a consumer:** push a commit and `composer update petar-spasic/laravel-kanban` with the constraint `dev-main`; a path repository (`../laravel-kanban`) does not resolve inside the consumer's container.
