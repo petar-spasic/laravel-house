@@ -1,0 +1,8 @@
+{
+    "session_id": "{session}",
+    "transcript_path": "{main}/.git/transcript.jsonl",
+    "cwd": "{cwd}",
+    "hook_event_name": "SessionStart",
+    "source": "startup",
+    "model": "claude-opus-5-5"
+}

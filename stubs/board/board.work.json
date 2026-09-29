@@ -1,0 +1,8 @@
+{
+    "title": "Work",
+    "kind": "work",
+    "body": "",
+    "order": 20,
+    "wip": { "doing": 6 },
+    "updated": "{{now}}"
+}

@@ -1,0 +1,112 @@
+#!/usr/bin/env php
+<?php
+
+/*
+ * Fake `docker` for the E2E tests. Every call is appended to $FAKE_DOCKER_DIR/calls.log (one line, args joined by
+ * spaces); compose projects live in $FAKE_DOCKER_DIR/state.json.
+ *
+ * FAKE_DOCKER_SERVE=1          `up` serves http://127.0.0.1:<WEB_PORT>/up (200) with `php -S` until `down`
+ * FAKE_DOCKER_BOUND=p,q        `ps -aq` + `inspect` report containers publishing these host ports
+ * FAKE_DOCKER_PROJECTS=a,b     extra compose projects listed by `compose ls` (not started by us)
+ * FAKE_DOCKER_ALLOCATED=p,q    `up` fails with "port is already allocated" when WEB_PORT is one of these
+ * FAKE_DOCKER_CONFIG_NAME=x    `compose config` reports this project name instead of -p
+ * FAKE_DOCKER_FAIL=up|down     that subcommand exits 1
+ */
+
+$dir = getenv('FAKE_DOCKER_DIR') ?: sys_get_temp_dir().'/fake-docker';
+@mkdir($dir, 0775, true);
+$args = array_slice($argv, 1);
+file_put_contents($dir.'/calls.log', implode(' ', $args)."\n", FILE_APPEND | LOCK_EX);
+
+$stateFile = $dir.'/state.json';
+$state = is_file($stateFile) ? json_decode(file_get_contents($stateFile), true) : ['projects' => []];
+$save = function (array $state) use ($stateFile): void {
+    file_put_contents($stateFile, json_encode($state, JSON_PRETTY_PRINT));
+};
+$list = fn (string $name) => array_values(array_filter(explode(',', (string) getenv($name))));
+$fail = fn (string $sub) => in_array($sub, $list('FAKE_DOCKER_FAIL'), true);
+
+if (($args[0] ?? null) === 'ps') {
+    echo implode("\n", array_map(fn ($p) => 'bound'.$p, $list('FAKE_DOCKER_BOUND'))).($list('FAKE_DOCKER_BOUND') ? "\n" : '');
+    exit(0);
+}
+if (($args[0] ?? null) === 'inspect') {
+    foreach (array_slice($args, 3) as $id) {
+        echo str_starts_with($id, 'bound') ? json_encode(['80/tcp' => [['HostIp' => '', 'HostPort' => substr($id, 5)]]])."\n" : "{}\n";
+    }
+    exit(0);
+}
+if (($args[0] ?? null) !== 'compose') {
+    fwrite(STDERR, "fake docker: unsupported {$args[0]}\n");
+    exit(1);
+}
+
+$directory = null;
+$project = null;
+$rest = [];
+for ($i = 1; $i < count($args); $i++) {
+    match ($args[$i]) {
+        '--project-directory' => $directory = $args[++$i],
+        '-f' => $i++,
+        '-p' => $project = $args[++$i],
+        default => $rest[] = $args[$i],
+    };
+}
+$sub = $rest[0] ?? '';
+$env = [];
+if ($directory !== null && is_file($directory.'/.env')) {
+    foreach (file($directory.'/.env', FILE_IGNORE_NEW_LINES) as $line) {
+        if (preg_match('/^([A-Z_][A-Z0-9_]*)=(.*)$/', $line, $m)) {
+            $env[$m[1]] = trim($m[2], '"');
+        }
+    }
+}
+
+switch ($sub) {
+    case 'config':
+        echo json_encode(['name' => getenv('FAKE_DOCKER_CONFIG_NAME') ?: $project, 'services' => ['app' => [], 'postgres' => [], 'redis' => []]]);
+        exit(0);
+    case 'up':
+        $port = (int) ($env['WEB_PORT'] ?? 0);
+        if ($fail('up') || in_array((string) $port, $list('FAKE_DOCKER_ALLOCATED'), true)) {
+            fwrite(STDERR, "Error response from daemon: Bind for 0.0.0.0:{$port} failed: port is already allocated\n");
+            exit(1);
+        }
+        $pid = $state['projects'][$project]['pid'] ?? null;
+        if (getenv('FAKE_DOCKER_SERVE') === '1' && $port > 0 && $pid === null) {
+            @mkdir($dir.'/www', 0775, true);
+            file_put_contents($dir.'/www/router.php', "<?php http_response_code(\$_SERVER['REQUEST_URI'] === '/up' ? 200 : 404); echo 'ok';");
+            $pid = (int) shell_exec(sprintf('%s -S 127.0.0.1:%d %s < /dev/null > /dev/null 2>&1 & echo $!', escapeshellarg(PHP_BINARY), $port, escapeshellarg($dir.'/www/router.php')));
+        }
+        $state['projects'][$project] = ['directory' => $directory, 'port' => $port, 'pid' => $pid];
+        $save($state);
+        exit(0);
+    case 'down':
+        if ($fail('down')) {
+            fwrite(STDERR, "fake docker: down failed\n");
+            exit(1);
+        }
+        if ($pid = $state['projects'][$project]['pid'] ?? null) {
+            posix_kill((int) $pid, SIGTERM);
+        }
+        unset($state['projects'][$project]);
+        $save($state);
+        exit(0);
+    case 'ps':
+        if (isset($state['projects'][$project])) {
+            echo in_array('-q', $rest, true) ? "c0ffee{$project}\n" : "NAME STATUS\n{$project}-app-1 running\n";
+        }
+        exit(0);
+    case 'port':
+        echo '0.0.0.0:'.($state['projects'][$project]['port'] ?? 0)."\n";
+        exit(0);
+    case 'logs':
+        echo "{$project}-app-1 | fake log line\n";
+        exit(0);
+    case 'ls':
+        $names = array_merge(array_keys($state['projects']), $list('FAKE_DOCKER_PROJECTS'));
+        echo json_encode(array_map(fn ($n) => ['Name' => $n, 'Status' => 'running(3)', 'ConfigFiles' => ''], $names))."\n";
+        exit(0);
+}
+fwrite(STDERR, "fake docker: unsupported compose {$sub}\n");
+exit(1);

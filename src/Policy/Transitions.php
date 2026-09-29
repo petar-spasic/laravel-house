@@ -1,0 +1,257 @@
+<?php
+
+namespace PetarSpasic\Kanban\Policy;
+
+use PetarSpasic\Kanban\Store\Actor;
+use PetarSpasic\Kanban\Store\Card;
+use PetarSpasic\Kanban\Store\Claim;
+use PetarSpasic\Kanban\Store\Exceptions\PolicyRefused;
+use PetarSpasic\Kanban\Store\Rev;
+use PetarSpasic\Kanban\Store\Stage;
+use PetarSpasic\Kanban\Store\Store;
+use PetarSpasic\Kanban\Support\Clock;
+
+/**
+ * Stage changes. `check()` is the table the Store enforces on every write; the instance methods are the only
+ * way to reach the moves that `move` refuses (start, apply, send back, finish, stop).
+ */
+final class Transitions
+{
+    /** "from>to" => vias that may perform it. `move` covers the CLI/UI; `promote` the ready gate. */
+    private const ALLOWED = [
+        'work' => [
+            'backlog>ready' => ['move', 'promote'],
+            'ready>backlog' => ['move'],
+            'ready>doing' => ['start'],
+            'doing>review' => ['apply'],
+            'review>doing' => ['reject', 'refresh', 'move'],
+            'review>done' => ['finish'],
+            'doing>ready' => ['stop'], 'doing>backlog' => ['stop'], 'doing>dropped' => ['stop'],
+            'review>ready' => ['stop'], 'review>backlog' => ['stop'], 'review>dropped' => ['stop'],
+            'backlog>dropped' => ['move'], 'ready>dropped' => ['move'],
+            'dropped>backlog' => ['move'],
+        ],
+        'decisions' => [
+            'proposed>decided' => ['move'],
+            'proposed>dropped' => ['move'],
+            'decided>dropped' => ['move'],
+            'decided>superseded' => ['auto'],
+            'dropped>proposed' => ['move'],
+        ],
+    ];
+
+    private const HINTS = [
+        'ready>doing' => 'use `kanban start ID`',
+        'doing>review' => 'a worker report moves it (`kanban apply ID`)',
+        'review>done' => 'use `kanban finish ID`',
+        'decided>superseded' => 'automatic: `kanban set NEW supersedes=+OLD` on the deciding card',
+    ];
+
+    public function __construct(
+        private readonly Store $store,
+        private readonly ReadyPolicy $ready = new ReadyPolicy,
+        private readonly PullPolicy $pull = new PullPolicy,
+    ) {}
+
+    /** Throws PolicyRefused unless $via may move a card of $kind from $from to $to. */
+    public static function check(string $kind, string $from, string $to, string $via, Actor $by, bool $forced = false): void
+    {
+        if (! in_array($to, Stage::forKind($kind), true)) {
+            throw new PolicyRefused("'{$to}' is not a stage of a {$kind} board (".implode(', ', Stage::forKind($kind)).')');
+        }
+        if ($from === $to) {
+            return;
+        }
+        if ($forced) {
+            if (! $by->canForce()) {
+                throw new PolicyRefused('--force is for the main session only');
+            }
+
+            return;
+        }
+        $allowed = self::ALLOWED[$kind]["{$from}>{$to}"] ?? [];
+        if (! in_array($via, $allowed, true)) {
+            $hint = self::HINTS["{$from}>{$to}"]
+                ?? (Stage::isActive($from) && $kind === 'work' ? "use `kanban stop ID --to={$to}`" : null)
+                ?? ($allowed === [] ? "{$from} → {$to} is not a transition" : 'allowed through '.implode(', ', $allowed));
+            throw new PolicyRefused("refused {$from} → {$to}: {$hint}");
+        }
+    }
+
+    /**
+     * Pure stage change on card data: coupled fields follow, a `stage` log entry is appended.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    public static function stage(array $data, string $to, string $via, ?string $reason = null, bool $force = false): array
+    {
+        $from = $data['stage'];
+        $reason = $reason === null || trim($reason) === '' ? null : trim($reason);
+        if ($to === 'dropped' && $reason === null && empty($data['resolution'])) {
+            throw new PolicyRefused('dropping needs a reason (--reason)');
+        }
+        $data['stage'] = $to;
+        if (($data['type'] ?? null) === 'decision') {
+            if ($to === 'decided') {
+                $data['decided_on'] ??= Clock::today();
+            }
+            if ($to === 'dropped') {
+                $data['resolution'] ??= $reason;
+            }
+        } elseif (Stage::isActive($from) && ! Stage::isActive($to)) {
+            $data['claim'] = null;
+            $data['work'] = $to === 'done'
+                ? array_intersect_key($data['work'] ?? [], array_flip(['branch', 'base', 'merge', 'started', 'finished']))
+                : null;
+        }
+        $entry = ['event' => 'stage', 'from' => $from, 'to' => $to];
+        if ($via !== 'move') {
+            $entry['via'] = $via;
+        }
+        if ($reason !== null) {
+            $entry['reason'] = $reason;
+        }
+        if ($force) {
+            $entry['forced'] = true;
+        }
+        $data['log'][] = $entry;
+
+        return $data;
+    }
+
+    /** Owner/main move from the CLI or UI. Into ready runs the ready policy; review → doing needs a note. */
+    /** $expected: the rev the caller read the card at (a Conflict when it changed since); default the current one. */
+    public function move(string $id, string $to, Actor $by, ?string $reason = null, bool $force = false, ?Rev $expected = null): Card
+    {
+        $card = $this->store->card($id);
+        if (! $force && $to === 'ready' && $card->stage() === 'backlog') {
+            return $this->promote($card->id(), $by, $expected);
+        }
+        if (! $force && $card->stage() === 'review' && $to === 'doing' && ($reason === null || trim($reason) === '')) {
+            throw new PolicyRefused('sending back to doing needs a note (--reason)');
+        }
+        $moved = $this->store->update($card->id(), fn (array $data) => self::stage($data, $to, 'move', $reason, $force), $by, $expected ?? $card->rev);
+        if ($moved->stage() === 'decided') {
+            $this->supersede($moved->id(), $by);
+        }
+
+        return $moved;
+    }
+
+    /** backlog → ready when the ready policy passes; PolicyRefused lists the R-codes otherwise. */
+    public function promote(string $id, Actor $by, ?Rev $expected = null): Card
+    {
+        $snapshot = $this->store->snapshot();
+        $card = $snapshot->resolve($id);
+        $refusals = $this->ready->refusals($card, $snapshot);
+        if ($refusals !== []) {
+            throw new PolicyRefused("refused {$card->id()}: ".implode('; ', $refusals), $refusals);
+        }
+
+        return $this->store->update($card->id(), fn (array $data) => self::stage($data, 'ready', 'promote'), $by, $expected ?? $card->rev);
+    }
+
+    /**
+     * ready → doing: preconditions (ready, unblocked, deps satisfied, capacity unless forced or urgent+1), then the
+     * claim (pushed first when sync=on), then `work` when given.
+     *
+     * @param  array<string, mixed>|null  $work
+     */
+    public function start(string $id, Actor $by, ?Claim $claim = null, ?array $work = null, bool $force = false): Card
+    {
+        if ($force && ! $by->canForce()) {
+            throw new PolicyRefused('--force is for the main session only');
+        }
+        $snapshot = $this->store->snapshot();
+        $card = $snapshot->resolve($id);
+        if ($card->stage() !== 'ready' || $card->claim() !== null) {
+            throw new PolicyRefused("{$card->id()} is {$card->stage()}".($card->claim() ? ', claimed by '.$card->claim()['by'] : '').', not ready');
+        }
+        $refusals = $this->ready->refusals($card, $snapshot, false);
+        if (! $snapshot->depsSatisfied($card)) {
+            $refusals[] = 'dependencies not satisfied: '.implode(', ', array_filter($card->dependsOn(), fn ($d) => ! $snapshot->isSatisfied($d)));
+        }
+        if ($refusals !== [] && ! $force) {
+            throw new PolicyRefused("refused {$card->id()}: ".implode('; ', $refusals), $refusals);
+        }
+        if (! $force && ! in_array($card->id(), array_map(fn (Card $c) => $c->id(), $this->pull->next($snapshot, PHP_INT_MAX)['cards']), true)) {
+            $capacity = $this->pull->capacity($snapshot);
+            throw new PolicyRefused("refused {$card->id()}: no capacity (".($capacity['reason'] ?? 'area or WIP limit').')');
+        }
+
+        $claimed = $this->store->claim($card->id(), $claim ?? Claim::here($by), $by);
+
+        return $work === null ? $claimed : $this->store->update($claimed->id(), function (array $data) use ($work) {
+            $data['work'] = array_merge($data['work'] ?? [], $work);
+
+            return $data;
+        }, $by);
+    }
+
+    /**
+     * doing → review from an applied worker report. $changes are merged into the card first (ticks, work.head, …).
+     *
+     * @param  array<string, mixed>  $changes
+     */
+    public function apply(string $id, Actor $by, array $changes = []): Card
+    {
+        return $this->store->update($id, fn (array $data) => self::stage(array_replace_recursive($data, $changes), 'review', 'apply'), $by);
+    }
+
+    /** review → doing: $via is reject (evaluator verdict), refresh (merge conflict) or move (owner send-back). */
+    public function sendBack(string $id, string $via, Actor $by, ?string $note = null): Card
+    {
+        return $this->store->update($id, function (array $data) use ($via, $note) {
+            if (isset($data['work'])) {
+                $data['work']['approved'] = null;
+            }
+
+            return self::stage($data, 'doing', $via, $note);
+        }, $by);
+    }
+
+    /** review → done after the merge; `work` is trimmed and records the merge commit. */
+    public function finish(string $id, string $mergeSha, Actor $by): Card
+    {
+        return $this->store->update($id, function (array $data) use ($mergeSha) {
+            $data['work']['merge'] = $mergeSha;
+            $data['work']['finished'] = Clock::now();
+
+            return self::stage($data, 'done', 'finish');
+        }, $by);
+    }
+
+    /** doing/review → ready, backlog or dropped; a branch with commits is kept as work.parked_branch. */
+    public function stop(string $id, string $to, Actor $by, ?string $reason = null, ?string $parkedBranch = null, bool $force = false): Card
+    {
+        return $this->store->update($id, function (array $data) use ($to, $reason, $parkedBranch, $force) {
+            $data = self::stage($data, $to, 'stop', $reason, $force);
+            if ($parkedBranch !== null) {
+                $data['work'] = ['parked_branch' => $parkedBranch];
+            }
+
+            return $data;
+        }, $by);
+    }
+
+    /** A decided card's `supersedes` list: each decided target becomes superseded_by it. */
+    public function supersede(string $id, Actor $by): void
+    {
+        $card = $this->store->card($id);
+        if ($card->stage() !== 'decided') {
+            return;
+        }
+        foreach ($card->data['supersedes'] ?? [] as $old) {
+            $target = $this->store->card($old);
+            if ($target->stage() !== 'decided') {
+                continue;
+            }
+            $this->store->update($old, function (array $data) use ($card) {
+                $data['superseded_by'] = $card->id();
+
+                return self::stage($data, 'superseded', 'auto');
+            }, $by);
+        }
+    }
+}

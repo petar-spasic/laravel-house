@@ -1,0 +1,30 @@
+#!/usr/bin/env php
+<?php
+
+/*
+ * Fake `docker` for the doctor tests: address pools from $FAKE_POOLS (JSON), network subnets from $FAKE_SUBNETS
+ * (space separated). FAKE_DOCKER_DOWN=1 makes every call fail like an unreachable daemon.
+ */
+
+$args = array_slice($argv, 1);
+if (getenv('FAKE_DOCKER_DOWN') === '1') {
+    fwrite(STDERR, "Cannot connect to the Docker daemon\n");
+    exit(1);
+}
+if (($args[0] ?? null) === 'info') {
+    echo (getenv('FAKE_POOLS') ?: 'null')."\n";
+    exit(0);
+}
+if (($args[0] ?? null) === 'network' && ($args[1] ?? null) === 'ls') {
+    echo "net1\nnet2\n";
+    exit(0);
+}
+if (($args[0] ?? null) === 'network' && ($args[1] ?? null) === 'inspect') {
+    echo (getenv('FAKE_SUBNETS') ?: '')."\n";
+    exit(0);
+}
+if (($args[0] ?? null) === 'ps') {
+    exit(0);
+}
+fwrite(STDERR, 'fake docker: unsupported '.implode(' ', $args)."\n");
+exit(1);

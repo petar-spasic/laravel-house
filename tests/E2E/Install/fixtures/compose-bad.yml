@@ -1,0 +1,29 @@
+services:
+  app:
+    build: .
+    image: app:local
+    container_name: app-local
+    ports:
+      - "8011:80"
+      - "${VITE_PORT:-5173}:5173"
+    networks:
+      - app
+  postgres:
+    image: postgres:16-alpine
+    container_name: app-postgres
+    ports:
+      - target: 5432
+        published: "5435"
+    volumes:
+      - postgres_local:/var/lib/postgresql/data
+  mailpit:
+    image: axllent/mailpit
+    ports: ["127.0.0.1:8025:8025", "1025"]
+
+volumes:
+  postgres_local:
+    name: app-postgres-local
+
+networks:
+  app:
+    name: app-network

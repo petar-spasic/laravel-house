@@ -1,0 +1,8 @@
+#!/bin/sh
+# Pushes happen only from the main checkout, never from a linked (code) worktree.
+git_dir=$(git rev-parse --path-format=absolute --git-dir) || exit 1
+common_dir=$(git rev-parse --path-format=absolute --git-common-dir) || exit 1
+if [ "$git_dir" != "$common_dir" ]; then
+    echo "push rejected: pushes are the main session's (kanban publish), never from a worktree." >&2
+    exit 1
+fi

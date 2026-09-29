@@ -1,0 +1,11 @@
+#!/usr/bin/env php
+<?php
+
+foreach ([$GLOBALS['_composer_autoload_path'] ?? null, __DIR__.'/../vendor/autoload.php', __DIR__.'/../../../autoload.php'] as $autoload) {
+    if ($autoload !== null && is_file($autoload)) {
+        require $autoload;
+        break;
+    }
+}
+
+exit(PetarSpasic\Kanban\Console\Standalone::run($_SERVER['argv']));

@@ -1,0 +1,16 @@
+{
+    "session_id": "5f0c1d2e-0000-4000-8000-000000000001",
+    "transcript_path": "{outside}/transcript.jsonl",
+    "cwd": "{wt}",
+    "permission_mode": "acceptEdits",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {
+        "command": "git add app/Clause.php tests/E2E/ClauseTest.php && git commit -m \"$(cat <<'EOF'\nACME-7K2M9Q: conditional clauses\n\nThe main session will git push this later.\nEOF\n)\"",
+        "description": "Commit the clause work",
+        "timeout": 120000
+    },
+    "tool_use_id": "toolu_01ABC",
+    "agent_id": "a4d2c0ffee",
+    "agent_type": "kanban-worker"
+}

@@ -1,0 +1,16 @@
+# Layered over the local compose file: docker compose -f docker-compose.local.yml -f docker-compose.prod-local.yml
+services:
+  app:
+    volumes:
+      - db:/var/lib/postgresql/data
+volumes:
+  db:
+    external: true
+    name: app-postgres-local
+  cache:
+    external: true # the key is the name
+  scoped:
+    external: true
+    name: "${COMPOSE_PROJECT_NAME}_postgres_local"
+  plain:
+    name: app-plain

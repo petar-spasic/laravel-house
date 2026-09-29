@@ -1,0 +1,130 @@
+{
+    "$id": "card.schema.json",
+    "title": "<epic>/<board>/<ID>.json — the definition is chosen by `type`: decision → #/$defs/decision, else #/$defs/work",
+    "$defs": {
+        "work": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "type", "title", "stage", "priority", "labels", "body", "acceptance", "depends_on", "blocked", "claim", "work", "created", "updated", "log"],
+            "properties": {
+                "id": { "$ref": "#/$defs/id" },
+                "type": { "enum": ["feature", "bug", "chore", "spike"] },
+                "title": { "$ref": "#/$defs/title" },
+                "stage": { "enum": ["backlog", "ready", "doing", "review", "done", "dropped"] },
+                "priority": { "$ref": "#/$defs/priority" },
+                "labels": { "$ref": "#/$defs/labels" },
+                "body": { "type": "string", "maxLength": 20000 },
+                "acceptance": { "type": "array", "maxItems": 12, "items": { "$ref": "#/$defs/criterion" } },
+                "depends_on": { "type": "array", "maxItems": 20, "uniqueItems": true, "items": { "$ref": "#/$defs/id" } },
+                "blocked": { "type": ["string", "null"], "minLength": 1, "maxLength": 500 },
+                "claim": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/claim" }] },
+                "work": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/workState" }] },
+                "created": { "$ref": "#/$defs/timestamp" },
+                "updated": { "$ref": "#/$defs/timestamp" },
+                "log": { "$ref": "#/$defs/log" }
+            }
+        },
+        "decision": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "type", "title", "stage", "priority", "labels", "body", "why", "decided_on", "supersedes", "superseded_by", "resolution", "source", "created", "updated", "log"],
+            "properties": {
+                "id": { "$ref": "#/$defs/id" },
+                "type": { "const": "decision" },
+                "title": { "$ref": "#/$defs/title" },
+                "stage": { "enum": ["proposed", "decided", "superseded", "dropped"] },
+                "priority": { "$ref": "#/$defs/priority" },
+                "labels": { "$ref": "#/$defs/labels" },
+                "body": { "type": "string", "maxLength": 20000 },
+                "why": { "type": "string", "maxLength": 10000 },
+                "decided_on": { "type": ["string", "null"], "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+                "supersedes": { "type": "array", "maxItems": 20, "uniqueItems": true, "items": { "$ref": "#/$defs/id" } },
+                "superseded_by": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/id" }] },
+                "resolution": { "type": ["string", "null"], "minLength": 1, "maxLength": 2000 },
+                "source": {
+                    "type": ["object", "null"],
+                    "additionalProperties": false,
+                    "required": ["file", "line", "hash"],
+                    "properties": {
+                        "file": { "type": "string", "minLength": 1 },
+                        "line": { "type": "integer", "minimum": 1 },
+                        "hash": { "type": "string", "minLength": 1 }
+                    }
+                },
+                "created": { "$ref": "#/$defs/timestamp" },
+                "updated": { "$ref": "#/$defs/timestamp" },
+                "log": { "$ref": "#/$defs/log" }
+            }
+        },
+        "id": { "type": "string", "pattern": "^[A-Z][A-Z0-9]{1,9}-[0-9A-HJKMNP-TV-Z]{4,12}$" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 120, "pattern": "\\S" },
+        "priority": { "enum": ["urgent", "high", "normal", "low"] },
+        "labels": {
+            "type": "array",
+            "maxItems": 10,
+            "uniqueItems": true,
+            "items": { "type": "string", "maxLength": 60, "pattern": "^[a-z0-9]+([-:][a-z0-9]+)*$" }
+        },
+        "criterion": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "text", "done"],
+            "properties": {
+                "id": { "type": "integer", "minimum": 1 },
+                "text": { "type": "string", "minLength": 1, "maxLength": 300 },
+                "done": { "type": "boolean" }
+            }
+        },
+        "claim": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["by", "session", "at"],
+            "properties": {
+                "by": { "type": "string", "minLength": 1 },
+                "session": { "type": ["string", "null"] },
+                "at": { "$ref": "#/$defs/timestamp" }
+            }
+        },
+        "workState": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "branch": { "type": "string", "minLength": 1 },
+                "base": { "type": ["string", "null"] },
+                "worktree": { "type": ["string", "null"] },
+                "host": { "type": ["string", "null"] },
+                "stack": {
+                    "type": ["object", "null"],
+                    "additionalProperties": false,
+                    "properties": {
+                        "project": { "type": "string" },
+                        "slot": { "type": "integer", "minimum": 0 },
+                        "ports": { "type": "object" },
+                        "url": { "type": ["string", "null"] }
+                    }
+                },
+                "attempt": { "type": "integer", "minimum": 1 },
+                "head": { "type": ["string", "null"] },
+                "approved": { "type": ["object", "null"] },
+                "merge": { "type": ["string", "null"] },
+                "started": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/timestamp" }] },
+                "finished": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/timestamp" }] },
+                "parked_branch": { "type": ["string", "null"] }
+            }
+        },
+        "log": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["id", "at", "by", "event"],
+                "properties": {
+                    "id": { "type": "string", "pattern": "^[0-9A-HJKMNP-TV-Z]{8}$" },
+                    "at": { "$ref": "#/$defs/timestamp" },
+                    "by": { "enum": ["owner", "main", "worker", "evaluator", "hook", "import"] },
+                    "event": { "type": "string", "minLength": 1 }
+                }
+            }
+        },
+        "timestamp": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}\\+00:00$" }
+    }
+}

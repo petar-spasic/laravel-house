@@ -1,0 +1,8 @@
+{
+    "session_id": "{session}",
+    "transcript_path": "{main}/.git/transcript.jsonl",
+    "cwd": "{cwd}",
+    "hook_event_name": "SubagentStart",
+    "agent_id": "{agent}",
+    "agent_type": "{type}"
+}
