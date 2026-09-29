@@ -1,0 +1,14 @@
+{
+  "attribution": {
+    "commit": "",
+    "pr": "",
+    "sessionUrl": false
+  },
+  "permissions": {
+    "allow": [
+      "Bash(claude plugin validate *)",
+      "Bash(claude --plugin-dir . plugin details *)",
+      "Bash(php resources/boost/skills/laravel-project-setup/scripts/install.php *)"
+    ]
+  }
+}
