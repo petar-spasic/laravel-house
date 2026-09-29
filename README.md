@@ -21,12 +21,6 @@ and guard that let a main session run parallel agents safely. Dev-only, for Lara
 
 ## Install
 
-The package comes from its VCS repository; add it to `composer.json`:
-
-```json
-"repositories": [{ "type": "vcs", "url": "https://github.com/petar-spasic/laravel-kanban" }]
-```
-
 ```bash
 composer require --dev petar-spasic/laravel-kanban:^0.1
 php artisan kanban:install --key=KEY       # --dry-run prints what would change
