@@ -103,6 +103,7 @@ it('rejects invalid values with exit 2 and changes nothing', function () {
     $commits = count($this->sandbox->boardLog());
 
     $bad = $this->sandbox->kanban(['set', $id, 'priority=someday']);
+    $twoStdin = $this->sandbox->kanban(['set', $id, 'body=@-', 'why=@-'], input: 'Text');
     expect($bad->getExitCode())->toBe(2)
         ->and($bad->getErrorOutput())->toContain("project/work/{$id}.json: priority: must be one of")
         ->and($this->sandbox->kanban(['set', $id, 'colour=red'])->getExitCode())->toBe(2)
@@ -110,6 +111,8 @@ it('rejects invalid values with exit 2 and changes nothing', function () {
         ->and($this->sandbox->kanban(['set', $id, 'title='.str_repeat('x', 121)])->getExitCode())->toBe(2)
         ->and($this->sandbox->kanban(['set', $id, 'depends_on=+'.$id])->getExitCode())->toBe(2)
         ->and($this->sandbox->kanban(['set', $id, 'tick=9'])->getExitCode())->toBe(4)
+        ->and($twoStdin->getExitCode())->toBe(2)
+        ->and($twoStdin->getErrorOutput())->toContain('set body, why in separate runs')
         ->and($this->sandbox->kanban(['new', 'project/nope', 'X'])->getExitCode())->toBe(4)
         ->and($this->sandbox->kanban(['new', 'project/work', 'X', '--stage=doing'])->getExitCode())->toBe(2)
         ->and(count($this->sandbox->boardLog()))->toBe($commits)

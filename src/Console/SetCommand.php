@@ -27,6 +27,10 @@ class SetCommand extends Command
         $store = $this->store();
         $snapshot = $store->snapshot();
         $card = $snapshot->resolve($this->argument('id'));
+        $fromStdin = array_filter($this->argument('changes'), fn (string $pair) => str_ends_with($pair, '=@-'));
+        if (count($fromStdin) > 1) {
+            throw new Invalid('only one value can be read from stdin (@-): set '.implode(', ', array_map(fn (string $pair) => strstr($pair, '=', true), $fromStdin)).' in separate runs');
+        }
         $changes = array_map(fn (string $pair) => $this->parse($pair, $snapshot), $this->argument('changes'));
 
         $updated = $store->update($card->id(), function (array $data) use ($changes) {

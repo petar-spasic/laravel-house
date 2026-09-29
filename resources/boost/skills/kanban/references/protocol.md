@@ -46,7 +46,7 @@ text, one fact per line; errors go to stderr. Card ids accept a unique prefix of
 |---|---|
 | `new E/B "Title" [--type --priority --label=* --accept=* --depends=* --body= --body-file=- --why= --decided-on= --stage=]` | Create a card (backlog/ready for work, proposed/decided for decisions) |
 | `board E/B ["Title"] [--kind=work\|decisions --order= --wip-doing=]` | Create or update a board |
-| `set ID k=v…` | `title= priority= type= labels=+a,-b depends_on=+ID accept+="…" accept[2]="…" accept-=3 tick=1 untick=2 blocked="…"/"" body=@- why=@- note="…" decided_on= supersedes=+ID resolution=` |
+| `set ID k=v…` | `title= priority= type= labels=+a,-b depends_on=+ID accept+="…" accept[2]="…" accept-=3 tick=1 untick=2 blocked="…"/"" body=@- why=@- note="…" decided_on= supersedes=+ID resolution=`; one `@-` per run |
 | `move ID STAGE [--reason= --force]` · `move ID --board=E/B` | Transitions below; a board move is a `git mv` |
 | `promote [ID…] [--auto]` | Backlog → ready by the ready policy; `refused ID: R4 …` lines |
 | `import-house-docs [--decisions= --ideas= --board= --dry-run --strict]` | decisions.md / ideas.md → decision cards, idempotent |
