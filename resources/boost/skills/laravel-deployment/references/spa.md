@@ -38,8 +38,8 @@ Replace the `route { … }` block of `docker/Caddyfile`. Fortify registers its r
 (webhook callbacks, `/email/verify/*`, Fortify's GET `/user/…` JSON endpoints, the passkey options endpoints, any other
 backend prefix the app has) join the `path(…)` list. `/passkeys/*` is the backend's namespace, so a SPA must not use it;
 the other `/user/*` pages (`/user/passkeys`, …) stay the SPA's, which is why only `/user/passkeys/options` is listed.
-Check the list against `php artisan route:list` whenever Fortify or the starter kit changes; a GET missing from it
-returns the shell instead of JSON:
+Check the list against `php artisan route:list --method=GET` whenever Fortify or the starter kit changes; a GET missing
+from it returns the shell instead of JSON:
 
 ```caddyfile
 	route {
