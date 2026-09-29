@@ -68,8 +68,8 @@ Root `CLAUDE.md` "Non-negotiables" sets the budgets; these are the mechanics.
   `prefetch` for links in the viewport with moderate eagerness, `prerender`
   for the one most likely next page (chosen by the controller, e.g. the first
   result). Never prefetch anything authenticated, anything with side effects,
-  or anything not served by the response cache — a prefetch that hits PHP is a
-  DoS on ourselves.
+  or anything not served by the response cache. A miss renders and warms the
+  entry like any request; hover eagerness and `throttle:public` bound the volume.
 - **Zero layout shift.** Every `<img>` has `width`/`height` (or
   `aspect-ratio`), `loading="lazy"` below the fold, `srcset` + modern
   formats; the LCP image is eager with `fetchpriority="high"`. Placeholders
