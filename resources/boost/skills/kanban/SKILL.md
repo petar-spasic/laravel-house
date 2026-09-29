@@ -21,7 +21,7 @@ You drive the board; agents do the card work. Exact flags, every exit code and t
 
 ## Ground rules
 
-- Only the main session runs `start`, `refresh`, `finish`, `stop`, `publish`, `promote`, `new`, `set`, `move`.
+- Only the main session runs `start`, `refresh`, `finish`, `stop`, `publish`, `promote`, `new`, `set`, `move`, from the main checkout (they refuse inside a card worktree).
   One main session per machine holds the lease; another one gets exit 6. `lease --takeover` when the holder is your
   own previous session (after a restart), otherwise only when the owner says the other session is dead.
 - Never edit `docs/kanban` by hand and never write code in the main checkout for a card: every card is a worktree.
@@ -110,8 +110,9 @@ You drive the board; agents do the card work. Exact flags, every exit code and t
 - **Stack down or unhealthy:** `stack wait` (worker) or `stack <ID> wait` (main) brings a stopped stack back up; `stack <ID> logs` for failures.
 - **Give up on a card:** `stop <ID> --to=ready|backlog|dropped [--reason=…]` (branch with commits is parked and reused
   by the next `start`). Dirty worktree → commit it through the worker first; `--force` only with the owner.
-- **Leftovers:** `stack gc` (registry slots whose worktree is gone), `doctor` (orphan worktrees), `sweep` (journaled
-  UI writes), `apply --all` (staged reports and verdicts).
+- **Leftovers:** `stack gc` (registry slots whose worktree is gone, idle isolated-agent worktrees), `doctor` (orphan
+  worktrees), `sweep` (journaled UI writes, old runtime files), `apply --all` (staged reports and verdicts). Every
+  session start already prunes old runtime files and removes clean isolated-agent worktrees idle for a day.
 
 ## Gotchas
 

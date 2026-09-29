@@ -38,7 +38,7 @@ text, one fact per line; errors go to stderr. Card ids accept a unique prefix of
 | `next [--count=1 --json]` | Pull order, or `none: <reason>` |
 | `validate [--fix]` | Schema and cross-card rules; `--fix` rewrites canonically, re-ids duplicates (one commit) |
 | `doctor [--fix]` | `ok\|warn\|fail` lines, exit 1 on any fail; `--fix` re-runs attach and the install steps, then Claude Code needs a restart |
-| `lease [--takeover --release]` | The orchestrator lease (15 min idle expiry) |
+| `lease [--takeover --release]` | The orchestrator lease (15 min idle expiry); `--takeover`/`--release` run from the main checkout |
 
 ## Write (main session or owner)
 
@@ -58,10 +58,10 @@ text, one fact per line; errors go to stderr. Card ids accept a unique prefix of
 | `start ID [--force]` | Claim, slot, worktree `.claude/worktrees/<id without key>-<slug≤24>` (compose project `{app}-wt-` + that name) on `card/<id>-<slug≤40>`, deps copied, `.env`, `compose up -d --build` (no wait); prints the Agent spawn line |
 | `refresh ID\|--all` | Merge main into the branch. Moved head → approval cleared. Conflict → card to doing, merge left in progress, exit 5, prints `SendMessage: …` |
 | `finish ID` | Needs review + approval of the current head + clean worktree + no live agent. Merge `--no-ff`, done, `finish.after` commands on main, stack down, slot freed, worktree and branch removed |
-| `stop ID --to=ready\|backlog\|dropped [--keep-branch --force --reason=]` | Stack down, slot freed, worktree removed (dirty → refused without `--force`); a branch with commits is parked and reused by the next `start` |
-| `stack [ID\|PATH] create\|up\|down\|status\|wait\|logs\|url` · `stack list` · `stack gc [--force]` | Per-worktree stack. `wait` exits 75 after 110 s. `gc`: slots whose worktree is gone; `--force` also unregistered `*-wt-*` projects |
+| `stop ID --to=ready\|backlog\|dropped [--keep-branch --force --reason=]` | Stack down, slot freed, worktree removed (dirty, or started on another machine → refused without `--force`); a branch with commits is parked and reused by the next `start` |
+| `stack [ID\|PATH] create\|up\|down\|status\|wait\|logs\|url` · `stack list` · `stack gc [--force]` | Per-worktree stack. `wait` exits 75 after 110 s. `gc`: slots whose worktree is gone, plus idle isolated-agent worktrees; `--force` also unregistered `*-wt-*` projects |
 | `apply [ID\|--all]` | Apply staged reports/verdicts whose agent is gone; retry hook payloads left in `inbox/` |
-| `sync` · `publish` · `sweep` · `attach` | Pull/push `kanban`; push `kanban` + `main` once per run; commit journaled UI writes; check out the board on this machine |
+| `sync` · `publish` · `sweep` · `attach` | Pull/push `kanban`; push `kanban` + `main` once per run; commit journaled UI writes and prune old runtime files (`--reclaim` also removes idle isolated-agent worktrees; SessionStart runs both); check out the board on this machine |
 
 ## Agents
 

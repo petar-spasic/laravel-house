@@ -12,6 +12,8 @@ start, and the old session holds the lease until 15 min idle. → Restart Claude
 or the auto-mode classifier may soft-deny destructive database commands; an allow rule does not override them.
 → `php artisan migrate --force`, then `php artisan db:seed --force` when the seeders are idempotent; prove behaviour
 with tests and curl.
+Nothing stops an agent whose cwd is the main checkout from running them against main's database: agents must reset a
+database only when `pwd` is their worktree and its `.env` `DB_PORT` differs from main's.
 
 **Copied `node_modules` get wiped on a worktree stack's first start.** → `git worktree add` stamps the lockfiles with
 the current time, so mtime (`-nt`) sentinels in the entrypoint reinstall. → sha256 sentinels.
@@ -41,6 +43,27 @@ stack URL over CDP from Node ≥ 22 (global `WebSocket`); record the result with
 workers and evaluators can drive it too (`http://127.0.0.1:9333`, no `docker` needed): say so when you SendMessage them.
 
 **A worker or evaluator runs `move`, `finish` or another main-only command.** → `KANBAN_SESSION` is exported for the whole
-session (CLAUDE_ENV_FILE), so a subagent's Bash counts as `main`; only the agent's instructions keep it to `report`,
-`verdict` and `stack`. → Tighten the agent's instructions or send it back with a note; the board is a git branch, so
-`git -C docs/kanban log` shows what it changed.
+session (CLAUDE_ENV_FILE), so a subagent's Bash counts as `main`. Main-only commands (`start`, `move`, `set`, `stop`,
+`finish`, `lease --takeover`, …) refuse to run with a card worktree as the working directory (`… runs from the main
+checkout`), so a subagent in its worktree cannot; one that `cd`s out still can. → Tighten the agent's instructions or
+send it back with a note; the board is a git branch, so `git -C docs/kanban log` shows what it changed.
+
+**`stop` refuses: "is being worked on at <host>".** → The card was started on another machine (`work.host`, or the
+claim's `user@host`); stopping it here would revert that machine's live card. The brief shows such cards as `on <host>`
+instead of `no agent`. → Stop it on that machine, or `stop --force` to revert it here anyway.
+
+**A rebase is in progress in `docs/kanban` and every write exits 5 ("a git rebase is in progress").** → Someone (or a
+killed `git pull --rebase` in the board) left git mid-rebase; kanban only recovers rebases it started itself. → Finish
+or abort it: `git -C docs/kanban rebase --continue` or `--abort`. A rebase kanban's own killed `sync` left is reattached
+on the next command.
+
+**`sync` moved a card back for a moment, or `sync` reports a board that changed.** → A card moved with `move --board` and
+edited on another machine is merged by id, not by git's rename detection: the move is undone before the rebase and
+re-applied after; when origin moved it too, origin's board wins and both sets of edits are kept.
+
+**Session start removed an `agent-a…` worktree.** → Claude Code never calls WorktreeRemove for isolated agents, so
+SessionStart removes clean ones (up to ten an hour) once they have had no git activity and no running stack for a day.
+Uncommitted work is never touched; commit or keep the worktree busy to keep it.
+
+**`board cards/…` or `board assets/…` is refused.** → The local UI serves `/kanban/cards/…` and `/kanban/assets/…`
+itself; pick another epic name.

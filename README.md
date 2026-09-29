@@ -107,10 +107,10 @@ Merged into `.claude/settings.json` (exec form, so paths need no quoting):
 
 | Event | Handler | Does |
 |---|---|---|
-| SessionStart | `kanban hook session-start` | attach if missing, flush, retry the inbox, export `KANBAN_SESSION`, print the brief |
+| SessionStart | `kanban hook session-start` | attach if missing, export `KANBAN_SESSION`, flush, retry the inbox, print the brief; then tidy up: prune stopped agents (14 days), applied reports (7 days), unclaimed spawns, staged files of finished cards, an expired lease and dependency-copy leftovers, and start `sweep --reclaim` in the background, which removes clean isolated-agent worktrees (up to ten per run) (`agent-a…`) idle for a day, freeing their slots |
 | SubagentStart | `kanban hook subagent-start` | register kanban agents, add the board rules to their context |
 | SubagentStop (`kanban-worker\|kanban-evaluator`) | `kanban hook subagent-stop` | refuse a stop without a report, run the gates, apply the report or verdict |
-| PreToolUse (`Bash\|Edit\|Write\|NotebookEdit\|EnterWorktree\|Agent`) | `bin/kanban-guard` | plain PHP, < 50 ms, never denies: binds an agent to its card at `EnterWorktree`, refreshes its heartbeat, records the spawn of a kanban agent |
+| PreToolUse (`Bash\|Monitor\|Edit\|Write\|NotebookEdit\|EnterWorktree\|Agent`) | `bin/kanban-guard` | plain PHP, < 50 ms, never denies: binds an agent to its card at `EnterWorktree`, refreshes its heartbeat, records the spawn of a kanban agent |
 | WorktreeCreate / WorktreeRemove | `kanban hook worktree-create\|remove` | a kanban agent spawned from the main session gets its card's worktree; `claude -w <ID>` too; anything else a fresh worktree with deps, `.env` and a port slot. Card worktrees are never removed by the hook |
 
 Git hooks (`core.hooksPath`): `commit-msg` rejects `Co-Authored-By` trailers unless `githooks.reject_co_authored` is
@@ -181,13 +181,13 @@ vendor/bin/kanban doctor        # "docker address pools: N free networks" (warns
 ```
 
 `stack.max_stacks` (default 6, `KANBAN_MAX_STACKS`) caps stacks per machine; before each `up` the registry also
-requires MemAvailable ≥ 8 GiB, ≥ 20 GiB free on `/` and a 1-minute load < 0.75 × CPUs.
+requires MemAvailable ≥ 8 GiB, ≥ 20 GiB free on `/` and a 1-minute load < 0.75 × CPUs (the load check is skipped where the CPU count is unknown, e.g. macOS).
 
 ## Team sync
 
 - `sync=off` (default, one developer): board commits stay local until `kanban publish` pushes `kanban` and `main`.
-- `KANBAN_SYNC=on` (teams): every write pulls first and pushes after; a claim is won only by the push that lands
-  (the loser exits 8). Rejected pushes rebase and retry 3×, then exit 9; nothing is ever force-pushed.
+- `KANBAN_SYNC=on` (also `1`, `true`, `yes`; teams): writes are pushed after and `sync` pulls; a claim pulls first, is checked
+  (blocked, dependencies, area, WIP) against what it pulled, and is won only by the push that lands (the loser exits 8). Rejected pushes rebase and retry 3×, then exit 9; nothing is ever force-pushed.
 - Each machine runs `vendor/bin/kanban attach` once (SessionStart does it when `docs/kanban` is missing); it also
   configures the merge driver, without which git would silently text-merge board files.
 - Only one orchestrating session per machine holds the lease (15 min idle expiry, `kanban lease --takeover`).
