@@ -37,4 +37,5 @@ warns.
 **A criterion needs a real browser, and `chrome-headless-shell` on the host fails with `libatk-1.0.so.0: cannot open
 shared object file`.** → The host lacks the browser's system libraries. → Run `chromium --headless=new --no-sandbox
 --remote-debugging-port=9333` in a throwaway `debian:trixie-slim` container on the host network and drive the card's
-stack URL over CDP from Node ≥ 22 (global `WebSocket`); record the result with `set <ID> note="…"`.
+stack URL over CDP from Node ≥ 22 (global `WebSocket`); record the result with `set <ID> note="…"`. While it runs,
+workers and evaluators can drive it too (`http://127.0.0.1:9333`, no `docker` needed): say so when you SendMessage them.

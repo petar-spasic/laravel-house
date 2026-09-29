@@ -97,7 +97,8 @@ kanban refresh (merge main into the branch) → kanban-evaluator (read-only) →
 
 The main session follows the `kanban` skill (run loop, decisions, recovery). Every command, flag, exit code and
 transition is in [`references/protocol.md`](resources/boost/skills/kanban/references/protocol.md);
-`vendor/bin/kanban <cmd>` runs without booting the app, and the same classes run as `php artisan kanban:<cmd>`.
+`vendor/bin/kanban <cmd>` runs without booting the app, and the same classes run as `php artisan kanban:<cmd>`. In a
+code worktree it runs the main checkout's copy: the worktree's `vendor/` dates from its card's start.
 
 ## Hooks
 

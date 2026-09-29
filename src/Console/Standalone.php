@@ -15,6 +15,22 @@ use Symfony\Component\Console\Input\ArgvInput;
 /** `vendor/bin/kanban`: the kanban commands on Illuminate Console without booting the host app. */
 final class Standalone
 {
+    /**
+     * The main checkout's `vendor/bin/kanban` when $script is a code worktree's: a worktree's vendor/ is the copy taken
+     * when its card started, while the board and its protocol are the main checkout's.
+     */
+    public static function mainCheckoutBinary(string $script): ?string
+    {
+        $script = realpath($script);
+        if ($script === false || basename(dirname($script)) !== 'bin' || basename(dirname($script, 2)) !== 'vendor') {
+            return null;
+        }
+        $root = dirname($script, 3);
+        $main = Paths::discover($root)->main;
+
+        return $main !== $root && is_file($main.'/vendor/bin/kanban') ? $main.'/vendor/bin/kanban' : null;
+    }
+
     /** @param  list<string>  $argv */
     public static function run(array $argv): int
     {

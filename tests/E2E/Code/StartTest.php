@@ -1,6 +1,7 @@
 <?php
 
 use PetarSpasic\Kanban\Tests\Support\CodeSandbox;
+use Symfony\Component\Process\Process;
 
 beforeEach(function () {
     $this->code = CodeSandbox::create();
@@ -194,4 +195,17 @@ it('names the worktree and stack after the card, cutting a long title at a whole
     expect($code->sandbox->read($id)['work']['worktree'])->toBe(".claude/worktrees/{$name}")
         ->and($output)->toContain("stack acme-wt-{$name} slot")
         ->and($output)->toContain("description=\"{$id} Conditional clauses with\"");
+});
+
+it('runs the main checkout\'s vendor/bin/kanban when called from a code worktree', function () {
+    $code = $this->code;
+    $id = $code->started('Delegate');
+    $wt = $code->worktree($id);
+    file_put_contents($code->sandbox->root.'/vendor/bin/kanban', "#!/usr/bin/env php\n<?php echo 'main copy: '.implode(' ', array_slice(\$argv, 1)).\"\\n\"; exit(3);\n");
+
+    $run = new Process([PHP_BINARY, 'vendor/bin/kanban', 'context', '--evaluate'], $wt);
+    $run->run();
+
+    expect($run->getOutput())->toBe("main copy: context --evaluate\n")
+        ->and($run->getExitCode())->toBe(3);
 });
