@@ -54,6 +54,16 @@ it('opens /horizon to admin@{{app}}.test from the LAN', function () {
         ->assertSee('Horizon');
 });
 
+it('refuses /horizon to an address that only differs in case from an admin', function () {
+    $user = User::factory()->make();
+    $user->setRawAttributes([...$user->getAttributes(), 'email' => 'Admin@{{app}}.test']);
+
+    $this->actingAs($user)
+        ->withServerVariables(['REMOTE_ADDR' => lanClientAddress()])
+        ->get('/horizon')
+        ->assertForbidden();
+});
+
 it('opens /horizon to a second ADMIN_EMAILS address after ProductionSeeder', function () {
     config([
         'auth.admins' => ['admin@{{app}}.test', 'second@{{app}}.test'],

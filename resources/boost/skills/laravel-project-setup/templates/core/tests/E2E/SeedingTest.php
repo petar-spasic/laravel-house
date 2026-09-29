@@ -64,5 +64,31 @@ it('never modifies an existing unverified admin account and warns about it', fun
 
     expect($admin->is($existing))->toBeTrue()
         ->and($admin->email_verified_at)->toBeNull()
-        ->and($admin->password)->toBe($existing->password);
+        ->and($admin->password)->toBe($existing->password)
+        ->and(User::query()->count())->toBe(1);
+});
+
+it('warns about an existing unverified operator account and leaves it as it is', function () {
+    config(['auth.admins' => [], 'auth.operator' => ['email' => 'operator@{{app}}.test', 'password' => 'operator-secret']]);
+
+    $existing = User::factory()->unverified()->create(['email' => 'operator@{{app}}.test']);
+
+    $this->artisan('db:seed', ['--class' => ProductionSeeder::class])
+        ->expectsOutputToContain('has an unverified account')
+        ->assertSuccessful();
+
+    $operator = User::query()->sole();
+
+    expect($operator->email_verified_at)->toBeNull()
+        ->and($operator->password)->toBe($existing->password);
+});
+
+it('seeds no operator when OPERATOR_PASSWORD is not a plain string', function () {
+    config(['auth.admins' => [], 'auth.operator' => ['email' => 'operator@{{app}}.test', 'password' => true]]);
+
+    $this->artisan('db:seed', ['--class' => ProductionSeeder::class])
+        ->expectsOutputToContain('no operator account seeded')
+        ->assertSuccessful();
+
+    expect(User::query()->count())->toBe(0);
 });

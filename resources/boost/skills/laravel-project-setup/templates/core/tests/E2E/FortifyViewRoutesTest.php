@@ -43,6 +43,17 @@ it('registers, signs out and signs in through the form endpoints, answering in J
     $this->post(route('two-factor.enable'))->assertStatus(423)->assertJsonPath('message', 'Password confirmation required.');
 });
 
+it('lower-cases the address at registration, which the exact-match ADMIN_EMAILS allow-list relies on', function () {
+    $this->post(route('register.store'), [
+        'name' => 'Ana Anić',
+        'email' => 'Ana@{{app}}.test',
+        'password' => 'correct-horse-battery',
+        'password_confirmation' => 'correct-horse-battery',
+    ])->assertCreated();
+
+    expect(User::query()->sole()->email)->toBe('ana@{{app}}.test');
+});
+
 it('answers a browser guest on an authenticated auth route with 401, not a redirect to a missing login page', function () {
     $this->get(route('two-factor.qr-code'))->assertUnauthorized()->assertExactJson(['message' => 'Unauthenticated.']);
     $this->get(route('password.confirmation'))->assertUnauthorized();
