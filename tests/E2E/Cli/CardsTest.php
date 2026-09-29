@@ -272,3 +272,48 @@ it('writes as main when KANBAN_SESSION is set', function () {
     expect($this->sandbox->boardLog()[0])->toBe("{$id} created [main]")
         ->and($this->sandbox->read($id)['log'][0]['by'])->toBe('main');
 });
+
+it('refuses to move a card in doing anywhere but through its own commands', function (string $to) {
+    $id = $this->sandbox->readyCard('In flight');
+    $this->sandbox->ok(['claim', $id], ['KANBAN_SESSION' => 'session-1']);
+
+    $move = $this->sandbox->kanban(['move', $id, $to]);
+
+    expect($move->getExitCode())->toBe(3)
+        ->and($this->sandbox->read($id)['stage'])->toBe('doing')
+        ->and($this->sandbox->read($id)['claim'])->not->toBeNull();
+})->with(['review', 'done', 'backlog', 'ready', 'dropped']);
+
+it('accepts and keeps the guard setting an older install wrote to kanban.json', function () {
+    $file = $this->sandbox->root.'/docs/kanban/kanban.json';
+    $config = json_decode(file_get_contents($file), true);
+    $config['guard'] = ['strict' => false, 'main_write_paths' => []];
+    file_put_contents($file, json_encode($config, JSON_PRETTY_PRINT)."\n");
+    $this->sandbox->git('-C', 'docs/kanban', 'commit', '-q', '-am', 'older install');
+
+    $id = $this->sandbox->card('After the upgrade');
+
+    expect($this->sandbox->ok('validate'))->toContain('ok: 1 cards')
+        ->and(json_decode(file_get_contents($file), true)['guard'])->toBe(['strict' => false, 'main_write_paths' => []])
+        ->and($this->sandbox->read($id)['title'])->toBe('After the upgrade');
+});
+
+it('refuses a decision date that is not on the calendar', function () {
+    $id = $this->sandbox->card('Workspace per team', ['--stage=decided', '--decided-on=2026-09-28'], 'project/decisions');
+
+    $set = $this->sandbox->kanban(['set', $id, 'decided_on=2026-13-45']);
+
+    expect($set->getExitCode())->not->toBe(0)
+        ->and($set->getErrorOutput())->toContain('decided_on')
+        ->and($this->sandbox->read($id)['decided_on'])->toBe('2026-09-28');
+});
+
+it('refuses an epic named like a UI route', function (string $epic) {
+    $before = $this->sandbox->boardLog();
+
+    $board = $this->sandbox->kanban(['board', "{$epic}/work", 'Shadowed']);
+
+    expect($board->getExitCode())->toBe(2)
+        ->and($board->getErrorOutput())->toContain("epic '{$epic}' is reserved")
+        ->and($this->sandbox->boardLog())->toBe($before);
+})->with(['cards', 'assets']);

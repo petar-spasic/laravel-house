@@ -37,7 +37,7 @@
                 "labels": { "$ref": "#/$defs/labels" },
                 "body": { "type": "string", "maxLength": 20000 },
                 "why": { "type": "string", "maxLength": 10000 },
-                "decided_on": { "type": ["string", "null"], "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+                "decided_on": { "type": ["string", "null"], "format": "date", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
                 "supersedes": { "type": "array", "maxItems": 20, "uniqueItems": true, "items": { "$ref": "#/$defs/id" } },
                 "superseded_by": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/id" }] },
                 "resolution": { "type": ["string", "null"], "minLength": 1, "maxLength": 2000 },
@@ -125,6 +125,6 @@
                 }
             }
         },
-        "timestamp": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}\\+00:00$" }
+        "timestamp": { "type": "string", "format": "date-time", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}\\+00:00$" }
     }
 }

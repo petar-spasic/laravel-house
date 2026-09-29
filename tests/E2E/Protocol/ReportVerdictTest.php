@@ -44,11 +44,16 @@ it('validates a report against the card', function (array $args, string $error) 
 ]);
 
 it('refuses a report for a card that is not in doing', function () {
-    $this->p->in($this->wt, ['report', $this->id, '--status=blocked', '--reason=?'])->mustRun();
-    $this->p->sandbox->ok(['stop', $this->other, '--to=ready', '--force'], ['KANBAN_SESSION' => 's']);
-    $ready = $this->p->sandbox->kanban(['report', $this->other, '--status=review', '--summary=x'], cwd: $this->p->main);
+    $this->p->commit($this->wt, 'app.php');
+    $this->p->in($this->wt, ['report', $this->id, '--status=review', '--summary=Done'])->mustRun();
+    $this->p->hook('subagent-stop', $this->p->payload('subagent-stop', ['cwd' => $this->wt]));
+    expect($this->p->card($this->id)['stage'])->toBe('review');
 
-    expect($ready->getExitCode())->toBe(3);
+    $again = $this->p->in($this->wt, ['report', $this->id, '--status=blocked', '--reason=too late']);
+
+    expect($again->getExitCode())->toBe(3)
+        ->and($again->getErrorOutput())->toContain("{$this->id} is review, not doing")
+        ->and($this->p->runtime('staged/'.$this->id.'.report.json'))->not->toBeFile();
 });
 
 it('stages a verdict only with every criterion covered and a consistent decision', function () {
@@ -82,4 +87,25 @@ it('stages a verdict only with every criterion covered and a consistent decision
     expect($staged)->toMatchArray(['decision' => 'reject', 'checks' => ['1' => ['result' => 'pass', 'evidence' => 'curl shows it'], '2' => ['result' => 'fail', 'evidence' => 'no test']], 'issues' => [],
         'discovered' => [['type' => 'bug', 'title' => 'Login fails on main', 'body' => '/login answers 500 without this change']]])
         ->and($staged['base'])->toBe(trim($this->p->git($this->wt, 'merge-base', 'HEAD', 'main')));
+});
+
+it('refuses main-only commands from inside a card worktree', function (array $args) {
+    $run = $this->p->in($this->wt, array_map(fn (string $arg) => str_replace('{id}', $this->id, $arg), $args), ['KANBAN_SESSION' => 'session-1']);
+
+    expect($run->getExitCode())->toBe(3, $run->getOutput().$run->getErrorOutput())
+        ->and($run->getErrorOutput())->toContain('runs from the main checkout')
+        ->and($this->p->card($this->id)['stage'])->toBe('doing');
+})->with([
+    'move' => [['move', '{id}', 'ready', '--force']],
+    'set' => [['set', '{id}', 'priority=high']],
+    'stop' => [['stop', '{id}', '--to=ready', '--force']],
+    'finish' => [['finish', '{id}']],
+    'lease takeover' => [['lease', '--takeover']],
+]);
+
+it('lets a card worktree read and report as before', function () {
+    $show = $this->p->in($this->wt, ['show', $this->id]);
+    $context = $this->p->in($this->wt, ['context']);
+
+    expect($show->getExitCode())->toBe(0)->and($context->getExitCode())->toBe(0);
 });

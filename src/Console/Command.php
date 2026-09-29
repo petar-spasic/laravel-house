@@ -107,6 +107,16 @@ abstract class Command extends IlluminateCommand
         if (! in_array($this->actor()->role, ['main', 'owner'], true)) {
             throw new PolicyRefused("{$what} is for the owner or the main session");
         }
+        $this->requireMainCheckout($what);
+    }
+
+    /** Commands that change the board or its worktrees run from the main checkout, never from an agent's worktree. */
+    protected function requireMainCheckout(string $what): void
+    {
+        $worktrees = $this->paths()->worktrees();
+        if ($this->paths()->cwd === $worktrees || str_starts_with($this->paths()->cwd, $worktrees.'/')) {
+            throw new PolicyRefused("{$what} runs from the main checkout ({$this->paths()->main}), not from a worktree");
+        }
     }
 
     /** Tells the user when the write only reached the journal (git unusable here). */

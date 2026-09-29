@@ -93,7 +93,7 @@ class DoctorCommand extends Command
         $this->add($attached ? 'ok' : 'fail', $attached ? 'board attached at docs/kanban' : 'board not attached at docs/kanban (run `vendor/bin/kanban attach`)');
 
         $driver = (string) $git->line(['config', '--get', 'merge.kanban.driver']);
-        $script = preg_match("/^php\s+(?:'([^']+)'|(\S+))\s+merge-driver\b/", $driver, $m) ? ($m[1] !== '' ? $m[1] : $m[2]) : null;
+        $script = preg_match("/^php\s+((?:'[^']*'|\\\\.|[^\s'\\\\])+)\s+merge-driver\b/", $driver, $m) ? self::shellWord($m[1]) : null;
         $this->add(...match (true) {
             $driver === '' => ['fail', 'merge driver not configured (run `vendor/bin/kanban attach`)'],
             $script === null || ! is_file($script) => ['fail', "merge driver points at a missing script: {$driver} (run `vendor/bin/kanban attach`)"],
@@ -168,7 +168,7 @@ class DoctorCommand extends Command
 
             return;
         }
-        $problems = self::composeProblems((string) file_get_contents($main.'/'.$compose));
+        $problems = self::composeProblems((string) file_get_contents($main.'/'.$compose), self::portVariables($stack));
         foreach ($problems as $problem) {
             $this->add('fail', "{$compose}: {$problem}");
         }
@@ -189,12 +189,54 @@ class DoctorCommand extends Command
     }
 
     /**
+     * Variables whose value differs per worktree and is a port: stack.ports, and stack.env entries built from one
+     * (`DB_PORT` = `{DB_HOST_PORT}`).
+     *
+     * @param  array<string, mixed>  $stack
+     * @return list<string>
+     */
+    private static function portVariables(array $stack): array
+    {
+        $ports = array_map('strval', array_keys((array) ($stack['ports'] ?? [])));
+        $derived = [];
+        foreach ((array) ($stack['env'] ?? []) as $key => $template) {
+            foreach ($ports as $port) {
+                if (str_contains((string) $template, '{'.$port.'}')) {
+                    $derived[] = (string) $key;
+                }
+            }
+        }
+
+        return array_values(array_unique([...$ports, ...$derived]));
+    }
+
+    /** A shell word as git's `sh -c` reads it: single quotes are literal and a backslash escapes the next character. */
+    private static function shellWord(string $word): string
+    {
+        $out = '';
+        $quoted = false;
+        for ($i = 0, $n = strlen($word); $i < $n; $i++) {
+            $char = $word[$i];
+            if ($char === "'") {
+                $quoted = ! $quoted;
+            } elseif ($char === '\\' && ! $quoted && $i + 1 < $n) {
+                $out .= $word[++$i];
+            } else {
+                $out .= $char;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
      * Keys that pin one name or host port for every stack (so worktree stacks collide or hijack main), and a missing
      * required project name. A line-based reading of the YAML: enough for the keys compose files use.
      *
+     * @param  list<string>|null  $portVars  the stack.ports variables; a host port taken from any other variable is a problem (null: not checked)
      * @return list<string>
      */
-    public static function composeProblems(string $yaml): array
+    public static function composeProblems(string $yaml, ?array $portVars = null): array
     {
         $problems = [];
         $section = null;
@@ -203,8 +245,8 @@ class DoctorCommand extends Command
         $item = null;
         $services = [];
         $ports = null;
-        foreach (explode("\n", $yaml) as $index => $raw) {
-            $line = rtrim($raw);
+        foreach (self::composeLines($yaml) as [$index, $raw]) {
+            $line = rtrim(self::withoutComment($raw));
             if (trim($line) === '' || str_starts_with(ltrim($line), '#')) {
                 continue;
             }
@@ -213,8 +255,10 @@ class DoctorCommand extends Command
             $at = 'line '.($index + 1);
             if ($ports !== null && ($indent > $ports['indent'] || ($indent === $ports['indent'] && str_starts_with(ltrim($line), '-')))) {
                 $entry = trim(ltrim(ltrim($line), '-'));
-                $port = preg_match('/^([a-z_]+)\s*:(.*)$/', $entry, $long) === 1 ? ($long[1] === 'published' ? $long[2] : '') : self::hostPort($entry);
-                array_push($problems, ...self::fixedPort($port, $ports['service'], $at));
+                [$port, $vars] = preg_match('/^([a-z_]+)\s*:(.*)$/', $entry, $long) === 1
+                    ? ($long[1] === 'published' ? [$long[2], self::variables($long[2])] : ['', []])
+                    : self::hostPort($entry);
+                array_push($problems, ...self::portProblems($port, $vars, $portVars, $ports['service'], $at));
 
                 continue;
             }
@@ -253,7 +297,8 @@ class DoctorCommand extends Command
                 $ports = ['indent' => $indent, 'service' => $item];
                 $flow = trim($m[2]);
                 foreach (str_starts_with($flow, '[') ? explode(',', trim($flow, '[] ')) : [] as $entry) {
-                    array_push($problems, ...self::fixedPort(self::hostPort($entry), $item, $at));
+                    [$port, $vars] = self::hostPort($entry);
+                    array_push($problems, ...self::portProblems($port, $vars, $portVars, $item, $at));
                 }
             }
         }
@@ -315,27 +360,186 @@ class DoctorCommand extends Command
         return $problems;
     }
 
-    /** The host port of a short-syntax `ports:` entry (`8080` in `127.0.0.1:8080:80`), variables as `$`; '' when none. */
-    private static function hostPort(string $entry): string
+    /**
+     * The host port of a short-syntax `ports:` entry (`8080` in `127.0.0.1:8080:80`, each variable expression as `$`)
+     * and the names of the variables it is taken from; ['', []] when there is none.
+     *
+     * @return array{0: string, 1: list<string>}
+     */
+    private static function hostPort(string $entry): array
     {
-        $spec = (string) preg_replace(['/\$\{[^}]*\}|\$\w+/', '/^\[[^\]]*\]/', '#/\w+$#'], ['$', 'ip', ''], trim($entry, " \t\"'"));
+        [$spec, $names] = self::collapseVariables(trim($entry, " \t\"'"));
+        $spec = (string) preg_replace(['/^\[[^\]]*\]/', '#/\w+$#'], ['ip', ''], $spec);
         $parts = explode(':', $spec);
-
-        return match (count($parts)) {
-            2 => $parts[0],
-            3 => $parts[1],
-            default => '',
+        $host = match (count($parts)) {
+            2 => 0,
+            3 => 1,
+            default => null,
         };
+        if ($host === null) {
+            return ['', []];
+        }
+        $before = substr_count(implode(':', array_slice($parts, 0, $host)), '$');
+
+        return [$parts[$host], array_slice($names, $before, substr_count($parts[$host], '$'))];
     }
 
-    /** @return list<string> the problem when $port is a literal port or range */
-    private static function fixedPort(string $port, ?string $service, string $at): array
+    /**
+     * Every top-level `${…}` (defaults and all) or `$NAME` in $value replaced by `$`, and the names of those variables
+     * in order. A variable inside another's default is not one of them.
+     *
+     * @return array{0: string, 1: list<string>}
+     */
+    private static function collapseVariables(string $value): array
+    {
+        $out = '';
+        $names = [];
+        for ($i = 0, $n = strlen($value); $i < $n; $i++) {
+            if ($value[$i] !== '$') {
+                $out .= $value[$i];
+
+                continue;
+            }
+            if (($value[$i + 1] ?? '') === '$') {
+                // `$$` is compose's escape for a literal dollar sign, not a variable.
+                $out .= '_';
+                $i++;
+
+                continue;
+            }
+            if (($value[$i + 1] ?? '') === '{') {
+                $depth = 0;
+                for ($j = $i + 1; $j < $n; $j++) {
+                    $depth += $value[$j] === '{' ? 1 : ($value[$j] === '}' ? -1 : 0);
+                    if ($depth === 0) {
+                        break;
+                    }
+                }
+                $names[] = preg_match('/^\w+/', substr($value, $i + 2), $m) === 1 ? $m[0] : '';
+                $i = min($j, $n - 1);
+            } elseif (preg_match('/^\w+/', substr($value, $i + 1), $m) === 1) {
+                $names[] = $m[0];
+                $i += strlen($m[0]);
+            } else {
+                $out .= '$';
+
+                continue;
+            }
+            $out .= '$';
+        }
+
+        return [$out, $names];
+    }
+
+    /** @return list<string> the variables in a compose value that are not inside another variable's default */
+    private static function variables(string $value): array
+    {
+        return array_values(array_filter(self::collapseVariables($value)[1]));
+    }
+
+    /**
+     * A literal host port or range, or a host port taken from a variable that is not in stack.ports (so every stack
+     * publishes the same port).
+     *
+     * @param  list<string>  $vars
+     * @param  list<string>|null  $portVars
+     * @return list<string>
+     */
+    private static function portProblems(string $port, array $vars, ?array $portVars, ?string $service, string $at): array
     {
         $port = trim($port, " \t\"'");
+        if (preg_match('/^\d+(-\d+)?$/', $port) === 1) {
+            return ["fixed host port {$port} on service {$service} ({$at}): one port for every stack; publish it from a stack.ports variable"];
+        }
+        $unknown = $portVars === null ? [] : array_values(array_diff(array_filter($vars), $portVars));
 
-        return preg_match('/^\d+(-\d+)?$/', $port) === 1
-            ? ["fixed host port {$port} on service {$service} ({$at}): one port for every stack; publish it from a stack.ports variable"]
-            : [];
+        return $unknown === [] ? [] : ["host port variable {$unknown[0]} on service {$service} ({$at}): not a stack.ports variable, so every stack publishes the same port; add it to stack.ports or publish from one that is"];
+    }
+
+    /** The line without a trailing ` # comment` (a `#` inside quotes is text). */
+    private static function withoutComment(string $line): string
+    {
+        $quote = null;
+        for ($i = 0, $n = strlen($line); $i < $n; $i++) {
+            $char = $line[$i];
+            if ($quote !== null) {
+                $quote = $char === $quote ? null : $quote;
+            } elseif ($char === '"' || $char === "'") {
+                $quote = $char;
+            } elseif ($char === '#' && $i > 0 && ctype_space($line[$i - 1])) {
+                return rtrim(substr($line, 0, $i));
+            }
+        }
+
+        return $line;
+    }
+
+    /**
+     * The YAML as [line index, text] pairs with flow-style mappings (`key: { a: 1, b: [x] }`, `- { a: 1 }`) written out
+     * as block lines that keep the original line number.
+     *
+     * @return list<array{0: int, 1: string}>
+     */
+    private static function composeLines(string $yaml): array
+    {
+        $out = [];
+        foreach (explode("\n", $yaml) as $index => $raw) {
+            self::expandFlow($index, rtrim($raw), $out);
+        }
+
+        return $out;
+    }
+
+    /** @param  list<array{0: int, 1: string}>  $out */
+    private static function expandFlow(int $index, string $line, array &$out): void
+    {
+        $code = self::withoutComment($line);
+        if (preg_match('/^(\s*)(-\s+)?(?:([A-Za-z0-9_.-]+)\s*:\s*)?\{(.*)\}\s*$/', $code, $m) !== 1 || ($m[2] === '' && $m[3] === '')) {
+            $out[] = [$index, $line];
+
+            return;
+        }
+        $indent = strlen($m[1]);
+        if ($m[3] !== '') {
+            $out[] = [$index, $m[1].$m[2].$m[3].':'];
+            $indent += strlen($m[2]) + 2;
+            $prefix = '';
+        } else {
+            $indent += strlen($m[2]);
+            $prefix = $m[1].'- ';
+        }
+        foreach (self::splitTop($m[4]) as $n => $pair) {
+            $lead = $prefix !== '' && $n === 0 ? $prefix : str_repeat(' ', $indent);
+            self::expandFlow($index, $lead.trim($pair), $out);
+        }
+    }
+
+    /** @return list<string> $text split on commas outside quotes, brackets and braces */
+    private static function splitTop(string $text): array
+    {
+        $parts = [];
+        $depth = 0;
+        $quote = null;
+        $current = '';
+        foreach (str_split($text) as $char) {
+            if ($quote !== null) {
+                $quote = $char === $quote ? null : $quote;
+            } elseif ($char === '"' || $char === "'") {
+                $quote = $char;
+            } elseif ($char === '[' || $char === '{') {
+                $depth++;
+            } elseif ($char === ']' || $char === '}') {
+                $depth--;
+            } elseif ($char === ',' && $depth === 0) {
+                $parts[] = $current;
+                $current = '';
+
+                continue;
+            }
+            $current .= $char;
+        }
+
+        return array_values(array_filter([...$parts, $current], fn (string $part) => trim($part) !== ''));
     }
 
     private function checkAddressPools(): void

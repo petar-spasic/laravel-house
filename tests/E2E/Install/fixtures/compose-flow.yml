@@ -1,0 +1,18 @@
+name: ${COMPOSE_PROJECT_NAME:?set it in .env}
+
+services:
+  app:
+    build: .
+    ports:
+      - "8090:80"   # admin UI: http://localhost:8090
+  mail: { image: axllent/mailpit, container_name: app-mail, ports: ["8095:8025", "${MAIL_PORT:-1025}:1025"] }
+  web:
+    image: nginx
+    ports:
+      - { target: 80, published: 8100 }
+
+volumes:
+  pg: { name: fixed-pg }
+
+networks:
+  edge: { name: fixed-edge }

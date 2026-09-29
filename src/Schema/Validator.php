@@ -5,7 +5,7 @@ namespace PetarSpasic\Kanban\Schema;
 use PetarSpasic\Kanban\Store\Snapshot;
 
 /**
- * JSON-Schema subset: type, enum, const, pattern, minLength, maxLength, minimum, maximum, items, minItems,
+ * JSON-Schema subset: type, enum, const, pattern, format (date, date-time: a real calendar date), minLength, maxLength, minimum, maximum, items, minItems,
  * maxItems, uniqueItems, properties, required, additionalProperties, anyOf, $ref (#/$defs/… in the same file).
  */
 final class Validator
@@ -110,8 +110,24 @@ final class Validator
         if (isset($schema['pattern']) && preg_match('/'.str_replace('/', '\/', $schema['pattern']).'/u', $value) !== 1) {
             return [$at."must match {$schema['pattern']}"];
         }
+        if (isset($schema['format']) && ! self::formatMatches($schema['format'], $value)) {
+            return [$at."must be a real {$schema['format']}"];
+        }
 
         return [];
+    }
+
+    /** `date` and `date-time` values whose day exists (the pattern already fixed their shape). */
+    private static function formatMatches(string $format, string $value): bool
+    {
+        if (! in_array($format, ['date', 'date-time'], true) || preg_match('/^(\d{4})-(\d{2})-(\d{2})/', $value, $m) !== 1) {
+            return true;
+        }
+        if (! checkdate((int) $m[2], (int) $m[3], (int) $m[1])) {
+            return false;
+        }
+
+        return $format === 'date' || preg_match('/T(\d{2}):(\d{2}):(\d{2})/', $value, $t) !== 1 || ((int) $t[1] < 24 && (int) $t[2] < 60 && (int) $t[3] < 60);
     }
 
     /**

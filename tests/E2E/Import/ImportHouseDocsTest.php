@@ -186,3 +186,17 @@ it('exits 0 with nothing to import when neither default file exists', function (
         ->and(glob($this->sandbox->root.'/docs/kanban/project/decisions/ACME-*.json'))->toBe([])
         ->and($this->sandbox->kanban(['import-house-docs', '--decisions=docs/decisions.md'])->getExitCode())->toBe(4);
 });
+
+it('refuses an entry whose date is not on the calendar and writes nothing', function () {
+    @mkdir($this->sandbox->root.'/docs', 0775, true);
+    file_put_contents($this->sandbox->root.'/docs/decisions.md', "# Decisions\n\n- **2026-13-45 — Use Postgres.** Everything lives there. Why: one engine.\n");
+    $commits = $this->sandbox->boardLog();
+
+    $import = $this->sandbox->kanban('import-house-docs');
+
+    expect($import->getExitCode())->not->toBe(0)
+        ->and($import->getErrorOutput())->toContain('docs/decisions.md:3')
+        ->and($this->sandbox->boardLog())->toBe($commits)
+        ->and(importedCards($this->sandbox))->toBe([])
+        ->and($this->sandbox->kanban('validate')->getExitCode())->toBe(0);
+});

@@ -18,6 +18,9 @@ class LeaseCommand extends Command
     {
         $lease = new Lease($this->paths());
         $actor = $this->actor();
+        if ($this->option('takeover') || $this->option('release')) {
+            $this->requireMainCheckout('lease');
+        }
         if ($this->option('takeover')) {
             $previous = $lease->takeover($actor);
             $this->say('lease: this session ('.$actor->session.')'.($previous !== null ? ", taken over from {$previous['session']}" : ''));

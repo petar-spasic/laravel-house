@@ -102,7 +102,8 @@ class BoardController
             $cards = $snapshot->cards(fn (Card $c) => $c->board->equals($ref) && $c->stage() === $stage);
             $total = count($cards);
             if ($stage === 'done') {
-                usort($cards, fn (Card $a, Card $b) => [$b->stageSince(), $b->id()] <=> [$a->stageSince(), $a->id()]);
+                $since = array_combine(array_map(fn (Card $c) => $c->id(), $cards), array_map(fn (Card $c) => $c->stageSince(), $cards));
+                usort($cards, fn (Card $a, Card $b) => [$since[$b->id()], $b->id()] <=> [$since[$a->id()], $a->id()]);
                 $cards = array_slice($cards, 0, self::DONE_SHOWN);
             } else {
                 $cards = $pull->sort($snapshot, $cards, $stage);
