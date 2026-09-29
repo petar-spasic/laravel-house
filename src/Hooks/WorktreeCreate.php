@@ -22,7 +22,7 @@ final class WorktreeCreate
     private const SPAWN_TTL = 120;
 
     /** Claude Code names an isolated subagent's worktree `agent-` + its agent id. */
-    private const ISOLATED_AGENT = '/^agent-a[0-9a-f]{16}$/';
+    public const ISOLATED_AGENT = '/^agent-a[0-9a-f]{16}$/';
 
     /** @param  array<string, mixed>  $config  the whole `kanban` config */
     public function __construct(

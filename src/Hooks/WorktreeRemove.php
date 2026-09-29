@@ -51,23 +51,32 @@ final class WorktreeRemove
     }
 
     /**
-     * Removes isolated-agent worktrees (`agent-a<16 hex>`) that are clean and older than $olderThan seconds:
-     * Claude Code never calls WorktreeRemove for them. Their branch is kept when it has commits.
+     * Removes isolated-agent worktrees (`agent-a<16 hex>`) that Claude Code never calls WorktreeRemove for: clean, no
+     * git activity for $olderThan seconds, no running stack. At most $max per call and $budget seconds, so a session
+     * start never waits on it. The branch is kept when it has commits.
      *
      * @return int worktrees removed
      */
-    public function reclaim(int $olderThan = 86400): int
+    public function reclaim(int $olderThan = 86400, int $max = 10, float $budget = 120.0): int
     {
+        $started = microtime(true);
         $worktrees = new Worktrees($this->paths, $this->config);
         $removed = 0;
-        foreach (glob($this->paths->worktrees().'/agent-a*', GLOB_ONLYDIR) ?: [] as $dir) {
-            if (preg_match('/^agent-a[0-9a-f]{16}$/', basename($dir)) !== 1 || (int) filemtime($dir) > time() - $olderThan) {
+        foreach ($this->idleAgentWorktrees($olderThan) as $dir) {
+            if ($removed >= $max || microtime(true) - $started > $budget) {
+                break;
+            }
+            $status = $worktrees->git($dir)->line(['--no-optional-locks', 'status', '--porcelain']);
+            if ($status !== null && $status !== '') {
                 continue;
             }
-            if ((string) $worktrees->git($dir)->line(['status', '--porcelain']) !== '') {
+            if ($status === null) {
                 continue;
             }
             try {
+                if ($worktrees->registry()->find(realpath($dir) ?: $dir) !== null && $worktrees->stack($dir)->idle() !== true) {
+                    continue;
+                }
                 $this->cleanUp(realpath($dir) ?: $dir, false);
                 $removed++;
             } catch (Throwable) {
@@ -75,6 +84,31 @@ final class WorktreeRemove
         }
 
         return $removed;
+    }
+
+    /**
+     * Isolated-agent worktrees with no activity for $olderThan seconds: what reclaim() looks at, cheap to list.
+     *
+     * @return list<string>
+     */
+    public function idleAgentWorktrees(int $olderThan = 86400): array
+    {
+        return array_values(array_filter(
+            glob($this->paths->worktrees().'/agent-a*', GLOB_ONLYDIR) ?: [],
+            fn (string $dir) => preg_match(WorktreeCreate::ISOLATED_AGENT, basename($dir)) === 1 && $this->lastActivity($dir) <= time() - $olderThan,
+        ));
+    }
+
+    /** Newest change of the directory, its `.git` link and the worktree's HEAD, index and reflog. */
+    private function lastActivity(string $dir): int
+    {
+        $times = [(int) @filemtime($dir), (int) @filemtime($dir.'/.git')];
+        $admin = Paths::gitdirOf($dir.'/.git');
+        foreach ($admin === null ? [] : ['HEAD', 'index', 'logs/HEAD'] as $file) {
+            $times[] = (int) @filemtime($admin.'/'.$file);
+        }
+
+        return max($times);
     }
 
     private function cleanUp(string $path, bool $force): string

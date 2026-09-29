@@ -276,7 +276,7 @@ class StackCommand extends Command
             }
         }
         if ($this->paths()->inRepo) {
-            $reclaimed = (new WorktreeRemove($this->paths(), $this->config()))->reclaim();
+            $reclaimed = (new WorktreeRemove($this->paths(), $this->config()))->reclaim(max: PHP_INT_MAX, budget: 600.0);
             $reclaimed === 0 || $this->say("reclaimed {$reclaimed} idle agent worktree(s)");
             $this->worktrees->prune();
             $this->say('pruned worktrees');

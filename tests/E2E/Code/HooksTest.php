@@ -112,6 +112,30 @@ it('keeps a spawn record for the isolated agent that claims it, not for any othe
         ->and($code->hook('worktree-create', ['name' => 'agent-a0123456789abcdef'])->getOutput())->toBe($code->worktree($id)."\n");
 });
 
+/** Waits (up to 15 s) for the reclaim SessionStart starts in the background. */
+function waitUntil(callable $done): void
+{
+    for ($i = 0; $i < 150; $i++) {
+        clearstatcache();
+        if ($done()) {
+            return;
+        }
+        usleep(100000);
+    }
+}
+
+/** Makes an isolated-agent worktree look untouched for $days: the directory, its .git link and git's HEAD, index and reflog. */
+function ageWorktree(CodeSandbox $code, string $name, int $days = 3): void
+{
+    $wt = $code->root()."/.claude/worktrees/{$name}";
+    $admin = trim(preg_replace('/^gitdir:\s*/', '', (string) file_get_contents($wt.'/.git')));
+    foreach ([$wt, $wt.'/.git', $admin.'/HEAD', $admin.'/index', $admin.'/logs/HEAD'] as $path) {
+        if (file_exists($path)) {
+            touch($path, time() - $days * 86400);
+        }
+    }
+}
+
 it('reclaims idle isolated-agent worktrees at session start and frees their slots', function () {
     $code = $this->code;
     $idle = 'agent-a0000000000000001';
@@ -122,10 +146,11 @@ it('reclaims idle isolated-agent worktrees at session start and frees their slot
     }
     file_put_contents($code->root()."/.claude/worktrees/{$dirty}/notes.txt", "unsaved\n");
     foreach ([$idle, $dirty] as $name) {
-        touch($code->root()."/.claude/worktrees/{$name}", time() - 3 * 86400);
+        ageWorktree($code, $name);
     }
 
     $start = $code->hook('session-start', []);
+    waitUntil(fn () => ! is_dir($code->root()."/.claude/worktrees/{$idle}"));
 
     expect($start->getExitCode())->toBe(0)
         ->and($code->root()."/.claude/worktrees/{$idle}")->not->toBeDirectory()
@@ -135,17 +160,175 @@ it('reclaims idle isolated-agent worktrees at session start and frees their slot
         ->and($code->stacks())->toHaveCount(2);
 });
 
-it('redoes a dependency copy that was killed halfway', function () {
+it('redoes a dependency copy that was killed halfway and never leaves it inside the worktree', function () {
     $code = $this->code;
     $code->hook('worktree-create', ['name' => 'redo']);
     $wt = $code->root().'/.claude/worktrees/redo';
     (new Process(['rm', '-rf', $wt.'/node_modules']))->run();
-    mkdir($wt.'/node_modules.copying/left-pad', 0775, true);
-    file_put_contents($wt.'/node_modules.copying/stale.txt', "half\n");
+    $staging = $code->root().'/.claude/worktrees/.copying';
+    mkdir($staging.'/redo-node_modules-1/left-pad', 0775, true);
+    file_put_contents($staging.'/redo-node_modules-1/stale.txt', "half\n");
 
     $run = $code->hook('worktree-create', ['name' => 'redo']);
 
     expect($run->getExitCode())->toBe(0)
         ->and(is_file($wt.'/node_modules/left-pad/index.js'))->toBeTrue()
-        ->and($wt.'/node_modules.copying')->not->toBeDirectory();
+        ->and(is_file($wt.'/node_modules/stale.txt'))->toBeFalse()
+        ->and(glob($wt.'/*.copying'))->toBe([])
+        ->and(trim($code->gitIn($wt, 'status', '--porcelain')))->toBe('');
+});
+
+it('lets two hooks copy the same dependencies at once without clobbering each other', function () {
+    $code = $this->code;
+    $procs = [];
+    foreach ([1, 2] as $_) {
+        $payload = json_encode(['name' => 'twin-a', 'session_id' => 's', 'cwd' => $code->root(), 'hook_event_name' => 'worktree-create']);
+        $procs[] = $code->sandbox->start(['hook', 'worktree-create'], $code->env(), $payload);
+    }
+    foreach ($procs as $proc) {
+        $proc->wait();
+    }
+
+    $wt = $code->root().'/.claude/worktrees/twin-a';
+    expect(is_file($wt.'/node_modules/left-pad/index.js'))->toBeTrue()
+        ->and(glob($code->root().'/.claude/worktrees/.copying/*'))->toBe([]);
+});
+
+it('leaves an idle-looking agent worktree alone when it has recent git activity or a running stack', function () {
+    $code = $this->code;
+    $busy = 'agent-a00000000000000b1';
+    $running = 'agent-a00000000000000b2';
+    $gone = 'agent-a00000000000000b3';
+    foreach ([$busy, $running, $gone] as $name) {
+        $code->hook('worktree-create', ['name' => $name]);
+    }
+    $code->ok(['stack', 'up'], cwd: $code->root()."/.claude/worktrees/{$running}");
+    foreach ([$busy, $running, $gone] as $name) {
+        ageWorktree($code, $name);
+    }
+    $code->gitIn($code->root()."/.claude/worktrees/{$busy}", 'commit', '-q', '--allow-empty', '-m', 'just now');
+    touch($code->root()."/.claude/worktrees/{$busy}", time() - 3 * 86400);
+
+    $code->hook('session-start', []);
+    waitUntil(fn () => ! is_dir($code->root()."/.claude/worktrees/{$gone}"));
+
+    expect($code->root()."/.claude/worktrees/{$busy}")->toBeDirectory()
+        ->and($code->root()."/.claude/worktrees/{$running}")->toBeDirectory()
+        ->and($code->root()."/.claude/worktrees/{$gone}")->not->toBeDirectory();
+});
+
+it('does not treat a worktree whose git status fails as clean', function () {
+    $code = $this->code;
+    $name = 'agent-a00000000000000c1';
+    $code->hook('worktree-create', ['name' => $name]);
+    $wt = $code->root()."/.claude/worktrees/{$name}";
+    ageWorktree($code, $name);
+    file_put_contents($wt.'/.git', "gitdir: {$code->root()}/.git/worktrees/missing\n");
+    touch($wt, time() - 3 * 86400);
+    touch($wt.'/.git', time() - 3 * 86400);
+
+    $code->hook('session-start', []);
+    $code->ok(['sweep', '--reclaim']);
+
+    expect($wt)->toBeDirectory();
+});
+
+it('reclaims at most ten idle agent worktrees per sweep', function () {
+    $code = $this->code;
+    foreach (range(1, 12) as $n) {
+        $name = sprintf('agent-a%016x', $n);
+        $code->hook('worktree-create', ['name' => $name]);
+        ageWorktree($code, $name);
+    }
+
+    $code->ok(['sweep', '--reclaim']);
+
+    expect(glob($code->root().'/.claude/worktrees/agent-a*', GLOB_ONLYDIR))->toHaveCount(2);
+});
+
+it('does not wait for the reclaim: the session start answers while a slow docker runs', function () {
+    $code = $this->code;
+    $name = 'agent-a00000000000000e1';
+    $code->hook('worktree-create', ['name' => $name]);
+    $code->ok(['stack', 'up'], cwd: $code->root()."/.claude/worktrees/{$name}");
+    ageWorktree($code, $name);
+    $calls = count($code->calls());
+
+    $started = microtime(true);
+    $start = $code->hook('session-start', [], ['FAKE_DOCKER_DELAY' => '2']);
+    $took = microtime(true) - $started;
+
+    expect($start->getExitCode())->toBe(0)
+        ->and($start->getOutput())->toStartWith('Kanban ACME:')
+        ->and($took)->toBeLessThan(1.8);
+    waitUntil(fn () => count($code->calls()) > $calls);
+    expect(count($code->calls()))->toBeGreaterThan($calls);
+});
+
+it('keeps an idle agent worktree with a stack when docker cannot say whether the stack runs', function () {
+    $code = $this->code;
+    $name = 'agent-a00000000000000f1';
+    $code->hook('worktree-create', ['name' => $name]);
+    ageWorktree($code, $name);
+
+    $code->ok(['sweep', '--reclaim'], ['FAKE_DOCKER_FAIL' => 'ps']);
+
+    expect($code->root()."/.claude/worktrees/{$name}")->toBeDirectory()
+        ->and($code->stacks())->toHaveCount(1);
+
+    $code->ok(['sweep', '--reclaim']);
+    expect($code->root()."/.claude/worktrees/{$name}")->not->toBeDirectory();
+});
+
+it('starts no background process at session start when no agent worktree is idle', function () {
+    $code = $this->code;
+    $code->hook('worktree-create', ['name' => 'agent-a00000000000000f2']);
+    $calls = count($code->calls());
+
+    $code->hook('session-start', [], ['FAKE_DOCKER_DELAY' => '1']);
+    sleep(2);
+
+    expect(count($code->calls()))->toBe($calls)
+        ->and(glob($code->root().'/.git/laravel-kanban/reclaim.lock'))->toBe([]);
+});
+
+it('does not start another background reclaim within the hour of the last one', function () {
+    $code = $this->code;
+    $name = 'agent-a00000000000000f3';
+    $code->hook('worktree-create', ['name' => $name]);
+    file_put_contents($code->root()."/.claude/worktrees/{$name}/unsaved.txt", "kept\n");
+    ageWorktree($code, $name);
+    $stamp = $code->root().'/.git/laravel-kanban/reclaim.last';
+
+    $code->hook('session-start', []);
+    waitUntil(fn () => is_file($stamp));
+    expect($stamp)->toBeFile();
+    sleep(2);
+    touch($stamp, time() - 600);
+    $ran = filemtime($stamp);
+
+    $code->hook('session-start', []);
+    sleep(2);
+    clearstatcache();
+    expect(filemtime($stamp))->toBe($ran);
+
+    touch($stamp, time() - 7200);
+    $code->hook('session-start', []);
+    waitUntil(fn () => filemtime($stamp) > time() - 60);
+    clearstatcache();
+    expect(filemtime($stamp))->toBeGreaterThan(time() - 60);
+});
+
+it('reclaims every idle agent worktree when asked with stack gc, not only two', function () {
+    $code = $this->code;
+    foreach (['a1', 'a2', 'a3', 'a4'] as $suffix) {
+        $name = "agent-a00000000000000{$suffix}";
+        $code->hook('worktree-create', ['name' => $name]);
+        ageWorktree($code, $name);
+    }
+
+    $out = $code->ok(['stack', 'gc']);
+
+    expect($out)->toContain('reclaimed 4 idle agent worktree(s)')
+        ->and(glob($code->root().'/.claude/worktrees/agent-a*', GLOB_ONLYDIR))->toBe([]);
 });

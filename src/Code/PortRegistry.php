@@ -164,7 +164,7 @@ final class PortRegistry
         $ratio = (float) ($this->stack['max_load_ratio'] ?? 0.75);
         $load = function_exists('sys_getloadavg') ? (sys_getloadavg() ?: null) : null;
         $cpus = self::cpus();
-        if ($ratio > 0 && $load !== null && $load[0] >= $ratio * $cpus) {
+        if ($ratio > 0 && $load !== null && $cpus !== null && $load[0] >= $ratio * $cpus) {
             $refusals[] = sprintf('1-minute load %.2f ≥ %s × %d CPUs (stack.max_load_ratio)', $load[0], $ratio, $cpus);
         }
 
@@ -229,12 +229,13 @@ final class PortRegistry
         return is_string($info) && preg_match('/^MemAvailable:\s+(\d+) kB/m', $info, $m) ? (int) $m[1] / 1024 ** 2 : null;
     }
 
-    private static function cpus(): int
+    /** Logical CPUs, or null where /proc/cpuinfo does not say (the load check is then skipped). */
+    private static function cpus(): ?int
     {
         $info = @file_get_contents('/proc/cpuinfo');
-        $count = is_string($info) ? preg_match_all('/^processor\s*:/m', $info) : 0;
+        $count = is_string($info) ? (int) preg_match_all('/^processor\s*:/m', $info) : 0;
 
-        return max(1, (int) $count);
+        return $count > 0 ? $count : null;
     }
 
     /**

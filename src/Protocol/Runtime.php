@@ -7,6 +7,7 @@ use PetarSpasic\Kanban\Support\Clock;
 use PetarSpasic\Kanban\Support\Json;
 use PetarSpasic\Kanban\Support\Lock;
 use PetarSpasic\Kanban\Support\Paths;
+use Symfony\Component\Process\Process;
 
 /**
  * Per-machine runtime files under `.git/laravel-kanban/`: agent records (mtime = heartbeat), staged and applied
@@ -19,6 +20,9 @@ final class Runtime
     public const APPLIED_DAYS = 7;
 
     private const SPAWN_SECONDS = 300;
+
+    /** @var list<array<string, mixed>>|null every agent record, read once per instance until one is written or removed */
+    private ?array $agentCache = null;
 
     public function __construct(public readonly Paths $paths, private readonly int $staleMinutes = 20) {}
 
@@ -37,11 +41,15 @@ final class Runtime
     {
         $agent += ['agent_type' => null, 'card' => null, 'worktree' => null, 'bound_at' => null, 'stopped_at' => null, 'stop_blocks' => 0];
         self::writeJson($this->paths->agents((string) $agent['agent_id']), $agent);
+        $this->agentCache = null;
     }
 
     /** @return list<array<string, mixed>> every agent record, each with `beat` (heartbeat unix time) */
     public function agents(): array
     {
+        if ($this->agentCache !== null) {
+            return $this->agentCache;
+        }
         $agents = [];
         foreach (glob($this->paths->agents().'/*.json') ?: [] as $file) {
             $agent = self::readJson($file);
@@ -50,7 +58,7 @@ final class Runtime
             }
         }
 
-        return $agents;
+        return $this->agentCache = $agents;
     }
 
     /** @param  array<string, mixed>  $agent  a record from agents() */
@@ -113,6 +121,7 @@ final class Runtime
     public function prune(Snapshot $snapshot): int
     {
         $removed = 0;
+        $this->agentCache = null;
         $drop = function (string $file, int $maxAge) use (&$removed): bool {
             if ((int) @filemtime($file) < time() - $maxAge && @unlink($file)) {
                 $removed++;
@@ -132,6 +141,12 @@ final class Runtime
             $drop($file, self::APPLIED_DAYS * 86400);
         }
         $drop($this->paths->leaseFile(), Lease::IDLE_SECONDS);
+        foreach (glob($this->paths->worktrees().'/.copying/*') ?: [] as $dir) {
+            if ((int) @filemtime($dir) < time() - 3600) {
+                (new Process(['rm', '-rf', $dir]))->run();
+                $removed++;
+            }
+        }
         foreach (glob($this->paths->runtime('spawns').'/*.json') ?: [] as $file) {
             $drop($file, self::SPAWN_SECONDS);
         }
@@ -141,6 +156,8 @@ final class Runtime
                 $drop($file, 86400);
             }
         }
+
+        $this->agentCache = null;
 
         return $removed;
     }

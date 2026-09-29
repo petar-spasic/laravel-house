@@ -105,9 +105,15 @@ final class Stack
 
     public function running(): bool
     {
+        return $this->idle() === false;
+    }
+
+    /** True when compose says the stack has no containers, false when it has some, null when it cannot say (docker down, timeout). */
+    public function idle(): ?bool
+    {
         $result = $this->compose(['ps', '-q'], 60);
 
-        return $result['code'] === 0 && trim($result['out']) !== '';
+        return $result['code'] === 0 ? trim($result['out']) === '' : null;
     }
 
     /** @return list<string> compose project names on this machine, running or not */

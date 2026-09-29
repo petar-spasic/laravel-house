@@ -104,7 +104,8 @@ final class Context
         $main = 'refs/heads/'.($this->config['main_branch'] ?? 'main');
         if ($git !== null) {
             $commits = array_values(array_filter(explode("\n", $git->attempt(['log', '--no-merges', '--format=%h %s', '-n', '20', $main.'..HEAD'])->out)));
-            $lines[] = 'commits not on main: '.count($commits);
+            $total = (int) $git->line(['rev-list', '--count', '--no-merges', $main.'..HEAD']);
+            $lines[] = 'commits not on main: '.$total.($total > count($commits) ? ' (newest '.count($commits).' shown)' : '');
             foreach ($commits as $commit) {
                 $lines[] = '  '.$commit;
             }
@@ -119,7 +120,7 @@ final class Context
         if (trim((string) ($card->data['body'] ?? '')) !== '') {
             $body = rtrim((string) $card->data['body']);
             $lines[] = 'body:';
-            foreach (explode("\n", mb_strimwidth($body, 0, self::BODY_LIMIT, '')) as $line) {
+            foreach (explode("\n", mb_substr($body, 0, self::BODY_LIMIT)) as $line) {
                 $lines[] = '  '.$line;
             }
             if (mb_strlen($body) > self::BODY_LIMIT) {

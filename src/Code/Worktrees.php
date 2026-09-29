@@ -126,7 +126,7 @@ final class Worktrees
     }
 
     /**
-     * `cp -a --reflink=auto` of `worktrees.copy` from main (only those; never .env*, storage, public/hot, docs).
+     * `cp -a` (with `--reflink=auto` on Linux) of `worktrees.copy` from main (only those; never .env*, storage, public/hot, docs).
      *
      * @return list<string> what was copied
      */
@@ -144,15 +144,17 @@ final class Worktrees
                 continue;
             }
             @mkdir(dirname($to), 0775, true);
-            // Copied under a temporary name and renamed, so a killed copy is redone instead of taken for complete.
-            $partial = $to.'.copying';
+            // Copied beside the worktrees under a name of its own and renamed into place: a killed copy is redone
+            // instead of taken for complete, and concurrent copies and `git status` never see it.
+            $partial = $this->paths->worktrees().'/.copying/'.basename($path).'-'.str_replace('/', '_', $item).'-'.getmypid();
+            @mkdir(dirname($partial), 0775, true);
             (new Process(['rm', '-rf', $partial]))->run();
-            $cp = new Process(['cp', '-a', '--reflink=auto', $from, $partial], null, null, null, 600);
+            $cp = new Process(['cp', '-a', ...(PHP_OS_FAMILY === 'Linux' ? ['--reflink=auto'] : []), $from, $partial], null, null, null, 600);
             $cp->run();
             if (! $cp->isSuccessful() || ! rename($partial, $to)) {
                 (new Process(['rm', '-rf', $partial]))->run();
 
-                throw new StackFailed("cp -a --reflink=auto {$item} failed: ".trim($cp->getErrorOutput()));
+                throw new StackFailed("copying {$item} failed: ".trim($cp->getErrorOutput()));
             }
             $copied[] = $item;
         }
