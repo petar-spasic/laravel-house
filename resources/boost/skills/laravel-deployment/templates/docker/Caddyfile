@@ -45,14 +45,17 @@
 
 		{$CADDY_SERVER_EXTRA_DIRECTIVES}
 
-		# Built assets straight from disk, never PHP source or dotfiles (except /.well-known); everything else is Laravel.
+		# Dotfiles (except /.well-known) answer 404 here: php_server's try_files {path} would serve them itself.
+		@hidden {
+			path */.*
+			not path /.well-known/*
+		}
+		respond @hidden 404
+
+		# Built assets straight from disk, never PHP source; everything else is Laravel.
 		@realfile {
 			file
 			not path *.php
-			not {
-				path */.*
-				not path /.well-known/*
-			}
 		}
 		handle @realfile {
 			file_server

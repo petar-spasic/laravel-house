@@ -133,6 +133,8 @@ The generated worktree `.env`, the port pool and Docker address pools: the larav
 - **Container runs, zero services** → `supervisord.conf` lacks `[include] files = /etc/supervisor/conf.d/*.conf`.
 - **Providers missing after an image update** → a stale `bootstrap/cache` manifest; persist `storage/` only, never
   `bootstrap/cache`, and let the entrypoint rebuild the manifest.
+- **`/.htaccess` or `/.env` served from the prod image** → excluding dotfiles from the file-server matcher is not enough:
+  `php_server`'s `try_files {path}` serves any existing file itself; answer them 404 before the handles (`@hidden`).
 - **Horizon refuses to start, hung jobs never time out, stops are not graceful** → `pcntl` missing from the image.
 - **A `COPY` line with a trailing `# comment` fails or copies junk** → Dockerfile comments go on their own line.
 - **The page loads from another machine but every asset fails with `ERR_CONNECTION_REFUSED`** → `public/hot` names
