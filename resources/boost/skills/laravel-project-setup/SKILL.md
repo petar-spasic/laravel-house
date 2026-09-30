@@ -62,7 +62,12 @@ template here too.
    letters and digits — it names `{{app}}_test`, `config/{{app}}.php`, the
    compose project and the dev accounts `@{{app}}.test`) and the product's
    name `{{app_name}}`, the `origin` remote (a URL, or a private GitHub repo
-   `gh repo create` makes in the batch), the production host name
+   `gh repo create` makes in the batch; an ssh URL, `git@host:owner/repo.git`,
+   when the board page should sync from the container: `gh repo create` uses
+   the protocol of `gh config get git_protocol`, https unless set to ssh, so
+   after it read `git remote get-url origin` and run
+   `git remote set-url origin git@github.com:<owner>/<repo>.git` if it is
+   not ssh), the production host name
    `{{domain}}` if known, and what we are building as free text under "Other"
    (product, users, domain rules, surfaces, what is decided vs open; options
    "Leave it open" / "In my next message"). Take what the owner knows now.
@@ -222,7 +227,8 @@ template here too.
    LAN URL with every asset answering 200.
 10. **Commit** — ask first; no Co-Authored trailer (convention 3 overrides any
     harness attribution). Main is clean afterwards: `/implement-kanban`
-    requires it.
+    requires it. With an empty `origin`, push `main` in the same approval:
+    `/implement-kanban` installs next, and its step 1 says why.
 11. **`/implement-kanban`** runs only when the owner types it
     (`disable-model-invocation`): ask them to, after `/reload-skills` if this
     session started before `.claude/skills/` existed. It records the setup's
