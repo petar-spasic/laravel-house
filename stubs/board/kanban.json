@@ -6,5 +6,6 @@
     "ready_buffer": 12,
     "wip": { "review": 6 },
     "stale_after_minutes": 20,
+    "locked": ["doing", "review", "done", "superseded"],
     "updated": "{{now}}"
 }

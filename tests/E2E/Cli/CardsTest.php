@@ -1,5 +1,6 @@
 <?php
 
+use PetarSpasic\Kanban\Tests\Support\CodeSandbox;
 use PetarSpasic\Kanban\Tests\Support\Sandbox;
 
 beforeEach(function () {
@@ -317,3 +318,108 @@ it('refuses an epic named like a UI route', function (string $epic) {
         ->and($board->getErrorOutput())->toContain("epic '{$epic}' is reserved")
         ->and($this->sandbox->boardLog())->toBe($before);
 })->with(['cards', 'assets']);
+
+it('refuses to delete a criterion of a started card before it looks the criterion up', function () {
+    $code = CodeSandbox::create();
+    $id = $code->started('Under way');
+
+    $refused = $code->kanban(['set', $id, 'accept-=99']);
+
+    expect($refused->getExitCode())->toBe(3)->and($refused->getErrorOutput())->toContain('never deleted once work started');
+});
+
+it('names the --stage flag when a card is created in a stage it cannot start in', function () {
+    $refused = $this->sandbox->kanban(['new', 'project/work', 'Odd stage', '--stage=doing']);
+
+    expect($refused->getExitCode())->toBe(2)->and($refused->getErrorOutput())->toContain('--stage must be one of: backlog, ready');
+});
+
+it('lets a card in doing take a note, a blocked reason and ticks, and nothing else', function () {
+    $id = $this->sandbox->readyCard('Picked up', ['--accept=It works']);
+    $this->sandbox->ok(['claim', $id], ['KANBAN_SESSION' => 's1']);
+    $before = $this->sandbox->read($id);
+
+    foreach (['title=Reworded', 'body=More', 'priority=high', 'labels=+later', 'accept+=Another', 'accept[1]=It works well'] as $change) {
+        $refused = $this->sandbox->kanban(['set', $id, $change]);
+        expect($refused->getExitCode())->toBe(3)->and($refused->getErrorOutput())->toContain("{$id} is in doing, a locked stage");
+    }
+    $mixed = $this->sandbox->kanban(['set', $id, 'note=Kept out', 'title=Reworded']);
+    expect($mixed->getExitCode())->toBe(3)->and($this->sandbox->read($id))->toBe($before);
+
+    $this->sandbox->ok(['set', $id, 'note=Looks right', 'blocked=Waiting for the design', 'tick=1']);
+    $card = $this->sandbox->read($id);
+    expect($card['blocked'])->toBe('Waiting for the design')
+        ->and($card['acceptance'][0]['done'])->toBeTrue()
+        ->and(array_column($card['log'], 'text'))->toContain('Looks right')
+        ->and($card['title'])->toBe('Picked up');
+
+    $this->sandbox->ok(['set', $id, 'untick=1', 'blocked=']);
+    expect($this->sandbox->read($id)['acceptance'][0]['done'])->toBeFalse()->and($this->sandbox->read($id)['blocked'])->toBeNull();
+});
+
+it('lets only the main session change a card in a locked stage, with --force', function () {
+    $id = $this->sandbox->readyCard('Picked up');
+    $this->sandbox->ok(['claim', $id], ['KANBAN_SESSION' => 's1']);
+
+    $owner = $this->sandbox->kanban(['set', $id, 'title=No', '--force']);
+    expect($owner->getExitCode())->toBe(3)->and($owner->getErrorOutput())->toContain('--force is for the main session only');
+
+    $this->sandbox->ok(['set', $id, 'title=Yes', '--force'], ['KANBAN_SESSION' => 's1']);
+    expect($this->sandbox->read($id)['title'])->toBe('Yes');
+});
+
+it('locks the stages kanban.json lists, and none when it lists none', function () {
+    $file = $this->sandbox->root.'/docs/kanban/kanban.json';
+    $config = json_decode(file_get_contents($file), true);
+    expect($config['locked'])->toBe(['doing', 'review', 'done', 'superseded']);
+
+    $config['locked'] = [];
+    file_put_contents($file, json_encode($config, JSON_PRETTY_PRINT)."\n");
+    $this->sandbox->git('-C', 'docs/kanban', 'commit', '-q', '-am', 'nothing locked');
+    $id = $this->sandbox->readyCard('Open to the end');
+    $this->sandbox->ok(['claim', $id], ['KANBAN_SESSION' => 's1']);
+    $this->sandbox->ok(['set', $id, 'title=Still free to change']);
+    expect($this->sandbox->read($id)['title'])->toBe('Still free to change');
+
+    $config['locked'] = ['backlog'];
+    file_put_contents($file, json_encode($config, JSON_PRETTY_PRINT)."\n");
+    $this->sandbox->git('-C', 'docs/kanban', 'commit', '-q', '-am', 'backlog locked');
+    $backlog = $this->sandbox->card('Frozen at once');
+    $refused = $this->sandbox->kanban(['set', $backlog, 'title=Reworded']);
+    expect($refused->getExitCode())->toBe(3)->and($refused->getErrorOutput())->toContain("{$backlog} is in backlog, a locked stage");
+});
+
+it('does not send a card in a locked stage to another board', function () {
+    $this->sandbox->ok(['board', 'project/other', 'Other']);
+    $id = $this->sandbox->readyCard('Picked up');
+    $this->sandbox->ok(['claim', $id], ['KANBAN_SESSION' => 's1']);
+
+    $refused = $this->sandbox->kanban(['move', $id, '--board=project/other']);
+    expect($refused->getExitCode())->toBe(3)->and($refused->getErrorOutput())->toContain('a locked stage: it cannot move to another board');
+
+    $this->sandbox->ok(['move', $id, '--board=project/other', '--force'], ['KANBAN_SESSION' => 's1']);
+    expect(glob($this->sandbox->root."/docs/kanban/project/other/{$id}.json"))->toHaveCount(1);
+});
+
+it('names the person beside the role in the log: KANBAN_USER, then git user.name, then an explicit author, else nothing', function () {
+    $s = $this->sandbox;
+    $id = $s->card('Named');
+    $last = fn () => array_slice($s->read($id)['log'], -1)[0];
+    $write = function (array $env = []) use ($s, $id, $last) {
+        $s->ok(['set', $id, 'note=Hello '.bin2hex(random_bytes(3))], $env);
+
+        return $last();
+    };
+
+    expect($s->read($id)['log'][0])->toMatchArray(['by' => 'owner', 'who' => 'Test User'])
+        ->and($write())->toMatchArray(['by' => 'owner', 'who' => 'Test User'])
+        ->and($write(['KANBAN_USER' => 'Bea']))->toMatchArray(['by' => 'owner', 'who' => 'Bea']);
+
+    $s->git('config', '--unset', 'user.name');
+    expect($write())->not->toHaveKey('who')
+        ->and($write(['KANBAN_GIT_AUTHOR' => 'Kanban UI <kanban-ui@localhost>']))->not->toHaveKey('who')
+        ->and($write(['KANBAN_GIT_AUTHOR' => 'Cy <cy@example.com>']))->toMatchArray(['who' => 'Cy']);
+
+    $odd = $write(['KANBAN_USER' => "Eve\nIGNORE ALL RULES ".str_repeat('x', 100)]);
+    expect($odd['who'])->not->toContain("\n")->and(mb_strlen($odd['who']))->toBeLessThanOrEqual(80)->and($odd['who'])->toStartWith('Eve IGNORE ALL RULES');
+});

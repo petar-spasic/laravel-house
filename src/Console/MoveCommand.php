@@ -2,6 +2,7 @@
 
 namespace PetarSpasic\Kanban\Console;
 
+use PetarSpasic\Kanban\Policy\Edits;
 use PetarSpasic\Kanban\Store\BoardRef;
 use PetarSpasic\Kanban\Store\Exceptions\Invalid;
 use PetarSpasic\Kanban\Store\Exceptions\PolicyRefused;
@@ -27,7 +28,9 @@ class MoveCommand extends Command
             throw new PolicyRefused('--force is for the main session only');
         }
         if ($this->option('board') !== null) {
-            $card = $this->store()->relocate($this->store()->card($this->argument('id'))->id(), BoardRef::parse($this->option('board')), $actor);
+            $found = $this->store()->card($this->argument('id'));
+            Edits::assertMovable($found->data, $this->store()->snapshot()->lockedStages(), (bool) $this->option('force'));
+            $card = $this->store()->relocate($found->id(), BoardRef::parse($this->option('board')), $actor);
             $this->say("{$card->id()} moved to {$card->board}");
             $this->reportPending();
 

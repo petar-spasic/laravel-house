@@ -54,6 +54,24 @@ final class Transitions
         private readonly PullPolicy $pull = new PullPolicy,
     ) {}
 
+    /**
+     * Stages a card in $from may be moved to with `move`.
+     *
+     * @return list<string>
+     */
+    public static function moveTargets(string $kind, string $from): array
+    {
+        $targets = [];
+        foreach (self::ALLOWED[$kind] ?? [] as $edge => $vias) {
+            [$edgeFrom, $to] = explode('>', $edge);
+            if ($edgeFrom === $from && in_array('move', $vias, true)) {
+                $targets[] = $to;
+            }
+        }
+
+        return $targets;
+    }
+
     /** Throws PolicyRefused unless $via may move a card of $kind from $from to $to. */
     public static function check(string $kind, string $from, string $to, string $via, Actor $by, bool $forced = false): void
     {
@@ -121,8 +139,10 @@ final class Transitions
         return $data;
     }
 
-    /** Owner/main move from the CLI or UI. Into ready runs the ready policy; review → doing needs a note. */
-    /** $expected: the rev the caller read the card at (a Conflict when it changed since); default the current one. */
+    /**
+     * Owner/main move from the CLI or UI. Into ready runs the ready policy; review → doing needs a note.
+     * $expected: the rev the caller read the card at (`Changed` when it moved on since); default the current one.
+     */
     public function move(string $id, string $to, Actor $by, ?string $reason = null, bool $force = false, ?Rev $expected = null): Card
     {
         $card = $this->store->card($id);

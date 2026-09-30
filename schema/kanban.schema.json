@@ -16,6 +16,11 @@
             "properties": { "review": { "type": "integer", "minimum": 1 } }
         },
         "stale_after_minutes": { "type": "integer", "minimum": 1 },
+        "locked": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": { "enum": ["backlog", "ready", "doing", "review", "done", "dropped", "proposed", "decided", "superseded"] }
+        },
         "guard": {
             "type": "object",
             "additionalProperties": false,

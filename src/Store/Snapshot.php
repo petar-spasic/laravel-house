@@ -22,6 +22,40 @@ final class Snapshot
         public readonly array $problems = [],
     ) {}
 
+    public const DEFAULT_STALE_MINUTES = 20;
+
+    /** Minutes without a heartbeat before an agent counts as stale. */
+    public function staleMinutes(): int
+    {
+        return self::staleMinutesOf($this->kanban);
+    }
+
+    /** @param  array<string, mixed>  $kanban  kanban.json */
+    public static function staleMinutesOf(array $kanban): int
+    {
+        return max(1, (int) ($kanban['stale_after_minutes'] ?? self::DEFAULT_STALE_MINUTES));
+    }
+
+    /** Stages whose cards the owner and the main session can only annotate (a note, a blocked reason, ticks), unless kanban.json lists others. */
+    public const DEFAULT_LOCKED = ['doing', 'review', 'done', 'superseded'];
+
+    /** @return list<string> */
+    public function lockedStages(): array
+    {
+        return self::lockedOf($this->kanban);
+    }
+
+    /**
+     * @param  array<string, mixed>  $kanban  kanban.json
+     * @return list<string>
+     */
+    public static function lockedOf(array $kanban): array
+    {
+        $locked = $kanban['locked'] ?? self::DEFAULT_LOCKED;
+
+        return is_array($locked) ? array_values(array_filter($locked, 'is_string')) : self::DEFAULT_LOCKED;
+    }
+
     public function key(): string
     {
         return (string) ($this->kanban['key'] ?? 'KAN');

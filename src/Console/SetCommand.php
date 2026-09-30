@@ -2,6 +2,7 @@
 
 namespace PetarSpasic\Kanban\Console;
 
+use PetarSpasic\Kanban\Policy\Edits;
 use PetarSpasic\Kanban\Store\Exceptions\Invalid;
 use PetarSpasic\Kanban\Store\Exceptions\NotFound;
 use PetarSpasic\Kanban\Store\Exceptions\PolicyRefused;
@@ -13,9 +14,10 @@ class SetCommand extends Command
 {
     protected $signature = 'kanban:set
         {id : Card id or unique prefix}
-        {changes* : title= priority= type= labels=+a,-b depends_on=+ID accept+="…" accept[2]="…" accept-=3 tick=1 untick=2 blocked="…" body=@- why=@- note="…" decided_on= supersedes=+ID resolution=}';
+        {changes* : title= priority= type= labels=+a,-b depends_on=+ID accept+="…" accept[2]="…" accept-=3 tick=1 untick=2 blocked="…" body=@- why=@- note="…" decided_on= supersedes=+ID resolution=}
+        {--force : Change a card in a locked stage (main session only)}';
 
-    protected $description = 'Change card fields';
+    protected $description = 'Change card fields (a card in a locked stage takes only note, blocked, tick and untick)';
 
     private const SCALARS = ['title', 'priority', 'type', 'blocked', 'body', 'why', 'decided_on', 'resolution'];
 
@@ -24,6 +26,10 @@ class SetCommand extends Command
     protected function perform(): int
     {
         $this->requireMainOrOwner('set');
+        $force = (bool) $this->option('force');
+        if ($force && ! $this->actor()->canForce()) {
+            throw new PolicyRefused('--force is for the main session only');
+        }
         $store = $this->store();
         $snapshot = $store->snapshot();
         $card = $snapshot->resolve($this->argument('id'));
@@ -33,19 +39,16 @@ class SetCommand extends Command
         }
         $changes = array_map(fn (string $pair) => $this->parse($pair, $snapshot), $this->argument('changes'));
 
-        $updated = $store->update($card->id(), function (array $data) use ($changes) {
+        $locked = $snapshot->lockedStages();
+        $updated = $store->update($card->id(), function (array $data) use ($changes, $locked, $force) {
             $before = $data;
             $removed = [];
             foreach ($changes as [$key, $index, $op, $value]) {
                 $data = $this->apply($data, $key, $index, $op, $value, $removed);
             }
-            if ($removed !== []) {
-                $fields = array_keys(array_filter($data, fn ($v, $k) => $k !== 'log' && ($before[$k] ?? null) !== $v, ARRAY_FILTER_USE_BOTH));
-                sort($fields);
-                $data['log'][] = ['event' => 'set', 'fields' => $fields, 'acceptance_removed' => $removed];
-            }
+            Edits::assertOpen($before, $data, $locked, $force);
 
-            return $data;
+            return Edits::recordRemoved($before, $data, $removed);
         }, $this->actor(), $card->rev);
 
         if ($updated->updated() === $card->updated()) {
@@ -115,7 +118,7 @@ class SetCommand extends Command
         }
 
         return match ($key) {
-            'note' => $this->note($data, $value),
+            'note' => Edits::note($data, $value),
             'tick', 'untick' => $this->tick($data, $value, $key === 'tick'),
             default => $this->accept($data, $index, $op, $value, $removed),
         };
@@ -131,29 +134,18 @@ class SetCommand extends Command
         if (! array_key_exists('acceptance', $data)) {
             throw new Invalid('decisions have no acceptance criteria');
         }
-        $items = $data['acceptance'];
-        $ids = array_column($items, 'id');
         if ($op === '+=') {
-            $previous = [];
-            foreach ($data['log'] ?? [] as $entry) {
-                array_push($previous, ...($entry['acceptance_removed'] ?? []));
-            }
-            $items[] = ['id' => max([0, ...$ids, ...$previous, ...$removed]) + 1, 'text' => $value, 'done' => false];
-        } elseif ($op === '-=') {
-            if (! in_array($data['stage'], ['backlog', 'ready'], true)) {
-                throw new PolicyRefused('acceptance criteria are never deleted once work started');
-            }
-            $id = $this->criterion($ids, $value);
-            $items = array_values(array_filter($items, fn (array $i) => $i['id'] !== $id));
-            $removed[] = $id;
-        } else {
-            $this->expect('accept', $index !== null);
-            $position = array_search($this->criterion($ids, (string) $index), $ids, true);
-            $items[$position]['text'] = $value;
+            return Edits::add($data, $value, $removed);
         }
-        $data['acceptance'] = $items;
+        $ids = array_column($data['acceptance'], 'id');
+        if ($op === '-=') {
+            Edits::assertRemovable($data); // before the criterion is looked up: the stage refusal comes first
 
-        return $data;
+            return Edits::remove($data, $this->criterion($ids, $value), $removed);
+        }
+        $this->expect('accept', $index !== null);
+
+        return Edits::edit($data, $this->criterion($ids, (string) $index), $value);
     }
 
     /**
@@ -164,23 +156,8 @@ class SetCommand extends Command
     {
         $ids = array_column($data['acceptance'] ?? [], 'id');
         foreach (array_filter(array_map('trim', explode(',', $value))) as $item) {
-            $position = array_search($this->criterion($ids, $item), $ids, true);
-            $data['acceptance'][$position]['done'] = $done;
+            $data = Edits::tick($data, $this->criterion($ids, $item), $done);
         }
-
-        return $data;
-    }
-
-    /**
-     * @param  array<string, mixed>  $data
-     * @return array<string, mixed>
-     */
-    private function note(array $data, string $text): array
-    {
-        if (trim($text) === '') {
-            throw new Invalid('note needs text');
-        }
-        $data['log'][] = ['event' => 'note', 'text' => $text];
 
         return $data;
     }
