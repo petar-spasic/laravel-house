@@ -6,7 +6,7 @@ House skills for Laravel projects, for Claude Code:
 |---|---|
 | `laravel-project-setup` | Starts a project on the house rules: the `CLAUDE.md` rule system, Stripe-style ids, E2E-only tests, the seeding standard, the stack modules |
 | `laravel-deployment` | Dockerizes it: a local image (nginx + php-fpm + Xdebug + Vite) and a production image (FrankenPHP + Octane), with Horizon and the scheduler under supervisor and Postgres and Redis sidecars |
-| `implement-kanban` | Brings it onto [petar-spasic/laravel-kanban](https://github.com/petar-spasic/laravel-kanban): the board, worktree stacks, the agent loop. Only the owner starts it, by typing the command |
+| `implement-kanban` | Brings it onto [petar-spasic/laravel-kanban](https://github.com/petar-spasic/laravel-kanban): the board shared through `origin` (team sync), worktree stacks, the agent loop; also upgrades a project that has it installed. Only the owner starts it, by typing the command |
 
 One copy of each skill lives in `resources/boost/skills/` and reaches Claude Code two ways.
 
