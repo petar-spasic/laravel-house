@@ -19,7 +19,10 @@ final class CodeSandbox
 
     public readonly string $home;
 
-    /** First port of this sandbox's pool: random, so concurrent runs and real stacks (21000+) rarely meet. */
+    /**
+     * First port of this sandbox's pool: one per parallel worker (paratest's TEST_TOKEN), so tests running side by side
+     * never bind each other's ports; random when run alone, so separate runs and real stacks (21000+) rarely meet.
+     */
     public readonly int $base;
 
     /** Host of worktree URLs: taken from the environment's LOCAL_APP_URL, never a machine address in code. */
@@ -34,7 +37,8 @@ final class CodeSandbox
         $this->state = $tmp.'/state';
         $this->docker = $tmp.'/docker';
         $this->home = $tmp.'/home';
-        $this->base = 22000 + random_int(0, 49) * 200;
+        $worker = getenv('TEST_TOKEN');
+        $this->base = 22000 + ($worker === false ? random_int(0, 49) : (int) $worker % 50) * 200;
         mkdir($this->docker, 0775, true);
         mkdir($this->home, 0775, true);
         register_shutdown_function(fn () => $this->killServers());

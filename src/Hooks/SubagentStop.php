@@ -8,6 +8,7 @@ use PetarSpasic\Kanban\Protocol\Runtime;
 use PetarSpasic\Kanban\Store\Actor;
 use PetarSpasic\Kanban\Store\Exceptions\NotFound;
 use PetarSpasic\Kanban\Store\Exceptions\PolicyRefused;
+use PetarSpasic\Kanban\Store\Exceptions\StaleReport;
 use PetarSpasic\Kanban\Store\Snapshot;
 use PetarSpasic\Kanban\Store\Store;
 use PetarSpasic\Kanban\Support\Clock;
@@ -67,17 +68,33 @@ final class SubagentStop
                 }
             }
 
+            // a card that left this worker's hands (stopped, re-claimed, moved on another machine) has nothing to report on, and a block written now would land on someone else's card
+            if ($worker && ($stale = (new Applier($this->store, $this->paths, $this->config, $runtime))->stale($snapshot->resolve($cardId))) !== null) {
+                $this->unbind($runtime, $agent, $cardId);
+
+                return self::done("kanban: {$cardId}: no report applied: {$stale}");
+            }
+
             return $this->block($runtime, $agent, $cardId, $worker
                 ? "No report staged for {$cardId}. Run: vendor/bin/kanban report {$cardId} --status=review|blocked [--tick=N …] --summary-file=- <<'EOF' … EOF (blocked needs --reason=\"…\")"
                 : "No verdict staged for {$cardId}. Run: vendor/bin/kanban verdict {$cardId} approve|reject --check=N:pass|fail:\"evidence\" … (one --check per criterion)");
         }
 
         $applier = new Applier($this->store, $this->paths, $this->config, $runtime);
+        if ($worker && ($stale = $applier->stale($snapshot->resolve($cardId))) !== null) {
+            $this->unbind($runtime, $agent, $cardId);
+
+            return self::done("kanban: report for {$cardId} stays staged: {$stale}");
+        }
         if ($worker && $staged['status'] === 'review' && ($refusal = $applier->refusal($snapshot->resolve($cardId))) !== null) {
             return $this->block($runtime, $agent, $cardId, "Report for {$cardId} not applied. {$refusal}\nFix it, commit, then finish again (the staged report stays; run `vendor/bin/kanban report` again if ticks or summary change).");
         }
         try {
             $line = $worker ? $applier->report($staged) : $applier->verdict($staged);
+        } catch (StaleReport $e) {
+            $this->unbind($runtime, $agent, $cardId);
+
+            return self::done("kanban: report for {$cardId} stays staged: ".$e->getMessage().'; `vendor/bin/kanban apply '.$cardId.'` applies it once the card is this machine\'s again');
         } catch (PolicyRefused $e) {
             return $this->block($runtime, $agent, $cardId, "Verdict for {$cardId} not applied: ".$e->getMessage());
         }
@@ -196,7 +213,7 @@ final class SubagentStop
 
     private function runtime(Snapshot $snapshot): Runtime
     {
-        return new Runtime($this->paths, (int) $snapshot->setting('stale_after_minutes', 20));
+        return new Runtime($this->paths, $snapshot->staleMinutes());
     }
 
     /** @return array{stdout: string, stderr: string, exit: int} */

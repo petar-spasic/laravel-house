@@ -39,7 +39,7 @@ final class PullPolicy
             [$slots, $reason] = [0, "review {$review}/{$reviewLimit} (stop starting)"];
         }
 
-        return ['slots' => $slots, 'reason' => $reason, 'doing' => count($doing), 'max_parallel' => $maxParallel, 'review' => $review, 'review_limit' => $reviewLimit];
+        return ['slots' => $slots, 'reason' => $reason, 'doing' => count($doing), 'here' => $here, 'max_parallel' => $maxParallel, 'review' => $review, 'review_limit' => $reviewLimit];
     }
 
     /** @return list<Card> startable ready cards in pull order */
@@ -74,7 +74,11 @@ final class PullPolicy
             $c->stage() === $stage ? $c->stageSince() : $c->created(),
             $c->id(),
         ];
-        usort($cards, fn (Card $a, Card $b) => $key($a) <=> $key($b));
+        $keys = [];
+        foreach ($cards as $card) {
+            $keys[$card->id()] = $key($card);
+        }
+        usort($cards, fn (Card $a, Card $b) => $keys[$a->id()] <=> $keys[$b->id()]);
 
         return $cards;
     }

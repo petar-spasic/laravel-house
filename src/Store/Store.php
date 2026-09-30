@@ -38,6 +38,9 @@ interface Store
 
     public function sync(): SyncResult;
 
+    /** With sync on: starts a background sync unless one was asked for within pull_seconds. Cheap, never waits for git, never throws. */
+    public function maybeSync(): void;
+
     /** Writes waiting in the journal (not yet committed). */
     public function pending(): int;
 

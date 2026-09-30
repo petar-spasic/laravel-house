@@ -5,6 +5,7 @@ namespace PetarSpasic\Kanban\Console;
 use PetarSpasic\Kanban\Policy\PullPolicy;
 use PetarSpasic\Kanban\Protocol\Brief;
 use PetarSpasic\Kanban\Store\Card;
+use PetarSpasic\Kanban\Store\Git\SyncStatus;
 use PetarSpasic\Kanban\Support\Sync;
 use Symfony\Component\Console\Attribute\AsCommand;
 
@@ -18,6 +19,7 @@ class StatusCommand extends Command
     protected function perform(): int
     {
         $store = $this->store();
+        $this->gitStore()?->maybeSync();
         if (! $this->option('json')) {
             foreach ((new Brief($store, $this->paths(), $this->config()))->lines($this->actor()->session) as $line) {
                 $this->say($line);
@@ -40,7 +42,8 @@ class StatusCommand extends Command
             'key' => $snapshot->key(),
             'head' => $repo?->head(),
             'unpushed' => $unpushed,
-            'sync' => Sync::label($this->setting('sync', 'off')),
+            'sync' => Sync::label($this->setting('sync', 'off'), $repo?->hasRemote() ?? false),
+            'last_sync' => (new SyncStatus($this->paths()))->read(),
             'pending' => $store->pending(),
             'counts' => $counts,
             'capacity' => $capacity,

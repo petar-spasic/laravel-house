@@ -121,6 +121,7 @@
                     "id": { "type": "string", "pattern": "^[0-9A-HJKMNP-TV-Z]{8}$" },
                     "at": { "$ref": "#/$defs/timestamp" },
                     "by": { "enum": ["owner", "main", "worker", "evaluator", "hook", "import"] },
+                    "who": { "type": "string", "minLength": 1, "maxLength": 80 },
                     "event": { "type": "string", "minLength": 1 }
                 }
             }

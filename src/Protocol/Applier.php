@@ -8,6 +8,7 @@ use PetarSpasic\Kanban\Store\Actor;
 use PetarSpasic\Kanban\Store\Card;
 use PetarSpasic\Kanban\Store\Exceptions\KanbanException;
 use PetarSpasic\Kanban\Store\Exceptions\PolicyRefused;
+use PetarSpasic\Kanban\Store\Exceptions\StaleReport;
 use PetarSpasic\Kanban\Store\Git\GitStore;
 use PetarSpasic\Kanban\Store\Store;
 use PetarSpasic\Kanban\Support\Clock;
@@ -61,6 +62,22 @@ final class Applier
     }
 
     /**
+     * Why a staged worker report must not be applied to $card now, or null. A pull may have brought another person's
+     * re-claim or a move, and an old report must not overwrite either.
+     */
+    public function stale(Card $card): ?string
+    {
+        if (! in_array($card->stage(), ['doing', 'review'], true)) {
+            return "{$card->id()} is now {$card->stage()}";
+        }
+        if (($host = $card->host()) !== null && $host !== gethostname()) {
+            return "{$card->id()} is now held on {$host}";
+        }
+
+        return null;
+    }
+
+    /**
      * Applies whatever is staged for the card (report or verdict) without an agent to answer: a review report the
      * branch does not support yet stays staged. Returns what happened, one line, or null when nothing is staged.
      */
@@ -71,6 +88,18 @@ final class Applier
             return null;
         }
         try {
+            if ($kind === 'report') {
+                $card = $this->store->card($cardId);
+                if (($stale = $this->stale($card)) !== null) {
+                    return "{$cardId}: report stays staged: {$stale}";
+                }
+                // written for an earlier start of the card: another attempt is not this one's work
+                if (($started = (string) ($card->work()['started'] ?? '')) !== '' && (string) ($item['staged_at'] ?? '') !== '' && $item['staged_at'] < $started) {
+                    @unlink($this->runtime->stagedFile($cardId, $kind));
+
+                    return "{$cardId}: report predates the last start of the card and was discarded";
+                }
+            }
             if ($kind === 'report' && $item['status'] === 'review' && ($refusal = $this->refusal($this->store->card($cardId))) !== null) {
                 return "{$cardId}: report stays staged: ".strtok($refusal, "\n");
             }
@@ -99,6 +128,9 @@ final class Applier
             }
             $by = new Actor('worker');
             $card = $this->store->card($id);
+            if (($stale = $this->stale($card)) !== null) {
+                throw new StaleReport($stale);
+            }
             $worktree = $this->worktree($card);
             $head = ($worktree !== null && is_dir($worktree) ? (new Git($worktree))->line(['rev-parse', 'HEAD']) : null) ?? $report['head'] ?? null;
             $created = $this->discover($card, $report['discovered'] ?? [], $by, 'working on');

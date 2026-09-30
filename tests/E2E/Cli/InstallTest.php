@@ -94,5 +94,5 @@ it('reads the project config and .env without booting the app', function () {
     file_put_contents($sandbox->root.'/config/kanban.php', "<?php return ['sync' => env('KANBAN_SYNC', 'off'), 'remote' => 'upstream'];\n");
     file_put_contents($sandbox->root.'/.env', "KANBAN_SYNC=on\n");
 
-    expect($sandbox->ok('status'))->toContain(', sync on, ');
+    expect($sandbox->ok('status', ['KANBAN_SYNC' => false]))->toContain(', sync on, ');
 });

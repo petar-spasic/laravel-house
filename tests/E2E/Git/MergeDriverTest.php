@@ -49,6 +49,7 @@ it('merges edits of different fields and unions the logs', function () {
     expect($exit)->toBe(0)
         ->and($merged)->toMatchArray(['priority' => 'high', 'title' => 'Renamed', 'updated' => '2026-09-28T11:00:00.000+00:00'])
         ->and(array_column($merged['log'], 'id'))->toBe(['AAAAAAAA', 'CCCCCCCC', 'BBBBBBBB'])
+        ->and(array_column($merged['log'], 'event'))->not->toContain('conflict')
         ->and(array_keys($merged))->toBe(array_keys($o));
 });
 
@@ -59,6 +60,102 @@ it('takes the newer side on a true conflict of one field', function () {
 
     expect(mergeDriver($o, $a, $b)[1]['title'])->toBe('Theirs')
         ->and(mergeDriver($o, $b, $a)[1]['title'])->toBe('Theirs');
+});
+
+/** @return list<array<string, mixed>> */
+function conflictEntries(array $card): array
+{
+    return array_values(array_filter($card['log'], fn (array $entry) => $entry['event'] === 'conflict'));
+}
+
+it('writes the text a true conflict displaces into the log, the same record from either side', function () {
+    $o = baseCard();
+    $a = baseCard(['title' => 'Mine', 'body' => 'My words', 'updated' => '2026-09-28T10:10:00.000+00:00']);
+    $b = baseCard(['title' => 'Theirs', 'body' => 'Their words', 'updated' => '2026-09-28T10:20:00.000+00:00']);
+
+    [, $merged] = mergeDriver($o, $a, $b);
+    [, $swapped] = mergeDriver($o, $b, $a);
+
+    $records = conflictEntries($merged);
+    $byField = array_column($records, 'lost', 'field');
+    ksort($byField);
+    expect($merged)->toMatchArray(['title' => 'Theirs', 'body' => 'Their words'])
+        ->and($byField)->toBe(['body' => 'My words', 'title' => 'Mine'])
+        ->and(count($records))->toBe(2)
+        ->and($records[0])->toMatchArray(['by' => 'hook', 'event' => 'conflict', 'at' => '2026-09-28T10:20:00.000+00:00'])
+        ->and($records[0]['id'])->toMatch('/^[0-9A-HJKMNP-TV-Z]{8}$/')
+        ->and(conflictEntries($swapped))->toBe($records)
+        ->and($swapped)->toBe($merged);
+});
+
+it('adds nothing when the merged result is merged with the same side again', function () {
+    $o = baseCard();
+    $a = baseCard(['title' => 'Mine', 'updated' => '2026-09-28T10:10:00.000+00:00']);
+    $b = baseCard(['title' => 'Theirs', 'updated' => '2026-09-28T10:20:00.000+00:00']);
+    [, $merged] = mergeDriver($o, $a, $b);
+
+    [$exit, $again] = mergeDriver($o, $a, $merged);
+
+    expect($exit)->toBe(0)->and($again)->toBe($merged)->and(conflictEntries($again))->toHaveCount(1);
+});
+
+it('records a text displaced because its coupled group went to the other side', function () {
+    $claim = ['by' => 'dev@laptop', 'session' => 's1', 'at' => '2026-09-28T10:05:00.000+00:00'];
+    $o = baseCard();
+    $a = baseCard(['blocked' => 'Needs the owner', 'updated' => '2026-09-28T10:01:00.000+00:00']);
+    $b = baseCard(['stage' => 'doing', 'claim' => $claim, 'updated' => '2026-09-28T10:05:00.000+00:00']);
+
+    [, $merged] = mergeDriver($o, $a, $b);
+
+    expect($merged)->toMatchArray(['stage' => 'doing', 'blocked' => null])
+        ->and(array_map(fn ($e) => [$e['field'], $e['lost']], conflictEntries($merged)))->toBe([['blocked', 'Needs the owner']]);
+});
+
+it('records a stage move, claim and work head that a merge displaces', function () {
+    $claim = ['by' => 'dev@laptop', 'session' => 's1', 'at' => '2026-09-28T10:05:00.000+00:00'];
+    $o = baseCard(['stage' => 'doing', 'claim' => $claim, 'work' => ['head' => null]]);
+    $a = baseCard(['stage' => 'review', 'claim' => $claim, 'work' => ['head' => 'abcdef0123456'], 'updated' => '2026-09-28T10:10:00.000+00:00']);
+    $b = baseCard(['stage' => 'doing', 'claim' => $claim, 'work' => ['head' => null], 'blocked' => 'Waiting for the vendor', 'updated' => '2026-09-28T10:20:00.000+00:00']);
+
+    [, $merged] = mergeDriver($o, $a, $b);
+
+    expect($merged)->toMatchArray(['stage' => 'doing', 'blocked' => 'Waiting for the vendor'])
+        ->and(array_map(fn ($e) => [$e['field'], $e['lost']], conflictEntries($merged)))->toBe([['flow', 'stage=review; claim=dev@laptop; work.head=abcdef0']])
+        ->and(conflictEntries(mergeDriver($o, $b, $a)[1]))->toBe(conflictEntries($merged));
+});
+
+it('records an unblock that the merge takes back', function () {
+    $claim = ['by' => 'dev@laptop', 'session' => 's1', 'at' => '2026-09-28T10:05:00.000+00:00'];
+    $o = baseCard(['stage' => 'doing', 'claim' => $claim, 'blocked' => 'Waiting for the vendor']);
+    $a = baseCard(['stage' => 'doing', 'claim' => $claim, 'blocked' => null, 'updated' => '2026-09-28T10:10:00.000+00:00']);
+    $b = baseCard(['stage' => 'review', 'claim' => $claim, 'blocked' => 'Waiting for the vendor', 'updated' => '2026-09-28T10:20:00.000+00:00']);
+
+    [, $merged] = mergeDriver($o, $a, $b);
+
+    expect($merged)->toMatchArray(['stage' => 'review', 'blocked' => 'Waiting for the vendor'])
+        ->and(array_map(fn ($e) => [$e['field'], $e['lost']], conflictEntries($merged)))->toBe([['blocked', '(the block was cleared)']])
+        ->and(conflictEntries(mergeDriver($o, $b, $a)[1]))->toBe(conflictEntries($merged));
+});
+
+it('records nothing for one-sided changes, different fields, or a card added on both sides', function () {
+    $o = baseCard();
+    $a = baseCard(['title' => 'Only mine', 'updated' => '2026-09-28T10:10:00.000+00:00']);
+    $b = baseCard(['priority' => 'high', 'updated' => '2026-09-28T10:20:00.000+00:00']);
+
+    expect(conflictEntries(mergeDriver($o, $a, $b)[1]))->toBe([])
+        ->and(conflictEntries(mergeDriver($o, $a, $o)[1]))->toBe([])
+        ->and(conflictEntries(mergeDriver(null, baseCard(['title' => 'A', 'updated' => '2026-09-28T10:10:00.000+00:00']), baseCard(['title' => 'B']))[1]))->toBe([]);
+});
+
+it('keeps the person and unknown keys of log entries through a merge', function () {
+    $entry = ['id' => 'BBBBBBBB', 'at' => '2026-09-28T10:30:00.000+00:00', 'by' => 'worker', 'who' => 'Ana', 'event' => 'set', 'fields' => ['priority'], 'flavour' => 'from a newer version'];
+    $o = baseCard();
+    $a = baseCard(['priority' => 'high', 'updated' => '2026-09-28T10:30:00.000+00:00', 'log' => [...$o['log'], $entry]]);
+    $b = baseCard(['labels' => ['area:pdf'], 'updated' => '2026-09-28T10:40:00.000+00:00']);
+
+    [$exit, $merged] = mergeDriver($o, $a, $b);
+
+    expect($exit)->toBe(0)->and(array_slice($merged['log'], -1)[0])->toEqual($entry);
 });
 
 it('merges sets three-way', function () {

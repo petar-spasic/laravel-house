@@ -5,11 +5,15 @@ return [
     /*
     | The local board UI. Routes exist only in the local environment and only
     | when the app runs from the main checkout (a linked worktree has a .git file).
+    | It needs no session, cookie or CSRF token, so `middleware` (extra middleware
+    | for the UI routes) is empty by default.
     */
     'ui' => [
         'enabled' => env('KANBAN_UI', true),
         'path' => 'kanban',
-        'middleware' => ['web'],
+        'middleware' => [],
+        // Names the UI answers to besides IPs, localhost, *.test, and the hosts of APP_URL and LOCAL_APP_URL (a rebinding page reaches it under its own name).
+        'hosts' => [],
         'poll_ms' => 3000,
         'token' => env('KANBAN_UI_TOKEN'),
         'git_author' => env('KANBAN_GIT_AUTHOR'),
@@ -25,8 +29,16 @@ return [
 
     'remote' => 'origin',
 
-    // off: board commits are pushed by `publish`; on (also 1, true, yes): pull before and push after every write (teams).
-    'sync' => env('KANBAN_SYNC', 'off'),
+    // auto: like on while the project has a remote (installing next to one publishes the board; teammates who attach join it), off
+    // without. on (also 1, true, yes): always pull before and push after every write. off: board commits are pushed by `publish`.
+    'sync' => env('KANBAN_SYNC', 'auto'),
+
+    // With sync on, a clone asks for a sync at most this often (seconds, at least 5; 0 = only after its own writes), whichever
+    // tab, hook or command does the asking: that is how what others pushed reaches an idle board.
+    'pull_seconds' => (int) env('KANBAN_PULL_SECONDS', 30),
+
+    // Who you are in the board's log ("Ana changed body"): shown beside the role, never used to decide anything. Unset: git's user.name.
+    'user' => env('KANBAN_USER'),
 
     'worktrees' => [
         // Not `kanban/`: git cannot hold `refs/heads/kanban` (the board) and `refs/heads/kanban/…` at once.

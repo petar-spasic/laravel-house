@@ -51,6 +51,7 @@ final class SessionStart
 
         try {
             $this->store->flush(new Actor('hook'));
+            $this->store->maybeSync();
             foreach ((new SubagentStop($this->paths, $this->config, $this->store))->retry($ownInbox) as $line) {
                 $stderr[] = $line;
             }
@@ -58,7 +59,7 @@ final class SessionStart
             $stderr[] = 'kanban: '.$e->getMessage();
         }
         $snapshot = $this->store->snapshot();
-        $runtime = new Runtime($this->paths, (int) $snapshot->setting('stale_after_minutes', 20));
+        $runtime = new Runtime($this->paths, $snapshot->staleMinutes());
         $runtime->markStale();
 
         $cwd = is_string($payload['cwd'] ?? null) && $payload['cwd'] !== '' ? $payload['cwd'] : $this->paths->cwd;

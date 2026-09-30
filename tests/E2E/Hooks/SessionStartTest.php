@@ -130,7 +130,7 @@ it('prunes runtime files nothing reads any more and keeps the rest', function ()
 it('cuts a very long card body so the gates and the protocol line survive', function () {
     $p = ProtocolSandbox::create(['gates' => ['report' => ['php artisan test --compact']]]);
     [$id, $wt] = $p->started('Long body');
-    $p->sandbox->ok(['set', $id, 'body=@-'], [], str_repeat("A long paragraph of background the card carries.\n", 400));
+    $p->sandbox->ok(['set', $id, 'body=@-', '--force'], ['KANBAN_SESSION' => 's1'], str_repeat("A long paragraph of background the card carries.\n", 400));
 
     $start = $p->hook('session-start', $p->payload('session-start', ['cwd' => $wt]), cwd: $wt);
     $context = json_decode($start->getOutput(), true)['hookSpecificOutput']['additionalContext'];
@@ -171,7 +171,7 @@ it('shows a body of wide characters whole while it is under the limit', function
     $p = ProtocolSandbox::create();
     [$id, $wt] = $p->started('Wide body');
     $body = implode("\n", array_map(fn (int $n) => "行{$n}: これは長い説明です。背景をここに書きます。", range(1, 200)));
-    $p->sandbox->ok(['set', $id, 'body=@-'], [], $body);
+    $p->sandbox->ok(['set', $id, 'body=@-', '--force'], ['KANBAN_SESSION' => 's1'], $body);
 
     $start = $p->hook('session-start', $p->payload('session-start', ['cwd' => $wt]), cwd: $wt);
     $context = json_decode($start->getOutput(), true)['hookSpecificOutput']['additionalContext'];
@@ -211,4 +211,20 @@ it('prints the same brief with hundreds of stopped agent records around', functi
     $crowded = $normalize($p->hook('session-start', $p->payload('session-start'))->getOutput());
 
     expect($crowded)->toBe($plain)->and($plain)->toContain("doing  {$id}")->toContain('worker a4d2 live AGE');
+});
+
+it('counts the doing cards of this machine against max_parallel, and names the ones running elsewhere', function () {
+    $p = ProtocolSandbox::create();
+    [$here] = $p->started('Runs here');
+    [$away] = $p->started('Runs on another machine');
+    $file = glob($p->main.'/docs/kanban/*/*/'.$away.'.json')[0];
+    $card = json_decode(file_get_contents($file), true);
+    $card['work']['host'] = 'another-machine';
+    $card['claim']['by'] = 'main@another-machine';
+    file_put_contents($file, json_encode($card, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n");
+    $p->sandbox->boardGit('commit', '-q', '-am', 'the card runs elsewhere');
+
+    $lines = explode("\n", rtrim($p->hook('session-start', $p->payload('session-start'))->getOutput()));
+
+    expect($lines[1])->toStartWith('WIP doing 1/6 (+1 elsewhere), review 0/6');
 });

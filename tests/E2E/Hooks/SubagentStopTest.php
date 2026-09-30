@@ -203,3 +203,101 @@ it('lets non-kanban agents stop untouched', function () {
         ->and($this->p->agent('gp1'))->toBeNull()
         ->and(glob($this->p->runtime('inbox/*')))->toBe([]);
 });
+
+it('leaves a report staged, and the card alone, when the card is held on another machine or has left the work', function () {
+    $this->p->commit($this->wt, 'app.php', "<?php\n", "{$this->id}: clauses");
+    $this->p->in($this->wt, ['report', $this->id, '--status=review', '--tick=1', '--summary=Done'])->mustRun();
+    $file = glob($this->p->main.'/docs/kanban/*/*/'.$this->id.'.json')[0];
+    $original = json_decode(file_get_contents($file), true);
+    $write = function (array $card) use ($file) {
+        file_put_contents($file, json_encode($card, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n");
+        $this->p->sandbox->boardGit('commit', '-q', '-am', 'changed on another machine');
+    };
+    $write(array_replace_recursive($original, ['claim' => ['by' => 'alice@another-machine'], 'work' => ['host' => 'another-machine']]));
+
+    $stopped = stop($this->p, $this->wt);
+
+    expect($stopped['json']['decision'] ?? null)->not->toBe('block')
+        ->and($stopped['err'])->toContain('stays staged')
+        ->and($this->p->card($this->id)['acceptance'][0]['done'])->toBeFalse()
+        ->and($this->p->card($this->id)['stage'])->toBe('doing')
+        ->and($this->p->card($this->id)['blocked'])->toBeNull();
+
+    $write(array_replace($original, ['stage' => 'ready', 'claim' => null]));
+    $applied = $this->p->sandbox->ok(['apply', $this->id]);
+
+    expect($applied)->toContain('stays staged')
+        ->and($this->p->card($this->id)['stage'])->toBe('ready');
+
+    $write($original);
+    expect($this->p->sandbox->ok(['apply', $this->id]))->toContain('report applied')
+        ->and($this->p->card($this->id)['acceptance'][0]['done'])->toBeTrue();
+});
+
+it('lets a worker stop without blocking a card that was sent back while it worked', function () {
+    $this->p->commit($this->wt, 'app.php', "<?php\n", "{$this->id}: clauses");
+    $this->p->in($this->wt, ['report', $this->id, '--status=review', '--tick=1', '--summary=Done'])->mustRun();
+    $file = glob($this->p->main.'/docs/kanban/*/*/'.$this->id.'.json')[0];
+    $card = json_decode(file_get_contents($file), true);
+    // another person stopped the card: it is ready again and only remembers the parked branch
+    $card = array_replace($card, ['stage' => 'ready', 'claim' => null, 'work' => ['parked_branch' => 'card/parked']]);
+    file_put_contents($file, json_encode($card, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n");
+    $this->p->sandbox->boardGit('commit', '-q', '-am', 'stopped on another machine');
+
+    foreach (range(1, 4) as $stop) {
+        $stopped = stop($this->p, $this->wt);
+        expect($stopped['json']['decision'] ?? null)->not->toBe('block');
+    }
+
+    expect($this->p->card($this->id))->toMatchArray(['stage' => 'ready', 'blocked' => null]);
+});
+
+it('does not refuse or block a worker without a report when its card has left the work on another machine', function () {
+    $file = glob($this->p->main.'/docs/kanban/*/*/'.$this->id.'.json')[0];
+    $card = json_decode(file_get_contents($file), true);
+    $card = array_replace($card, ['stage' => 'ready', 'claim' => null, 'work' => ['parked_branch' => 'card/parked']]);
+    file_put_contents($file, json_encode($card, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n");
+    $this->p->sandbox->boardGit('commit', '-q', '-am', 'stopped on another machine');
+
+    foreach (range(1, 4) as $stop) {
+        $stopped = stop($this->p, $this->wt);
+        expect($stopped['json']['decision'] ?? null)->not->toBe('block');
+    }
+
+    expect($this->p->card($this->id))->toMatchArray(['stage' => 'ready', 'blocked' => null]);
+});
+
+it('drops a staged report that is older than the last start of its card instead of applying it to the new attempt', function () {
+    $this->p->commit($this->wt, 'app.php', "<?php\n", "{$this->id}: clauses");
+    $this->p->in($this->wt, ['report', $this->id, '--status=review', '--tick=1', '--summary=Attempt one'])->mustRun();
+    $file = glob($this->p->main.'/docs/kanban/*/*/'.$this->id.'.json')[0];
+    $card = json_decode(file_get_contents($file), true);
+    $card['claim']['by'] = 'alice@another-machine';
+    $card['work']['host'] = 'another-machine';
+    file_put_contents($file, json_encode($card, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n");
+    $this->p->sandbox->boardGit('commit', '-q', '-am', 'held elsewhere');
+    stop($this->p, $this->wt);
+    // the card is here again, started anew after the report was staged
+    $card = json_decode(file_get_contents(glob($this->p->main.'/docs/kanban/*/*/'.$this->id.'.json')[0]), true);
+    $card['claim']['by'] = 'me@'.gethostname();
+    $card['work']['host'] = gethostname();
+    $card['work']['started'] = gmdate('Y-m-d\TH:i:s', time() + 3600).'.000+00:00';
+    file_put_contents($file, json_encode($card, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n");
+    $this->p->sandbox->boardGit('commit', '-q', '-am', 'started again');
+
+    $applied = $this->p->sandbox->ok(['apply', $this->id]);
+
+    expect($applied)->toContain('predates')
+        ->and($this->p->card($this->id)['acceptance'][0]['done'])->toBeFalse()
+        ->and($this->p->sandbox->ok(['apply', $this->id]))->toContain('nothing staged');
+});
+
+it('shows an applied report as the worker, with the person whose machine applied it', function () {
+    $this->p->commit($this->wt, 'app.php', "<?php\n", "{$this->id}: clauses");
+    $this->p->in($this->wt, ['report', $this->id, '--status=review', '--tick=1', '--summary=Done'])->mustRun();
+    stop($this->p, $this->wt);
+
+    $shown = $this->p->sandbox->ok(['show', $this->id, '--log=20']);
+
+    expect($shown)->toContain(' worker (Test User) ')->and($shown)->toContain(' owner (Test User) ');
+});

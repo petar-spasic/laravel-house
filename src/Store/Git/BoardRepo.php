@@ -16,7 +16,7 @@ final class BoardRepo
 
     public const BRANCH = 'kanban';
 
-    private const DEFAULT_AUTHOR = 'Kanban UI <kanban-ui@localhost>';
+    public const DEFAULT_AUTHOR = 'Kanban UI <kanban-ui@localhost>';
 
     /** @param  array<string, mixed>  $config  the `kanban` config */
     public function __construct(
@@ -76,6 +76,14 @@ final class BoardRepo
             throw new Conflict('a git rebase is in progress in '.$this->paths->relative($this->paths->board()).': finish or abort it there (`git rebase --continue|--abort`), then run kanban again');
         }
         $git->attempt(['rebase', '--abort']);
+    }
+
+    /** True while git records a rebase in the board's worktree, whoever started it. */
+    public function rebasing(): bool
+    {
+        $gitdir = $this->adminDir();
+
+        return $gitdir !== null && (is_dir($gitdir.'/rebase-merge') || is_dir($gitdir.'/rebase-apply'));
     }
 
     /** True when a kanban rebase was killed: its marker names a dead process and git still records the rebase. */
@@ -156,6 +164,14 @@ final class BoardRepo
         return (string) ($this->config['remote'] ?? 'origin');
     }
 
+    /** git's user.name in the main checkout, or null. */
+    public function userName(): ?string
+    {
+        $name = $this->main()->line(['config', '--get', 'user.name']);
+
+        return $name === null || $name === '' ? null : $name;
+    }
+
     public function hasRemote(): bool
     {
         return $this->main()->attempt(['remote', 'get-url', $this->remote()])->ok();
@@ -183,7 +199,7 @@ final class BoardRepo
                 return false;
             }
             // Two fetches of one clone racing for the same tracking ref: the loser fails, the retry finds it current.
-            if ($attempt >= 4 || preg_match('/incorrect old value|cannot lock ref|Unable to create .*\.lock/', $result->err) !== 1) {
+            if ($attempt >= 4 || preg_match('/incorrect old value|cannot lock ref .* but expected|Unable to create .*\.lock/', $result->err) !== 1) {
                 throw new RemoteFailed('fetch failed: '.trim($result->err));
             }
             usleep(50000 * $attempt);
@@ -215,7 +231,7 @@ final class BoardRepo
         $this->paths->ensureRuntime();
         file_put_contents($this->markerFile(), json_encode(['pid' => getmypid(), 'at' => time()]));
         try {
-            $result = $git->attempt(['rebase', '-q', $this->remoteRef()]);
+            $result = $git->attempt([...$this->driverArguments(), 'rebase', '-q', $this->remoteRef()]);
             if (! $result->ok()) {
                 $git->attempt(['rebase', '--abort']);
             }
@@ -229,14 +245,28 @@ final class BoardRepo
         return $behind;
     }
 
-    /** 'ok' or 'rejected' (non-fast-forward); RemoteFailed for anything else. */
-    public function push(): string
+    /**
+     * The merge driver of this rebase: the running package's own bin/kanban, not the path .git/config holds. That path
+     * belongs to the machine that ran `attach` (a container sees the host's), and a rebase whose driver cannot run aborts.
+     *
+     * @return list<string>
+     */
+    private function driverArguments(): array
     {
-        $result = $this->required()->attempt(['push', '-q', '--set-upstream', $this->remote(), 'refs/heads/'.self::BRANCH.':refs/heads/'.self::BRANCH]);
+        $driver = escapeshellarg(PHP_BINARY).' '.escapeshellarg(dirname(__DIR__, 3).'/bin/kanban').' merge-driver %O %A %B %P';
+
+        return ['-c', 'merge.kanban.name=laravel-kanban JSON merge', '-c', 'merge.kanban.driver='.$driver];
+    }
+
+    /** 'ok' or 'rejected' (non-fast-forward); RemoteFailed for anything else. */
+    public function push(float $timeout = 120): string
+    {
+        $result = $this->required()->attempt(['push', '-q', '--set-upstream', $this->remote(), 'refs/heads/'.self::BRANCH.':refs/heads/'.self::BRANCH], null, $timeout);
         if ($result->ok()) {
             return 'ok';
         }
-        if (preg_match('/\[rejected\]|non-fast-forward|fetch first|\[remote rejected\].*(stale|lock|incorrect old value)/', $result->err) === 1) {
+        // older git names a lost ref race only on a `remote: error: cannot lock ref … but expected` line; the [remote rejected] line just says `failed to update ref`
+        if (preg_match('/\[rejected\]|non-fast-forward|fetch first|cannot lock ref|\[remote rejected\].*(stale|lock|incorrect old value)/', $result->err) === 1) {
             return 'rejected';
         }
         throw new RemoteFailed('push failed: '.trim($result->err));

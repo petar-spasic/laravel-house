@@ -46,6 +46,17 @@ final class Ids
         return self::random(8);
     }
 
+    /** A log id that is a function of $seed: the same seed on any machine gives the same id. */
+    public static function derived(string $seed): string
+    {
+        $bits = '';
+        foreach (str_split(substr(sha1($seed, true), 0, 5)) as $byte) {
+            $bits .= str_pad(decbin(ord($byte)), 8, '0', STR_PAD_LEFT);
+        }
+
+        return implode('', array_map(fn (string $chunk) => self::ALPHABET[bindec($chunk)], str_split($bits, 5)));
+    }
+
     public static function isValid(string $id): bool
     {
         return preg_match(self::PATTERN, $id) === 1;

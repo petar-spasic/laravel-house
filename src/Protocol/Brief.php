@@ -6,6 +6,7 @@ use PetarSpasic\Kanban\Policy\PullPolicy;
 use PetarSpasic\Kanban\Store\Card;
 use PetarSpasic\Kanban\Store\Git\Bootstrap;
 use PetarSpasic\Kanban\Store\Git\GitStore;
+use PetarSpasic\Kanban\Store\Git\SyncStatus;
 use PetarSpasic\Kanban\Store\Priority;
 use PetarSpasic\Kanban\Store\Snapshot;
 use PetarSpasic\Kanban\Store\Store;
@@ -28,7 +29,7 @@ final class Brief
     public function lines(?string $session): array
     {
         $snapshot = $this->store->snapshot();
-        $runtime = new Runtime($this->paths, (int) $snapshot->setting('stale_after_minutes', 20));
+        $runtime = new Runtime($this->paths, $snapshot->staleMinutes());
         $repo = $this->store instanceof GitStore ? $this->store->repo() : null;
         $pull = new PullPolicy;
         $capacity = $pull->capacity($snapshot);
@@ -43,8 +44,15 @@ final class Brief
 
         $lines = [];
         $lines[] = "Kanban {$snapshot->key()}: branch kanban @".($repo?->head() ?? '-').', '
-            .($unpushed === null ? 'not published' : "{$unpushed} unpushed").', sync '.Sync::label($this->config['sync'] ?? 'off').', '.gmdate('Y-m-d H:i').'Z';
-        $lines[] = "WIP doing {$capacity['doing']}/{$capacity['max_parallel']}, review {$capacity['review']}/{$capacity['review_limit']}"
+            .($unpushed === null ? 'not published' : "{$unpushed} unpushed").', sync '.Sync::label($this->config['sync'] ?? 'off', $repo?->hasRemote() ?? false).', '.gmdate('Y-m-d H:i').'Z';
+        if ($unpushed !== null && ! ($this->store instanceof GitStore && $this->store->syncOn())) {
+            $lines[] = Sync::PUBLISHED_BUT_OFF;
+        }
+        if (($sync = (new SyncStatus($this->paths))->line()) !== null) {
+            $lines[] = $sync;
+        }
+        $elsewhere = $capacity['doing'] - $capacity['here'];
+        $lines[] = "WIP doing {$capacity['here']}/{$capacity['max_parallel']}".($elsewhere > 0 ? " (+{$elsewhere} elsewhere)" : '').", review {$capacity['review']}/{$capacity['review_limit']}"
             .' · ready '.($counts['ready'] ?? 0).' · backlog '.($counts['backlog'] ?? 0).' · blocked '.count($blocked)
             .' · proposed decisions '.($counts['proposed'] ?? 0);
         foreach ($work('doing') as $card) {

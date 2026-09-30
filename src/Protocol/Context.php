@@ -163,6 +163,19 @@ final class Context
     }
 
     /**
+     * A log entry's actor: the role, and the person in brackets when the entry names one. Cleaned here again, because
+     * entries arrive from any clone and end up in an agent's prompt.
+     *
+     * @param  array<string, mixed>  $entry
+     */
+    public static function actor(array $entry): string
+    {
+        $who = mb_substr(trim((string) preg_replace('/[\x00-\x1F\x7F\s]+/u', ' ', (string) ($entry['who'] ?? ''))), 0, 80);
+
+        return (string) ($entry['by'] ?? '?').($who === '' ? '' : " ({$who})");
+    }
+
+    /**
      * Notes and stage-change reasons the owner and main left since the card was started.
      *
      * @return list<string>
@@ -180,7 +193,7 @@ final class Context
                 default => null,
             };
             if (is_string($text) && $text !== '') {
-                $notes[] = substr((string) $entry['at'], 0, 16)." {$entry['by']}: {$text}";
+                $notes[] = substr((string) $entry['at'], 0, 16).' '.self::actor($entry).": {$text}";
             }
         }
 

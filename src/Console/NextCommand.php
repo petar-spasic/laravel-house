@@ -16,6 +16,7 @@ class NextCommand extends Command
 
     protected function perform(): int
     {
+        $this->gitStore()?->maybeSync();
         $snapshot = $this->store()->snapshot();
         $next = (new PullPolicy)->next($snapshot, max(1, (int) $this->option('count')));
         if ($this->option('json')) {

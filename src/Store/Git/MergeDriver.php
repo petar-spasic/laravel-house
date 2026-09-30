@@ -3,11 +3,13 @@
 namespace PetarSpasic\Kanban\Store\Git;
 
 use PetarSpasic\Kanban\Store\Exceptions\Invalid;
+use PetarSpasic\Kanban\Support\Ids;
 use PetarSpasic\Kanban\Support\Json;
 
 /**
  * git merge driver for board JSON (`kanban merge-driver %O %A %B %P`). Pure: no lock, no app.
- * Coupled fields merge as groups; a true conflict takes the side with the newer `updated`.
+ * Coupled fields merge as groups; a true conflict takes the side with the newer `updated`, and what the other side
+ * had is written into the card's log, so a merge never makes text or a stage move vanish.
  */
 final class MergeDriver
 {
@@ -16,6 +18,12 @@ final class MergeDriver
         ['stage', 'claim', 'work', 'blocked'],
         ['decided_on', 'superseded_by', 'resolution'],
     ];
+
+    /** Text fields whose displaced value is kept in the log. */
+    private const TEXTS = ['title', 'body', 'why', 'resolution', 'blocked'];
+
+    /** Where a card is in the flow; a displaced value is kept in the log as one line. */
+    private const FLOW = ['stage', 'claim', 'work'];
 
     /** 0 = merged into $current, 1 = conflict (unparseable or a different card on the same path). */
     public static function run(string $ancestor, string $current, string $other, string $path): int
@@ -95,7 +103,48 @@ final class MergeDriver
             }
         }
 
+        if ($kind === 'card' && $o !== [] && isset($result['log'])) {
+            $result['log'] = $this->withLosses($o, $a, $b, $result);
+        }
+
         return $result;
+    }
+
+    /**
+     * The merged log plus one `conflict` entry for every text, and every stage/claim/work state, that a side changed
+     * since the ancestor and the merge did not keep. Content-addressed and stamped with the merged `updated`, so two
+     * machines merging the same conflict write the same entry, and the union by id adds it once.
+     *
+     * @param  array<string, mixed>  $o
+     * @param  array<string, mixed>  $a
+     * @param  array<string, mixed>  $b
+     * @param  array<string, mixed>  $merged
+     * @return list<array<string, mixed>>
+     */
+    private function withLosses(array $o, array $a, array $b, array $merged): array
+    {
+        $lost = [];
+        foreach ([$a, $b] as $side) {
+            foreach (self::TEXTS as $field) {
+                $text = $side[$field] ?? null;
+                if (is_string($text) && trim($text) !== '' && ! $this->same($text, $merged[$field] ?? null) && ! $this->same($text, $o[$field] ?? null)) {
+                    $lost[] = [$field, $text];
+                }
+            }
+            if (($o['blocked'] ?? null) !== null && ($side['blocked'] ?? null) === null && ($merged['blocked'] ?? null) !== null) {
+                $lost[] = ['blocked', '(the block was cleared)'];
+            }
+            $flow = $this->pick($side, self::FLOW);
+            if (! $this->same($flow, $this->pick($o, self::FLOW)) && ! $this->same($flow, $this->pick($merged, self::FLOW))) {
+                $lost[] = ['flow', 'stage='.($flow['stage'] ?? '-').'; claim='.($flow['claim']['by'] ?? '-').'; work.head='.(isset($flow['work']['head']) ? substr((string) $flow['work']['head'], 0, 7) : '-')];
+            }
+        }
+        $entries = $merged['log'];
+        foreach ($lost as [$field, $text]) {
+            $entries[] = ['id' => Ids::derived($field."\0".$text), 'at' => (string) ($merged['updated'] ?? ''), 'by' => 'hook', 'event' => 'conflict', 'field' => $field, 'lost' => $text];
+        }
+
+        return $this->log($entries, []);
     }
 
     /**

@@ -2,6 +2,7 @@
 
 namespace PetarSpasic\Kanban\Console;
 
+use PetarSpasic\Kanban\Protocol\Context;
 use PetarSpasic\Kanban\Support\Clock;
 use Symfony\Component\Console\Attribute\AsCommand;
 
@@ -84,14 +85,15 @@ class ShowCommand extends Command
             $this->say('log:');
         }
         foreach ($log as $entry) {
-            $extra = array_diff_key($entry, array_flip(['id', 'at', 'by', 'event']));
+            $extra = array_diff_key($entry, array_flip(['id', 'at', 'by', 'who', 'event']));
             $text = match ($entry['event']) {
                 'stage' => "stage {$entry['from']}→{$entry['to']}".(isset($entry['via']) ? " via {$entry['via']}" : '').(isset($entry['reason']) ? ": {$entry['reason']}" : ''),
                 'set' => 'set '.implode(',', $entry['fields'] ?? []),
                 'note' => 'note: '.($entry['text'] ?? ''),
+                'conflict' => 'merge kept the other version of '.($entry['field'] ?? '?').'; replaced: '.mb_strimwidth((string) ($entry['lost'] ?? ''), 0, 200, '…'),
                 default => $entry['event'].($extra === [] ? '' : ' '.json_encode($extra, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)),
             };
-            $this->say("{$entry['at']} {$entry['by']} {$text}");
+            $this->say("{$entry['at']} ".Context::actor($entry)." {$text}");
         }
 
         return self::SUCCESS;
