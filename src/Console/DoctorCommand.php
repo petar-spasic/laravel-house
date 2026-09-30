@@ -7,8 +7,11 @@ use PetarSpasic\Kanban\Code\Stack;
 use PetarSpasic\Kanban\Console\Install\NextSteps;
 use PetarSpasic\Kanban\Console\Install\Steps;
 use PetarSpasic\Kanban\Store\Git\Bootstrap;
+use PetarSpasic\Kanban\Store\Git\DeployKey;
+use PetarSpasic\Kanban\Store\Git\SyncStatus;
 use PetarSpasic\Kanban\Support\DotEnv;
 use PetarSpasic\Kanban\Support\Git;
+use PetarSpasic\Kanban\Support\Sync;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Process\Process;
 use Throwable;
@@ -45,6 +48,7 @@ class DoctorCommand extends Command
         }
         $this->checkRuntime();
         if ($bootstrap->attached()) {
+            $this->checkSync();
             $this->checkOrphans();
         }
         $this->checkStacks();
@@ -120,6 +124,29 @@ class DoctorCommand extends Command
     {
         $dir = $this->paths()->ensureRuntime();
         $this->add(is_dir($dir) && is_writable($dir) ? 'ok' : 'fail', 'runtime '.$this->paths()->relative($dir).(is_writable($dir) ? ' writable' : ' not writable'));
+    }
+
+    /** Local state only: what sync is doing on this machine, no network. */
+    private function checkSync(): void
+    {
+        $store = $this->gitStore();
+        if ($store === null) {
+            return;
+        }
+        $repo = $store->repo();
+        $this->add('ok', 'sync '.Sync::label($this->config()['sync'] ?? 'off', $repo->hasRemote()));
+        if (! $store->syncOn() && $repo->hasRemoteRef()) {
+            $this->add('warn', Sync::PUBLISHED_BUT_OFF.' (KANBAN_SYNC=auto, or delete the `sync` line of a published config/kanban.php)');
+        }
+        if (($line = (new SyncStatus($this->paths()))->line()) !== null) {
+            $this->add('warn', $line);
+        }
+        $key = new DeployKey($this->paths(), $this->config());
+        if ($key->wanted()) {
+            $this->add($key->exists() ? 'ok' : 'warn', $key->exists()
+                ? 'deploy key '.$this->paths()->relative($key->path()).' (the container syncs with it once its public half is a write deploy key)'
+                : 'no deploy key for the container sync: `vendor/bin/kanban doctor --fix` makes one');
+        }
     }
 
     private function checkOrphans(): void

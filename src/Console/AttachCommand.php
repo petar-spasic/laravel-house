@@ -17,6 +17,7 @@ class AttachCommand extends Command
         foreach ((new Bootstrap($this->paths(), $this->config()))->attach((bool) $this->option('force')) as $line) {
             $this->say($line);
         }
+        $this->publishOnce();
 
         return self::SUCCESS;
     }

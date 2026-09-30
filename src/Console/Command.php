@@ -128,6 +128,24 @@ abstract class Command extends IlluminateCommand
         }
     }
 
+    /**
+     * With sync on (or auto next to a remote) the board is pushed once, so the others can join it. Never fatal: a remote that
+     * cannot be reached now leaves the board local, and the sync status says so.
+     */
+    protected function publishOnce(): void
+    {
+        $store = $this->gitStore();
+        if ($store === null || ! $store->syncOn() || ! $store->repo()->hasRemote()) {
+            return;
+        }
+        try {
+            SyncCommand::report($store->sync(), $this->say(...));
+            $this->say('sync is on: the board is shared through '.$store->repo()->remote().'; KANBAN_SYNC=off keeps it on this machine');
+        } catch (KanbanException $e) {
+            $this->say('sync: '.$e->getMessage().' (the board stays on this machine until `vendor/bin/kanban sync` works)');
+        }
+    }
+
     protected function gitStore(): ?GitStore
     {
         $store = $this->store();
@@ -162,7 +180,7 @@ abstract class Command extends IlluminateCommand
     /** Agent bound to the card per the runtime (`4m`, `stopped`, `stale 25m`), or null. */
     protected function agent(string $cardId, Snapshot $snapshot): ?string
     {
-        $this->agentStates ??= AgentStates::byCard($this->paths(), (int) $snapshot->setting('stale_after_minutes', 20));
+        $this->agentStates ??= AgentStates::byCard($this->paths(), $snapshot->staleMinutes());
 
         return $this->agentStates[$cardId] ?? null;
     }

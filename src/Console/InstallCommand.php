@@ -31,6 +31,7 @@ class InstallCommand extends Command
             }
         }
         if (! $dryRun) {
+            $this->publishOnce();
             $this->say('next: '.NextSteps::RESTART);
         }
 

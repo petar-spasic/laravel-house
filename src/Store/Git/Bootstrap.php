@@ -5,6 +5,7 @@ namespace PetarSpasic\Kanban\Store\Git;
 use PetarSpasic\Kanban\Store\Exceptions\Invalid;
 use PetarSpasic\Kanban\Store\Exceptions\NotFound;
 use PetarSpasic\Kanban\Store\Exceptions\PolicyRefused;
+use PetarSpasic\Kanban\Store\Exceptions\RemoteFailed;
 use PetarSpasic\Kanban\Support\Clock;
 use PetarSpasic\Kanban\Support\Git;
 use PetarSpasic\Kanban\Support\Json;
@@ -19,6 +20,9 @@ final class Bootstrap
     public const REJECT_CO_AUTHORED = 'kanban.rejectCoAuthored';
 
     public const IGNORE = '/docs/kanban/';
+
+    /** Set when ls-remote failed, so attach can tell "no board on origin" from "origin not reachable". */
+    private bool $unreachable = false;
 
     /** @param  array<string, mixed>  $config  the `kanban` config */
     public function __construct(
@@ -57,6 +61,9 @@ final class Bootstrap
         }
         if ($dryRun) {
             $lines[] = $this->ignored() ? '.gitignore ok' : 'would add '.self::IGNORE.' to .gitignore';
+            if (($plan = (new DeployKey($this->paths, $this->config))->plan()) !== null) {
+                $lines[] = $plan;
+            }
         } elseif ($this->ignore()) {
             $lines[] = '.gitignore += '.self::IGNORE.' (commit it on main)';
         }
@@ -83,10 +90,16 @@ final class Bootstrap
             $lines[] = 'attached local branch kanban at '.Paths::BOARD;
         } elseif ($this->hasRemoteBranch()) {
             $remote = $this->remote();
-            $this->main()->run(['fetch', '-q', $remote, '+refs/heads/kanban:refs/remotes/'.$remote.'/kanban']);
+            // the clone already holds origin/kanban: an unreachable remote does not stop it from joining
+            $fetched = $this->main()->attempt(['fetch', '-q', $remote, '+refs/heads/kanban:refs/remotes/'.$remote.'/kanban']);
+            if (! $fetched->ok() && ! $this->hasTrackingRef()) {
+                throw new RemoteFailed('fetch failed: '.trim($fetched->err));
+            }
             $this->main()->run(['worktree', 'prune']);
             $this->main()->run(['worktree', 'add', '-q', '--track', '-b', BoardRepo::BRANCH, Paths::BOARD, $remote.'/kanban']);
             $lines[] = "attached {$remote}/kanban at ".Paths::BOARD;
+        } elseif ($this->unreachable) {
+            throw new RemoteFailed('cannot reach '.$this->remote().' to look for the kanban branch: fix access to it, then run attach again');
         } else {
             throw new NotFound('no kanban branch here or on '.$this->remote().': run `php artisan kanban:install`');
         }
@@ -96,7 +109,8 @@ final class Bootstrap
 
     /**
      * Per-machine git config: the merge driver (always), hooksPath (only when unset, or forced) and whether
-     * commit-msg rejects Co-Authored-By trailers (`githooks.reject_co_authored`).
+     * commit-msg rejects Co-Authored-By trailers (`githooks.reject_co_authored`); and the container's deploy key when
+     * it is wanted and missing.
      *
      * @return list<string>
      */
@@ -119,7 +133,7 @@ final class Bootstrap
         $lines[] = self::REJECT_CO_AUTHORED.": {$reject}";
         $this->paths->ensureRuntime();
 
-        return $lines;
+        return [...$lines, ...(new DeployKey($this->paths, $this->config))->ensure()];
     }
 
     /** @param  array<string, mixed>  $config  the `kanban` config */
@@ -194,9 +208,18 @@ final class Bootstrap
         if (! $this->main()->attempt(['remote', 'get-url', $this->remote()])->ok()) {
             return false;
         }
+        if ($this->hasTrackingRef()) {
+            return true;
+        }
         $result = $this->main()->attempt(['ls-remote', '--heads', $this->remote(), BoardRepo::BRANCH]);
+        $this->unreachable = ! $result->ok();
 
         return $result->ok() && trim($result->out) !== '';
+    }
+
+    private function hasTrackingRef(): bool
+    {
+        return $this->main()->attempt(['rev-parse', '--verify', '-q', 'refs/remotes/'.$this->remote().'/'.BoardRepo::BRANCH])->ok();
     }
 
     private function remote(): string
