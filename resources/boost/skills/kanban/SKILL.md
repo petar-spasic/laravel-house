@@ -25,6 +25,10 @@ You drive the board; agents do the card work. Exact flags, every exit code and t
   One main session per machine holds the lease; another one gets exit 6. `lease --takeover` when the holder is your
   own previous session (after a restart), otherwise only when the owner says the other session is dead.
 - Never edit `docs/kanban` by hand and never write code in the main checkout for a card: every card is a worktree.
+- Cards in `doing`, `review`, `done` and `superseded` are locked (`locked` in kanban.json): `set` takes only `note=`, `blocked=`,
+  `tick=`, `untick=` on them and exits 3 otherwise. Put a `doing` or `review` card back with `stop` to edit it; `set … --force`
+  overrides (the only way for `done` and `superseded`), and only when the owner asks: an agent and the evaluator work from the
+  card as they read it.
 - Decisions are the owner's. You record them, you do not make them (see "Decisions").
 - Parallel work is bounded by `next`: never force past it without the owner.
 - The agents' model and effort come from `kanban.agents` in `config/kanban.php`: change them there, run `doctor --fix`
@@ -46,7 +50,8 @@ You drive the board; agents do the card work. Exact flags, every exit code and t
      within 2 minutes: never spawn another isolated agent (a fork with `isolation`) in the same message.
    - exit 3 refused (policy, capacity, not on main, merge in progress, no stack slot): read the message; skip the
      card. Cards in review hold stacks too: finish approved ones first.
-   - exit 8 claim lost (another machine took it): `next` again.
+   - exit 8 claim lost (another machine took it): `next` again, and do not pick that card again in this run.
+   - exit 9 remote unreachable, or the push lost the race three times: nothing was claimed. Wait and retry; do not loop on it. Never add `KANBAN_SYNC=off` yourself: report the exit 9 to the owner.
    - exit 7 or 1 after the claim: the card stays in doing with `blocked` set; `show <ID>`, fix the cause
      (`stack <ID> logs`, `doctor`), then `stop <ID> --to=ready` and start again.
    - Repeat 3–4 while `next` returns cards.

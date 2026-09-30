@@ -3,6 +3,11 @@
 Surprises from real runs, one block each: **symptom** → cause → fix. Add a block in the session the surprise happens
 in, stating what is, not how it was found; remove it once the code fixes it.
 
+**`kanban set` on a card in doing, review or done exits 3 with "a locked stage".** → Those
+stages are locked by default: the owner and the main session may only add a note, block or unblock, and tick or untick.
+→ `kanban stop ID --to=ready` to edit a card in doing or review, `kanban set … --force` from the main session when the
+owner asks (the only way for a done card), or list other stages (or `[]`) as `locked` in `docs/kanban/kanban.json`.
+
 **"Agent type not found", hooks don't run, or `status` shows the lease held by another session after
 `kanban:install`, `doctor --fix` or an upgrade.** → Claude Code loads `.claude/agents` and settings hooks at session
 start, and the old session holds the lease until 15 min idle. → Restart Claude Code, then
@@ -67,3 +72,74 @@ Uncommitted work is never touched; commit or keep the worktree busy to keep it.
 
 **`board cards/…` or `board assets/…` is refused.** → The local UI serves `/kanban/cards/…` and `/kanban/assets/…`
 itself; pick another epic name.
+
+**The UI or a script gets 403 ("Kanban writes need the X-Kanban header" / "Cross-site requests … are refused").** → The
+UI has no session to hold a CSRF token, so its API refuses requests other sites cause and writes without the custom
+header a browser cannot send cross-site. Use the page itself; a script sends `X-Kanban: 1` with every write.
+
+**The UI answers 403 "Kanban answers only to this machine's own names".** → The UI refuses a Host header that is not an IP,
+`localhost`, `*.localhost`, `*.test`, the host of `APP_URL` or of `LOCAL_APP_URL`: a page that points its own DNS name at
+this machine would otherwise be same-origin with the board. Add the name you use (a `.lan` or Bonjour name, a proxy's
+name) to `kanban.ui.hosts` in the published config.
+
+**Middleware, sessions or `APP_KEY` have no effect on the UI.** → It runs outside the `web` group and needs no session,
+cookie or CSRF token, so `ui.middleware` is empty by default and it works without `APP_KEY` or a session driver. A `'web'`
+entry in a published `ui.middleware` is ignored, and so is anything that needs a session: an `auth` entry makes the page
+redirect to your login route (or fail without one) and the API answer 401. Gate the UI with `KANBAN_UI_TOKEN`; other
+stateless middleware you list there still applies.
+
+**The UI answers 403 "Kanban UI token required" in a browser that had worked.** → The UI runs outside the `web` group and
+keeps the token cookie as plain text, so a cookie that group encrypted does not match. Open `/kanban?token=…` once.
+
+**The UI shows unstyled black on white, or without colours.** → The stylesheet uses `light-dark()`, which browsers have
+had since 2024 (Chrome 123, Firefox 120, Safari 17.5). Update the browser.
+
+**Sync is on, but the board in the container never picks up what others pushed, and there is no notice.** → The pull is a
+detached `php bin/kanban sync --background` started from the web request. It needs `php` and `git` on the container's PATH,
+`exec()` not listed in `disable_functions`, credentials for the remote, and a user that can write the mounted `.git` and
+`.git/laravel-kanban`. Missing credentials show as a *Not synced* notice; a disabled `exec()` shows nothing. → Run
+`vendor/bin/kanban sync` inside the container to see the error. `KANBAN_PULL_SECONDS=0` switches the timed pull off.
+
+**In the container, `kanban sync` says `Permission denied (publickey)`.** → Over ssh the container uses the clone's deploy key
+(`.git/laravel-kanban/deploy_key`, made by `install`, `attach` or `doctor --fix` when the project has a local compose file), and
+the repository does not know its public half yet. → `cat .git/laravel-kanban/deploy_key.pub`, add it as a deploy key with
+write access (an admin of the repository can), then sync again. `ssh` also refuses the key when the container user cannot read
+it (`HOST_UID`/`HOST_GID` of the compose file must be yours), and an https `origin` never uses it.
+
+**The UI says "Not pushed: N commits (…)", or `status` says "last sync failed".** → The background sync of this clone (after
+each write when sync is on) could not fetch, rebase or push, and the same error came back. The text names it: an
+unreachable remote, missing git credentials (in a container too), a push rejected three times because others kept pushing,
+or a rebase that failed. → `vendor/bin/kanban sync` on the host prints the same error; fix it and run it again. Other
+machines see nothing of an unpushed clone.
+
+**"Sync stopped after a pull: … dependency cycle" (or a cap such as 10 labels).** → Two people's edits were each valid and
+together are not (A made X depend on Y while B made Y depend on X). The clone is rebased but will not push an invalid board. →
+`vendor/bin/kanban validate` names the card; change one side with `kanban set`, then `vendor/bin/kanban sync`.
+
+**My edit of a card vanished after a sync.** → Someone changed the same field (title, description, why, resolution, a
+blocked reason, or the stage/claim) before your commit reached them; the merge keeps the newer `updated` and does not blend
+texts. → The replaced text is in the card's log: `kanban show ID` (line *merge kept the other version of …*) or the *Activity*
+list in the UI; copy it back with `kanban set`. Keep the package version the same on every clone, or an older clone merges
+without writing the record.
+
+**"report stays staged: … is now ready" (or "held on <host>") when a worker stops.** → The card moved on after the worker
+started: another person re-claimed it, sent it back, or stopped it, and that change reached this machine by sync. The report
+belongs to work that is no longer this machine's, so nothing is written and the card is not blocked. → Read the card
+(`kanban show ID`). If the work is still wanted here, get the card back into this machine's doing and run
+`vendor/bin/kanban apply ID`; otherwise ignore the report, it is cleaned up with the finished cards.
+
+**"Changed elsewhere. The latest version:" under a text I was editing.** → Someone (another person, an agent, or you on the
+command line) changed that same text after you opened the editor. Your text is untouched. → Read the latest version, then
+*Keep mine* (writes yours over it) or *Use theirs* (drops yours). A closed editor keeps its draft for the card; opening it again
+after the text changed shows the same choice.
+
+**`status` says "sync off but this board is published: claims are not coordinated with other machines".** → This clone has
+`origin/kanban`, yet sync is off here: `KANBAN_SYNC=off` in `.env` or the environment, or a published `config/kanban.php` whose line reads
+`'sync' => env('KANBAN_SYNC', 'off')`. Two machines can then start the same card or fill one area, and the merge keeps one claim while the other
+agent keeps working. → Delete that setting (the default is `auto`), or set `KANBAN_SYNC=on`; `vendor/bin/kanban sync` once to catch up.
+
+**A claim exits 9 with "while sync is on a claim needs the remote".** → The claim is won by the push that lands, so it cannot be
+made while the remote is unreachable; no claim commit was left behind. → Retry later with a pause (a scheduler must not loop on it),
+or, only when the owner agrees, run the same command once with `KANBAN_SYNC=off` in front (for `start`, `KANBAN_SYNC=off
+vendor/bin/kanban start ID`); that card is then claimed on this machine alone and reconciles at the next sync.
+

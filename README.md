@@ -1,7 +1,7 @@
 # laravel-kanban
 
-A git-backed kanban board, a worktree-per-card workflow with its own Docker stack, and the Claude Code hooks, agents
-and hooks that let a main session run parallel agents safely. Dev-only, for Laravel projects.
+A git-backed kanban board, a worktree-per-card workflow with its own Docker stack, and the Claude Code hooks and agents
+that let a main session run parallel agents safely. Dev-only, for Laravel projects.
 
 - **The board is the plan of record.** JSON files on an orphan branch `kanban`, checked out at `docs/kanban`. Every
   change is one commit, made by the CLI, the local UI or a hook — never by hand.
@@ -25,7 +25,7 @@ and hooks that let a main session run parallel agents safely. Dev-only, for Lara
 ## Install
 
 ```bash
-composer require --dev petar-spasic/laravel-kanban:^0.1
+composer require --dev petar-spasic/laravel-kanban
 php artisan kanban:install --key=KEY       # --dry-run prints what would change
 vendor/bin/kanban doctor                   # ok|warn|fail per check, exit 1 on any fail
 ```
@@ -53,11 +53,14 @@ Everything on the main branch is left for you to review and commit. Every other 
 **Upgrade:** `composer update petar-spasic/laravel-kanban`, `vendor/bin/kanban doctor --fix` (agents, hooks, git config),
 `php artisan boost:update` (with Boost), then restart Claude Code.
 
+With the default `auto`, a project with an `origin` publishes its board to it on the first write (`kanban:install` and `attach` do so at once). Set `KANBAN_SYNC=off` in `.env` first to keep a board on this machine; a `config/kanban.php` published earlier keeps `sync` off until its line is changed (see Team sync). Keep the package version the same on every clone of a shared board.
+
 ## The board
 
 ```
 docs/kanban/kanban.json                   {"version":1,"key":"KEY","id_length":6,"max_parallel":6,"ready_buffer":12,
-                                           "wip":{"review":6},"stale_after_minutes":20}
+                                           "wip":{"review":6},"stale_after_minutes":20,
+                                           "locked":["doing","review","done","superseded"]}
 docs/kanban/<epic>/epic.json              {"title","goal","done_when":[…],"body","order"}
 docs/kanban/<epic>/<board>/board.json     {"title","kind":"work|decisions","body","order","wip":{"doing":6}}
 docs/kanban/<epic>/<board>/KEY-XXXXXX.json
@@ -73,6 +76,13 @@ docs/kanban/<epic>/<board>/KEY-XXXXXX.json
 
 - **Stages** — work boards: `backlog → ready → doing → review → done` (+ `dropped`); decision boards:
   `proposed → decided → superseded` (+ `dropped`). Decided cards are binding.
+- **Locked stages** — a card in a stage listed in `locked` (default `doing`, `review`, `done`, `superseded`; `[]` locks
+  nothing) can only be annotated by the owner and the main session: `note=`, `blocked=` and `tick=`/`untick=` change it,
+  a title, description, labels, dependencies, priority, type or criterion does not (exit 3, and the UI shows the card
+  read-only). The work is done from the card as an agent and the evaluator read it, so it is not rewritten under them. To
+  edit a card in `doing` or `review`, put it back first (`kanban stop ID --to=ready`); the main session can override any
+  locked stage with `kanban set … --force`, which is the only way to change a `done` or `superseded` card.
+  Moving a card to another board is refused the same way; moves between stages follow the transition table, locked or not.
 - **Types** `feature|bug|chore|spike|decision`; **priority** `urgent|high|normal|low` (`urgent` may exceed capacity by 1).
 - **IDs** `KEY-` + 6 Crockford base32 characters, random; any unique prefix of ≥ 3 characters is accepted.
 - **Rules** — unknown keys are errors; 1–12 acceptance criteria to enter ready; `depends_on` acyclic; `claim`/`work`
@@ -185,18 +195,88 @@ requires MemAvailable ≥ 8 GiB, ≥ 20 GiB free on `/` and a 1-minute load < 0.
 
 ## Team sync
 
-- `sync=off` (default, one developer): board commits stay local until `kanban publish` pushes `kanban` and `main`.
-- `KANBAN_SYNC=on` (also `1`, `true`, `yes`; teams): writes are pushed after and `sync` pulls; a claim pulls first, is checked
-  (blocked, dependencies, area, WIP) against what it pulled, and is won only by the push that lands (the loser exits 8). Rejected pushes rebase and retry 3×, then exit 9; nothing is ever force-pushed.
+- `KANBAN_SYNC=auto` (the default): sync is on while the project has a remote (`origin`). `kanban:install` next to one publishes the
+  board once and says so; a teammate who runs `attach` joins it; with no remote nothing is pushed or asked for. `on` (also `1`,
+  `true`, `yes`) does the same without looking for a remote; `off` (or any value it does not know) keeps every board commit on this
+  machine until `kanban publish` pushes `kanban` and `main`. A published `config/kanban.php` whose line reads `'sync' => env('KANBAN_SYNC', 'off')` still wins
+  over that default: change it to `'auto'` or delete it. `status` and the SessionStart brief show the effective state (`sync auto (on)`), and warn
+  when the board is published but sync is off here (claims are then not coordinated with other machines).
+- With sync on, writes are pushed after and `sync` pulls; a claim pulls first, is checked
+  (blocked, dependencies, area, WIP) against what it pulled, and is won only by the push that lands (the loser exits 8). A claim whose push is
+  rejected starts over on the fresh board, so it is checked again against the claim that landed first; after 3 rounds it exits 9 with no claim
+  left behind. Rejected sync pushes rebase and retry 3×, then exit 9; nothing is ever force-pushed. A staged worker report is not applied over
+  a card that has since moved on or is held on another machine: it stays staged.
+- The board runs ahead of `main`: `finish` marks a card done for everyone at once, but its code reaches the others only when
+  `kanban publish` pushes `main` (merging `origin/main` when it moved). A dependent card started before that branches from code that
+  lacks its dependency, so with a shared board the owner decides when `publish` runs.
+- An idle clone pulls too: whenever the UI is polled (every 3 s while a tab is visible), a Claude Code session starts, or `status` or `next`
+  runs, a background sync is asked for if none was within `pull_seconds` (`KANBAN_PULL_SECONDS`, default 30, at least 5; `0` = only
+  after your own writes). So another person's change shows on an open board within a poll plus that interval. A clone whose own push
+  keeps failing still pulls. In a container the sync runs there: it needs `php` and `git` on the PATH, `exec()` allowed, credentials for the
+  remote, and a user that can write the mounted `.git`. For an ssh `origin` and a local compose file, `install`, `attach` and
+  `doctor --fix` create a deploy key, `.git/laravel-kanban/deploy_key` (never committed, one per clone), and print its public half:
+  a repository admin adds it with write access (`gh repo deploy-key add .git/laravel-kanban/deploy_key.pub --allow-write`). The
+  container reaches the file through its `./:/app` mount and is pointed at it with `GIT_SSH_COMMAND` in its compose file; this
+  machine's own git keeps using its own key. An https `origin` needs a credential helper of the container's own.
 - Each machine runs `vendor/bin/kanban attach` once (SessionStart does it when `docs/kanban` is missing); it also
   configures the merge driver, without which git would silently text-merge board files.
+- When two clones changed the same field of a card, the newer `updated` wins and the merge writes what the other side had into
+  the card's log (`kanban show`, the *Activity* list: *merge kept the other version of body*, with the replaced text folded
+  under it), so nothing is lost silently. This needs the same package version on every clone.
+- The log says who did what: `by` is the role (owner, main, worker, …) and `who` the person, from `KANBAN_USER` in `.env`, else git's
+  `user.name`. The page shows *Ana* for what she did herself and *worker (Ana)* for her agents; `show` prints `owner (Ana)`. One UI
+  server is one person; the name is only shown, never used to decide anything. Set `KANBAN_USER` for a container that has no git identity.
+- Each clone keeps the result of its last sync (`.git/laravel-kanban/sync.status.json`). `status` and the SessionStart brief print
+  `last sync failed (2 in a row): …` while it is failing, and the UI shows a notice (*Not pushed: 3 commits (…). Behind by 2.*)
+  once the same failure repeats, at once for a pull that leaves the board invalid, a rebase conflict or a rejected push; a successful
+  sync clears it. `doctor` prints the same state.
 - Only one orchestrating session per machine holds the lease (15 min idle expiry, `kanban lease --takeover`).
+
+## The board UI
+
+`/kanban` (local environment, main checkout only) is a single page drawn by `resources/dist/kanban.js` from a JSON API
+under `/kanban/_api`. It needs nothing from the app it lives in: no session, cookie, CSRF token, `web` middleware
+group, layout, Vite or Tailwind, and it sends its own Content-Security-Policy, so it loads nothing from other origins.
+
+- **Board:** one column per stage, cards in pull order, WIP counts, live worker state, and updates within a poll
+  (`ui.poll_ms`, 3 s) of any change, from the CLI or another tab, without losing scroll or what you are typing. A card
+  shows only what needs attention as a tag: *Blocked*, *Waits on N*, *Working*, *Stale*; priority is a mark, the rest is quiet text.
+- **Find:** `/` searches. The chips under the bar count what needs attention (*Blocked*, *Waiting*, *Working*) and filter
+  with one click; *Priority*, *Type* and *Label* are dropdowns. Search and filters live in the URL.
+- **Move:** drag a card (the lanes that take it light up), or use its **⋯** button or `m`; dropping on `dropped` asks for a
+  reason. `doing`, `review` and `done` stay with the CLI (`start`, a worker report, `finish`).
+- **Edit:** click a card. A card opens with the focus on the card itself, not in a field: the first `Tab` moves into its name and on through the fields. The name is a field, and title, description,
+  priority, type, blocked reason, labels, dependencies and acceptance criteria save as you go (*Saved* shows in the header).
+  A card that is open and changes under you says so in one line at the top for a minute (*Ben added a note*, *Ana changed body*, *worker
+  (Ana) changed body* when it is the text you are editing); an agent's housekeeping on the rest of the card stays quiet, and so do your own writes.
+  Somebody else changing another part of the card never interrupts what you type. If the same text changed while you were typing
+  (a description, a why, a blocked reason), your text stays in the editor with the latest version beside it and you choose
+  *Keep mine* or *Use theirs*; a name or a criterion changed elsewhere is shown, and yours is kept in the message or the box.
+  Type a criterion or label and press `Enter` to add it; a card can have up to 12 criteria and 10 labels. Notes and the
+  history sit below. **New** or `n` adds a card. A card in a locked stage (see *Locked stages*) shows as read-only, with a line saying why;
+  it still takes a note, a block and ticks.
+- **Cards link to cards:** a dependency, a decision it supersedes or is superseded by opens on top of the card you are
+  reading, to its right, at any depth; the cards under it peek out as strips (click one to return to it). `Alt+W` or `Esc`
+  closes the last one opened. The stack is in the URL, so Back, reload and a shared link keep it. From 1400 px wide the
+  cards sit beside the board, which keeps its room; on a narrower window they slide in over it, and on a phone each fills the screen.
+- **Dropdowns:** every dropdown is one list with the arrows, `Enter` and type-ahead; a list of more than five options has a
+  search box.
+- **Quick boards:** `Shift+1`…`9` puts the board you are on in that slot and `Alt+1`…`9` goes to it from anywhere; the slots sit in
+  the middle of the bar (they are kept in this browser). The same `Shift+` key again takes the board off.
+- **Keys:** `j k h l` move, `Enter` opens, `b` opens the board switcher (a digit picks the board with that number, `b` again: all boards), `m` moves, `p` cycles priority (a card in a locked stage says it cannot), `t` switches between light
+  and dark (it follows the system until you switch), `?` lists them all.
+
+The page needs a browser from 2024 or later (it uses `light-dark()`), and sets itself in Inter, shipped with the package
+under the SIL Open Font License (`resources/dist/inter-LICENSE.txt`).
+
+A write carries the card's revision; if the card changed since, the UI shows the latest version instead of
+overwriting it. To script against the API, send `X-Kanban: 1` with every write (see the gotchas).
 
 ## Configuration
 
 `php artisan vendor:publish --tag=kanban-config` → `config/kanban.php`: `ui.*` (the local `/kanban` UI, local env and
-main checkout only), `agents.worker|evaluator.model|effort` (written into the agent files), `main_branch`, `remote`,
-`sync`, `worktrees.*`, `stack.*` (compose file, project pattern, port pool, env block, caps), `finish.after` (commands
+main checkout only; `ui.middleware` is extra middleware for its routes, none by default; `ui.hosts` adds names it answers to besides IPs, `localhost`, `*.test` and the `APP_URL` host), `agents.worker|evaluator.model|effort` (written into the agent files), `main_branch`, `remote`,
+`sync` (off, auto, on), `pull_seconds` (how often an idle clone asks for a sync), `user` (the name shown beside the role in the log), `worktrees.*`, `stack.*` (compose file, project pattern, port pool, env block, caps), `finish.after` (commands
 run on main after a merge), `gates.report` (commands a worker's branch must pass, e.g. `npm run check`; `context`
 prints them for both agents), `githooks.reject_co_authored` (default `true`).
 

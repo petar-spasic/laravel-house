@@ -16,8 +16,8 @@ text, one fact per line; errors go to stderr. Card ids accept a unique prefix of
 | 5 | git conflict | `refresh`, hand the conflict to the worker, or resolve on main |
 | 6 | lock or lease | another writer or orchestrator; wait, or `lease --takeover` (your own previous session, or with the owner's OK) |
 | 7 | stack | `stack <ID> logs`, `doctor`; fix, then `stack <ID> up` |
-| 8 | claim lost | another machine took the card; `next` |
-| 9 | remote | network or rejected push after 3 retries; never force-push |
+| 8 | claim lost | another machine took the card; `next`. A card that left `ready` is exit 3. A scheduler skips that card for the rest of its run |
+| 9 | remote | network down, or a push rejected 3 times in a row: transient, retry later with backoff; never force-push. A claim that exits 9 left no claim commit behind |
 | 75 | stack still starting | run `stack wait` again |
 
 ## Actors
@@ -26,6 +26,7 @@ text, one fact per line; errors go to stderr. Card ids accept a unique prefix of
 - `worker` / `evaluator`: bound by the PreToolUse hook at `EnterWorktree` (even when Claude Code then refuses the switch);
   `report` / `verdict` also require the cwd to be the card's worktree (`cd <worktree> && …` when Claude Code refused the switch).
 - `--force` is main-only and logged.
+- A log entry may carry `who`: the person at that keyboard (`KANBAN_USER`, else git `user.name`, else the name in an explicit `KANBAN_GIT_AUTHOR`; none known: no key). `by` stays the role, `who` is shown beside it (`owner (Ana)`, `worker (Ana)`) and is never used for claims, notes, locks or merges. An entry written by an agent carries the person whose machine ran it.
 
 ## Read (anyone)
 
@@ -46,7 +47,7 @@ text, one fact per line; errors go to stderr. Card ids accept a unique prefix of
 |---|---|
 | `new E/B "Title" [--type --priority --label=* --accept=* --depends=* --body= --body-file=- --why= --decided-on= --stage=]` | Create a card (backlog/ready for work, proposed/decided for decisions) |
 | `board E/B ["Title"] [--kind=work\|decisions --order= --wip-doing=]` | Create or update a board |
-| `set ID k=v…` | `title= priority= type= labels=+a,-b depends_on=+ID accept+="…" accept[2]="…" accept-=3 tick=1 untick=2 blocked="…"/"" body=@- why=@- note="…" decided_on= supersedes=+ID resolution=`; one `@-` per run |
+| `set ID k=v…` | `title= priority= type= labels=+a,-b depends_on=+ID accept+="…" accept[2]="…" accept-=3 tick=1 untick=2 blocked="…"/"" body=@- why=@- note="…" decided_on= supersedes=+ID resolution=`; one `@-` per run. In a locked stage (`locked` in kanban.json: doing, review, done, superseded) only `note= blocked= tick= untick=` are taken (exit 3); `--force` (main) overrides |
 | `move ID STAGE [--reason= --force]` · `move ID --board=E/B` | Transitions below; a board move is a `git mv` |
 | `promote [ID…] [--auto]` | Backlog → ready by the ready policy; `refused ID: R4 …` lines |
 | `import-house-docs [--decisions= --ideas= --board= --dry-run --strict]` | decisions.md / ideas.md → decision cards, idempotent |
