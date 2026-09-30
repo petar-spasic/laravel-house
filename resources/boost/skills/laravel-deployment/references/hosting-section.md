@@ -33,7 +33,11 @@ cp .env.prod.example .env.prod && docker compose --env-file .env.prod up -d --bu
 - **Opened from another machine**: `LOCAL_APP_URL=http://<LAN address>:{{web_port}}`
   in `.env`. Compose passes it as the container's `APP_URL`, which Vite writes
   into `public/hot` as the one asset origin — with `localhost` there, the page
-  loads but every asset fails with `ERR_CONNECTION_REFUSED`.
+  loads but every asset fails with `ERR_CONNECTION_REFUSED`. The board page (`/kanban`) answers only to IPs,
+  `localhost`/`*.localhost`, `*.test` and the host of `LOCAL_APP_URL` (more via `kanban.ui.hosts`).
+- **The board page (`/kanban`)** syncs from the app container with the clone's deploy key and `GIT_SSH_COMMAND`; check
+  with `docker compose -f docker-compose.local.yml exec app vendor/bin/kanban sync` (never `-u root`).
+  `KANBAN_USER` names who edits from it, `KANBAN_UI_TOKEN` gates it (no login otherwise).
 - **Binds**: the web port (with the reverb module, the WebSocket port too) publishes on `WEB_BIND` (default `0.0.0.0`,
   so the stack is LAN-visible; `127.0.0.1` keeps it on this machine), the Postgres and Redis ports on `SIDECAR_BIND`
   (default `127.0.0.1`); override either in `.env`. The web bind stays an explicit IPv4 address: the Horizon gate reads

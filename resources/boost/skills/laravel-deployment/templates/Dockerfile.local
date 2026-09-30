@@ -5,8 +5,8 @@
 FROM php:{{php_version}}-fpm-bookworm
 WORKDIR /app
 
-# NodeSource: Debian's nodejs is older than Vite needs. git + unzip: composer.
-RUN apt-get update && apt-get install -y --no-install-recommends nginx supervisor curl git unzip procps postgresql-client ca-certificates gnupg \
+# NodeSource: Debian's nodejs is older than Vite needs. git + unzip: composer; openssh-client: the board's sync.
+RUN apt-get update && apt-get install -y --no-install-recommends nginx supervisor curl git openssh-client unzip procps postgresql-client ca-certificates gnupg \
     && curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer

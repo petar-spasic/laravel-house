@@ -5,7 +5,7 @@ Merge these into the skeleton's files; `{{app}}`, `{{web_port}}` as in SKILL.md.
 ## vite.config.js — the local front door (htmx, islands)
 
 Vite runs in the local container on 5173, published as the web port, and proxies everything it does not own to nginx
-on 8080. Keep the project's `plugins`; add the rest:
+on 8080. The block is additions to the skeleton's `vite.config.js`: its imports and `plugins` stay.
 
 ```js
 import { fileURLToPath } from 'node:url';
@@ -32,6 +32,7 @@ export default defineConfig({
             '/': {
                 target: 'http://127.0.0.1:8080',
                 // Pass the real client on; Laravel trusts X-Forwarded-For only from 127.0.0.1 (compose TRUSTED_PROXIES).
+                // No changeOrigin: /kanban compares each write's Origin with the Host Laravel receives.
                 xfwd: true,
                 bypass: (req) => (/^\/(@|resources\/|node_modules\/|__vite)/.test(req.url ?? '') ? req.url : undefined),
             },
@@ -98,12 +99,16 @@ file adds:
 COMPOSE_PROJECT_NAME={{app}}-local
 # The local stack opened from another machine: the URL the browser uses (the container's APP_URL, the Vite origin).
 # LOCAL_APP_URL=http://192.0.2.10:{{web_port}}
-# Only when the host user is not 1000 (id -u, id -g): www-data in the local image takes these.
+# Only when the host user is not 1000 (id -u, id -g): the container runs as this uid, which must own the checkout and its .git.
 # HOST_UID=1000
 # HOST_GID=1000
 # Overrides for the host addresses the published ports bind: see CLAUDE.md, Hosting (Binds).
 # WEB_BIND=127.0.0.1
 # SIDECAR_BIND=127.0.0.1
+# Names who edits from the board page: the container has no git identity.
+# KANBAN_USER=Ana
+# Gates /kanban, which has no login and is LAN-visible by default (CLAUDE.md, Hosting).
+# KANBAN_UI_TOKEN=
 ```
 
 `.env.example` carries the same block with `COMPOSE_PROJECT_NAME` commented.

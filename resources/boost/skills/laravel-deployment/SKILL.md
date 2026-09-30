@@ -38,7 +38,7 @@ differs between the tiers.
 | Template | Carries |
 |---|---|
 | `Dockerfile` | composer stage (ignores only `ext-pcntl`) → node stage (whole tree + `vendor/`, for Tailwind's `@source`) → runtime: extensions, `composer check-platform-reqs`, `USER www-data` |
-| `Dockerfile.local` | php-fpm + nginx + NodeSource 24 + git/unzip + Xdebug; www-data re-homed to `HOST_UID`/`HOST_GID` |
+| `Dockerfile.local` | php-fpm + nginx + NodeSource 24 + git/openssh-client/unzip + Xdebug; www-data re-homed to `HOST_UID`/`HOST_GID` |
 | `docker-compose.local.yml` | the many-stacks shape, hardcoded wiring and drivers, `LOCAL_APP_URL`, host cache binds |
 | `docker-compose.yml` | loopback publish, `restart`, log rotation, Redis `noeviction` + AOF, `stop_grace_period` |
 | `docker/docker-entrypoint.sh`, `docker/docker-entrypoint-local.sh` | the boot order below; `program()` writes one supervisor block per process |
@@ -110,8 +110,7 @@ The local compose runs as main and as every worktree stack (laravel-kanban):
 - Tool caches are host bind mounts (`down -v` deletes named volumes), dependency sentinels hash the lockfiles, Vite
   ignores `./.claude/worktrees`, `./docs` and `./vendor`, and `phpunit.xml` never sets `DB_HOST`/`DB_PORT`.
 
-The generated worktree `.env`, the port pool, Docker address pools and env leaks into compose: the laravel-kanban
-README, "Worktree stacks".
+The generated worktree `.env`, the port pool and Docker address pools: the laravel-kanban README, "Worktree stacks".
 
 ## Config and env
 
@@ -137,7 +136,9 @@ README, "Worktree stacks".
 - **Horizon refuses to start, hung jobs never time out, stops are not graceful** → `pcntl` missing from the image.
 - **A `COPY` line with a trailing `# comment` fails or copies junk** → Dockerfile comments go on their own line.
 - **The page loads from another machine but every asset fails with `ERR_CONNECTION_REFUSED`** → `public/hot` names
-  `localhost`; set `LOCAL_APP_URL` to the URL the browser uses and verify from that URL, never only on the box.
+  `localhost`; set `LOCAL_APP_URL` to the URL the browser uses and verify from that URL, never only on the box. The
+  board at `/kanban` answers only to IPs, `localhost`/`*.localhost`, `*.test` and the host of `LOCAL_APP_URL` (more via
+  `kanban.ui.hosts`); another name gets 403 `Kanban answers only to this machine's own names`.
 - **The container dials 127.0.0.1 or `redis:<host port>`** → compose substitutes `${VAR}` from the repo's `.env`,
   which is the host-side env; the local compose hardcodes every wiring value and driver, and prod always runs with
   `--env-file .env.prod`.
@@ -152,12 +153,32 @@ README, "Worktree stacks".
   LAN; the gate (laravel-project-setup) admits local requests only from the host itself, which needs the client address
   above. A publish without a host address also binds `[::]`, where Docker's proxy re-originates IPv6 clients as the
   bridge gateway, i.e. as the host: the web port is published on an explicit IPv4 address (`WEB_BIND`).
+- **Anyone who can reach the web port reads and edits the board at `/kanban`** → it has no login, the local stack is
+  LAN-visible by default, its writes are pushed by sync and card text reaches worker prompts. Set `KANBAN_UI_TOKEN=<secret>`
+  in `.env` (open `/kanban?token=<secret>` once per browser; the CLI and agents are unaffected), or `WEB_BIND=127.0.0.1`,
+  or `KANBAN_UI=false`. The token also closes the cross-origin read Vite's `cors: true` allows from a page on another
+  local port.
 - **An empty 500 with nothing in any log** → a fatal the handler cannot report, usually `memory_limit` (512M in both
   images). Reproduce it through the CLI front controller:
   `REQUEST_URI=/path REQUEST_METHOD=GET php -d variables_order=EGPCS -d log_errors=1 -d error_log=/tmp/e.log public/index.php`,
   then read `/tmp/e.log`.
 - **Scheduled mail, webhooks or paid API calls fire several times** → every local and worktree stack runs
   `schedule:work`; outbound schedules stay off outside production or behind a flag.
+- **The board in `/kanban` shows *Not synced* or *Not pushed*, or never shows others' changes** → the page syncs from the
+  app container: the php-fpm worker `exec()`s `kanban sync --background` with the clone's deploy key
+  (`.git/laravel-kanban/deploy_key`, named by `GIT_SSH_COMMAND` in the compose; ssh `origin` only; an admin registers its
+  public half with write access). An https `origin` needs a credential helper of the container's own: without one the
+  sync prints `fetch failed: … could not read Username`. Diagnose with
+  `docker compose -f docker-compose.local.yml exec app vendor/bin/kanban sync` as the compose user, never `-u root`:
+  - `Permission denied (publickey…)` → the key is not registered yet.
+  - `sync: no remote configured` although the host has an origin → git refuses `/app` as dubious ownership (the process
+    uid is not the checkout's owner: set `HOST_UID`/`HOST_GID` in `.env` and rebuild) or `git` is off the PATH.
+  - `sync: up to date`, yet the page shows no notice and never updates → `exec()` disabled, `php` off the php-fpm worker's
+    PATH (the CLI has its own), or an unwritable `.git/laravel-kanban`.
+  - `N UI writes are saved but not committed yet` → git unusable for the worker: an unwritable `.git`, or `git` off its PATH.
+
+  Run `doctor` and `attach` on the host only: in the container they see host paths. A write from the page names no one
+  unless `KANBAN_USER` is in `.env`. The laravel-kanban gotchas own the rest.
 
 ## Verify
 
@@ -165,7 +186,8 @@ Image builds take minutes: run them in the background.
 
 1. `docker compose -f docker-compose.local.yml up -d --build --wait`, then
    `docker compose -f docker-compose.local.yml exec app healthcheck.sh` prints no ✗.
-2. From another machine's URL (`LOCAL_APP_URL`): the page and every asset answer 200, and `public/hot` names that origin.
+2. From another machine's URL (`LOCAL_APP_URL`): the page and every asset answer 200, `public/hot` names that origin, and, once
+   laravel-kanban is installed, `/kanban` answers 200 too (add `?token=<secret>` when `KANBAN_UI_TOKEN` is set).
 3. Restart the app container twice; it is healthy both times (seed crash loops and stale caches show on the second
    boot).
 4. `docker compose -f docker-compose.local.yml exec app php artisan test` leaves the dev database's rows untouched.

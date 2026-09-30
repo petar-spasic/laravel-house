@@ -56,6 +56,10 @@ services:
       # Vite (127.0.0.1) proxies every request to nginx; trusting it gives Laravel
       # the real client IP, which the local /horizon exception depends on.
       TRUSTED_PROXIES: 127.0.0.1
+      # The clone's own deploy key (php artisan kanban:install and vendor/bin/kanban attach|doctor --fix make it for an
+      # ssh origin), in the mounted .git. Main stack only: a worktree's .git is a file and its board page is off.
+      # The worker's exec() must stay enabled.
+      GIT_SSH_COMMAND: ssh -i /app/.git/laravel-kanban/deploy_key -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/app/.git/laravel-kanban/known_hosts
       DB_CONNECTION: pgsql
       DB_HOST: postgres
       DB_PORT: 5432
