@@ -10,7 +10,7 @@ final class Json
 {
     /** @var array<string, list<string>> */
     public const ORDER = [
-        'kanban' => ['version', 'key', 'id_length', 'max_parallel', 'ready_buffer', 'wip', 'stale_after_minutes', 'guard', 'updated'],
+        'kanban' => ['version', 'key', 'id_length', 'max_parallel', 'ready_buffer', 'wip', 'stale_after_minutes', 'locked', 'guard', 'updated'],
         'epic' => ['title', 'goal', 'done_when', 'body', 'order', 'updated'],
         'board' => ['title', 'kind', 'body', 'order', 'wip', 'updated'],
         'card' => ['id', 'type', 'title', 'stage', 'priority', 'labels', 'body', 'why', 'acceptance', 'depends_on', 'blocked',

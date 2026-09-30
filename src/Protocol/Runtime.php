@@ -3,6 +3,7 @@
 namespace PetarSpasic\Kanban\Protocol;
 
 use PetarSpasic\Kanban\Store\Snapshot;
+use PetarSpasic\Kanban\Support\AgentStates;
 use PetarSpasic\Kanban\Support\Clock;
 use PetarSpasic\Kanban\Support\Json;
 use PetarSpasic\Kanban\Support\Lock;
@@ -24,7 +25,7 @@ final class Runtime
     /** @var list<array<string, mixed>>|null every agent record, read once per instance until one is written or removed */
     private ?array $agentCache = null;
 
-    public function __construct(public readonly Paths $paths, private readonly int $staleMinutes = 20) {}
+    public function __construct(public readonly Paths $paths, private readonly int $staleMinutes = Snapshot::DEFAULT_STALE_MINUTES) {}
 
     /** @return array<string, mixed>|null */
     public function agent(string $agentId): ?array
@@ -68,7 +69,7 @@ final class Runtime
             return 'stopped';
         }
 
-        return time() - (int) ($agent['beat'] ?? 0) > $this->staleMinutes * 60 ? 'stale' : 'live';
+        return AgentStates::isStale((int) ($agent['beat'] ?? 0), $this->staleMinutes) ? 'stale' : 'live';
     }
 
     /**

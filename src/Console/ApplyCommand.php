@@ -24,7 +24,7 @@ class ApplyCommand extends Command
         $store = $this->store();
         $snapshot = $store->snapshot();
         $only = $this->argument('id') !== null ? $snapshot->resolve($this->argument('id'))->id() : null;
-        $runtime = new Runtime($this->paths(), (int) $snapshot->setting('stale_after_minutes', 20));
+        $runtime = new Runtime($this->paths(), $snapshot->staleMinutes());
         $applier = new Applier($store, $this->paths(), $this->config(), $runtime);
 
         foreach ((new SubagentStop($this->paths(), $this->config(), $store))->retry() as $line) {

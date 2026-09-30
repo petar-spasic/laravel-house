@@ -35,7 +35,7 @@ final class SubagentStart
         $type = is_string($payload['agent_type'] ?? null) ? $payload['agent_type'] : '';
         $agentId = (string) ($payload['agent_id'] ?? '');
         $snapshot = $this->store->snapshot();
-        $runtime = new Runtime($this->paths, (int) $snapshot->setting('stale_after_minutes', 20));
+        $runtime = new Runtime($this->paths, $snapshot->staleMinutes());
 
         if (in_array($type, [SubagentStop::WORKER, SubagentStop::EVALUATOR], true) && Runtime::validAgentId($agentId)) {
             $agent = $runtime->agent($agentId) ?? ['agent_id' => $agentId, 'agent_type' => $type, 'card' => null, 'worktree' => null,

@@ -23,7 +23,7 @@ class SweepCommand extends Command
         $this->say($before === 0 ? 'journal: empty' : 'journal: committed '.($before - $after).' of '.$before.' write(s)');
 
         $snapshot = $store->snapshot();
-        $pruned = (new Runtime($this->paths(), (int) $snapshot->setting('stale_after_minutes', 20)))->prune($snapshot);
+        $pruned = (new Runtime($this->paths(), $snapshot->staleMinutes()))->prune($snapshot);
         $this->say("runtime: pruned {$pruned}");
 
         if ($this->option('reclaim') && ($lock = Lock::try($this->paths()->ensureRuntime().'/reclaim.lock')) !== null) {
