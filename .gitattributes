@@ -1,4 +1,5 @@
 * text=auto eol=lf
+*.woff2 binary
 /tests export-ignore
 /phpunit.xml.dist export-ignore
 /.gitattributes export-ignore
@@ -6,3 +7,5 @@
 
 /CLAUDE.md export-ignore
 /.claude export-ignore
+/dev export-ignore
+/docker export-ignore

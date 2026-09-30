@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Runs the package's tooling in a container, so nothing depends on what is installed locally.
+#
+#   ./dev check             tests (parallel) and code style: what to run before a push
+#   ./dev test [pest args]  vendor/bin/pest --parallel, or with your own arguments
+#   ./dev lint | fix        pint --test | pint
+#   ./dev ui                the UI in a real browser (Chromium) against a seeded board; screenshots in build/ui
+#   ./dev ui serve          the seeded UI at http://localhost:8099/kanban for looking at by hand
+#   ./dev fonts             rebuild resources/dist/inter-*.woff2 from the image's Inter (docker/fonts/build.sh)
+#   ./dev composer ...      composer inside the container
+#   ./dev shell             a shell in it
+#   ./dev build             (re)build the image; PHP_VERSION=8.3 ./dev build tests the oldest supported PHP
+set -euo pipefail
+cd "$(dirname "$0")"
+
+PHP_VERSION="${PHP_VERSION:-8.5}"
+IMAGE="laravel-kanban-dev:php${PHP_VERSION}"
+# Parallel test workers: each has its own port pool (50 of them), and more than a few dozen stop helping.
+JOBS="${JOBS:-$(( $(nproc) > 32 ? 32 : $(nproc) ))}"
+
+build() {
+    docker build -q -f docker/Dockerfile --build-arg "PHP_VERSION=${PHP_VERSION}" --build-arg "UID=$(id -u)" --build-arg "GID=$(id -g)" -t "$IMAGE" docker >/dev/null
+}
+
+# vendor lives in a volume: the host's vendor directory may belong to another PHP.
+run() {
+    local flags=(--rm --init -v "$PWD:/app" -v "laravel-kanban-vendor-php${PHP_VERSION}:/app/vendor" -v laravel-kanban-composer:/home/dev/.composer
+        --tmpfs /tmp:exec,mode=1777 -u "$(id -u):$(id -g)")
+    [ -t 1 ] && flags+=(-t)
+    docker run "${flags[@]}" "$@"
+}
+
+ensure() {
+    docker image inspect "$IMAGE" >/dev/null 2>&1 || build
+    run "$IMAGE" bash -c '[ -f vendor/autoload.php ] || composer update --no-interaction --no-progress --prefer-dist'
+}
+
+cmd="${1:-help}"
+[ $# -gt 0 ] && shift
+case "$cmd" in
+    build) build ;;
+    composer) ensure; run "$IMAGE" composer "$@" ;;
+    test) ensure; if [ $# -eq 0 ]; then set -- --parallel --processes="$JOBS"; fi; run "$IMAGE" vendor/bin/pest "$@" ;;
+    lint) ensure; run "$IMAGE" vendor/bin/pint --test ;;
+    fix) ensure; run "$IMAGE" vendor/bin/pint ;;
+    check) ensure; run "$IMAGE" bash -c "vendor/bin/pest --parallel --processes=$JOBS && vendor/bin/pint --test" ;;
+    ui) ensure
+        if [ "${1:-}" = serve ]; then run -p 8099:8099 "$IMAGE" node docker/browser/run.mjs --serve
+        else run "$IMAGE" node docker/browser/run.mjs "$@"; fi ;;
+    fonts) ensure; run "$IMAGE" bash docker/fonts/build.sh ;;
+    shell) ensure; run -i "$IMAGE" bash ;;
+    help | -h | --help) sed -n '2,/^set -euo/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//' ;;
+    *) echo "unknown command: $cmd (./dev help)" >&2; exit 2 ;;
+esac
