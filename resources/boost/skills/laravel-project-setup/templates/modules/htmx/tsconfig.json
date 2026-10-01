@@ -8,6 +8,9 @@
         "isolatedModules": true,
         "verbatimModuleSyntax": true,
         "skipLibCheck": true,
+<!-- if:islands -->
+        "paths": { "@/*": ["./resources/js/*"] },
+<!-- endif -->
         "types": ["vite/client"]
     },
 <!-- if:islands -->

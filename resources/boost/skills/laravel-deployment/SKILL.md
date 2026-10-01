@@ -1,199 +1,200 @@
 ---
 name: laravel-deployment
 description: >-
-  House hosting for a Laravel app in Docker: a local image (nginx + php-fpm +
-  Xdebug, Vite as the front door, bind-mounted source) and a production image
-  (FrankenPHP + Octane, non-root), each running the web server, the scheduler
-  and Horizon under supervisor next to Postgres and Redis sidecars. Ships the
-  Dockerfiles, entrypoints, compose files, healthcheck, Caddyfile and the
-  nginx, Xdebug and supervisor configs as templates, plus the boot order, the
-  queue timeout chain, the local compose that serves many worktree stacks, the
-  Vite front door, forced phpunit env, and the traps behind a container that
-  boots but serves nothing. Reverb and SPA serving are modules in references/.
-  Use when dockerizing a Laravel project, writing or debugging its Dockerfiles,
-  compose files or entrypoints, wiring Octane, FrankenPHP, Horizon, the
-  scheduler or Reverb into one image, or filling the Hosting section of the
-  project's CLAUDE.md. Triggers — Laravel Docker, docker-compose Laravel,
-  FrankenPHP, Octane deploy, Reverb deploy, supervisord Laravel, Laravel
-  entrypoint, Laravel production hosting.
+  House hosting for a Laravel app in Docker, Caddy in front in both tiers: a local image (Caddy + php-fpm + Xdebug +
+  the Vite or SvelteKit dev server, bind-mounted source) and a production image (FrankenPHP + Octane, non-root), each
+  running the web server, the scheduler and Horizon under supervisor next to Postgres and Redis. Ships the
+  Dockerfiles, entrypoints, compose files, healthcheck, Caddyfiles and supervisor and Xdebug configs as templates,
+  plus the boot order, the queue timeout chain, worktree stacks from one compose, forced phpunit env and the traps
+  behind a container that boots but serves nothing. Module references: Reverb, spa (SvelteKit on Node, browser
+  tests), tenancy database roles. Use when dockerizing a Laravel project, writing or debugging its Docker, compose or
+  Caddy files, or filling the Hosting section of its CLAUDE.md. Triggers — Laravel Docker, docker-compose Laravel,
+  Caddy Laravel, FrankenPHP, Octane deploy, Reverb deploy, adapter-node deploy, supervisord Laravel.
 ---
 
 # Laravel deployment
 
-One repo ships two images of one stack. Each runs the web server, `schedule:work` and Horizon under supervisor in one
-app container, next to Postgres 16 and Redis 7 sidecars; only what serves PHP differs:
+One repo ships two images of one stack. Caddy is the web server in both. Each image runs the web server, the scheduler
+and Horizon under supervisor in one app container, next to Postgres 16 and Redis 7 sidecars. The local stack is the dev
+environment: no `artisan serve`, no `composer run dev`, no sqlite, and no driver that differs between the tiers.
 
-| Tier | Files | Web server | Why |
+## Two tiers
+
+| Tier | Files | Front | Behind it |
 |---|---|---|---|
-| local | `Dockerfile.local`, `docker-compose.local.yml` | nginx + php-fpm + Xdebug; Vite fronts the web port | A fresh PHP process per request, so Xdebug breakpoints fire (under Octane only a worker's first request breaks). Source bind-mounted, deps installed on start |
-| prod | `Dockerfile`, `docker-compose.yml`, `.env.prod` | FrankenPHP + Octane as www-data on :8080 | Warm workers. TLS ends at the host's reverse proxy |
+| local | `Dockerfile.local`, `docker-compose.local.yml` | Caddy on container port 8080 | php-fpm with Xdebug on 127.0.0.1:9000; the `vite` dev server on 127.0.0.1:5173 (Vite, or SvelteKit with spa) |
+| prod | `Dockerfile`, `docker-compose.yml`, `.env.prod` | FrankenPHP's Caddy on container port 8080 | Octane workers as www-data; with spa, Node SSR (`ssr`) on 127.0.0.1:3000 |
 
-The Docker local stack is the dev environment: no `artisan serve`, no `composer run dev`, no sqlite, no driver that
-differs between the tiers.
+Local runs php-fpm: each request is a fresh PHP process, so Xdebug breakpoints always fire (under Octane only a worker's
+first request breaks). Local bind-mounts the source. Prod keeps workers warm; TLS ends at the host's reverse proxy.
 
 ## Templates
 
-`${CLAUDE_SKILL_DIR}/templates/` mirrors the project root:
+`${CLAUDE_SKILL_DIR}/templates/` mirrors the project root. A row marked with a module belongs to that module only.
 
 | Template | Carries |
 |---|---|
 | `Dockerfile` | composer stage (ignores only `ext-pcntl`) → node stage (whole tree + `vendor/`, for Tailwind's `@source`) → runtime: extensions, `composer check-platform-reqs`, `USER www-data` |
-| `Dockerfile.local` | php-fpm + nginx + NodeSource 24 + git/openssh-client/unzip + Xdebug; www-data re-homed to `HOST_UID`/`HOST_GID` |
+| `Dockerfile.local` | php-fpm, Caddy (binary from `caddy:2`), NodeSource 24, git, openssh-client, unzip, Xdebug; www-data re-homed to `HOST_UID`/`HOST_GID` |
 | `docker-compose.local.yml` | the many-stacks shape, hardcoded wiring and drivers, `LOCAL_APP_URL`, host cache binds |
 | `docker-compose.yml` | loopback publish, `restart`, log rotation, Redis `noeviction` + AOF, `stop_grace_period` |
-| `docker/docker-entrypoint.sh`, `docker/docker-entrypoint-local.sh` | the boot order below; `program()` writes one supervisor block per process |
-| `docker/healthcheck.sh` | `/up` plus every process of the tier |
-| `docker/supervisord.conf` | non-root, socket and pid in `/tmp`, the mandatory `[include]` |
-| `docker/Caddyfile` | Blade apps: files off disk (`/build/*` immutable), everything else to the worker; proxy trust |
-| `docker/nginx-local.conf`, `docker/xdebug.ini` | `HTTP_HOST` with its port; Xdebug on trigger |
-| `docker/postgres/init-test-db.sql` | `{{app}}_test` on a fresh volume |
+| `docker/docker-entrypoint.sh`, `docker/docker-entrypoint-local.sh` | the boot order below |
+| `docker/healthcheck.sh`, `docker/supervisord.conf` | `/up` plus every process of the tier; supervisor non-root, socket and pid in `/tmp`, the mandatory `[include]` |
+| `docker/Caddyfile` | prod: files off disk (`/build/*` immutable), the rest to the worker |
+| `docker/Caddyfile.local` | local: Vite's paths and HMR socket to 127.0.0.1:5173, the rest to php-fpm |
+| `docker/Caddyfile.frontend`, `docker/e2e.sh` (spa) | SvelteKit's build: files off disk, the rest to Node; browser tests on `{{app}}_test` |
+| `docker/xdebug.ini`, `docker/postgres/init-test-db.sql` | Xdebug on trigger; `{{app}}_test` on a fresh volume |
+| `docker/postgres/roles.sql` (tenancy) | the app's database role `{{app}}_app` and its grants |
 | `tests/bootstrap.php` | forced phpunit `<env>` mirrored into `$_SERVER` |
 | `.dockerignore`, `.env.prod.example` | the build context (never `public/hot`, `vendor/` or the FrankenPHP binary); the production env |
 
-Placeholders: `{{app}}` the project slug · `{{app_name}}` its `APP_NAME` · `{{php_version}}` the one PHP minor of
-host, lock and both images · `{{web_port}}`, `{{db_port}}`, `{{redis_port}}` main's host ports · `{{domain}}` the
-production host name. The PHP minor and the ports are laravel-project-setup's choices.
+Placeholders: `{{app}}` the slug · `{{app_name}}` its `APP_NAME` · `{{php_version}}` the one PHP minor of host, lock and
+images · `{{web_port}}`, `{{db_port}}`, `{{redis_port}}` main's host ports · `{{ws_port}}` Reverb's host port (reverb
+without spa) · `{{domain}}` the prod host name. laravel-project-setup picks the PHP minor and the ports.
 
-1. A template the project lacks: copy it and fill the placeholders. A file the project has: diff it against the
-   template and merge, keeping what is project-specific. Show the owner either way.
-2. `chmod +x docker/*.sh`; `grep -rn '{{' Dockerfile* docker-compose*.yml docker .dockerignore .env.prod.example`
-   finds nothing.
-3. Merge `references/project-files.md` into `vite.config.js`, `phpunit.xml` (+ `tests/bootstrap.php`), `bootstrap/app.php`, `.env` and
-   `.env.example`.
-4. Modules: `reverb` → `references/reverb.md`; `spa`, or API-only without a Vite front door → `references/spa.md`.
+## Procedure
+
+1. **Copy or merge each template.** Copy a module's row only when the project has that module. A file the project
+   lacks: copy it and fill the placeholders. A file it has: diff it against the template and merge, keeping what is
+   project-specific. Show the owner either way. With the owner's OK, remove any `docker/` file that no template or
+   module reference ships and nothing references: no Dockerfile, compose file, entrypoint or Caddyfile `import`.
+2. `chmod +x docker/*.sh`; `grep -rn '{{' Dockerfile* docker-compose*.yml docker .dockerignore .env.prod.example` is empty.
+3. Merge `references/project-files.md` into `vite.config.js`, `phpunit.xml`, `bootstrap/app.php` and the `.env` files.
+4. Apply each module the project has (Modules, below). Each reference is a merge; base templates carry none of it.
 5. Fill `{{hosting}}` in the root `CLAUDE.md` from `references/hosting-section.md`, adjusted to what was built.
-6. Verify (below).
+6. Run Verify (below).
+
+## Modules
+
+| Module | Apply | What changes |
+|---|---|---|
+| `htmx`, `islands` | nothing | the base templates as shipped |
+| `reverb` | `references/reverb.md` | a `reverb` program on 8081, its env and its browser address |
+| `spa` | `references/spa.md` | SvelteKit on Node behind Caddy: the path split, the `ssr` program, browser tests |
+| `tenancy` | `references/tenancy.md` | the app connects as `{{app}}_app`; migrations run as the owner |
+| API-only | two edits | delete the local entrypoint's `elif` branch (the root Vite) with its comment; commit the root `package-lock.json` (`npm install` on the host), since both images run `npm ci` and the local boot stops without it |
 
 ## Boot order
 
-Both entrypoints, in this order:
+Both entrypoints run these steps in order, so healthy means migrated and seeded. Their comments give the reasons.
 
-1. Local: `.env` from `.env.example` when missing; `composer install` / `npm ci` only when the lockfile's sha256 differs
-   from `vendor/.lock-sha` / `node_modules/.lock-sha` (never mtimes: `git worktree add` stamps lockfiles); `key:generate`
-   when `APP_KEY` is empty. Prod: print the env variable names, never values; refuse an `OCTANE_WORKERS` that is not a positive number.
-2. Prod: create the `storage/` and `bootstrap/cache` directories the volume may lack.
-3. `rm bootstrap/cache/{packages,services}.php` + `package:discover`: a manifest from another image or branch drops
-   providers, and `optimize:clear` cannot help because artisan itself fails to boot.
-4. Local: `config:clear`, `route:clear`, `event:clear`, `view:clear`; never cache locally.
-5. Wait for the database with `php_app`, a plain `php -r` bootstrap around `DB::connection()->getPdo()` (tinker swallows
-   exit codes): 60 × 2 s, then "database unreachable" and exit 1. The wait only connects.
-6. `migrate --force`, once and loudly: a broken migration stops the boot with its own error.
-7. Seed by `DATABASE_SEED`. Local: `auto` (full seed when `users` is empty, else `ReferenceDataSeeder`), `true`, `false`.
-   Prod: `true` (`ProductionSeeder` only; the image has no faker), `false`. Anything else exits 1. The seeders are
-   idempotent (laravel-project-setup's seeding standard), so a second boot never crash-loops.
-8. Prod: `config:cache`, `route:cache`, `event:cache`, `view:cache`, after migrating.
-9. `program` blocks (prod: web; local: php-fpm, nginx, vite; both: scheduler, horizon with `stopwaitsecs` 70; each `exec`s its
-   command, so SIGTERM reaches the real process and `stopwaitsecs` is honoured), then `exec supervisord -n`. Healthy therefore means migrated and seeded.
+1. **Prepare.** Local: `.env` from `.env.example` when missing; `composer install` and `npm ci` (in `.` and `frontend/`)
+   only when a lockfile's sha256 changed; `key:generate` when `APP_KEY` is empty. Prod: refuse a bad `OCTANE_WORKERS`
+   or an empty `TRUSTED_PROXIES`, then create the `storage/` directories the volume may lack.
+2. **Rebuild the package manifest:** delete `bootstrap/cache/{packages,services}.php`, run `package:discover`.
+3. **Clear caches** (local): `config:clear`, `route:clear`, `event:clear`, `view:clear`. Never cache locally.
+4. **Wait for the database:** 60 × 2 s, then "database unreachable" and exit 1. It only connects.
+5. **`migrate --force`**, once and loudly. With tenancy it runs as the owner (`references/tenancy.md`).
+6. **Seed by `DATABASE_SEED`.** Local: `auto` (the full seed when `users` is empty, else `ReferenceDataSeeder`), `true`,
+   `false`. Prod: `true` (`ProductionSeeder` only), `false`. Anything else exits 1. The seeders are idempotent
+   (laravel-project-setup), so a second boot never crash-loops.
+7. **Build caches** (prod): `config:cache`, `route:cache`, `event:cache`, `view:cache`.
+8. **Start supervisor.** The entrypoint writes one supervisor `[program]` block per process (name, command, optional
+   `stopwaitsecs` and directory under `/app`), then runs `exec supervisord -n`. Local: php-fpm, caddy,
+   `rm -f public/hot`, then at most one dev server, `vite` on 127.0.0.1:5173 (`frontend/`'s, else the root Vite). Prod:
+   web, plus `ssr` with spa. Both: scheduler, and horizon with `stopwaitsecs` 70. Prod groups every program as `app`
+   (`app:web`, …); local stays ungrouped, so `supervisorctl restart caddy` works.
 
 ## Processes and limits
 
-- Horizon owns the worker pool (`config/horizon.php`); never `queue:work`. `pcntl` is in both images: Horizon needs it,
-  and job timeouts and graceful SIGTERM depend on it.
-- Timeout chain: Redis `retry_after` (`REDIS_QUEUE_RETRY_AFTER`, 90) > Horizon's `timeout` (60) > the longest job's
-  `$timeout`; supervisor `stopwaitsecs` for Horizon (70) > that timeout; compose `stop_grace_period` (80) >
-  `stopwaitsecs`. A longer job raises all of them, in that order; otherwise a running job is dispatched to a second
-  worker mid-run.
-- `OCTANE_WORKERS` is a number, never `auto` (one per core): workers × `PHP_MEMORY_LIMIT` (512M), plus Horizon's
-  processes, fits the box's RAM. The prod entrypoint refuses to start without it.
-- One Redis holds queue, cache and sessions: `noeviction` and AOF in prod, so memory pressure fails writes instead of
-  dropping jobs and sessions.
+- Horizon owns the worker pool (`config/horizon.php`); never `queue:work`. Both images have `pcntl` (Horizon needs it).
+- Queue chain: Redis `retry_after` (`REDIS_QUEUE_RETRY_AFTER`, 90) > Horizon's `timeout` (60) > the longest job's
+  `$timeout`. Horizon's `stopwaitsecs` (70) > that timeout. Compose `stop_grace_period` (80) > the largest
+  `stopwaitsecs` in prod's `app` group. A longer job raises all of them, in that order; otherwise a running job is
+  handed to a second worker mid-run.
+- Node chain (spa): adapter-node's `SHUTDOWN_TIMEOUT` (20) < `ssr`'s `stopwaitsecs` (25) < `stop_grace_period` (80).
+  adapter-node drains open requests and never calls `process.exit`, so a shorter `stopwaitsecs` kills it mid-drain.
+- `OCTANE_WORKERS` is a number, never `auto`: workers × `PHP_MEMORY_LIMIT` (512M) plus Horizon must fit the RAM.
+- One Redis holds queue, cache and sessions: prod's `noeviction` and AOF make memory pressure fail writes, not drop jobs.
 
 ## Many stacks from one local compose
 
-The local compose runs as main and as every worktree stack (laravel-kanban):
-
-- `name: "${COMPOSE_PROJECT_NAME:?…}"`: main's `.env` names `{{app}}-local`; a checkout without its own `.env` fails
+- `name: "${COMPOSE_PROJECT_NAME:?…}"`. Main's `.env` names `{{app}}-local`. A checkout without its own `.env` fails
   instead of taking over main's containers.
 - No `container_name`, no volume or network `name:`, no `image:` on a built service.
-- Every published port is a `${VAR:-default}`; the web port binds `${WEB_BIND:-0.0.0.0}` (IPv4 explicitly, see the
-  Horizon trap), the sidecars `${SIDECAR_BIND:-127.0.0.1}`.
-- Tool caches are host bind mounts (`down -v` deletes named volumes), dependency sentinels hash the lockfiles, Vite
-  ignores `./.claude/worktrees`, `./docs` and `./vendor`, and `phpunit.xml` never sets `DB_HOST`/`DB_PORT`.
-
-The generated worktree `.env`, the port pool and Docker address pools: the laravel-kanban README, "Worktree stacks".
+- Every published port is a `${VAR:-default}`. The web port binds `${WEB_BIND:-0.0.0.0}`, IPv4 on purpose (the
+  `/horizon` trap). The sidecars bind `${SIDECAR_BIND:-127.0.0.1}`.
+- Tool caches are host bind mounts, because `down -v` deletes named volumes.
+- The dev server ignores `./.claude/worktrees`, `./docs` and `./vendor`. `phpunit.xml` never sets `DB_HOST`/`DB_PORT`.
+- The generated worktree `.env`, the port pool and Docker address pools: the laravel-kanban README, "Worktree stacks".
 
 ## Config and env
 
-- Defaults live in `config/*.php`, as the `env()` default or a plain literal. `.env` files and compose `environment:`
-  carry only what differs between tiers: credentials, hosts, `APP_KEY`, `APP_URL`, log level. The test for each
-  variable: would two environments ever want different values? No → a config literal.
-- `env()` is called only in `config/`, always with a default; `bootstrap/app.php`'s `TRUSTED_PROXIES` is the one
-  exception (it runs before config loads).
-- One name per concern: a second meaning gets a second variable (`REVERB_HOST` connect, `REVERB_SERVER_HOST` listen).
-- Fix drift on sight: `.env.example` entries nobody overrides, compose restating framework defaults, `env()` without a
-  default, a variable present in one tier's env only.
-- `.env.prod.example` lists every required production variable; the prod compose header repeats the list. Logs go to
-  `stderr` in prod (`docker logs`).
+Where a value lives and the drift to fix on sight: `references/project-files.md`, Config and env.
 
 ## Traps
 
+**Container, boot and tests**
 - **supervisord aborts ("… is badly formatted"), or a command runs mangled** → a `%` in a `program` command is a format
-  specifier: `%Y` and `%d` abort, `%s` splices the whole expansion dict (environment included) into the command; write
-  `%%`.
+  specifier. `%Y` and `%d` abort; `%s` splices the whole expansion dict, environment included. Write `%%`.
 - **Container runs, zero services** → `supervisord.conf` lacks `[include] files = /etc/supervisor/conf.d/*.conf`.
-- **Providers missing after an image update** → a stale `bootstrap/cache` manifest; persist `storage/` only, never
-  `bootstrap/cache`, and let the entrypoint rebuild the manifest.
-- **`/.htaccess` or `/.env` served from the prod image** → excluding dotfiles from the file-server matcher is not enough:
-  `php_server`'s `try_files {path}` serves any existing file itself; answer them 404 before the handles (`@hidden`).
-- **Horizon refuses to start, hung jobs never time out, stops are not graceful** → `pcntl` missing from the image.
+- **Providers missing after an image update** → a stale `bootstrap/cache` manifest; `optimize:clear` cannot help, since
+  artisan itself fails to boot. Persist `storage/` only, never `bootstrap/cache`; the entrypoint rebuilds the manifest.
+- **Horizon refuses to start, hung jobs never time out, stops are not graceful** → `pcntl` is missing from the image.
 - **A `COPY` line with a trailing `# comment` fails or copies junk** → Dockerfile comments go on their own line.
-- **The page loads from another machine but every asset fails with `ERR_CONNECTION_REFUSED`** → `public/hot` names
-  `localhost`; set `LOCAL_APP_URL` to the URL the browser uses and verify from that URL, never only on the box. The
-  board at `/kanban` answers only to IPs, `localhost`/`*.localhost`, `*.test` and the host of `LOCAL_APP_URL` (more via
-  `kanban.ui.hosts`); another name gets 403 `Kanban answers only to this machine's own names`.
-- **The container dials 127.0.0.1 or `redis:<host port>`** → compose substitutes `${VAR}` from the repo's `.env`,
-  which is the host-side env; the local compose hardcodes every wiring value and driver, and prod always runs with
-  `--env-file .env.prod`.
-- **`php artisan test` in the container empties the dev database** → compose's process env sits in `$_SERVER`, which
-  Laravel reads before PHPUnit's `<env>`; force them and mirror them with `tests/bootstrap.php`
-  (`references/project-files.md`).
-- **Redirects drop the port (to `http://localhost/…`)** → Debian's `fastcgi_params` passes `HTTP_HOST` as `$host`;
-  `nginx-local.conf` passes `$http_host`.
-- **Every request seems to come from 127.0.0.1** → Vite proxies all of them; `xfwd: true` plus
-  `TRUSTED_PROXIES: 127.0.0.1` hand Laravel the client's address.
-- **Anyone on the LAN opens `/horizon`** → Horizon admits every request in `local`, and the local stack listens on the
-  LAN; the gate (laravel-project-setup) admits local requests only from the host itself, which needs the client address
-  above. A publish without a host address also binds `[::]`, where Docker's proxy re-originates IPv6 clients as the
-  bridge gateway, i.e. as the host: the web port is published on an explicit IPv4 address (`WEB_BIND`).
-- **Anyone who can reach the web port reads and edits the board at `/kanban`** → it has no login, the local stack is
-  LAN-visible by default, its writes are pushed by sync and card text reaches worker prompts. Set `KANBAN_UI_TOKEN=<secret>`
-  in `.env` (open `/kanban?token=<secret>` once per browser; the CLI and agents are unaffected), or `WEB_BIND=127.0.0.1`,
-  or `KANBAN_UI=false`. The token also closes the cross-origin read Vite's `cors: true` allows from a page on another
-  local port.
+- **The container dials 127.0.0.1 or `redis:<host port>`** → compose substitutes `${VAR}` from the repo's `.env`, the
+  host-side env. The local compose hardcodes every wiring value and driver; prod runs with `--env-file .env.prod`.
+- **The boot stops at `npm ci in … failed` with `ERESOLVE`, although `npm install` worked on the host** → `npm install`
+  only warns about a peer conflict; `npm ci` refuses it. Fix versions until `npm ci` passes, then commit the lockfile.
 - **An empty 500 with nothing in any log** → a fatal the handler cannot report, usually `memory_limit` (512M in both
-  images). Reproduce it through the CLI front controller:
-  `REQUEST_URI=/path REQUEST_METHOD=GET php -d variables_order=EGPCS -d log_errors=1 -d error_log=/tmp/e.log public/index.php`,
-  then read `/tmp/e.log`.
+  images). Reproduce it through the CLI front controller, then read `/tmp/e.log`:
+  `REQUEST_URI=/path REQUEST_METHOD=GET php -d variables_order=EGPCS -d log_errors=1 -d error_log=/tmp/e.log public/index.php`.
+- **`php artisan tinker` in the prod container exits 1 (`/config/psysh is not allowed`)** → FrankenPHP's image sets
+  `XDG_CONFIG_HOME=/config`. Run `docker compose --env-file .env.prod exec -e XDG_CONFIG_HOME=/tmp app php artisan tinker`.
+- **`php artisan test` in the container empties the dev database** → compose's env sits in `$_SERVER`, which Laravel
+  reads before PHPUnit's `<env>`. `tests/bootstrap.php` mirrors the forced values (`references/project-files.md`).
 - **Scheduled mail, webhooks or paid API calls fire several times** → every local and worktree stack runs
-  `schedule:work`; outbound schedules stay off outside production or behind a flag.
-- **The board in `/kanban` shows *Not synced* or *Not pushed*, or never shows others' changes** → the page syncs from the
-  app container: the php-fpm worker `exec()`s `kanban sync --background` with the clone's deploy key
-  (`.git/laravel-kanban/deploy_key`, named by `GIT_SSH_COMMAND` in the compose; ssh `origin` only; an admin registers its
-  public half with write access). An https `origin` needs a credential helper of the container's own: without one the
-  sync prints `fetch failed: … could not read Username`. Diagnose with
-  `docker compose -f docker-compose.local.yml exec app vendor/bin/kanban sync` as the compose user, never `-u root`:
-  - `Permission denied (publickey…)` → the key is not registered yet.
-  - `sync: no remote configured` although the host has an origin → git refuses `/app` as dubious ownership (the process
-    uid is not the checkout's owner: set `HOST_UID`/`HOST_GID` in `.env` and rebuild) or `git` is off the PATH.
-  - `sync: up to date`, yet the page shows no notice and never updates → `exec()` disabled, `php` off the php-fpm worker's
-    PATH (the CLI has its own), or an unwritable `.git/laravel-kanban`.
-  - `N UI writes are saved but not committed yet` → git unusable for the worker: an unwritable `.git`, or `git` off its PATH.
+  `schedule:work`. Outbound schedules stay off outside production, or behind a flag.
 
-  Run `doctor` and `attach` on the host only: in the container they see host paths. A write from the page names no one
-  unless `KANBAN_USER` is in `.env`. The laravel-kanban gotchas own the rest.
+**Serving**
+- **`/.htaccess` or `/.env` is served** → a file matcher that skips dotfiles is not enough: `php_server` (prod) and
+  `file_server` (local) serve any existing file. Each Caddyfile answers them 404 first (`@hidden`).
+- **HMR never connects; edits need a manual reload** → the socket reached php-fpm. `server.ws.path: '/__vite_hmr'` in
+  `vite.config.js` and the same path in Caddy's `@vite` matcher go together (Vite 8.1+).
+- **An asset or font answers 403, or Laravel's 404 page** → Vite may not serve it, or Caddy does not route it to Vite.
+  See the comment above `@vite` in `docker/Caddyfile.local`.
+- **Vite answers 403 "Blocked request", or module scripts fail CORS, under a `.test` or other name** →
+  `server.allowedHosts` and `server.cors` must list it. IPs and localhost always pass. Never `true`.
+- **Octane's status, reload or stop fail in prod** → the prod Caddyfile has `admin off`. Octane drives FrankenPHP
+  through Caddy's admin API, so `admin off` belongs in `docker/Caddyfile.local` only.
+
+**From another machine**
+- **The page loads from another machine but every asset fails with `ERR_CONNECTION_REFUSED`** → `public/hot` names
+  `localhost`. Vite writes `APP_URL` into it at start; compose sets `APP_URL` from `LOCAL_APP_URL`. Set `LOCAL_APP_URL`
+  to the URL the browser uses and apply it with `up -d` (a `restart` keeps the old env). Verify from that URL.
+- **Anyone on the LAN opens `/horizon`** → Horizon admits every request in `local`, and the stack listens on the LAN.
+  The gate (laravel-project-setup) admits only the host: loopback or the Docker gateway. Caddy hands php-fpm the TCP
+  peer as `REMOTE_ADDR`, so keep that address honest:
+  - Laravel trusts `X-Forwarded-For` only from `TRUSTED_PROXIES: 127.0.0.1`, Caddy only from `127.0.0.1/8`. Never
+    `private_ranges` in `Caddyfile.local`: the LAN and the gateway are private ranges, so a LAN client could forge it.
+  - Docker must keep the client's source address, as native Linux Docker does. The host's own requests to the LAN URL
+    then get 403; use `localhost` there. Rootless Docker's builtin port driver, and possibly Docker Desktop, hand every
+    client over as the gateway: there set `WEB_BIND=127.0.0.1`.
+  - Publish on an explicit IPv4 `WEB_BIND`: a bare publish also binds `[::]`, where IPv6 clients arrive as the gateway.
+
+**The board page**
+- **Anyone who can reach the web port reads and edits the board at `/kanban`** → it has no login, the stack is
+  LAN-visible by default, sync pushes its writes, and card text reaches worker prompts. Set `KANBAN_UI_TOKEN=<secret>`
+  in `.env` and open `/kanban?token=<secret>` once per browser, or set `WEB_BIND=127.0.0.1` or `KANBAN_UI=false`.
+- **The board in `/kanban` shows *Not synced* or *Not pushed*, or never shows others' changes** → the page syncs from the
+  app container with the clone's deploy key, so it needs an ssh `origin` and the key registered with write access.
+  Diagnose with `references/board-page.md`.
 
 ## Verify
 
-Image builds take minutes: run them in the background.
+Image builds take minutes: run them in the background. `dc` stands for `docker compose -f docker-compose.local.yml`.
 
-1. `docker compose -f docker-compose.local.yml up -d --build --wait`, then
-   `docker compose -f docker-compose.local.yml exec app healthcheck.sh` prints no ✗.
-2. From another machine's URL (`LOCAL_APP_URL`): the page and every asset answer 200, `public/hot` names that origin, and, once
-   laravel-kanban is installed, `/kanban` answers 200 too (add `?token=<secret>` when `KANBAN_UI_TOKEN` is set).
-3. Restart the app container twice; it is healthy both times (seed crash loops and stale caches show on the second
-   boot).
-4. `docker compose -f docker-compose.local.yml exec app php artisan test` leaves the dev database's rows untouched.
-5. Prod shape (next to a running local stack, `WEB_PORT` in `.env.prod` differs from the local one):
-   `docker compose --env-file .env.prod up -d --build --wait`; `octane:frankenphp` runs as www-data,
-   `curl -fsS http://127.0.0.1:${WEB_PORT}/up` answers, the port is bound to 127.0.0.1 only, a `/build/*` asset carries
-   `immutable`, and `php artisan about --only=cache` in the container shows everything cached.
+1. **Healthy.** `dc up -d --build --wait`. `dc exec app healthcheck.sh` prints no ✗. `dc exec app supervisorctl status`
+   lists php-fpm, caddy, scheduler, horizon, `vite` (not API-only, nor spa before `frontend/`), `reverb` (its module).
+2. **From another machine's URL** (`LOCAL_APP_URL`, applied with `up -d`); spa uses step 6 instead. `/kanban` answers
+   200 once installed (`?token=<secret>` when set). `/.env` and an existing `/frankenphp-worker.php` answer 404; a
+   missing `/x.php` gets Laravel's 404 page. htmx and islands: the page and every asset answer 200, `public/hot` names
+   that origin, and HMR connects at `/__vite_hmr`. API-only: `/up` answers 200; `/api/v1/x` answers JSON 404.
+3. **Restart twice.** The app container is healthy both times; seed crash loops and stale caches show on the second.
+4. **Tests.** `dc exec app php artisan test` leaves the dev database's rows untouched.
+5. **Prod shape.** Next to the local stack, with another `WEB_PORT` and `TRUSTED_PROXIES` set in `.env.prod`: `docker
+   compose --env-file .env.prod up -d --build --wait`. `octane:frankenphp` runs as www-data; `/up` answers on
+   `127.0.0.1:${WEB_PORT}` only. A `/build/*` asset is `immutable`; `/frankenphp-worker.php` and `/index.php` are 404.
+   `php artisan about --only=cache` shows all cached; `supervisorctl status` lists `app:web`, `app:scheduler`,
+   `app:horizon`. Behind the outer proxy, `request()->ip()` is the browser's address.
+6. **Modules.** spa: `references/spa.md`, Verify. tenancy: `references/tenancy.md`, Verify.

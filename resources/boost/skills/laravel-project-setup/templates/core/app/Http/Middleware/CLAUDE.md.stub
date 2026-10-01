@@ -1,49 +1,71 @@
 # CLAUDE.md — app/Http/Middleware
 
-Scope: `app/Http/Middleware/`. The design standard is `app/CLAUDE.md`; project-
-wide facts are in the root `CLAUDE.md`.
+Request-scoped cross-cutting concerns only. Registration is in `bootstrap/app.php` (`app/Http/CLAUDE.md`,
+Registered); a missing one fails **silently**.
 
-Request-scoped cross-cutting concerns only. Registered declaratively in
-`bootstrap/app.php` (there is no `Http/Kernel.php`), and a missing
-registration fails **silently**.
-
-The load-bearing ones:
-
-- **Security headers + CSP** on every HTML response, disallowing inline script.
-  User-authored text is rendered on pages; escaping is the first layer and CSP
-  is the second.
+- **Security headers + CSP** on every HTML response, disallowing inline script. Escaping is the first layer against
+  user-authored text; the CSP is the second.
+- **`RequestId`**, prepended to position 0 so every log line and exception carries it.
+- **Signature or token verification** on any endpoint an external system reaches (webhooks, machine API). **Verify
+  before parsing the body.** The verified key is the caller's identity; everything downstream scopes from it, never
+  from a path segment or body field.
 <!-- if:htmx -->
-  htmx runs with `allowEval = false` because of this (root `CLAUDE.md`).
+- **Fortify's session auth + CSRF** on the web group; `auth:sanctum`, tokens only, on `api`.
 <!-- endif -->
-- **`RequestId`** correlation, prepended so it lands at position 0 and every log
-  line and exception carries it.
-- **Signature / token verification** on any endpoint reachable by an external
-  system (webhooks, machine API). **Verify before parsing the body.** A
-  receiver that parses first has already fed untrusted bytes to a decoder. The
-  verified key establishes the caller's identity; everything downstream scopes
-  from it — never from a path segment or body field.
-<!-- if:htmx -->
-- **Fortify's auth + CSRF** on the authenticated web group;
+<!-- if:spa -->
+- **Fortify's session auth + CSRF** on the authenticated groups; Sanctum's stateful middleware on `api`.
 <!-- endif -->
 <!-- unless:htmx -->
-- **Fortify's auth + CSRF** on the authenticated groups;
+<!-- unless:spa -->
+- **Fortify's session auth + CSRF** on the authenticated web routes; `auth:sanctum`, tokens only, on `api`.
+<!-- endif -->
+<!-- endif -->
+- **throttle** on the guest auth routes (`routes/CLAUDE.md`), on the social routes once built (`throttle:social`) and
+  on anything public that accepts input.
 <!-- if:spa -->
-  Sanctum's stateful middleware on the SPA's `api` group;
+- **Trusted proxies** (`TRUSTED_PROXIES`, `bootstrap/app.php`): `127.0.0.1` (Caddy and the SvelteKit SSR hop); in
+  prod also the address proxied requests actually arrive from inside the container. Never private ranges. Detail in
+  Hosting.
 <!-- endif -->
+<!-- unless:spa -->
+- **Trusted proxies** (`TRUSTED_PROXIES`, `bootstrap/app.php`): `127.0.0.1` locally (Caddy in the container); in prod
+  the address proxied requests actually arrive from inside the container. Never private ranges. Detail in Hosting.
 <!-- endif -->
-  **throttle** on the guest auth routes (`/login`, `/register`, `/forgot-password`,
-  `/two-factor-challenge`, `/passkeys/login`) and on anything public that accepts input; the
-  guest limiters (`auth-forms` and Fortify's own) are listed in `routes/CLAUDE.md`.
-- **Trusted proxies** (`TRUSTED_PROXIES`, `bootstrap/app.php`) name the real
-  deployment topology — the reverse proxy in prod, the Vite dev server locally —
-  or every "real client IP" check (the local Horizon gate, rate limits) sees
-  the proxy instead.
+  A wrong list makes every client-IP check (the local Horizon gate, rate limits) see the proxy instead.
 
-Ordering is deliberate. Signature verification runs before anything that
-touches the body; `RequestId` runs before everything so failures inside the
-other middleware are still traceable.
+**Ordering is deliberate.** `RequestId` runs before everything, so failures inside other middleware stay traceable.
+Signature verification runs before anything that touches the body.
 
-**Do not apply one surface's middleware to another's group.** The surfaces
-(`routes/CLAUDE.md`) have different trust levels, and mixing them is how a
-public path starts serving authenticated data — or an API path starts needing a
-session.
+**Never apply one surface's middleware to another's group** (`routes/CLAUDE.md`). Mixing them is how a public path
+starts serving authenticated data, or an API path starts needing a session.
+<!-- if:tenancy -->
+
+## Tenancy: `ResolveTenant`
+
+**Where it runs.** Alias `tenant`, on every authenticated group touching tenant data; never on guest or ops routes or
+the switcher
+<!-- if:spa -->
+or the session probe
+<!-- endif -->
+(`routes/CLAUDE.md`). It runs after authentication and before route-model binding
+(`$middleware->appendToPriorityList(AuthenticatesRequests::class, ResolveTenant::class)`), or binding fails with "No
+current tenant" (a 500).
+
+Per request, in order:
+1. **Resolve.** A token request (our `PersonalAccessToken`, `currentAccessToken()`) uses the token's `tenant_id`;
+   otherwise session `tenant_id`. When that is missing or no longer a membership, write the default to the session:
+   the only membership, else the oldest by `tenant_user.created_at`, then `tenant_id` (same-second memberships tie).
+2. **Re-check membership on every request**, so a removed member loses access at once. A token whose membership is
+   gone answers 403; a session user with none answers 403 `{"code":"no_tenant"}`.
+3. **Guard the tab.** When `X-Tenant` (or the form field `_tenant`) is present and differs from the resolved tenant,
+   answer 409 `{"message":"The tenant changed in another tab. Reload the page.","code":"tenant_changed"}` before
+   anything runs. A missing marker is not a 409.
+4. **Hold it.** `CurrentTenant::set($id)` sets the holder and `app.tenant_id`; then
+   `Context::addHidden('tenant_id', $id)`, a scalar id, never the model.
+
+No `terminate()` reset: `app/CLAUDE.md` (Octane) owns the reset points.
+
+**Platform admin, only if a decided card says so:** an explicit act-as-tenant behind its own gate, written to an
+append-only audit log, that sets the tenant like a member; or a separate SELECT-only BYPASSRLS connection for
+cross-tenant reports. Never by leaving the tenant unset, removing the scope, or connecting as the owner.
+<!-- endif -->

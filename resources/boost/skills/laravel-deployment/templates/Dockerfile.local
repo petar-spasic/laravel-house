@@ -1,4 +1,4 @@
-# {{app}} — local dev image. php-fpm + nginx (not Octane: Xdebug breakpoints are
+# {{app}} — local dev image. Caddy + php-fpm (not Octane: Xdebug breakpoints are
 # unreliable with warm workers), Node for Vite HMR, supervisor for the
 # scheduler + Horizon. Source is bind-mounted; deps install on start.
 # The PHP extension list mirrors the prod Dockerfile (+ zip for composer, xdebug).
@@ -6,37 +6,38 @@ FROM php:{{php_version}}-fpm-bookworm
 WORKDIR /app
 
 # NodeSource: Debian's nodejs is older than Vite needs. git + unzip: composer; openssh-client: the board's sync.
-RUN apt-get update && apt-get install -y --no-install-recommends nginx supervisor curl git openssh-client unzip procps postgresql-client ca-certificates gnupg \
+RUN apt-get update && apt-get install -y --no-install-recommends supervisor curl git openssh-client unzip procps postgresql-client ca-certificates gnupg \
     && curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+# Caddy: a static binary; it reads /app/docker/Caddyfile.local from the bind mount.
+COPY --from=caddy:2 /usr/bin/caddy /usr/local/bin/caddy
 # Pinned: a `latest` URL busts the layer cache of every stack on each release.
 # New version: curl -fsSL <url> | sha256sum
 ADD --checksum=sha256:3f49c71fa66c79b8b2b96bc0ce92885dafd7946f3b5a46f545b390d6f1617e2c https://github.com/mlocati/docker-php-extension-installer/releases/download/2.12.0/install-php-extensions /usr/local/bin/
 RUN chmod +x /usr/local/bin/install-php-extensions && install-php-extensions pcntl pdo_pgsql redis opcache intl zip xdebug
 RUN printf 'memory_limit = 512M\n' > /usr/local/etc/php/conf.d/zz-{{app}}.ini
-# The image's zz-docker.conf listens on *:9000, open to every container on the compose network; nginx is in this one.
+# The image's zz-docker.conf listens on *:9000, open to every container on the compose network; Caddy is in this one.
 RUN printf '[www]\nlisten = 127.0.0.1:9000\n' > /usr/local/etc/php-fpm.d/zz-listen.conf
 
 COPY docker/xdebug.ini /usr/local/etc/php/conf.d/zz-xdebug.ini
-COPY docker/nginx-local.conf /etc/nginx/sites-available/default
 COPY docker/supervisord.conf /etc/supervisor/supervisord.conf
 COPY docker/docker-entrypoint-local.sh /usr/local/bin/docker-entrypoint-local.sh
 COPY docker/healthcheck.sh /usr/local/bin/healthcheck.sh
 
 # www-data takes the host user's uid/gid so bind-mounted storage/ stays writable
 # on both sides; php-fpm refuses to run pools as root, so this is the clean way.
-# nginx: pid in /tmp (non-root), 2 workers (`auto` is one per core in every stack).
 ARG HOST_UID=1000
 ARG HOST_GID=1000
 RUN chmod +x /usr/local/bin/docker-entrypoint-local.sh /usr/local/bin/healthcheck.sh \
     && groupmod -o -g "$HOST_GID" www-data && usermod -o -u "$HOST_UID" -g "$HOST_GID" www-data \
-    && sed -i -e 's#^pid .*#pid /tmp/nginx.pid;#' -e 's#^user .*#user www-data;#' -e 's#^worker_processes .*#worker_processes 2;#' /etc/nginx/nginx.conf \
-    && mkdir -p /var/www /var/lib/nginx /var/log/nginx /cache/composer /cache/npm /etc/supervisor/conf.d \
-    && chown -R www-data:www-data /var/www /var/lib/nginx /var/log/nginx /cache /etc/supervisor /usr/local/etc/php-fpm.d
+    && mkdir -p /var/www/.config /var/www/.local/share /cache/composer /cache/npm /etc/supervisor/conf.d \
+    && chown -R www-data:www-data /var/www /cache /etc/supervisor /usr/local/etc/php-fpm.d
 
 # Bind-mounted from the host (docker-compose.local.yml), shared by every stack.
 ENV COMPOSER_CACHE_DIR=/cache/composer npm_config_cache=/cache/npm
-EXPOSE 8080 5173
+# Caddy's data and config dirs, in www-data's home.
+ENV XDG_DATA_HOME=/var/www/.local/share XDG_CONFIG_HOME=/var/www/.config
+EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=15s --retries=3 --start-period=180s --start-interval=2s CMD /usr/local/bin/healthcheck.sh
 ENTRYPOINT ["docker-entrypoint-local.sh"]

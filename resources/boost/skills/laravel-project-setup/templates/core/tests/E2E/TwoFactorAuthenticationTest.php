@@ -6,7 +6,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 uses(RefreshDatabase::class);
 
 it('lets a registered user enable two-factor and stores the secret', function () {
-    $this->post(route('register.store'), [
+    $this->postJson(route('register.store'), [
         'name' => 'Ana Anić',
         'email' => 'ana@{{app}}.test',
         'password' => 'correct-horse-battery',

@@ -1,63 +1,72 @@
 # CLAUDE.md — app/Models
 
-Scope: `app/Models/`. The design standard (fat models, records that must not be
-rewritten) is in `app/CLAUDE.md`; migration conventions in `database/CLAUDE.md`.
+Fat models and records that must not be rewritten: `app/CLAUDE.md`. Migrations: `database/CLAUDE.md`.
 
 ## File conventions
 
-`final class`, `declare(strict_types=1)`, full `@property` docblocks, the
-`casts()` **method** (never `$casts`), `$fillable` allow-lists (never
-`$guarded`). Observers registered via `Model::observe()` in a service provider
-`boot()`. Primary keys are Stripe-style prefixed ids: `use HasPrefixedId;` + `public const ID_PREFIX = 'bd';` (2–3 lowercase letters, unique across models); `User` and the hot tables listed in `database/CLAUDE.md` are the bigint exceptions. `User` is also exempt from the file conventions (Fortify skeleton: not `final`, `#[Fillable]` attributes) — leave it.
+- `final class`, `declare(strict_types=1)`, full `@property` docblocks, the `casts()` **method** (never `$casts`),
+  `$fillable` allow-lists (never `$guarded`).
+- Observers are registered with `Model::observe()` in a service provider's `boot()`.
+- Primary keys are Stripe-style prefixed ids: `use HasPrefixedId;` + `public const ID_PREFIX = 'bd';` (2–3 lowercase
+  letters, unique across models). `User`, vendor-owned tables and the hot tables listed in `database/CLAUDE.md` are
+  the bigint exceptions.
+- `User` is exempt from these conventions (Fortify skeleton: not `final`, `#[Fillable]` attributes). Leave it.
 
-**State discipline** — every status-bearing model ships as ONE unit:
+**State discipline:** every status-bearing model ships as ONE unit:
 
-1. A backed enum owning the lifecycle: `canTransitionTo()`,
-   `allowedTransitions()`, terminal-state predicates, and **distinct named
-   predicates for distinct domain questions** rather than ad-hoc status lists
-   at call sites.
-2. The column cast to that enum and REMOVED from `$fillable` (comment why).
-3. `transitionTo(Enum $target)` as the only writer — pre-check
-   `canTransitionTo()` (the controller maps a refusal → 422), `forceFill()`
-   past the non-fillable column.
+1. A backed enum owns the lifecycle (`app/Enums/CLAUDE.md`).
+2. The column is cast to that enum and REMOVED from `$fillable` (comment why).
+3. `transitionTo(Enum $target)` is the only writer: it pre-checks `canTransitionTo()` (the controller maps a refusal
+   to 422) and uses `forceFill()` past the non-fillable column.
 4. The FormRequest half: `['prohibited']` on the same column.
-5. NO status string literals outside the enum — not in controllers, services,
-   Blade, or FormRequest `in:` rules (`Rule::enum()`).
+5. NO status string literals outside the enum: not in controllers, services, views, or `in:` rules (`Rule::enum()`).
 
-**Scopes:** a query predicate lives ONCE as a model scope, named for its domain
-meaning; every consumer including ListQuery services calls it. Never re-inline a
-copy.
+**Scopes:** a query predicate lives ONCE, as a model scope named for its domain meaning. Every consumer, ListQuery
+services included, calls it; never re-inline a copy.
 
 ## Integrity rules
 
-Which tables are append-only records vs. ordinary mutable rows is a domain
-decision (`app/CLAUDE.md`, "Records that must not be rewritten"). **List the
-append-only models here as they are decided**, with the rule they carry:
+**List the append-only models here as they are decided** (`app/CLAUDE.md`, "Records that must not be rewritten"):
 
 - _(none yet)_
 
-All of these `use AppendOnly` (`Models/Concerns/AppendOnly.php`, created with
-the first of them): `updating` / `deleting` throw `LogicException`;
-`getUpdatedAtColumn()` returns null; a sanctioned write wraps itself in
-`permittedWrite()`.
-
-For any such model: corrections are new rows superseding old ones
-(`supersedes_id`); never update in place, never delete; observation time is a
-real column distinct from `created_at`.
+They all `use AppendOnly` (`Models/Concerns/AppendOnly.php`, created with the first): `updating` / `deleting` throw
+`LogicException`, `getUpdatedAtColumn()` returns null, and a sanctioned write wraps itself in `permittedWrite()`.
+Corrections are new rows (`supersedes_id`); observation time is its own column, distinct from `created_at`.
 
 ## Rules of engagement
 
-- Models never reach out — no HTTP client, no shell, no filesystem walk in a
-  model. External systems go behind a contract in `app/Contracts/`.
-- Heavy reads (time series, minute-cadence tables) are sampled or aggregated in
-  SQL via a `Concerns\` trait on the model, never hydrated whole on the request
-  path. Loading a whole series with `get()` is the bug that trait exists to
-  prevent.
-- Models carrying secrets (API tokens, OAuth refresh tokens, webhook secrets)
-  must mark them `$hidden` **and** never be returned raw from a controller —
-  the Resource is the actual leak boundary (`app/Http/CLAUDE.md`). Encrypt them
-  at rest with the `encrypted` cast.
-- `User` is Fortify's: `TwoFactorAuthenticatable` and `PasskeyAuthenticatable` (with the `PasskeyUser` contract) stay on it, the two-factor secret and recovery codes stay `Hidden`; profile and
-  password rules live in `app/Actions/Fortify/`, not in the model.
-- Any semantic change here updates `app/CLAUDE.md` and `database/CLAUDE.md` in
-  the SAME commit.
+- Models never reach out: no HTTP client, shell or filesystem walk. External systems go behind a contract in
+  `app/Contracts/`.
+- Heavy reads (time series) are sampled or aggregated in SQL through a `Concerns\` trait, never hydrated whole with
+  `get()` on the request path.
+- Secrets (API tokens, OAuth refresh tokens, webhook secrets) are `$hidden` **and** `encrypted`, and the model is
+  never returned raw: the Resource is the leak boundary.
+- `User` is Fortify's and Sanctum's: `TwoFactorAuthenticatable`, `PasskeyAuthenticatable` (with the `PasskeyUser`
+  contract) and `HasApiTokens` stay on it; the two-factor secret and recovery codes stay `Hidden`; `password` is cast
+  `hashed`. Profile and password rules live in `app/Actions/Fortify/`, not in the model.
+- Social sign-in (when built): `SocialAccount` (`ID_PREFIX = 'sa'`) belongs to `User`, which gains
+  `socialAccounts(): HasMany`. Provider tokens, if any, are `encrypted` and `Hidden` (root `CLAUDE.md`, Auth).
+- A semantic change here updates `app/CLAUDE.md` and `database/CLAUDE.md` in the SAME commit.
+<!-- if:tenancy -->
+
+## Tenancy
+
+The rules are root `CLAUDE.md`, Tenancy.
+
+- **Tenant and membership.** `Tenant` (`ID_PREFIX = 'tn'`) and the global pivot `tenant_user`, `role` cast to
+  `App\Enums\TenantRole` (values per project). `User::tenants()` / `Tenant::users()` are `belongsToMany` with
+  `withPivot('role')->withTimestamps()`.
+- **Tenant-owned models** use `BelongsToTenant` (`Models/Concerns/`). It adds the global scope
+  `Models\Scopes\TenantScope` (`where tenant_id = CurrentTenant::id()`, `app/Support/CLAUDE.md`) and a `creating`
+  hook that fills `tenant_id` and throws when a preset value differs. `tenant_id` is never `$fillable`.
+- **Lookups** go by prefixed id through the scope (binding, `findOrFail`), so another tenant's id is a 404.
+  `withoutGlobalScope(TenantScope::class)` appears only in the RLS proof and a decided platform-admin card.
+- **Tokens.** `App\Models\PersonalAccessToken` extends Sanctum's and has a non-null `tenant_id`. Tokens are issued
+  only by `User::createTenantToken(Tenant $tenant, string $name, array $abilities = ['*'])`, which checks
+  membership; a plain `createToken()` fails on the non-null column. Removing a membership deletes that user's tokens
+  for the tenant.
+- **How a user gets a membership** is a decided card (registration creates a tenant, invitations, or both): one
+  action, run inside the user's transaction by Fortify's `CreateNewUser` and the social sign-in create path. Never
+  inferred from an email domain or a provider claim.
+<!-- endif -->

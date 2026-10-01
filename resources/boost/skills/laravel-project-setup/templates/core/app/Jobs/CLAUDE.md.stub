@@ -1,24 +1,36 @@
 # CLAUDE.md — app/Jobs
 
-Scope: `app/Jobs/`. The design standard is `app/CLAUDE.md`; project-wide facts
-are in the root `CLAUDE.md`. Queues are Redis under Horizon
-(`config/horizon.php` decides which queues get workers).
+Queues are Redis under Horizon (`config/horizon.php` decides which queues get workers). Jobs follow the off-request
+rules in `app/CLAUDE.md`: ids come from the constructor, never from ambient state.
+<!-- if:tenancy -->
+The tenant is the exception: it travels in hidden Context (Tenancy, below).
+<!-- endif -->
 
-Jobs run off-request (`app/CLAUDE.md`, off-request rules): the id comes from
-the constructor, never from ambient state.
+- **One job per concern**: separate failure domains and retry policies.
+- **Record failure explicitly** (an `unreachable` / `failed` row or outcome enum) when the external system is down:
+  silence must not look like inactivity.
+- Retries are per job and deliberate: `$tries`, `backoff()`, `retryUntil()`, `failed()`. Transient failures (429,
+  timeout) retry; validation or permanent failures do not.
+- `timeout` on the job < Horizon's `timeout` < `retry_after` on the connection (Hosting), or a slow job runs twice.
+- Long jobs work within a **time budget** and chain themselves for the rest; never unbounded.
+- External systems go through a contract in `app/Contracts/`.
+<!-- if:tenancy -->
 
-- **One job per concern.** Separate jobs, separate failure domains, separate
-  retry policies. A third-party outage in one concern must not cost you rows in
-  another.
-- **Record failure explicitly** (an `unreachable` / `failed` row or outcome
-  enum) when the external system is down. Silence and inactivity must not look
-  identical.
-- Retries are per job and deliberate: `$tries`, `backoff()`, `retryUntil()`,
-  `failed()`. Transient (429, timeout) retries; a validation or permanent
-  failure does not.
-- `timeout` on the job < Horizon's `timeout` < `retry_after` on the connection
-  (root `CLAUDE.md`, Hosting), or a slow job runs twice.
-- Long jobs drain work inside a **time budget** and chain themselves for the
-  rest, rather than running unbounded.
-- External systems go through a contract in `app/Contracts/` — the one seam an
-  E2E test fakes.
+## Tenancy
+
+- The tenant travels in hidden Context as `tenant_id`, a scalar id. Dispatching inside a tenant request or inside
+  `CurrentTenant::run()` captures it. Never pass it to a constructor or store it on the job. Never put a `Tenant`
+  model in Context: Context restores models with a query before any tenant is set.
+- **Job start sets it, first.** The `Context::hydrated` callback (`app/Providers/CLAUDE.md`) reads
+  `getHidden('tenant_id')` from the repository it receives, never the `Context` facade, and passes it to
+  `CurrentTenant::set()`, which sets or clears the holder and `app.tenant_id`. It runs on `JobProcessing`, before
+  `SerializesModels` restores the job's models; those restores skip global scopes, so only RLS filters them. A job
+  middleware runs too late.
+- **No end-of-job reset.** Hydration runs for every job, so the next start overwrites the setting. `failed()` runs
+  while the tenant is still set. Under the sync driver the job's tenant is the dispatching request's own.
+- A tenant-owned job with no tenant fails loudly, because `CurrentTenant::id()` throws. Empty results are not
+  success.
+- A tenant-owned job never sets `deleteWhenMissingModels` (property or attribute): with no tenant its model restore
+  fails, and that option turns the failure into a silent delete.
+- Fan-out over tenants: `app/CLAUDE.md`, off-request rules.
+<!-- endif -->

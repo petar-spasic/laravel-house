@@ -7,17 +7,21 @@ declare(strict_types=1);
  * Resolves `<!-- if:m -->` / `<!-- unless:m -->` … `<!-- endif -->` blocks (own lines, nestable) and
  * `{{key}}` placeholders given with --set. Never overwrites an existing file without --force.
  * A `.stub` suffix is dropped on write: Boost renders any `*.blade.php` inside a skill it copies.
+ * --render-to=<dir> writes the resolved templates, plus templates/snippets/ under <dir>/snippets/, into <dir>
+ * instead of the repo: for merging snippets and for diffing an existing project against the templates.
  *
- * php install.php <repo> --modules=htmx,islands --set app=acme [--set key=value …] [--force] [--dry-run]
+ * php install.php <repo> --modules=htmx,islands,tenancy --set app=acme [--set key=value …] [--force] [--dry-run]
+ *   [--render-to=<dir>]
  */
 
-const MODULES = ['htmx', 'islands', 'spa', 'reverb'];
+const MODULES = ['htmx', 'islands', 'spa', 'reverb', 'tenancy'];
 
 $repo = null;
 $modules = [];
 $vars = [];
 $force = false;
 $dryRun = false;
+$renderTo = null;
 $args = array_slice($argv, 1);
 
 for ($i = 0; $i < count($args); $i++) {
@@ -31,6 +35,8 @@ for ($i = 0; $i < count($args); $i++) {
         $force = true;
     } elseif ($arg === '--dry-run') {
         $dryRun = true;
+    } elseif (str_starts_with($arg, '--render-to=')) {
+        $renderTo = rtrim(substr($arg, 12), '/') ?: fail('--render-to needs a directory');
     } else {
         $repo = $arg;
     }
@@ -48,11 +54,11 @@ if ($repo === null || ! is_file("{$repo}/artisan")) {
 if ($unknown = array_diff($modules, MODULES)) {
     fail('unknown module(s): '.implode(', ', $unknown).' — known: '.implode(', ', MODULES));
 }
+if (in_array('spa', $modules, true) && array_intersect(['htmx', 'islands'], $modules)) {
+    fail('spa excludes htmx and islands: its pages are the SvelteKit app in frontend/, Laravel renders none');
+}
 if (in_array('islands', $modules, true) && ! in_array('htmx', $modules, true)) {
     fail('islands requires htmx');
-}
-if (in_array('spa', $modules, true) && in_array('htmx', $modules, true)) {
-    fail('spa and htmx exclude each other');
 }
 if (! preg_match('/^[a-z][a-z0-9]*$/', $vars['app'] ?? '')) {
     fail('--set app=<slug> is required: lowercase letters and digits (it names the test database, the config file and the dev accounts\' email domain)');
@@ -87,24 +93,28 @@ function resolve(string $text, array $modules, string $file): string
 }
 
 $skill = dirname(__DIR__);
-$sources = array_merge(["{$skill}/templates/core"], array_map(fn ($m) => "{$skill}/templates/modules/{$m}", $modules));
+$sources = array_merge(["{$skill}/templates/core" => ''], ...array_map(fn ($m) => ["{$skill}/templates/modules/{$m}" => ''], $modules));
+if ($renderTo !== null) {
+    $sources["{$skill}/templates/snippets"] = 'snippets/';
+}
+$base = $renderTo ?? $repo;
 $written = $skipped = $left = [];
 
-foreach ($sources as $source) {
+foreach ($sources as $source => $prefix) {
     if (! is_dir($source)) {
         continue;
     }
     $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($source, FilesystemIterator::SKIP_DOTS));
     foreach ($files as $file) {
-        $relative = preg_replace('/\.stub$/', '', substr($file->getPathname(), strlen($source) + 1));
-        $target = "{$repo}/{$relative}";
+        $relative = $prefix.preg_replace('/\.stub$/', '', substr($file->getPathname(), strlen($source) + 1));
+        $target = "{$base}/{$relative}";
         $text = resolve(file_get_contents($file->getPathname()), $modules, $relative);
         $text = preg_replace_callback('/\{\{([a-z_]+)\}\}/', fn ($m) => $vars[$m[1]] ?? $m[0], $text);
 
         if (preg_match_all('/\{\{([a-z_]+)\}\}/', $text, $m)) {
             $left[$relative] = array_values(array_unique($m[1]));
         }
-        if (file_exists($target) && ! $force) {
+        if ($renderTo === null && file_exists($target) && ! $force) {
             $skipped[] = $relative;
 
             continue;
@@ -119,7 +129,7 @@ foreach ($sources as $source) {
 
 sort($written);
 sort($skipped);
-echo ($dryRun ? 'would write' : 'written').' ('.count($written)."):\n  ".implode("\n  ", $written)."\n";
+echo ($dryRun ? 'would write' : 'written').($renderTo !== null ? " to {$renderTo}" : '').' ('.count($written)."):\n  ".implode("\n  ", $written)."\n";
 if ($skipped) {
     echo 'skipped, already exists ('.count($skipped)."):\n  ".implode("\n  ", $skipped)."\n";
 }

@@ -1,36 +1,27 @@
 # CLAUDE.md — app/Services
 
-Scope: `app/Services/`. The design standard is `app/CLAUDE.md`; project-wide
-facts are in the root `CLAUDE.md`.
-
 | Kind | Naming / placement | Use for |
 |------|--------------------|---------|
 | List query | `Services/{Resource}ListQuery.php` — `build(array $params): Builder` (unexecuted) | Index filtering/sorting + export, allow-list defined ONCE and shared |
 | Domain service | Named for the WORKFLOW (`OrderCheckout`, `InvoiceIssuer`) | Multi-model transactional workflows; owns the transaction and event dispatch |
 | Client (port impl) | `Services/{X}Client.php` implementing `Contracts/{X}Client.php` | Anything talking to an external system (HTTP APIs, git, mail providers, LLMs) |
 
-Never create `{Entity}Service` grab-bags — if a class accumulates unrelated
-verbs, split it along workflows.
+Never an `{Entity}Service` grab-bag: a class collecting unrelated verbs splits along workflows.
 
-Services are reachable off-request (jobs, listeners, commands) —
-scope from the user/entity they are HANDED, never from ambient context
-(`auth()`, `request()`).
+Services run off-request too (`app/CLAUDE.md`): they scope from the user or entity they are HANDED.
 
 ## Client rules
 
-The contract side (one per system, write verbs, untrusted text) is
-`app/Contracts/CLAUDE.md`. The implementation:
+The contract side is `app/Contracts/CLAUDE.md`. The implementation:
 
-- **Bounded retries and a real timeout on everything.** An external system that
-  hangs must surface as a recorded failure, not as a stuck worker.
-- Credentials come from `config/services.php` (backed by `env()` there and
-  only there), never from `env()` in the client.
+- **Bounded retries and a real timeout on everything.** A hung external system surfaces as a recorded failure, not a
+  stuck worker.
+- Credentials come from `config/services.php` (the only place that calls `env()` for them), never `env()` in the
+  client.
 
 ## LLM-backed services (if the project gets one)
 
-Put them in `Services/{Name}/` with the prompt, the structured output schema and
-the context assembly together. **Default to no tools**: tool-less with
-structured output means the worst case is a bad row you can filter; with tools,
-injected text becomes actuation. Giving one a tool, a fetch or a shell is a
-change to the security model — record it in the root `CLAUDE.md` first. Use the
-SDK's fakes to iterate prompts without live calls.
+Keep the prompt, the structured output schema and the context assembly together in `Services/{Name}/`. **Default to
+no tools**: without tools, the worst case is a bad row you can filter; with tools, injected text becomes action.
+Giving one a tool, a fetch or a shell changes the security model: record it in the root `CLAUDE.md` first. Iterate
+prompts with the SDK's fakes.

@@ -1,8 +1,6 @@
 # CLAUDE.md — database (migrations / factories / seeders)
 
-Scope: `database/`. Domain invariants for the tables live in `app/CLAUDE.md` and
-`app/Models/CLAUDE.md`. Run `database-schema` (Boost) before writing a
-migration — in a worktree `php artisan db:table`, since Boost sees main's database.
+Domain invariants for the tables live in `app/CLAUDE.md` and `app/Models/CLAUDE.md`.
 
 ## Standard table structure
 
@@ -11,61 +9,53 @@ $table->prefixedId();              // string(20): {ID_PREFIX}_{16 base-62}, e.g.
 $table->timestamps();
 ```
 
-Foreign keys are `foreignPrefixedId('x_id')->constrained()` with an explicit
-`cascadeOnDelete()` / `restrictOnDelete()` decision — never the default left
-implicit. Both macros live in `AppServiceProvider::boot()`; `prefixedId()` adds
-the primary key as a command (not a fluent modifier) so self-referencing FKs in
-the same `create` work. Users are the skeleton's bigint (`foreignId('user_id')`).
+- Foreign keys are `foreignPrefixedId('x_id')->constrained()` with an explicit `cascadeOnDelete()` /
+  `restrictOnDelete()`, never the default left implicit.
+- Both macros live in `AppServiceProvider::boot()`. `prefixedId()` adds the primary key as a command (not a fluent
+  modifier), so a self-referencing foreign key in the same `create` works.
+- `users` is the skeleton's bigint (`foreignId('user_id')`). Vendor-owned tables keep the vendor's schema and bigint
+  ids: `passkeys`, `personal_access_tokens`, `jobs`, `job_batches`, `failed_jobs`, `cache`, `cache_locks`, `sessions`,
+  `password_reset_tokens`.
+<!-- if:tenancy -->
+- A tenant-owned table adds `$table->tenantId()`, and a key between two tenant-owned tables is composite (Tenancy,
+  below). The one vendor-table change is `personal_access_tokens.tenant_id`.
+<!-- endif -->
+- **bigint exception:** a hot table (tens of millions of rows, never exposed) may use `$table->id()`. List each here
+  with its reason: _(none yet)_.
+- Every column a query filters or sorts by gets an index in the same migration.
+- **Reference tables** (`ReferenceDataSeeder`, below) carry no timestamps: _(none yet)_.
+- A table recording an observation of external state adds
+  `$table->timestampTz('observed_at')->index();`: when the state was OBSERVED, not inserted.
+- **Append-only tables** (listed in `app/Models/CLAUDE.md`): no in-place edits, no soft or hard deletes. A correction
+  is a new row with a `supersedes_id` back-link.
+- **High-volume event tables** are short-lived or live outside Postgres; keep only aggregates here.
+- Runtime flags (`visibility`, feature toggles) are **columns with a default**.
 
-**bigint exception:** a hot table — tens of millions of rows, never exposed —
-may use `$table->id()`: index size and insert locality matter more than a
-self-describing id. List each here with its reason: _(none yet)_. Every column
-a query filters or sorts by gets an index in the same migration.
-
-**Reference tables** (`ReferenceDataSeeder`, below) carry no timestamps:
-_(none yet)_.
-
-Plus, on anything that records an observation of external state:
-
-```php
-$table->timestampTz('observed_at')->index();   // when the state was OBSERVED, not inserted
-```
-
-Deliberate exceptions:
-
-- **Append-only tables** (the list is in `app/Models/CLAUDE.md`) — no
-  `updated_at` semantics that imply in-place edits, no soft deletes, no hard
-  deletes. A correction is a new row with a `supersedes_id` back-link.
-- **High-volume event tables** are short-lived or live outside Postgres
-  entirely; keep only aggregates here or reporting queries get miserable and
-  backups get fat.
-- Runtime flags (`visibility`, feature toggles) are **columns with a default**,
-  so changing behaviour later is a config/data change, not a migration.
+**Social sign-in (when the project builds it)**, root `CLAUDE.md`, Auth:
+- a change migration makes `users.password` `->nullable()->change()`;
+- `social_accounts`: `prefixedId()`, `foreignId('user_id')->constrained()->cascadeOnDelete()`, `provider`
+  `string(32)`, `provider_user_id` string, `email` nullable (as reported at link time, never used for matching),
+  timestamps, `unique(['provider', 'provider_user_id'])`, `unique(['user_id', 'provider'])`;
+- provider tokens only when the project calls the provider's API: `text` columns with the `encrypted` cast.
 
 ## Migrations
 
-- One concern per migration, named for what it does. Never edit a migration
-  that has run anywhere but your machine — add a new one.
-- Secrets at rest use the `encrypted` cast on the model; the column is `text`.
-- Postgres everywhere, tests included: a migration never branches on
-  `DB::getDriverName()`. Partitions, `pg_trgm`/GiST indexes,
-  `CREATE EXTENSION`, materialised views are written plainly ("today" in a view
-  is `CURRENT_DATE`, never a binding). Partitioned tables: `bigserial` not
-  `IDENTITY` (PG 16 partitions don't inherit identity), PK must include the
-  partition key, never `CREATE INDEX CONCURRENTLY` inside a migration.
-- When modifying a column, restate ALL previously defined attributes or they
-  are dropped.
-- State-machine columns (`status`, `visibility`, …) are **not mass-assignable** —
-  writes go through the model's transition method.
-- Migrations run once at container start, before the app serves (root
-  `CLAUDE.md`, Hosting); a migration that locks a big table for minutes is a
-  deploy outage — do the backfill in a job. A data-fix migration must not
-  `REFRESH MATERIALIZED VIEW` inline (non-CONCURRENT = ACCESS EXCLUSIVE, public
-  reads block): dispatch the refresh job after it instead.
-- Indexes are proven, not assumed: a new one is justified by an EXPLAIN, and
-  `pg_stat_user_indexes` zero-scan indexes get a drop migration. A composite
-  `(a, b)` does not serve `WHERE b = ?` on PG 16 (no skip scan) — `b` needs its
-  own index if queried.
+- One concern per migration, named for what it does. Never edit a migration that has run anywhere but your machine;
+  add a new one.
+- Secrets at rest: a `text` column with the `encrypted` cast on the model.
+- Postgres everywhere, tests included: a migration never branches on `DB::getDriverName()`. Partitions,
+  `pg_trgm`/GiST indexes, `CREATE EXTENSION` and materialised views are written plainly ("today" in a view is
+  `CURRENT_DATE`, never a binding).
+- Partitioned tables: `bigserial`, not `IDENTITY` (PG 16 partitions don't inherit identity); the primary key includes
+  the partition key; never `CREATE INDEX CONCURRENTLY` inside a migration.
+- Modifying a column restates ALL its attributes, or they are dropped.
+- State-machine columns (`status`, `visibility`, …) are **not mass-assignable**: writes go through the model's
+  transition method.
+- Migrations run at container start, before the app serves (Hosting): one that locks a big table for minutes is an
+  outage, so backfill in a job. A data-fix migration never runs `REFRESH MATERIALIZED VIEW` inline (it blocks reads);
+  it dispatches the refresh job.
+- Indexes are proven: an EXPLAIN justifies a new one, and a zero-scan index in `pg_stat_user_indexes` gets a drop
+  migration. A composite `(a, b)` does not serve `WHERE b = ?` on PG 16.
 
 ## Factories and seeders
 
@@ -74,31 +64,90 @@ Deliberate exceptions:
 | `DatabaseSeeder` | `db:seed` | `ProductionSeeder` in production, else `ReferenceDataSeeder` + `DevSeeder` |
 | `ReferenceDataSeeder` | every seed, every `auto` boot, the tests (`#[Seeder]`) | `database/data/<table>.json`, or `database/data/<table>/<slug>.json` for tables many branches add to. No faker |
 | `DevSeeder` | local and testing only (`LogicException` elsewhere) | `fake()->seed(20260928)`; `admin@{{app}}.test`, `dev@{{app}}.test` / `password`; demo content |
-| `ProductionSeeder` | prod boot with `DATABASE_SEED=true` | `ReferenceDataSeeder` + the operator from `OPERATOR_EMAIL`/`OPERATOR_PASSWORD` first (`OPERATOR_PASSWORD` applies when the account is first created; skipped with a warning if unset) + every `ADMIN_EMAILS` address (created verified with a random password only if missing; its owner sets one through the password-reset flow). An existing account, verified or not, is never modified; for an unverified one the seeder warns: confirm who holds the address, then remove the account and seed again, or verify it by hand |
+| `ProductionSeeder` | prod boot with `DATABASE_SEED=true` | `ReferenceDataSeeder`, the operator, every admin (below) |
 
-- **Every seeder is idempotent**: a second `db:seed` that throws is a bug.
-  `DevSeeder` writes users by `updateOrCreate` on email, non-fillable columns via
-  `forceFill`; `ProductionSeeder` never modifies an existing account.
-- **Reference ids are explicit** Stripe-style ids, never changed; the seeder
-  rejects a row without one (Eloquent `upsert` would invent a random id, different per stack).
-- **Loading is `upsert` on `id`, 500 rows per chunk**: no casts, events or
-  `$fillable` — the seeder `json_encode`s arrays, and nothing relies on observers.
-  `database/data/` always exists (`.gitkeep`). Tables load in one transaction, **parents
-  first** — the seeder orders them by their foreign keys (a cycle throws), so a child
-  file may sort before its parent's; a self-referencing foreign key is not ordered, so rows
-  inside one table are listed parent-first. A table of ids only loads with `insertOrIgnore`.
-  Ids are 2–3 lowercase letters + `_` + 16 characters, the `string(20)` column.
-- **No timestamps on reference tables** (git is their history); list them
-  next to the bigint exceptions above. A table the product edits at runtime is not reference data.
+- **`ProductionSeeder`** creates the operator from `OPERATOR_EMAIL`/`OPERATOR_PASSWORD` first (the password applies
+  only on creation; skipped with a warning if unset), then each missing `ADMIN_EMAILS` account, verified, with a
+  random password (set through password reset). It never modifies an existing account. For an unverified one it
+  warns: confirm who holds the address, then remove the account and seed again, or verify it by hand.
+- **Every seeder is idempotent**: a second `db:seed` that throws is a bug. `DevSeeder` writes users by
+  `updateOrCreate` on email, non-fillable columns via `forceFill`.
+- **Reference ids are explicit** Stripe-style ids (2–3 lowercase letters + `_` + 16 characters), never changed. The
+  seeder rejects a row without one: `upsert` would invent a different id per stack.
+- **Loading is `upsert` on `id`, 500 rows per chunk**: no casts, events or `$fillable`; the seeder `json_encode`s
+  arrays. A table of ids only loads with `insertOrIgnore`. `database/data/` always exists (`.gitkeep`).
+- Tables load in one transaction, **parents first**: the seeder orders them by their foreign keys (a cycle throws), so
+  a child file may sort before its parent's. A self-referencing key is not ordered: list rows parent-first.
+- **No timestamps on reference tables** (git is their history). A table the product edits at runtime is not reference
+  data.
 - **No deletion by omission**: removing a reference row is a migration.
-- **Admins before roles exist**: `config('auth.admins')` from `ADMIN_EMAILS`
-  (the `viewHorizon` gate needs a verified email, `app/Providers/CLAUDE.md`, so the seeders
-  create every admin account verified). When roles land, only the gate body and the seeders change.
-- Every model gets a factory with **named states** for the lifecycle
-  (`->pending()`, `->archived()`) so tests never hand-set a status. Factories
-  bypass mass assignment — the sanctioned way to seed non-fillable state.
-- **Production seeders never touch factories or `fake()`.** Faker is a `--dev`
-  dependency, absent from the prod image; a factory there crash-loops the
-  container at boot.
-- Never put real credentials, real emails, or real external identifiers in a
-  seeder or factory.
+- **Admins before roles exist**: `config('auth.admins')` from `ADMIN_EMAILS`, created verified for the `viewHorizon`
+  gate (`app/Providers/CLAUDE.md`). When roles land, only the gate body and the seeders change.
+- Every model gets a factory with **named states** for the lifecycle (`->pending()`, `->archived()`), so tests never
+  hand-set a status. Factories are the sanctioned way to seed non-fillable state.
+- **Production seeders never touch factories or `fake()`**: Faker is `--dev`, so the container would crash-loop.
+- Never put real credentials, emails or external identifiers in a seeder or factory.
+<!-- if:tenancy -->
+
+## Tenancy
+
+**Global tables** (no RLS):
+- `tenants`: `prefixedId()`, `name`, timestamps.
+- `tenant_user`: `foreignPrefixedId('tenant_id')->constrained()->cascadeOnDelete()`,
+  `foreignId('user_id')->constrained()->cascadeOnDelete()`, `role`, timestamps; primary key `(tenant_id, user_id)`;
+  index `user_id`.
+- `users`.
+- `personal_access_tokens`. Its non-null `tenant_id`
+  (`foreignPrefixedId('tenant_id')->constrained()->cascadeOnDelete()`) comes in its own migration dated after
+  `create_tenants_table`, never in the older `install:api` migration. A table that already holds tokens is emptied
+  first.
+
+**Every tenant-owned table** calls `$table->tenantId()` in its create migration. That one command adds:
+- a non-null `tenant_id`: `foreignPrefixedId` to `tenants`, `restrictOnDelete()` (an offboarding job removes a
+  tenant, never a cascade);
+- `unique(['tenant_id', 'id'])`: the leading `tenant_id` index and the composite foreign-key target;
+- `ENABLE ROW LEVEL SECURITY` and `FORCE ROW LEVEL SECURITY`;
+- `CREATE POLICY tenant_isolation ON … FOR ALL USING (tenant_id = nullif(current_setting('app.tenant_id', true), ''))`.
+  `USING` alone also guards inserts and updates, so a write into another tenant errors. Unset and reset both mean no
+  rows.
+
+**Keys between tenant-owned tables are composite**, because foreign-key checks and cascades ignore RLS:
+`foreignPrefixedId('project_id')` (no `constrained()`), then
+`foreign(['tenant_id', 'project_id'])->references(['tenant_id', 'id'])->on('projects')`. On delete: cascade or
+restrict only; `nullOnDelete()` would null `tenant_id`, so use a raw `ON DELETE SET NULL (project_id)`.
+
+**Macros**, in `AppServiceProvider::boot()` next to `prefixedId()`:
+- `Blueprint::macro('tenantId', …)` adds the column and the unique, then `$this->addCommand('tenantPolicy')`;
+- `PostgresGrammar::macro('compileTenantPolicy', fn (Blueprint $blueprint, Fluent $command) => …)` returns the three
+  statements, and `[]` unless `$this instanceof PostgresGrammar` (grammar macros are shared by every grammar).
+
+Other rules:
+- A table that becomes tenant-owned later gets the column, backfill, unique and policy in its own migration.
+- Every index on a tenant-owned table but the primary key leads with `tenant_id`, and every unique includes it.
+- Reference tables are global.
+
+**Views, materialised views and partitions** are granted to `{{app}}_app` like tables; only the queried table's own
+policy binds:
+- A view over tenant-owned rows is `CREATE VIEW … WITH (security_invoker = true)`.
+- A materialised view has no RLS. It carries `tenant_id` and a unique index (for the CONCURRENTLY refresh), and its
+  migration runs `REVOKE ALL ON <mv> FROM {{app}}_app`. The app reads it through a `WITH (security_barrier)` view with
+  `WHERE tenant_id = nullif(current_setting('app.tenant_id', true), '')`.
+- Only the owner may refresh it, so the migration also adds
+  `CREATE OR REPLACE FUNCTION refresh_<mv>() RETURNS void LANGUAGE sql SECURITY DEFINER SET search_path = public AS 'REFRESH MATERIALIZED VIEW CONCURRENTLY <mv>'`,
+  revokes EXECUTE from `PUBLIC` and grants it to `{{app}}_app`. The refresh job and tests run
+  `select refresh_<mv>()`. `OR REPLACE`, because `migrate:fresh` drops no functions.
+- Partitions are created only by migrations, each followed by `REVOKE ALL ON <partition> FROM {{app}}_app`; reads and
+  writes go through the parent.
+- No other `SECURITY DEFINER` function: it runs as the owner and skips RLS.
+
+**Roles** (Hosting): the tables belong to `{{app}}`; the app connects as `{{app}}_app`. Every `migrate*` command takes
+`--database=pgsql_owner`; app code never uses that connection.
+
+**Seeders:**
+- Tenant-owned rows are written only inside `CurrentTenant::run($tenant->id, …)`. Seeders work both as the app role
+  (`db:seed`) and as the owner (the tests' `migrate:fresh`).
+- `DevSeeder` stays idempotent: two tenants by `firstOrCreate(['name' => …])`; `admin@{{app}}.test` in both (to
+  exercise the switcher), `dev@{{app}}.test` in one; memberships by `syncWithoutDetaching`; demo rows only when their
+  tenant `wasRecentlyCreated`.
+- `ProductionSeeder` creates no tenant.
+<!-- endif -->

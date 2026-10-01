@@ -1,12 +1,12 @@
 {
     "name": "laravel-house",
-    "description": "Start a Laravel project on the house rules, dockerize it, and bring it onto the laravel-kanban board.",
+    "description": "Start a Laravel project on the house rules (Blade + htmx with optional Svelte islands, a SvelteKit SSR app, or API-only; optional Reverb and multi-tenancy), run it in Docker behind Caddy, and bring it onto the laravel-kanban board.",
     "author": {
         "name": "Petar Spasic"
     },
     "homepage": "https://github.com/petar-spasic/laravel-house",
     "repository": "https://github.com/petar-spasic/laravel-house",
     "license": "MIT",
-    "keywords": ["laravel", "docker", "octane", "horizon", "kanban", "boost"],
+    "keywords": ["laravel", "docker", "caddy", "frankenphp", "octane", "horizon", "sveltekit", "htmx", "multi-tenancy", "kanban", "boost"],
     "skills": "./resources/boost/skills/"
 }

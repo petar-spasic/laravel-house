@@ -1,14 +1,10 @@
 # CLAUDE.md — resources (frontend)
 
 <!-- if:islands -->
-Scope: `resources/`. Backend design is `app/CLAUDE.md`; the CSP/escaping/CSRF
-rules are summarised in the root `CLAUDE.md`. This file is how the three
-frontend layers — Blade, htmx, Svelte islands — divide the work.
+How the three frontend layers (Blade, htmx, Svelte islands) divide the work.
 <!-- endif -->
 <!-- unless:islands -->
-Scope: `resources/`. Backend design is `app/CLAUDE.md`; the CSP/escaping/CSRF
-rules are summarised in the root `CLAUDE.md`. This file is how the two
-frontend layers — Blade and htmx — divide the work.
+How the two frontend layers (Blade and htmx) divide the work.
 <!-- endif -->
 
 ## Layout
@@ -37,67 +33,43 @@ resources/
     └── <feature>/…                        # pages, one directory per feature
 ```
 
-The Vite dev server runs inside the local container (root `CLAUDE.md`,
-Hosting); `npm run build` for prod;
+A change not showing: the Vite dev server runs inside the local container (Hosting); `npm run build` makes the
+production bundle.
 <!-- if:islands -->
-`npm run check` (svelte-check + tsc) is the frontend type gate and
-must pass before finishing any change under `resources/js`.
+`npm run check` (svelte-check + tsc) is the type gate; it passes before any change under `resources/js` is done.
 <!-- endif -->
 <!-- unless:islands -->
-`npm run check` (tsc) is the frontend type gate and must pass before
-finishing any change under `resources/js`.
+`npm run check` (tsc) is the type gate; it passes before any change under `resources/js` is done.
 <!-- endif -->
 
-## Speed, SEO, smoothness — the rules this directory owns
+## Speed, SEO, smoothness
 
-Root `CLAUDE.md` "Non-negotiables" sets the budgets; these are the mechanics.
+The practices behind root `CLAUDE.md`, Non-negotiables.
 
-- **Complete without JS.** Every public page renders its full content
-  server-side. Real `<a href>` for every navigation (htmx boosts them; a
-  crawler follows them). Nothing a crawler or a no-JS user needs sits behind
-  `hx-get`, an island, or a click. Tabs/accordions on public pages are CSS
-  (`<details>`, `:target`) or server-rendered, not JS-toggled hidden content.
-- **Head is per page, from the controller**: `<title>`, `meta description`,
-  `<link rel="canonical">`, Open Graph, JSON-LD (rendered by a Blade component
-  from a Resource-shaped array, under a CSP nonce), `hreflang` where a page
-  exists in more than one script/locale. The layout exposes named slots for
-  them; no public page leaves them empty.
-- **Prefetch by default on public pages.** The layout enables `hx-boost` +
-  the htmx `preload` extension (`preload="mouseover"`, touchstart on mobile)
-  on the main nav and listing links, and emits a `speculationrules` block:
-  `prefetch` for links in the viewport with moderate eagerness, `prerender`
-  for the one most likely next page (chosen by the controller, e.g. the first
-  result). Never prefetch anything authenticated, anything with side effects,
-  or anything not served by the response cache. A miss renders and warms the
-  entry like any request; hover eagerness and `throttle:public` bound the volume.
-- **Zero layout shift.** Every `<img>` has `width`/`height` (or
-  `aspect-ratio`), `loading="lazy"` below the fold, `srcset` + modern
-  formats; the LCP image is eager with `fetchpriority="high"`. Placeholders
-  (island slots, htmx targets, skeletons) are the same size as what replaces
-  them. Fonts are self-hosted (`@font-face` in `app.css`, woff2 only from `resources/fonts/`), `font-display: swap`, subset to the
-  scripts we serve.
-- **Smooth swaps.** No View Transitions (`globalViewTransitions = false`, never
-  `transition:true` — cross-fades read as a flash);
-  `hx-indicator` only for requests expected to
-  exceed 300 ms; `hx-sync` on filters so typing does not queue requests;
-  `hx-push-url` on boosted navigation so back/forward and sharing work;
-  `hx-replace-url` for in-page state (filters, sort, view) so the URL stays
-  shareable but Back leaves the page instead of undoing one chip.
+- **Complete without JS.** Every public page renders its full content server-side, with a real `<a href>` for every
+  navigation. Nothing a crawler or a no-JS user needs sits behind `hx-get`, an island or a click. Tabs and accordions
+  on public pages are CSS (`<details>`, `:target`) or server-rendered.
+- **Head is per page, from the controller** (`PageMeta`, rendered by the layout; Blade below): title, description,
+  canonical, Open Graph, JSON-LD from a Resource-shaped array, `hreflang` where a page exists in several locales. No
+  public page leaves them empty.
+- **Prefetch on public pages.** `hx-boost` + the htmx `preload` extension (`preload="mouseover"`, touchstart on
+  mobile) on the main nav and listing links. A `speculationrules` block (CSP source `'inline-speculation-rules'`):
+  `prefetch` for links in the viewport with moderate eagerness, `prerender` for the one most likely next page, picked
+  by the controller. Never eager prefetch of whole listings, and never prefetch anything authenticated, with side
+  effects, or not served by the response cache.
+- **Zero layout shift.** Every `<img>` has `width`/`height` (or `aspect-ratio`), `loading="lazy"` below the fold,
+  `srcset` + modern formats; the LCP image is eager with `fetchpriority="high"`. Placeholders are the size of what
+  replaces them. Fonts are self-hosted woff2 from `resources/fonts/` (`@font-face` in `app.css`),
+  `font-display: swap`, subset to the scripts we serve.
+- **Smooth swaps.** No View Transitions (`globalViewTransitions = false`, never `transition:true`). `hx-indicator`
+  only on requests that can be slow. `hx-sync` on filters, so typing does not queue requests. `hx-push-url` on
+  boosted navigation; `hx-replace-url` for in-page state (filters, sort, view), so Back leaves the page.
 <!-- if:islands -->
-- **JS budget.** A public page ships `app.ts` and nothing else unless an
-  island is on it; islands are lazy chunks loaded on first mount and mount
-  into a same-sized placeholder **after** the page is interactive. Measure:
-  `npm run build` prints chunk sizes — a public-page island over ~15 KB
-  gzipped needs a reason in the PR.
-- **htmx + Blade first.** Before writing an island, write the htmx version in
-  your head: if it is a couple of `hx-*` attributes and a fragment route, do
-  that. An island is justified only when local state must change many times
-  before (or without) a round trip — drag-and-drop, live editing, a picker
-  with client-side filtering of an already-loaded set. "JS would be nicer" is
-  not a justification.
+- **JavaScript on public pages** is `app.ts` plus the lazy chunks of that page's islands, loaded on first mount. An
+  island mounts into a same-sized placeholder **after** the page is interactive, never on the critical path.
 <!-- endif -->
 <!-- unless:islands -->
-- **JS budget.** A public page ships `app.ts` and nothing else.
+- **JavaScript on public pages** is `app.ts` and nothing else.
 <!-- endif -->
 
 ## Who does what
@@ -111,9 +83,9 @@ Root `CLAUDE.md` "Non-negotiables" sets the budgets; these are the mechanics.
 | Persist what an island did | a normal form submit / `htmx.ajax()` with the island's state in inputs | an island-owned JSON API |
 | Shared state between two islands on one page | a `resources/js/*.svelte.ts` module with runes | `window.*`, DOM attributes |
 
-If an island genuinely needs JSON from the server, the route lives in the
-`api` group and returns a Resource (`app/Resources/CLAUDE.md`) — decided per
-case, not by default.
+**htmx + Blade first.** If the htmx version is a couple of `hx-*` attributes and a fragment route, do that. An island
+is justified only when local state changes many times before (or without) a round trip. If an island truly needs
+JSON, its route lives in the page's `web` group (`api` is token-only) and returns a Resource, decided per case.
 <!-- endif -->
 <!-- unless:islands -->
 | Render a page, a list, a form | **Blade** | JSON rendered by client code |
@@ -122,91 +94,113 @@ case, not by default.
 
 ## Blade
 
-- Pages wrap in `<x-layouts.app :meta="$meta">` (`App\Services\Seo\PageMeta`
-  built by the controller; `:title` alone only for non-public pages). It owns
-  `<head>` — title, description, canonical, robots, prev/next, OG, JSON-LD
-  (`partials/seo/jsonld`, nonce), the speculation-rules block
-  (`PageMeta::speculationRules()`), the CSRF meta tag (only when a session is
-  started) and `@vite`. No page includes assets itself. `hx-boost` is set
-  per navigation block, never on `<body>` (see Prefetch above).
-- **Full page and fragment are the same markup.** Either `@include` a partial
-  from both the page and the fragment route, or wrap the section in
-  `@fragment('name')` and return `view(…)->fragment('name')` for htmx
-  callers. Never a second copy. Fragment ids are the read-path contract —
-  stable names, one per page.
-- Anonymous components (`resources/views/components/*.blade.php`) for
-  presentational reuse; a class-based component only when it needs PHP. A leaf
-  rendered per row in a loop (money, icon, image, chip, date) is a plain
-  partial, not an `<x-*>`: the attribute-bag and slot machinery costs ~0.1 ms
-  per render, most of a listing's render time at 24 cards × 10 leaves.
+- Pages wrap in `<x-layouts.app :meta="$meta">` (`App\Services\Seo\PageMeta`; `:title` alone only for non-public
+  pages). The layout owns `<head>`: title, description, canonical, robots, prev/next, OG, JSON-LD
+  (`partials/seo/jsonld`, nonce, breadcrumbs included; never a second copy), the speculation rules
+  (`PageMeta::speculationRules()`), the CSRF meta tag (only with a started session) and `@vite`. No page includes
+  assets itself. `hx-boost` goes per navigation block, never on `<body>`.
+- **Full page and fragment are the same markup.** `@include` a partial from both the page and the fragment route, or
+  wrap the section in `@fragment('name')` and return `view(…)->fragment('name')`. Fragment ids are the read-path
+  contract: stable names, one per page.
+- Anonymous components (`resources/views/components/*.blade.php`) for presentational reuse; a class-based one only
+  when it needs PHP. A leaf rendered per row (money, icon, image, chip, date) is a plain partial, not an `<x-*>`
+  (~0.1 ms per component render adds up across a listing).
 <!-- if:islands -->
-- `{{ }}` always; `{!! !!}` only for `Markdown::render()` output and the
-  layout's inlined stylesheet (`Vite::content`, a compiled asset). Never
-  `@json($model)` — if the client needs data it goes through `<x-island :props>`
-  or a Resource.
+- `{{ }}` always. `{!! !!}` only for `Markdown::render()` output, the layout's inlined stylesheet (`Vite::content`, a
+  compiled asset) and `$user->twoFactorQrCodeSvg()`. Never `@json($model)`: client data goes through
+  `<x-island :props>` or a Resource.
 <!-- endif -->
 <!-- unless:islands -->
-- `{{ }}` always; `{!! !!}` only for `Markdown::render()` output and the
-  layout's inlined stylesheet (`Vite::content`, a compiled asset). Never
-  `@json($model)` — if the client needs data it goes through a Resource.
+- `{{ }}` always. `{!! !!}` only for `Markdown::render()` output, the layout's inlined stylesheet (`Vite::content`, a
+  compiled asset) and `$user->twoFactorQrCodeSvg()`. Never `@json($model)`: client data goes through a Resource.
 <!-- endif -->
-- Enum display is `$model->status->label()` (`app/Enums/CLAUDE.md`), never a
-  `@switch` on `->value` in the template.
-- Named routes everywhere: `route()` in `href`, `action`, and every `hx-*`
-  URL.
-- Blade gotcha: never put text directly after a closing slot tag on the same
-  line (`</x-slot:header>Body` compiles to `@endslotBody`, an unknown
-  directive that leaks into the page). Break the line.
-- Session state on publicly cached pages: cached pages ship stateless markup
-  and hydrate without a request — a plain cookie mirrors what the page needs
-  to show (a count, a badge) and `app.ts` reads it on load and after every
-  swap. `@csrf` renders only when a session is started — never into shared
-  cached HTML.
-- Overlays are native HTML — `<dialog>`, the Popover API, `<details>` — opened
-  and closed by delegated listeners in `app.ts`; tabs are real links. Toasts
-  come from an `HX-Trigger` header the layout's listener renders.
-- Structured data (JSON-LD, breadcrumbs included) is rendered once, by the
-  layout, under the nonce — a component never emits a second copy.
-- Icons come from one sprite the layout renders once and views `<use>`; never
-  inline SVG paths in a view. Decorative by default; a standalone icon gets a
-  label.
-- Form controls wire `aria-invalid` and `aria-describedby` to their hint and
-  error ids; errors come from `$errors` (the 422 fragment).
+- Enum display is `$model->status->label()` (`app/Enums/CLAUDE.md`), never a `@switch` on `->value`.
+- Named routes everywhere: `route()` in `href`, `action` and every `hx-*` URL.
+- **Cached pages ship stateless markup.** A plain cookie mirrors what the page shows (a count, a badge), read by
+  `app.ts` on load and after every swap. `@csrf` renders only with a started session, never into shared cached HTML.
+- Overlays are native HTML (`<dialog>`, the Popover API, `<details>`), opened and closed by delegated listeners in
+  `app.ts`; tabs are real links. Toasts come from an `HX-Trigger` header the layout's listener renders.
+- Icons come from one sprite the layout renders once; views `<use>` it, never inline SVG paths. A standalone icon gets
+  a label.
+- Form controls wire `aria-invalid` and `aria-describedby` to their hint and error ids; errors come from `$errors`.
+- **Blade gotchas.** Text right after a closing slot tag on the same line (`</x-slot:header>Body`) compiles to
+  `@endslotBody`, which leaks into the page: break the line. A directive glued to a word (`word@if`) is not compiled,
+  and one glued to a component's closing tag (`/>@endif`) breaks the compile: leave a space, and put the branch's own
+  space inside the branch.
 
 ## htmx
 
-Configured once in `app.ts` — do not repeat any of this per element:
+Configured once in `app.ts`, never per element:
 
-- `allowEval = false` (CSP) → **no `hx-on:*`, no `hx-vals='js:…'`, no `hx-trigger`
-  filters (`click[cond]` is evaluated).** Behaviour
+- `allowEval = false` (CSP) → **no `hx-on:*`, no `hx-vals='js:…'`, no `hx-trigger` filters (`click[cond]` is
+  evaluated).**
 <!-- if:islands -->
-  that needs JS is an island or a listener in `app.ts`.
+  Behaviour that needs JS is an island or a listener in `app.ts`.
 <!-- endif -->
 <!-- unless:islands -->
-  that needs JS is a listener in `app.ts`.
+  Behaviour that needs JS is a listener in `app.ts`.
 <!-- endif -->
-- `selfRequestsOnly = true` → htmx only talks to this origin.
-- CSRF header added in `htmx:configRequest`; **no per-form `hx-headers`**.
-- 422 responses are swapped (`htmx:beforeSwap`): a failed FormRequest
-  re-renders the form fragment with `$errors`, status 422.
-- `includeIndicatorStyles = false`: `.htmx-indicator` rules live in `app.css`.
-- After a successful htmx POST, redirect with the `HX-Redirect` header (never
-  302 — htmx follows it and swaps the whole page into the target).
-- Flash messages for htmx callers come back **in the fragment** (or a toast
-  via `HX-Trigger`), not via `back()->with()`.
-- Fragment endpoints are ordinary routes in the page's group with the same
-  auth, policy and validation (`routes/CLAUDE.md`).
+- `selfRequestsOnly = true`: htmx only talks to this origin.
+- The CSRF header is added once in `htmx:configRequest`; **no per-form `hx-headers`**.
+- 422 responses are swapped (`htmx:beforeSwap`): a failed FormRequest re-renders the form fragment with `$errors`.
+- `includeIndicatorStyles = false`: the `.htmx-indicator` rules live in `app.css`.
+- After a successful htmx POST, redirect with `HX-Redirect`, never a 302 (htmx would swap the whole page into the
+  target).
+- Flash messages for htmx callers come back **in the fragment** (or a toast via `HX-Trigger`), never
+  `back()->with()`.
+<!-- if:tenancy -->
+- **The tenant marker** (root `CLAUDE.md`, Tenancy): the authenticated layout renders
+  `<meta name="tenant" content="<current tenant id>">`. The project adds to `app.ts`: `htmx:configRequest` sends it as
+  `X-Tenant` beside the CSRF header, and `htmx:beforeSwap` answers a 409 `tenant_changed` with the message and a full
+  reload. A form that can post without htmx carries a hidden `_tenant`. The switcher is a form posting `tenant` to
+  `route('current-tenant.update')`.
+<!-- endif -->
+
+## Auth pages
+
+Fortify's views stay off, with `AcceptJson`, until the project builds these pages ("Build the auth pages" is a card):
+`resources/views/auth/<name>`, the names `Fortify::viewPrefix('auth.')` registers, built from the project's
+components inside the app layout, `noindex`:
+
+- `login`: email, password, remember, "Forgot password", a passkey button plus autofill
+  (`autocomplete="email webauthn"`), the status and social errors; once social sign-in is built, one button per
+  enabled provider → `route('social.redirect', …)`.
+- `register` (registration on): name, email, password + confirmation; provider buttons once social sign-in is built.
+- `forgot-password`: email → status.
+- `reset-password`: hidden token, email, password + confirmation.
+- `two-factor-challenge`: code or recovery code; no JS.
+- `confirm-password`: password and "Confirm with a passkey"; a user with neither gets the "sign out and use Forgot
+  password" line (root `CLAUDE.md`, Auth).
+- `verify-email` (email verification on): resend → `verification.send`.
+
+Around them:
+- Each is a plain `<form method="post" action="{{ route(…) }}">` with `@csrf` and `hx-boost="false"`: sign-in,
+  sign-out and registration regenerate the CSRF token, and a boosted swap would keep the old one in the head meta.
+- Passkeys: `@laravel/passkeys` (owner approval, convention 6) in `resources/js/passkeys.ts`, bound from `app.ts` by
+  delegated listeners on `data-passkey-*` attributes (CSP). It sends `Accept: application/json` and the `csrf-token`
+  meta, and on success navigates to the returned `redirect`.
+- A security settings page behind `auth` + `password.confirm`: two-factor enable/confirm/disable with the QR code and
+  recovery codes, passkeys add/remove, linked providers, password; only for the features kept. Its forms are plain
+  too: an unconfirmed action gets a 302 to the confirm page, which htmx would swap into the target.
+
+**The views flip** lands in the commit that adds the last page:
+- `Fortify::viewPrefix('auth.')` in `FortifyServiceProvider`, `'views' => true` in `config/fortify.php`, and a
+  `fortify.home` that names a page that exists;
+- drop `AcceptJson` (from `fortify.middleware`, the priority list in `bootstrap/app.php` and `app/Http/Middleware/`)
+  and the `ResetPassword::createUrlUsing` override (`password.reset` now exists);
+- rewrite `tests/E2E/FortifyViewRoutesTest.php` for views on: the GET pages answer 200 instead of 405, a guest on an
+  authenticated auth route is redirected to `login`, and the JSON flows send `Accept: application/json` (`postJson`,
+  `getJson`);
+- bring the Fortify lines in root `CLAUDE.md` (Auth), `routes/CLAUDE.md`, `app/Http/CLAUDE.md`,
+  `app/Providers/CLAUDE.md`, `tests/CLAUDE.md` and this section to the new state.
 
 <!-- if:islands -->
 ## Svelte islands
 
-- **One file per island** in `resources/js/islands/`, PascalCase, TypeScript
-  (`<script lang="ts">`), Svelte 5 runes (`$props`, `$state`, `$derived`) —
-  no legacy `export let` / stores-as-state.
-- Registered automatically by filename (`islands.ts` globs the directory,
-  **lazily** — an island's code downloads on first mount, so unused islands
-  cost a public page nothing).
-  Mounted from Blade:
+- **One file per island** in `resources/js/islands/`, PascalCase, `<script lang="ts">`, Svelte 5 runes (`$props`,
+  `$state`, `$derived`); no legacy `export let` or stores as state.
+- Registered automatically by filename. `islands.ts` globs the directory **lazily**: an island's code downloads on
+  first mount, so unused islands cost a page nothing. Mounted from Blade:
 
   ```blade
   <x-island name="TaskBoard" :props="TaskBoardResource::make($board)->resolve()">
@@ -214,56 +208,81 @@ Configured once in `app.ts` — do not repeat any of this per element:
   </x-island>
   ```
 
-  `:props` must be JSON-safe data from a Resource (or a plain array of
-  scalars). **Never a model** — the Resource is the leak boundary, and Blade's
-  `{{ }}` escaping on the attribute is what keeps user text from breaking
-  out.
-- Declare props with a type: `let { start = 0 }: { start?: number } = $props();`
-  Everything the island needs arrives as props; it never reads the DOM outside
-  its own element or `window` globals.
-- **Lifecycle is handled for you.** `app.ts` mounts islands on page load and on
-  every `htmx:load` (fragment swapped in), and unmounts on
-  `htmx:beforeCleanupElement`. An island inside a swapped fragment remounts
-  with the fragment's fresh props — do not keep client-only state that must
-  survive a swap; that is the server's state.
-- Tailwind classes work inside islands (no shadow DOM). Styling in `<style>`
-  blocks only for what utilities cannot express.
+  `:props` is JSON-safe data from a Resource (or a plain array of scalars), **never a model**: the Resource is the
+  leak boundary, and Blade's escaping of the attribute keeps user text from breaking out.
+- Props are typed: `let { start = 0 }: { start?: number } = $props();`. Everything the island needs arrives as props;
+  it never reads the DOM outside its own element, or `window` globals.
+- **Lifecycle is handled.** `app.ts` mounts islands on page load and every `htmx:load`, and unmounts on
+  `htmx:beforeCleanupElement`. An island in a swapped fragment remounts with fresh props: state that must survive a
+  swap is the server's.
+- Tailwind classes work inside islands (no shadow DOM). `<style>` blocks only for what utilities cannot express.
 - `{@html}` follows the `{!! !!}` rule: `Markdown::render()` output only.
-- No fetching inside islands by default (see "Who does what"). No global
-  event bus; shared state is an explicit `*.svelte.ts` module.
-- `npm run check` must be clean. Suppress a Svelte warning only with a
-  `svelte-ignore` comment that says why.
+- No fetching inside islands by default (Who does what). No global event bus; shared state is an explicit
+  `*.svelte.ts` module.
+- `npm run check` is clean. Suppress a Svelte warning only with a `svelte-ignore` comment that says why.
+
+## Components: shadcn-svelte
+
+The first island that needs a component does the setup, with owner approval for the devDependencies: `shadcn-svelte`
+(exact pin), `bits-ui`, `tailwind-variants`, `clsx`, `tailwind-merge`, `tw-animate-css`, `@lucide/svelte`.
+
+- **No `init`**: it calls a live endpoint that cannot be pinned, injects a font and re-pins `shadcn-svelte@latest`.
+  Its outputs are project files, written once:
+  - `components.json` at the root: `style` set explicitly (an unknown style silently becomes another),
+    `typescript: true`, `tailwind.css` = `resources/css/shadcn.css`, aliases `@/components`, `@/components/ui`,
+    `@/lib/utils`, `@/hooks`, `@/lib`, and `registry` =
+    `https://raw.githubusercontent.com/huntabyte/shadcn-svelte/shadcn-svelte@<version>/docs/static/registry`, where
+    `<version>` is the exact `shadcn-svelte` devDependency;
+  - `resources/js/lib/utils.ts`: `cn()` from `clsx` + `tailwind-merge`, plus the types `WithElementRef`,
+    `WithoutChild`, `WithoutChildren` and `WithoutChildrenOrChild`; an `add` that rewrites it is reverted to this;
+  - the `check:ui` script.
+- `@` is `resources/js`: laravel-vite-plugin aliases it, and the shipped `tsconfig.json` `paths` cover it (the CLI
+  reads `paths` from the root tsconfig only).
+- **Add** with the pinned CLI (`npx shadcn-svelte@<version> add <name>`), only what an island imports; remove a
+  component no island uses. Review the rest of its diff; a new package needs approval.
+- `resources/js/components/ui/` is exactly the CLI's output and is never edited. Looks go through the `class` prop
+  (`cn` merges it last), variants through `tv({ extend: buttonVariants, … })` in `resources/js/components/<area>/`,
+  behaviour through a wrapper component there.
+- **Update**: bump the `shadcn-svelte` pin and the registry tag together, rerun
+  `add <every installed component> --yes --overwrite`, commit `ui/` as generated. Generated code that fails
+  `npm run check` means another pin (ask the owner), never an edit.
+- **The gate is `npm run check:ui`.** In a temp dir holding a minimal `package.json`, the same tsconfig `paths`,
+  `components.json` and the same CSS files, it runs the pinned CLI with
+  `add <every directory in ui/> --yes --overwrite --no-deps` and fails on any diff in `ui/`. It needs the registry
+  host, so it is not part of `npm run check`; it runs before a push that touches `ui/`, `components.json` or the pin.
+- **CSS**: `resources/css/app.css` is the one Tailwind entry. It imports, in this order, `tailwindcss`,
+  `tw-animate-css`, `shadcn-svelte/tailwind.css`, `./shadcn.css` and `./theme.css`, then holds the house `@theme`.
+  - `shadcn.css` is CLI-managed: no `@import "tailwindcss"`, only its `@theme inline`, `:root`/`.dark` and a
+    hand-declared `@custom-variant dark (&:is(.dark *))`.
+  - `theme.css` maps `--primary`, `--radius`, … in `:root` and `.dark` onto the house tokens. The CLI never touches
+    it and it comes last, so an `add` that overwrites `:root` values in `shadcn.css` changes nothing visible. House
+    tokens never use shadcn's names (no `--color-primary`, `--color-background`, …).
+- Forms in islands use the `field` component, not `form`, which imports `$app/*` modules an island does not have.
+  `Field.Error` takes `{ message }[]`: `errors={msgs.map((message) => ({ message }))}`.
+- Icons inside islands come from `@lucide/svelte`.
 
 <!-- endif -->
 ## Tailwind
 
-- Tailwind 4, config-less: the design's tokens — colour, type, spacing, grid —
-  live only in `@theme` in `app.css`. No `tailwind.config.js`. Two checklist rules: **semantic colour means
-  something** (one token per meaning — never decoration, never colour alone)
-  and **no spinner under 300 ms** (`hx-indicator` only on requests that can
-  genuinely be slow).
-- A view is components, partials and utilities over those tokens: no
-  hex, font family or one-off spacing in a view, no page-specific stylesheet.
-  A pattern needed twice becomes a component first.
-- Money, numbers and time are formatted in exactly one place each (a partial
-  or a `Support` formatter). Never concatenate a price, a number or a date in
-  Blade.
-- Blade gotcha: a directive glued to a word (`word@if`) is not compiled, and a
-  directive glued to a component's closing tag (`/>@endif`) breaks the
-  compile. Leave a space; put the branch's own space inside the branch.
-- Breakpoint gotcha: Tailwind emits arbitrary `min-[…]:` variants *before* the
-  named ones, so `xl:w-64 min-[1440px]:w-80` resolves to `w-64`. Use a base
-  class plus the arbitrary override, never both variants on one property.
+- Tailwind 4, config-less: the design tokens (colour, type, spacing, grid) live only in `@theme` in `app.css`.
+- **Semantic colour means something**: one token per meaning, never decoration, never colour alone.
+- A view is components, partials and utilities over those tokens: no hex, font family, one-off spacing or
+  page-specific stylesheet. A pattern needed twice becomes a component first.
+- Money, numbers and time are formatted in exactly one place each (a partial or a `Support` formatter). Never
+  concatenate a price, a number or a date in Blade.
+- Breakpoint gotcha: Tailwind emits arbitrary `min-[…]:` variants *before* the named ones, so
+  `xl:w-64 min-[1440px]:w-80` resolves to `w-64`. Use a base class plus the arbitrary override, never both variants on
+  one property.
 <!-- if:islands -->
-- Blade and `.svelte` files under `resources/` are scanned automatically;
-  vendor Blade that needs scanning is listed with `@source` in `app.css`.
+- Blade and `.svelte` files under `resources/` are scanned automatically; vendor Blade that needs scanning is listed
+  with `@source` in `app.css`.
 <!-- endif -->
 <!-- unless:islands -->
-- Blade files under `resources/` are scanned automatically; vendor Blade that
-  needs scanning is listed with `@source` in `app.css`.
+- Blade files under `resources/` are scanned automatically; vendor Blade that needs scanning is listed with `@source`
+  in `app.css`.
 <!-- endif -->
 
 ## Tests
 
-A page or fragment flow is an E2E test through `$this->get(route(…))`, with
-`HX-Request` for a fragment (`tests/CLAUDE.md`).
+A page or fragment flow is an E2E test through `$this->get(route(…))`, with `HX-Request` for a fragment
+(`tests/CLAUDE.md`).

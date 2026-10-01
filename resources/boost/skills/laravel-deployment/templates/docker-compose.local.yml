@@ -1,10 +1,8 @@
-# {{app}} — local dev stack. Bind-mounted source, php-fpm + nginx + Vite HMR,
+# {{app}} — local dev stack. Bind-mounted source, Caddy + php-fpm + Vite HMR,
 # scheduler + Horizon, Postgres/Redis sidecars.
 #   docker compose -f docker-compose.local.yml up --build
-#   http://localhost:{{web_port}}   (Vite is the front door: serves assets + HMR and
-#   proxies everything else to nginx inside the container; Horizon at /horizon)
-#   From another machine set LOCAL_APP_URL in .env to the URL the browser uses
-#   (http://192.0.2.10:{{web_port}}): it becomes APP_URL, the Vite origin in public/hot.
+#   http://localhost:{{web_port}}   (Caddy: Vite's paths to Vite, the rest to php-fpm; Horizon at /horizon)
+#   From another machine: LOCAL_APP_URL in .env = the URL the browser uses (http://192.0.2.10:{{web_port}}), then `up -d`.
 #
 # One file, many stacks: main is COMPOSE_PROJECT_NAME={{app}}-local (its .env), each
 # worktree gets {{app}}-wt-<name> and its own ports from its generated .env. Never add
@@ -15,7 +13,7 @@
 # the repo's .env, which is the host-side env (127.0.0.1 + published ports)
 # and would silently override any same-named default. Only knobs Laravel's
 # .env never defines are substitutable (COMPOSE_PROJECT_NAME, LOCAL_APP_URL,
-# WEB_PORT, WEB_BIND, HMR_CLIENT_PORT, DB_HOST_PORT, REDIS_HOST_PORT, SIDECAR_BIND,
+# WEB_PORT, WEB_BIND, DB_HOST_PORT, REDIS_HOST_PORT, SIDECAR_BIND,
 # HOST_UID, HOST_GID, DATABASE_SEED, XDEBUG_MODE, XDEBUG_SERVER_NAME).
 name: "${COMPOSE_PROJECT_NAME:?COMPOSE_PROJECT_NAME unset - main: add COMPOSE_PROJECT_NAME={{app}}-local to .env; worktree: vendor/bin/kanban stack create}"
 
@@ -41,20 +39,17 @@ services:
       - ${HOME:?}/.cache/composer:/cache/composer
       - ${HOME:?}/.npm:/cache/npm
     # Explicit IPv4: a publish without a host address also binds [::], and Docker's proxy
-    # then hands Laravel every IPv6 client as the bridge gateway, which the Horizon gate
+    # then hands Caddy every IPv6 client as the bridge gateway, which the Horizon gate
     # treats as the host itself. The default is LAN-visible; WEB_BIND=127.0.0.1 keeps the stack to this machine.
     ports:
-      - "${WEB_BIND:-0.0.0.0}:${WEB_PORT:-{{web_port}}}:5173"
+      - "${WEB_BIND:-0.0.0.0}:${WEB_PORT:-{{web_port}}}:8080"
     extra_hosts: ["host.docker.internal:host-gateway"]
     environment:
       APP_ENV: local
       APP_DEBUG: "true"
-      APP_URL: ${LOCAL_APP_URL:-http://localhost:{{web_port}}}
-      # Behind a TLS proxy set 443 so the HMR client connects to the proxy's port
-      # instead of the port in the page URL.
-      HMR_CLIENT_PORT: ${HMR_CLIENT_PORT:-}
-      # Vite (127.0.0.1) proxies every request to nginx; trusting it gives Laravel
-      # the real client IP, which the local /horizon exception depends on.
+      APP_URL: ${LOCAL_APP_URL:-http://localhost:${WEB_PORT:-{{web_port}}}}
+      # Callers inside the container (curl; spa's SSR).
+      # The deployment skill's trap "Anyone on the LAN opens /horizon" says why.
       TRUSTED_PROXIES: 127.0.0.1
       # The clone's own deploy key (php artisan kanban:install and vendor/bin/kanban attach|doctor --fix make it for an
       # ssh origin), in the mounted .git. Main stack only: a worktree's .git is a file and its board page is off.

@@ -1,144 +1,115 @@
 # CLAUDE.md — app/Http (framework HTTP layer)
 
-Scope: `app/Http/`. This directory holds ONLY framework-level HTTP plumbing —
-middleware, the base `Controller.php`, and shared controller `Concerns/`. The
-code design standard is `app/CLAUDE.md`; frontend rules (escaping, CSP, CSRF)
-are in the root `CLAUDE.md`.
+Scope: `app/Http/`. Only framework HTTP plumbing lives here: `Middleware/` (its own `CLAUDE.md`), the base
+`Controller.php`, shared controller `Concerns/` and the domain controllers (`Controllers/CLAUDE.md`). Domain
+services, policies and jobs belong in their own `app/` directory; when in doubt, it does not go here.
 
 ## Hard rules
 
-- **Every request is validated in its own FormRequest.** No inline
-  `$request->validate([...])`, no `Validator::make` in controllers, no rules
-  spread across actions. One endpoint ⇒ one FormRequest carrying ALL of its
-  rules.
-- **Every JSON response returns its own API Resource.** No `->toArray()`, no raw
-  model returns, no hand-built response arrays from controllers. The Resource is
-  the sensitive-data leak boundary — a raw model return leaks hidden columns.
-  Collections and pagination go through the Resource too (`{data, meta}`).
+- **Every request is validated in its own FormRequest** (`app/Requests/CLAUDE.md`).
+- **Every JSON response is its own API Resource**, collections and pagination included (`{data, meta}`). No
+  `->toArray()`, raw model or hand-built array from a controller (`app/Resources/CLAUDE.md`).
 <!-- if:htmx -->
-- **HTML responses are Blade views or fragments.** A controller decides
-  full-page vs fragment in ONE place — the base `Controller` (or a `Concerns/`
-  trait) exposes the helper that checks `HX-Request` and picks the layout; no
-  action re-implements that check. Templates render explicit fields; never
-  serialize a whole model into the page.
+- **HTML responses are Blade views or fragments.** Full page vs fragment is decided in ONE place,
+  `Controller::render()` (below); no action checks `HX-Request` itself. Templates render explicit fields, never a
+  whole serialized model.
 <!-- endif -->
-- **Placement:** FormRequests live in `app/Requests/`, Resources in
-  `app/Resources/`. Do NOT create `app/Http/Requests/` or `app/Http/Resources/`
-  — this app is flat by layer, and a second home for either would fragment them.
-- **Every route and action serves exactly one surface** (`routes/CLAUDE.md`);
-  the surfaces have different trust levels.
+- **Every route and action serves exactly one surface** (`routes/CLAUDE.md`); the surfaces have different trust
+  levels.
 
 <!-- if:htmx -->
 ## HTML caching (root `CLAUDE.md`, Non-negotiables)
 
-- **`CachePublicResponse`** (own, first in the `public` group — a hit never
-  reaches the limiter) serves anonymous `GET`/`HEAD` from the default cache
-  store (Redis; array in tests): key = `page:{locale}:{build}:{sha256(normalised URL)}`
-  (`build` = the Vite manifest hash, so a deploy retires every page that names the old asset files)
-  (`Services/Cache/PageCache::normalise`: host + path without trailing slash,
-  sorted query minus `utm_*`/`fbclid`/`gclid`/`ref`, `:hx` for htmx callers plus
-  `:{target}` when `HX-Target` names an allow-listed fragment id
-  (`{{app}}.fragment_targets`) — a boosted full-page response and a targeted
-  fragment response never share an entry; query keys kept per route from
-  `{{app}}.route_query_keys`, anything else maps onto the canonical entry).
-  Stores `200 text/html` and tagged `301`s (status + `Location` in
-  `PageEntry`), never with cookies or `no-store`, never when `$request->user()`
-  exists, never a `HEAD` (decorated, not stored). `ETag` = sha256 of the final body; `If-None-Match`
-  → `304`. A prefetch/prerender miss (`Sec-Purpose`, `HX-Preloaded`) renders and is
-  stored like any request — it warms the entry (a miss is ~20 ms; hover
-  eagerness and `throttle:public` bound the volume).
-- **Bypassed while Vite is hot** (`public/hot` exists — the local stack): the manifest hash is null
-  then, so `build` no longer changes and an edited view or lang file would keep serving old HTML.
-  The middleware passes the request through, answers `X-Cache: BYPASS` and `Cache-Control: no-store`.
-- **Invalidation is by versioned tag, not by `Cache::tags()->flush()`.**
-  Model events are wired: `Services/Cache/InvalidatesPages::register()`
-  (AppServiceProvider) bumps the entity's own tag plus the reference tags on
-  every `saved`/`deleted` of an admin-editable model. **Bulk upserts
-  bypass model events** — they invalidate through a listener on the event that
-  closes the bulk write (wired explicitly in `AppServiceProvider`; event
-  discovery is off in `bootstrap/app.php`), warming in chunked jobs. An
-  entry records `{tag => version}` from `Services/Cache/CacheVersions` at store
-  time and is stale once any moved; a write calls `CacheVersions::bump([...])`
-  (one `INCR` per tag, whatever the page count). Reason: Laravel keys tagged
-  items by tag namespace, so a URL-only lookup cannot read them, and a
-  wildcard flush would walk every key. Stale entries die by
-  `{{app}}.page_cache.hard_ttl` (Redis is `noeviction`: nothing else removes them).
-- **The CSP nonce is stored with the entry** and restored on a hit
-  (`Vite::useCspNonce($stored)`; `SecurityHeaders` reads the nonce after
-  `$next`) so header and cached markup agree. A public page's nonce therefore
-  lives as long as its cache entry.
-- Headers on hit and miss, from `config/{{app}}.php`: `Cache-Control: public,
-  max-age=60, s-maxage=300, stale-while-revalidate=3600` (`{{app}}.page_cache.cache_control`), `ETag`, `Vary:
-  HX-Request, HX-Target, Accept-Encoding`, `X-Cache: HIT|MISS`. `PageMeta::$ttl` caps
-  them per page (`max-age=ttl`, `s-maxage`/`swr` = `2·ttl`).
-- **Under the page cache:** `Services/Cache/FragmentCache::remember(name, tags, fn)`
-  wraps every slow aggregate in `Cache::flexible` on a key that embeds the tags'
-  current versions (`frag:{name}:v{versions}`), so a bulk write never flushes.
-  **Cached values are plain data** — Laravel 13's `config/cache.php`
-  `serializable_classes => false` makes the Redis store hand back any object as
-  `__PHP_Incomplete_Class`, while the test store passes objects through;
-  `FragmentCache` throws on objects so the suite catches it. DTOs carry
-  `toArray()`/`fromArray()`. Fragment routes pass a `PageMeta` too (tags only),
-  or their cache entry would live on TTL alone.
-- Tags and ttl reach the middleware through `$request->attributes['page_meta']`,
-  set by `Controller::render()` from `$data['meta']`.
-- Authenticated responses are `Cache-Control: private, no-store`. No
-  exceptions; a personalised page in a shared cache is a data leak.
+**`CachePublicResponse`** (first in the `public` group, so a hit never reaches the limiter) serves anonymous
+`GET`/`HEAD` from the default cache store (Redis; array in tests).
+- **Key:** `page:{locale}:{build}:{sha256(normalised URL)}`. `build` is the Vite manifest hash, so a deploy retires
+  every page that names old asset files.
+- **Normalised URL** (`Services/Cache/PageCache::normalise`): host + path without trailing slash, sorted query minus
+  `utm_*`/`fbclid`/`gclid`/`ref`. Query keys are kept per route from `{{app}}.route_query_keys`; anything else maps
+  onto the canonical entry. htmx callers add `:hx`, plus `:{target}` when `HX-Target` names an allow-listed fragment
+  id (`{{app}}.fragment_targets`), so a boosted full page and a targeted fragment never share an entry.
+- **Stored:** `200 text/html` and tagged `301`s (status + `Location` in `PageEntry`). **Never stored:** a response
+  with cookies or `no-store`, any request with `$request->user()`, a `HEAD` (decorated only).
+- `ETag` = sha256 of the final body; `If-None-Match` → `304`.
+- A prefetch or prerender miss (`Sec-Purpose`, `HX-Preloaded`) is stored like any request, warming the entry.
+  Hover eagerness and `throttle:public` bound the volume.
+- **Bypassed while Vite is hot** (`public/hot` exists): the manifest hash is null then, so edited views would keep
+  serving old HTML. It answers `X-Cache: BYPASS` and `Cache-Control: no-store`.
+
+**Invalidation is by versioned tag, never `Cache::tags()->flush()`** (a URL-only lookup cannot read tagged items,
+and a wildcard flush walks every key).
+- An entry records `{tag => version}` from `Services/Cache/CacheVersions` when stored and is stale once any moved. A
+  write calls `CacheVersions::bump([...])`: one `INCR` per tag.
+- `Services/Cache/InvalidatesPages::register()` (AppServiceProvider) bumps the entity's own tag and its reference
+  tags on every `saved`/`deleted` of an admin-editable model.
+- **Bulk upserts bypass model events**: they invalidate through a listener on the event that closes the bulk write,
+  and warm in chunked jobs.
+- Stale entries die by `{{app}}.page_cache.hard_ttl` (Redis is `noeviction`).
+
+**Headers** on hit and miss, from `config/{{app}}.php`:
+- `Cache-Control: public, max-age=60, s-maxage=300, stale-while-revalidate=3600` (`{{app}}.page_cache.cache_control`);
+- `ETag`, `Vary: HX-Request, HX-Target, Accept-Encoding`, `X-Cache: HIT|MISS`;
+- `PageMeta::$ttl` caps them per page (`max-age=ttl`, `s-maxage`/`swr` = `2·ttl`). Tags and ttl reach the middleware
+  through `$request->attributes['page_meta']`, set by `Controller::render()` from `$data['meta']`.
+
+**The CSP nonce is stored with the entry** and restored on a hit (`Vite::useCspNonce($stored)`; `SecurityHeaders`
+reads it after `$next`).
+
+**The fragment cache**: `Services/Cache/FragmentCache::remember(name, tags, fn)` wraps every slow aggregate in
+`Cache::flexible` on a key holding the tags' current versions (`frag:{name}:v{versions}`).
+<!-- if:tenancy -->
+- An entry of tenant data has the tenant in its key: `frag:t:{tenant_id}:{name}:v{versions}`. The page cache never
+  holds tenant data, because it stores no authenticated response.
+<!-- endif -->
+- **Cached values are plain data**: with `serializable_classes => false` (`config/cache.php`) Redis returns objects as
+  `__PHP_Incomplete_Class`, while the test store passes them through. `FragmentCache` throws on objects; DTOs carry
+  `toArray()`/`fromArray()`.
+- Fragment routes pass a `PageMeta` too (tags only), or their entry lives on TTL alone.
+
+**Authenticated responses are `Cache-Control: private, no-store`**, no exceptions: a personalised page in a shared
+cache is a data leak.
 <!-- endif -->
 <!-- unless:htmx -->
 ## Caching
 
-- Authenticated responses are `Cache-Control: private, no-store`. No
-  exceptions; a personalised response in a shared cache is a data leak.
+**Authenticated responses are `Cache-Control: private, no-store`**, no exceptions: a personalised response in a shared
+cache is a data leak.
 <!-- endif -->
 
 ## Registered (`bootstrap/app.php`)
 
-The house names — create each under this name when it is first needed:
+There is no `Http/Kernel.php`, and **a missing registration fails silently**. The house names; create each under this
+name when first needed:
 
-- `RequestId` prepended globally; `SecurityHeaders` appended globally (the
-  Horizon path is exempt — its dashboard is an inline-script SPA behind the
-  gate).
+- `RequestId` prepended globally; `SecurityHeaders` appended globally. The Horizon path is exempt: its dashboard is an
+  inline-script SPA behind the gate.
 <!-- if:htmx -->
-  The CSP nonce is `Vite::useCspNonce()` per request, read in Blade with
-  `Vite::cspNonce()`; only the JSON-LD tag and Vite's own tags use it.
-  While `public/hot` exists (never in production) the CSP also allows the dev server's
-  origin, read from that file, in `script-src`, `style-src` and `connect-src` (with its
-  `ws:` twin); a strict `'self'` blocks Vite's client.
-- Group `public` = `CachePublicResponse`, `throttle:public`, `SubstituteBindings` (no
-  `web` group, so no route-model binding otherwise); alias `htmx` = `HtmxOnly`, prepended to
-  `SubstituteBindings` in the priority list. Named limiters are defined in a service provider,
-  never in `bootstrap/app.php` (`app/Providers/CLAUDE.md`).
-- `AcceptJson` on Fortify's routes (`config/fortify.php` `middleware`) while its views
-  are off, prepended to `AuthenticatesRequests` in the priority list (`routes/CLAUDE.md`).
-- `Controller::render($view, $data, $fragment)` is the one htmx helper: it returns
-  the named fragment only when the `HX-Target` header equals `$fragment` — a
-  boosted navigation (`hx-boost` swaps a full body, no matching target) gets the
-  full page.
-  Head metadata travels as `App\Services\Seo\PageMeta` (`$data['meta']`),
-  rendered by `x-layouts.app`; it also carries the cache tags/ttl the response
-  cache stores.
+- The CSP nonce is `Vite::useCspNonce()` per request, read in Blade with `Vite::cspNonce()`; only the JSON-LD tag and
+  Vite's own tags use it. `script-src` allows `'inline-speculation-rules'` for the layout's Speculation Rules. While
+  `public/hot` exists (never in production), the CSP also allows the origin in that file
+  in `script-src`, `style-src` and `connect-src`, plus its `ws:` twin for HMR.
+- Group `public` = `CachePublicResponse`, `throttle:public`, `SubstituteBindings`. Alias `htmx` = `HtmxOnly`,
+  prepended to `SubstituteBindings` in the priority list.
+- `Controller::render($view, $data, $fragment)` is the one htmx helper. It returns the named fragment only when the
+  `HX-Target` header equals `$fragment`; a boosted navigation (no matching target) gets the full page. Head metadata
+  travels as `App\Services\Seo\PageMeta` (`$data['meta']`), rendered by `x-layouts.app`; it also carries the cache
+  tags and ttl.
+<!-- endif -->
+- `routes/api.php` under `/api/v1` (`withRouting(apiPrefix: 'api/v1')`).
+<!-- if:htmx -->
+  It is loaded with `api:` beside `then:`.
+- `AcceptJson` on Fortify's routes (`config/fortify.php` `middleware`) while its views are off (`resources/CLAUDE.md`,
+  Auth pages), prepended to `AuthenticatesRequests` in the priority list (`routes/CLAUDE.md`).
 <!-- endif -->
 <!-- unless:htmx -->
-- `AcceptJson` on Fortify's routes (`config/fortify.php` `middleware`), prepended to
-  `AuthenticatesRequests` in the priority list (`routes/CLAUDE.md`).
+- `AcceptJson` on Fortify's routes (`config/fortify.php` `middleware`) and on the social link/unlink routes once
+  built, prepended to `AuthenticatesRequests` in the priority list (`routes/CLAUDE.md`).
 <!-- endif -->
 <!-- if:spa -->
-- `statefulApi()` so Sanctum authenticates the SPA's `api` calls by the
-  session cookie + XSRF token; `Route::fallback` in `routes/web.php` returns the
-  SPA shell.
+- `statefulApi()`, so Sanctum authenticates the SvelteKit app's `api` calls by the session cookie + XSRF token.
 <!-- endif -->
-
-## What belongs in this directory
-
-- **`Middleware/`** — request-scoped cross-cutting concerns only. Its own
-  `CLAUDE.md` carries the security-header, auth-gating and ordering rules.
-- **`Controllers/`** — the abstract base `Controller.php`, shared controller
-  `Concerns/`, and the domain controllers themselves (flat, since there are no
-  modules). Its own `CLAUDE.md` carries the action-shape checklist.
-
-Middleware is registered declaratively in `bootstrap/app.php` (there is no
-`Http/Kernel.php`), and a missing registration fails **silently**.
-
-Everything else — domain services, policies, jobs — belongs in its own top-level
-`app/` directory. When in doubt, it does not go here.
+<!-- if:tenancy -->
+- Alias `tenant` = `ResolveTenant`, after `AuthenticatesRequests` in the priority list
+  (`app/Http/Middleware/CLAUDE.md`, Tenancy).
+<!-- endif -->
+- Named rate limiters are defined in a service provider, never here (`app/Providers/CLAUDE.md`).

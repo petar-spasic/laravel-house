@@ -1,57 +1,72 @@
 # CLAUDE.md — app/Providers (the explicit-registration hub)
 
-Scope: `app/Providers/`. The design standard is `app/CLAUDE.md`; project-wide
-facts are in the root `CLAUDE.md`.
-
-Almost nothing in this app is auto-discovered, and **a missing registration
-fails silently** — treat every list here as an inventory, checked end to end.
+Almost nothing is auto-discovered, and **a missing registration fails silently**. Every list here is an inventory;
+check it by running the flow end to end.
 
 ## What gets registered here
 
-- **Contract → implementation bindings.** Each external system
-  (`app/Contracts/`) is bound to its client. A consumer resolving an unbound
-  contract fails at runtime, not at boot, so a new contract needs its binding in
-  the same commit.
-- **`Gate::policy(Model::class, ModelPolicy::class)`** for every policy, in
-  `AppServiceProvider::boot()` (`app/Policies/CLAUDE.md`).
-- **`Event::listen` wiring.** The only event→listener registry (discovery is
-  off in `bootstrap/app.php`) — a listener without a wiring line silently never
-  fires. Check that the event actually reaches it by running the flow.
-- **Observer registration** via `Model::observe()` in `boot()`.
+- **Contract → implementation bindings** (`app/Contracts/`). An unbound contract fails at runtime, so a new contract
+  gets its binding in the same commit.
+- **`Gate::policy()`** for every policy, in `AppServiceProvider::boot()` (`app/Policies/CLAUDE.md`).
+- **`Event::listen` wiring**, the only event → listener registry (discovery is off in `bootstrap/app.php`). A
+  listener without a line never fires.
+- **Observers** with `Model::observe()` in `boot()`.
 <!-- if:htmx -->
-- **`FortifyServiceProvider`**: the auth actions (`app/Actions/Fortify/`), the
-  `login`/`two-factor`/`auth-forms` rate limiters, the mailed reset-link URL while the views
-  are off (`routes/CLAUDE.md`), and — once the auth Blade views exist — the
-  `Fortify::*View()` bindings. Fortify is headless; every view is ours.
+- **`FortifyServiceProvider`**: the auth actions (`app/Actions/Fortify/`), the auth limiters (below), the mailed
+  reset-link URL while the views are off (`routes/CLAUDE.md`), and `Fortify::viewPrefix('auth.')` once the auth pages
+  exist (`resources/CLAUDE.md`, Auth pages).
+<!-- endif -->
+<!-- if:spa -->
+- **`FortifyServiceProvider`**: the auth actions (`app/Actions/Fortify/`), the auth limiters (below),
+  `ResetPassword::createUrlUsing` + `VerifyEmail::createUrlUsing` at the SvelteKit paths (`routes/CLAUDE.md`), and the
+  bindings of the exported `app/Requests/Auth/` classes over Fortify's own requests (`app/Requests/CLAUDE.md`).
 <!-- endif -->
 <!-- unless:htmx -->
-- **`FortifyServiceProvider`**: the auth actions (`app/Actions/Fortify/`), the
-  `login`/`two-factor`/`auth-forms` rate limiters and the mailed reset-link URL — Fortify is
-  headless (`config/fortify.php` `views => false`, `routes/CLAUDE.md`).
+<!-- unless:spa -->
+- **`FortifyServiceProvider`**: the auth actions (`app/Actions/Fortify/`), the auth limiters (below) and the mailed
+  reset-link URL. Fortify is headless (`config/fortify.php` `views => false`, `routes/CLAUDE.md`).
 <!-- endif -->
-- **`HorizonServiceProvider::gate()`**: who may see `/horizon` — a **verified** email in `config('auth.admins')` (`ADMIN_EMAILS`) until roles exist;
-  registration is open, so a bare email match would let anyone claim an admin's address. The consequence: an
-  `ADMIN_EMAILS` address that only registered through the form never opens `/horizon`. `ProductionSeeder` creates
-  the missing ones verified and leaves an existing account alone; the remedy for an unverified one is in
-  `database/CLAUDE.md`. Never open:
-  `authorization()` replaces Horizon's "anyone when local" with "anyone when local **and** from the host itself"
-  (loopback, or the container's default gateway). Who can reach the local stack at all is set by `WEB_BIND` /
-  `SIDECAR_BIND` (root `CLAUDE.md`, Hosting);
-  `comesFromHost` is safe only while the published web port is IPv4-only. `DevSeeder`'s known password makes
-  `admin@{{app}}.test` a working admin for anyone who reaches the local stack.
-- **Named rate limiters** (`RateLimiter::for`): `public` in `AppServiceProvider::boot()`,
-  `auth-forms` next to `login`/`two-factor` in `FortifyServiceProvider`. Never in
-  `bootstrap/app.php`: its `withRouting(then:)` closure does not run under `route:cache`,
-  and a route naming a missing limiter answers 500.
-- **`Model::shouldBeStrict()`** / `preventLazyLoading` in non-production so
-  N+1s and silent attribute misses fail loudly locally.
+<!-- endif -->
+  `Passkeys::authorizeLoginUsing()` or a `PasskeyLoginResponse` binding lives here when used (root `CLAUDE.md`, Auth).
+- **`HorizonServiceProvider::gate()`**: who may see `/horizon`.
+  - A **verified** email in `config('auth.admins')` (`ADMIN_EMAILS`) until roles exist: registration is open, so a
+    bare email match lets anyone claim an admin's address. An unverified admin account never opens it (remedy:
+    `database/CLAUDE.md`, `ProductionSeeder`).
+  - `authorization()` replaces Horizon's "anyone when local" with "anyone when local **and** from the host itself"
+    (loopback, or the container's default gateway). `comesFromHost` is safe only while the published web port is
+    IPv4-only.
+  - `WEB_BIND` / `SIDECAR_BIND` decide who reaches the local stack (Hosting); `DevSeeder`'s known password makes
+    `admin@{{app}}.test` an admin for all of them.
+- **Named rate limiters** (`RateLimiter::for`):
+<!-- if:htmx -->
+  `public` in `AppServiceProvider::boot()`,
+<!-- endif -->
+  `auth-forms` next to `login`/`two-factor`/`passkeys` in `FortifyServiceProvider`, and `social` beside them once
+  social sign-in is built. **Never in `bootstrap/app.php`**: its routing closures do not run under `route:cache`, and
+  a route naming a missing limiter answers 500.
+- **`Model::shouldBeStrict()`** outside production, so N+1s and silent attribute misses fail loudly.
+<!-- if:tenancy -->
+- **Tenancy** (root `CLAUDE.md`, Tenancy), all in `AppServiceProvider`:
+  - `$this->app->scoped(CurrentTenant::class)`;
+  - the `tenantId` and `compileTenantPolicy` macros (`database/CLAUDE.md`);
+  - `Context::hydrated(fn (Repository $context) => CurrentTenant::set($context->getHidden('tenant_id')))`
+    (`app/Jobs/CLAUDE.md`);
+  - `Event::listen(ConnectionEstablished::class, …)`: when the default connection (re)connects while a tenant is
+    held, re-run `set_config`. Without it a lost-connection retry runs with no tenant;
+  - `Event::listen(Login::class, SelectTenantOnLogin::class)`: writes the default tenant (`ResolveTenant`'s rule)
+    into the session; nothing when the user has none, since only the `tenant` middleware answers 403 `no_tenant`.
+    `Login` fires for every kind of sign-in, remember-me included;
+  - `Sanctum::usePersonalAccessTokenModel(PersonalAccessToken::class)`.
+
+  `/horizon` stays a platform surface: its gate reads the global `users` table and Horizon shows every tenant's
+  payloads, so the gate never widens.
+<!-- endif -->
 
 ## Rules
 
-- **A binding is the Octane leak site** (`app/CLAUDE.md`): `scoped()` for
-  anything per-request, never a `singleton()` holding request or user state.
-- Bindings are **deferred where possible** — the web tier should not construct
-  clients holding credentials it never uses on that request.
-- A new provider goes in `bootstrap/providers.php`, or none of its bindings,
-  observers, or policies exist.
+- **A binding is the Octane leak site**: `scoped()` for anything per request, never a `singleton()` holding request
+  or user state (`app/CLAUDE.md`).
+- Bindings are **deferred where possible**: the web tier should not build clients holding credentials it does not use
+  on that request.
+- A new provider goes in `bootstrap/providers.php`, or none of its bindings, observers or policies exist.
 - Middleware is registered in `bootstrap/app.php`, not here.

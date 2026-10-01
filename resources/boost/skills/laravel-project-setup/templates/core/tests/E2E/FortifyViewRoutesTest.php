@@ -6,19 +6,25 @@ use Illuminate\Support\Facades\Route;
 
 uses(RefreshDatabase::class);
 
-it('answers GET /login and /register without a server error while the auth views are off', function () {
+it('registers no GET auth page while the auth views are off', function () {
     expect(Route::has('login'))->toBeFalse()
         ->and(Route::has('register'))->toBeFalse();
 
-    foreach (['/login', '/register'] as $path) {
 <!-- if:spa -->
-        // The SPA's Route::fallback answers these paths.
-        expect($this->get($path)->status())->toBeLessThan(500);
+    expect(route('login.store', absolute: false))->toBe('/api/auth/login');
+
+    foreach (['/api/auth/login', '/api/auth/register'] as $path) {
+        $this->get($path)->assertMethodNotAllowed();
+    }
+
+    // The SvelteKit app's page: Laravel answers nothing there.
+    $this->get('/login')->assertNotFound();
 <!-- endif -->
 <!-- unless:spa -->
+    foreach (['/login', '/register'] as $path) {
         $this->get($path)->assertMethodNotAllowed();
-<!-- endif -->
     }
+<!-- endif -->
 });
 
 it('registers, signs out and signs in through the form endpoints, answering in JSON', function () {
@@ -70,6 +76,9 @@ it('mails a working password reset link from the forgot-password form', function
     expect($messages)->toHaveCount(1);
 
     $body = html_entity_decode($messages->sole()->getOriginalMessage()->getHtmlBody());
+<!-- if:spa -->
+    expect($body)->not->toContain('/api/auth');
+<!-- endif -->
     expect(preg_match('#'.preg_quote(url('/reset-password'), '#').'/([^?"\s]+)\?email=ana%40{{app}}\.test#', $body, $link))->toBe(1);
 
     $this->post(route('password.update'), [

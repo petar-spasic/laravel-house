@@ -1,64 +1,103 @@
-Two tiers, **same stack, different web server**. Both run Postgres 16, Redis 7,
-Horizon and the scheduler; the only thing that differs is what serves PHP:
+Two tiers, **same stack, different web server**. Both run Postgres 16, Redis 7, Horizon and the scheduler. Only what
+serves PHP differs:
 
 | Tier | Files | Server | Why |
 |------|-------|--------|-----|
-| **local** | `Dockerfile.local`, `docker-compose.local.yml` | nginx + php-fpm + Vite HMR + Xdebug, scheduler + Horizon in the same container | Fresh PHP process per request so **Xdebug breakpoints work** — debugging under FrankenPHP's warm workers is effectively impossible. Bind-mounted source; deps install on start (sha256-sentinel-guarded). |
-| **prod** | `Dockerfile`, `docker-compose.yml`, `.env.prod` | **FrankenPHP + Octane** as www-data, `schedule:work` and `horizon` in the same container under supervisor | Long-running workers, fast reads. |
+| **local** | `Dockerfile.local`, `docker-compose.local.yml` | Caddy → php-fpm + Xdebug, and the Vite dev server; scheduler + Horizon in the same container | A fresh PHP process per request, so **Xdebug breakpoints work**. Bind-mounted source; dependencies install on start when a lockfile changed. |
+| **prod** | `Dockerfile`, `docker-compose.yml`, `.env.prod` | **FrankenPHP + Octane** as www-data; `schedule:work` + `horizon` in the same container under supervisor | Warm workers, fast reads. |
 
-**The Docker local stack IS the dev environment** — not `composer run dev`,
-not sqlite. The host-side `.env` points at the sidecars through their
-published ports (main {{db_port}}/{{redis_port}}; a worktree: the ports its generated `.env`
-names), so `php artisan …`, `php artisan test` and tinker on the host see
-exactly the data that checkout's container serves. Never introduce a driver
-difference between local and prod (sqlite here, Postgres there; `sync` queue
-here, Redis there) — that is how "works locally" bugs are born. The E2E suite
-runs on the same Postgres (`{{app}}_test`, created by
-`docker/postgres/init-test-db.sql` on a fresh volume); `phpunit.xml` forces the
-test database and drivers and `tests/bootstrap.php` mirrors them into `$_SERVER` (where compose's env would
-otherwise win), so `php artisan test` is safe on the host and in the container.
+**The Docker local stack IS the dev environment**: not `composer run dev`, not sqlite. The host `.env` reaches the
+sidecars through their published ports (main {{db_port}}/{{redis_port}}; a worktree: the ports its generated `.env`
+names). So `php artisan …`, `php artisan test` and tinker on the host see the data that checkout's container serves.
+Never let a driver differ between local and prod (sqlite here, Postgres there; `sync` here, Redis there): that is how
+"works locally" bugs are born.
 
-```
-docker compose -f docker-compose.local.yml up --build          # http://localhost:{{web_port}} (Vite front → nginx), /horizon
+Tests run on the same Postgres, in `{{app}}_test` (created by `docker/postgres/init-test-db.sql` on a fresh volume).
+`phpunit.xml` forces the test database and drivers, and `tests/bootstrap.php` mirrors them into `$_SERVER`, where
+compose's env would otherwise win. So `php artisan test` is safe on the host and in the container.
+
+```shell
+docker compose -f docker-compose.local.yml up --build          # http://localhost:{{web_port}} (Caddy → php-fpm and Vite), /horizon
 cp .env.prod.example .env.prod && docker compose --env-file .env.prod up -d --build
 ```
 
-- **Stack names come from `COMPOSE_PROJECT_NAME` in `.env`** (compose refuses
-  to start without it): main is `{{app}}-local` → containers
-  `{{app}}-local-{app,postgres,redis}-1`. Never add `container_name`, a
-  volume/network `name:` or `image:` to `docker-compose.local.yml`.
-- **Worktree stacks**: each `.claude/worktrees/<name>` runs its own stack
-  `{{app}}-wt-<name>` from the same compose file, with a generated `.env` (own
-  ports, Xdebug off) — `vendor/bin/kanban stack create`.
-- **Opened from another machine**: `LOCAL_APP_URL=http://<LAN address>:{{web_port}}`
-  in `.env`. Compose passes it as the container's `APP_URL`, which Vite writes
-  into `public/hot` as the one asset origin — with `localhost` there, the page
-  loads but every asset fails with `ERR_CONNECTION_REFUSED`. The board page (`/kanban`) answers only to IPs,
-  `localhost`/`*.localhost`, `*.test` and the host of `LOCAL_APP_URL` (more via `kanban.ui.hosts`).
-- **The board page (`/kanban`)** syncs from the app container with the clone's deploy key and `GIT_SSH_COMMAND`; check
-  with `docker compose -f docker-compose.local.yml exec app vendor/bin/kanban sync` (never `-u root`).
-  `KANBAN_USER` names who edits from it, `KANBAN_UI_TOKEN` gates it (no login otherwise).
-- **Binds**: the web port (with the reverb module, the WebSocket port too) publishes on `WEB_BIND` (default `0.0.0.0`,
-  so the stack is LAN-visible; `127.0.0.1` keeps it on this machine), the Postgres and Redis ports on `SIDECAR_BIND`
-  (default `127.0.0.1`); override either in `.env`. The web bind stays an explicit IPv4 address: the Horizon gate reads
-  a bare publish's IPv6 clients as the host.
-- **PHP {{php_version}} everywhere** — the host (tests, artisan), the lock and both images.
-- **Boot** (`docker/docker-entrypoint*.sh`): deps (local), rebuild the package
-  manifest (never trust a `bootstrap/cache` from another image; only `storage/` is
-  a volume), clear config/routes/events/views (local), wait for the database,
-  migrate once and loudly, seed only as `DATABASE_SEED` says (`database/CLAUDE.md`),
-  cache config/routes/events/views (prod), then supervisor.
-- **Queues are Horizon's** (`config/horizon.php`), never `queue:work`: Redis
-  `retry_after` (`REDIS_QUEUE_RETRY_AFTER`, 90 s) > Horizon's job `timeout`
-  (60 s) > the longest job. A longer job raises both, in that order, plus
-  supervisor's `stopwaitsecs` for Horizon (70 s) and the compose
-  `stop_grace_period` (80 s), so SIGTERM lets an in-flight job finish.
-- `docker/healthcheck.sh` checks `/up` and every process: the web server
-  (Octane, or nginx + php-fpm + Vite locally), the scheduler, Horizon, supervisord.
-- Prod publishes `127.0.0.1:${WEB_PORT}` only: TLS terminates at a reverse
-  proxy on the host, trusted through `TRUSTED_PROXIES` (`bootstrap/app.php`,
-  `docker/Caddyfile`). `OCTANE_WORKERS` × `PHP_MEMORY_LIMIT` fits the box's RAM.
-- Xdebug: `xdebug.start_with_request=trigger` — set the `XDEBUG_TRIGGER`
-  cookie / query param and map `/app` → the repo root in the IDE
-  (`PHP_IDE_CONFIG=serverName={{app}}`; `XDEBUG_MODE` / `XDEBUG_SERVER_NAME`
-  in `.env` override); CLI processes in the container use the same mapping.
+- **Stack names** come from `COMPOSE_PROJECT_NAME` in `.env`; compose refuses to start without it. Main is
+  `{{app}}-local`, so its containers are `{{app}}-local-{app,postgres,redis}-1`. Never add `container_name`, a volume
+  or network `name:`, or `image:` to `docker-compose.local.yml`.
+- **Worktree stacks**: each `.claude/worktrees/<name>` runs its own stack, `{{app}}-wt-<name>`, from the same compose
+  file. Its generated `.env` sets its own ports and turns Xdebug off (`vendor/bin/kanban stack create`).
+- **Opened from another machine**: set `LOCAL_APP_URL=http://<LAN address>:{{web_port}}` in `.env`. Compose passes it
+  as the container's `APP_URL`, and Vite writes it into `public/hot` as the asset and HMR origin. Apply it with
+  `docker compose -f docker-compose.local.yml up -d`; a `restart` keeps the old value. With `localhost` there, the page
+  loads but every asset fails. The board (`/kanban`) answers only to IPs, `localhost`/`*.localhost`, `*.test` and the
+  host of `LOCAL_APP_URL` (more via `kanban.ui.hosts`).
+- **Passkeys** take their relying party and allowed origin from `APP_URL`. Locally they work only while `APP_URL` is
+  `http://localhost:<the stack's web port>` (`LOCAL_APP_URL` unset or set to that) and the browser is on exactly that
+  origin: not `127.0.0.1`, a LAN address or a `.test` name. WebAuthn needs a secure context and a domain, and over http
+  only `localhost` is both. Worktree stacks take the host of main's `LOCAL_APP_URL` unless `KANBAN_HOST` is set.
+- **Social sign-in** (when built): register `https://{{domain}}/auth/{provider}/callback` with each provider
+  (`/api/auth/{provider}/callback` with spa). Locally it is the same path on `http://localhost:{{web_port}}`, under the
+  same condition as passkeys.
+- **Local routing** (`docker/Caddyfile.local`, whose comments own the details): Vite's dev paths and `/__vite_hmr` go
+  to Vite, everything else to php-fpm. No route lives under `/@…`, `/resources/` or `/node_modules/`. Apply an edit
+  with `docker compose -f docker-compose.local.yml exec app supervisorctl restart caddy`.
+- **The board page (`/kanban`)** syncs from the app container with the clone's deploy key (`GIT_SSH_COMMAND`). Check
+  it with `docker compose -f docker-compose.local.yml exec app vendor/bin/kanban sync`, never as `-u root`.
+  `KANBAN_USER` names who edits from the page. `KANBAN_UI_TOKEN` gates it; it has no login otherwise.
+- **Binds**: the web port (with the reverb module and no spa, the WebSocket port too) publishes on `WEB_BIND`,
+  default `0.0.0.0`, so the stack is LAN-visible; `127.0.0.1` keeps it on this machine. Postgres and Redis publish on `SIDECAR_BIND`,
+  default `127.0.0.1`. Override either in `.env`. The web bind stays an explicit IPv4 address: the Horizon gate reads a
+  bare publish's IPv6 clients as the host.
+- **PHP {{php_version}} everywhere**: the host (tests, artisan), the lock and both images.
+- **Boot** (`docker/docker-entrypoint*.sh`): dependencies (local); rebuild the package manifest (only `storage/` is a
+  volume, never `bootstrap/cache`); clear caches (local); wait for the database; migrate once and loudly; seed only as
+  `DATABASE_SEED` says (`database/CLAUDE.md`); build caches (prod); start supervisor.
+- **Queues are Horizon's** (`config/horizon.php`), never `queue:work`. Redis `retry_after`
+  (`REDIS_QUEUE_RETRY_AFTER`, 90 s) > Horizon's job `timeout` (60 s) > the longest job. A longer job raises both, in
+  that order, plus supervisor's `stopwaitsecs` for Horizon (70 s) and the compose `stop_grace_period` (80 s), so
+  SIGTERM lets an in-flight job finish.
+- **Health**: `docker/healthcheck.sh` checks `/up` and every process: the web server (Octane in prod; Caddy, php-fpm
+  and Vite when it runs locally), the scheduler, Horizon and supervisord.
+- **Prod** publishes `127.0.0.1:${WEB_PORT}` only. TLS ends at a reverse proxy on the host. Laravel trusts that proxy
+  through `TRUSTED_PROXIES` (`bootstrap/app.php`): its address as its requests arrive in the container. The entrypoint
+  refuses an empty value. `OCTANE_WORKERS` × `PHP_MEMORY_LIMIT` fits the box's RAM.
+- **Xdebug** starts on trigger (`xdebug.start_with_request=trigger`): set the `XDEBUG_TRIGGER` cookie or query param,
+  and map `/app` to the repo root in the IDE (`PHP_IDE_CONFIG=serverName={{app}}`). `XDEBUG_MODE` and
+  `XDEBUG_SERVER_NAME` in `.env` override it. CLI processes in the container use the same mapping.
+- **With the spa module**, these replace the Vite parts of Local routing and Opened from another machine:
+  - **Two apps behind one Caddy port.** Laravel answers `/api`, `/sanctum`, `/horizon`, `/up` and `/storage` (plus
+    `/kanban` locally); SvelteKit answers everything else. A Laravel path outside those prefixes is an edit to
+    `docker/Caddyfile` and `docker/Caddyfile.local`, and `php artisan route:list` stays covered (laravel-deployment,
+    `references/spa.md`).
+  - **Processes.** Local: Caddy → php-fpm (Xdebug) and SvelteKit's `vite dev` on 127.0.0.1:5173 (program `vite`), HMR
+    through the web port. Prod: FrankenPHP's Caddy → Octane, and `node build` on 127.0.0.1:3000 (program `ssr`). In
+    prod and on the e2e site, Caddy serves `frontend/build`'s files itself, with their cache headers and
+    `frame-ancestors` (`docker/Caddyfile.frontend`). With reverb, Echo reaches Reverb at `/app/*` on the same port; no
+    WebSocket port is published.
+  - **Server-side calls** from SvelteKit go to `API_INTERNAL_URL` (Caddy on 127.0.0.1:8080), never the public origin.
+    So the web port is never 8080.
+  - **Env.** `SANCTUM_STATEFUL_DOMAINS` lists every origin the app is browsed at: `.env.prod` in prod; locally
+    compose's `localhost` and `127.0.0.1` at the web port plus `LOCAL_APP_URL`'s host. `PUBLIC_APP_URL` equals
+    `APP_URL`: compose sets it locally, and the prod image is built per URL (a build arg). The prod image installs only
+    `frontend/`'s `dependencies`.
+  - **Health:** `/up`, plus `127.0.0.1:3000/healthz` inside the container. `/healthz` answers 404 from outside.
+  - **Browser tests:** `docker compose -f docker-compose.local.yml exec app docker/e2e.sh`. They run on `{{app}}_test`
+    through loopback-only e2e sites, never the dev data, and `php artisan test` refuses while they run. The e2e site's
+    Laravel env is the `(e2e_php)` snippet in `docker/Caddyfile.local`. The local image holds Chromium for the exact
+    `@playwright/test` pin.
+  - Until `frontend/package.json` exists, the local stack runs without a dev server and the prod image does not build.
+- **With the tenancy module**:
+  - **Two database roles.** The app connects as `{{app}}_app` (`DB_USERNAME`): not superuser, no BYPASSRLS, owns
+    nothing. So row-level security binds the web, Horizon, the scheduler, `db:seed` and the tests. `{{app}}`
+    (`POSTGRES_USER`, a superuser) owns the databases and tables, and only migrates.
+  - **Migrations** run through the `pgsql_owner` connection: `pgsql`'s keys and `DB_*` variables with no `url`, plus
+    the owner's name and `DB_OWNER_PASSWORD`. With no `url`, phpunit's forced `DB_DATABASE` reaches it too; an owner
+    connection to any other database would let the tests' `migrate:fresh` wipe the dev database. Every `migrate*` takes
+    `--database=pgsql_owner`: the entrypoints, `TestCase::artisan()` for the tests, `docker/e2e.sh` with spa. App code
+    never uses it.
+  - **Passwords** are hardcoded in the local compose. In prod, `.env.prod` holds `DB_PASSWORD` (the app role) and
+    `DB_OWNER_PASSWORD`. `DB_OWNER_PASSWORD` stays the password the volume was created with: Postgres reads it only at
+    first init, so changing it takes an `ALTER ROLE {{app}}` first.
+  - **`docker/postgres/roles.sql`** creates the app role and its grants in `{{app}}` and `{{app}}_test`; initdb runs
+    it on a fresh volume. An existing volume (each worktree stack has its own) or a `DB_PASSWORD` change takes the
+    steps in laravel-deployment's `references/tenancy.md`, Existing volumes.

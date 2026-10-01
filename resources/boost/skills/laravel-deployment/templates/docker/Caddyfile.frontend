@@ -1,0 +1,50 @@
+# spa: SvelteKit's adapter-node build (frontend/build) behind Caddy. Client assets and prerendered pages come off disk,
+# everything else from the Node server on 127.0.0.1:3000. Imported inside a site's `route {}` after Laravel's paths, by
+# the prod docker/Caddyfile and the e2e site of docker/Caddyfile.local (references/spa.md).
+# One matcher and one root per directory: a file matcher's root only scopes the existence check and never rewrites.
+
+@client file {
+	root /app/frontend/build/client
+	try_files {path}
+}
+handle @client {
+	root * /app/frontend/build/client
+	# Written order: everything revalidates, then hashed chunks, which never change under one name, are immutable.
+	route {
+		header Cache-Control "no-cache"
+		header /_app/immutable/* Cache-Control "public, max-age=31536000, immutable"
+	}
+	file_server {
+		precompressed br gzip
+	}
+}
+
+# {path} first: prerendered __data.json and +server outputs keep their own names.
+@prerendered file {
+	root /app/frontend/build/prerendered
+	try_files {path} {path}.html {path}/index.html
+}
+handle @prerendered {
+	root * /app/frontend/build/prerendered
+	rewrite * {file_match.relative}
+	header Cache-Control "no-cache"
+	# A <meta> CSP cannot carry frame-ancestors; keep it equal to kit.csp's.
+	header Content-Security-Policy "frame-ancestors 'none'"
+	file_server {
+		precompressed br gzip
+	}
+}
+
+# A missing hashed chunk is a 404, never a page: HTML served for a JS URL hides a broken deploy. Only
+# /_app/immutable/*: /_app/env.js and remote functions come from Node.
+@missingchunk path /_app/immutable/*
+handle @missingchunk {
+	header Cache-Control "no-store"
+	respond 404
+}
+
+handle {
+	reverse_proxy 127.0.0.1:3000 {
+		header_up X-Real-IP {client_ip}
+	}
+}

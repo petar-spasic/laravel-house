@@ -10,6 +10,8 @@ echo "env: $(env -0 | while IFS= read -r -d '' kv; do echo "${kv%%=*}"; done | g
 case "${OCTANE_WORKERS:?OCTANE_WORKERS unset in .env.prod}" in
     ''|*[!0-9]*|0) echo "OCTANE_WORKERS must be a positive number, never auto, got '${OCTANE_WORKERS}'"; exit 1 ;;
 esac
+# Empty leaves the reverse proxy untrusted: every client shares its address and URLs come out http://.
+[ -n "${TRUSTED_PROXIES:-}" ] || { echo "TRUSTED_PROXIES is empty: set the reverse proxy's address as requests arrive in the container"; exit 1; }
 
 mkdir -p storage/app/private storage/app/public storage/framework/cache/data storage/framework/sessions storage/framework/views storage/logs bootstrap/cache
 chmod -R 775 storage bootstrap/cache 2>/dev/null || true
@@ -45,11 +47,11 @@ php artisan view:cache
 
 # exec: the program itself is supervisor's child and gets SIGTERM, so stopwaitsecs is honoured;
 # a `cmd | sed` wrapper would die first and the kernel would SIGKILL the real process.
-program() { # name command [stopwaitsecs]
+program() { # name command [stopwaitsecs] [directory under /app]
 cat > "/etc/supervisor/conf.d/$1.conf" <<CONF
 [program:$1]
 command=bash -c "exec $2 > >(sed -u 's/^/[$1] /') 2>&1"
-directory=/app
+directory=/app${4:+/$4}
 autostart=true
 autorestart=true
 stopasgroup=false
@@ -61,12 +63,18 @@ stopwaitsecs=${3:-10}
 CONF
 }
 
+# conf.d survives `docker compose restart`: start from the programs this boot configures.
+rm -f /etc/supervisor/conf.d/*.conf
 program web "php artisan octane:frankenphp --host=0.0.0.0 --port=8080 --workers=${OCTANE_WORKERS} --log-level=${OCTANE_LOG_LEVEL:-WARN} --caddyfile=/app/docker/Caddyfile" 30
 program scheduler "php artisan schedule:work"
 # Horizon owns the worker pool (config/horizon.php). stopwaitsecs covers its job
 # timeout (60 s) so an in-flight job finishes on SIGTERM; the compose
 # stop_grace_period stays above it.
 program horizon "php artisan horizon" 70
+
+# Last, after every program: supervisord stops one group after another, but a group's programs together, so the stop
+# takes the longest stopwaitsecs, not their sum. supervisorctl names them app:web, app:horizon, …
+printf '[group:app]\nprograms=%s\n' "$(cd /etc/supervisor/conf.d && ls *.conf | sed 's/\.conf$//' | paste -sd,)" > /etc/supervisor/conf.d/zz-group.conf
 
 echo "=== supervisord ==="
 exec /usr/bin/supervisord -n -c /etc/supervisor/supervisord.conf

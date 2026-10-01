@@ -1,139 +1,377 @@
-# CLAUDE.md — Frontend (SvelteKit SPA)
+# CLAUDE.md — Frontend (SvelteKit)
 
-Scope: everything under `frontend/`. Project-wide context (stack, the E2E-only
-test rule, git rules) lives in the root `CLAUDE.md`; backend architecture
-(layers, API design, validation) in `app/CLAUDE.md` and its layer files.
+Scope: `frontend/`, the SvelteKit app on Node. It reaches Laravel only over HTTP on the page's own origin; Caddy splits
+the paths (root `CLAUDE.md`, Frontend).
+
+## First frontend change
+
+`frontend/` holds only this file until the first card that needs a page. That card creates the app inside the app
+container (php and `PUBLIC_APP_URL` are there), with the owner's approval of the packages:
+
+1. From the repo root:
+   `npx sv@0.17.1 create frontend --template minimal --types ts --add tailwindcss="plugins:none" sveltekit-adapter="adapter:node" --no-install --no-dir-check`.
+   No playwright add-on: the house setup replaces its demo routes, preview server and `playwright install`.
+2. In `frontend/`:
+   - `npm install`
+   - `npm install -D --save-exact zod shadcn-svelte @playwright/test`
+   - `npm install -D sveltekit-superforms formsnap bits-ui tailwind-variants clsx tailwind-merge tw-animate-css @lucide/svelte @laravel/passkeys`
+<!-- if:reverb -->
+   - `npm install -D laravel-echo pusher-js`
+<!-- endif -->
+3. The `check` script is
+   `php ../artisan validation:export --check && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json`. No script
+   runs `playwright install`.
+4. `src/hooks.server.ts` with the `handle` in Guards, `/healthz` first.
+5. `vite.config.ts` per Config; `components.json`, `src/lib/utils.ts`, the CSS and `scripts/check-ui.mjs` per
+   Components; `playwright.config.ts` per `tests/CLAUDE.md`, Browser flows.
+6. Commit `package.json` and `package-lock.json`, then rebuild the stack (`up -d --build`): the entrypoint then runs
+   `npm ci` and starts `vite`, and the image installs the browser for the `@playwright/test` pin (Hosting).
 
 ## Stack
 
-- **Framework:** SvelteKit with Svelte 5, `@sveltejs/adapter-static`
-- **State:** Svelte 5 runes (`$state`, `$derived`, `$effect`)
-- **Forms:** Zod for validation
-- **HTTP:** Axios
+The packages in step 2 and nothing else without the owner's approval (convention 6): SvelteKit 2 with Svelte 5 runes,
+adapter-node, TypeScript, Tailwind 4, shadcn-svelte, superforms + formsnap on `zod` 4, Playwright. HTTP is
+SvelteKit's `fetch` only. Icons come from `@lucide/svelte` only, never emoji.
+
+- Every package is a devDependency: adapter-node bundles it into `build/`. One that must stay external (native code)
+  goes in `dependencies`, which the prod image installs.
+- Three are pinned exactly: `zod` (the parity proofs depend on its regexes; a bump reruns them), `shadcn-svelte` (the
+  `ui/` gate) and `@playwright/test` (the image's browser matches it).
+
+## Config
+
+- Kit options live inline in `vite.config.ts`, top-level with no `kit:`:
+  `sveltekit({ adapter: adapter(), csp: { … } })`. No `svelte.config.js` (ignored when the Vite config holds options).
+- Keep the defaults Caddy relies on: `trailingSlash: 'never'` (`/about` is served from `about.html`), `appDir: '_app'`,
+  no `paths.base`, adapter-node's `out: 'build'` and `precompress: true`.
+- The dev server is `vite dev` on 127.0.0.1:5173 behind Caddy, started by the entrypoint. No `server.proxy`,
+  `server.hmr`, `server.ws` or `host`; named hosts go in `server.allowedHosts` (`'.test'`), never `true`.
+- Env:
+  - server-only settings: `$env/dynamic/private` at runtime (`API_INTERNAL_URL`), reaching a page only through a
+    server load;
+  - what the browser or a prerendered page needs: `PUBLIC_*` from `$env/static/public`, baked in at build
+    (`PUBLIC_APP_URL` = `APP_URL`), so the image is built per public URL. `vite dev`, `npm run check` and every
+    build need it; Hosting supplies it;
+  - never `$env/static/private`.
+- No remote functions: the API is `/api/v1`, and form actions cover the rest.
+- `src/app.d.ts` types `App.Locals`, `App.PageData` and `App.Error`.
+- No SvelteKit route under `/api`, `/sanctum`, `/horizon`, `/up`, `/storage`, `/kanban` or `/healthz`: Caddy sends
+  those paths elsewhere.
 <!-- if:reverb -->
-- **Real-time:** laravel-echo + pusher-js (Reverb client)
+  Nor under `/app`, which is Reverb's.
 <!-- endif -->
 
-Any other package needs owner approval (root `CLAUDE.md`, convention 6).
+## Components: shadcn-svelte
 
-## Build and serving
+`src/lib/components/ui/` is exactly what the pinned CLI writes and is never edited.
 
-- **Local:** nginx serves the built SPA and the API on the web port — one
-  origin (root `CLAUDE.md`, Hosting). There is no Vite dev server and no hot
-  reload: a frontend change needs a rebuild, `npm run build` in `frontend/`
-  (inside the container; `laravel-deployment`'s `references/spa.md`).
-- **Prod build:** `npm run build`. adapter-static emits into `frontend/build/`
-  — its own directory, because it wipes its output (never Laravel's
-  `public/`) — then the `postbuild` hook (`frontend/scripts/copy-spa.mjs`)
-  copies the `_app/` asset tree and the `spa.html` shell into `public/`
-  without touching `index.php`/`.htaccess`.
-- **Serving:** same-origin with the API in EVERY environment (that's what makes
-  Sanctum cookie auth work). Prod routing is `docker/Caddyfile` — PHP only for
-  backend routes; deep links fall back to the shell via `Route::fallback` in
-  `routes/web.php`.
+- **No `init`**: it calls a live endpoint that cannot be pinned, injects a font and re-pins `shadcn-svelte@latest`.
+  Its outputs are project files, written once:
+  - `components.json`: `"style": "vega"` (always explicit: an unknown style silently becomes another),
+    `"typescript": true`, `tailwind.css` = `src/routes/shadcn.css`, aliases `$lib`, `$lib/utils`, `$lib/components`,
+    `$lib/components/ui` and `$lib/hooks`, and `registry` =
+    `https://raw.githubusercontent.com/huntabyte/shadcn-svelte/shadcn-svelte@<version>/docs/static/registry`, where
+    `<version>` is the exact `shadcn-svelte` devDependency;
+  - `src/lib/utils.ts`: `cn()` built on `clsx` + `tailwind-merge`, plus the types `WithElementRef`, `WithoutChild`,
+    `WithoutChildren` and `WithoutChildrenOrChild`; an `add` that rewrites it is reverted to this;
+  - `scripts/check-ui.mjs` and its `check:ui` script (the gate, below).
+- **CSS**: `src/routes/layout.css` is the one Tailwind entry, imported by the root layout. It imports, in this order,
+  `tailwindcss`, `tw-animate-css`, `shadcn-svelte/tailwind.css`, `./shadcn.css` and `./theme.css`, then holds the
+  house `@theme`.
+  - `shadcn.css` is CLI-managed: no `@import "tailwindcss"`, only its `@theme inline`, `:root`/`.dark` and a
+    hand-declared `@custom-variant dark (&:is(.dark *))`.
+  - `theme.css` maps `--primary`, `--radius`, … in `:root` and `.dark` onto the house tokens. The CLI never touches it
+    and it comes last, so an `add` rewriting `shadcn.css` changes nothing visible. House tokens never use shadcn's
+    names (no `--color-primary`, `--color-background`, …).
+- **Add** from `frontend/` with the pinned local CLI (`npx shadcn-svelte add <name>`), only what a screen imports;
+  remove a component nothing uses. Review the rest of its diff; a new package needs approval.
+- The project's UI layer lives in `src/lib/components/<area>/`, never in `ui/`: looks through the `class` prop (`cn`
+  merges it last), variants through `tv({ extend: buttonVariants, … })`, behaviour through a wrapper component.
+- **Update**: bump the pin and the registry tag together, rerun `add <every installed component> --yes --overwrite`,
+  commit `ui/`. Generated code failing `npm run check` means another pin (ask the owner), never an edit.
+- **The gate is `npm run check:ui`.** It fails unless `components.json` names the pinned tag and sets `style`. Then,
+  in a temp dir, it runs `npx shadcn-svelte@<version> add <every directory in ui/> --yes --overwrite --no-deps` and
+  fails on any diff in `ui/`, printing it. The temp dir holds:
+  - a `package.json` with only the project's `svelte` and `tailwindcss` ranges (no `@sveltejs/kit`, so the CLI skips
+    `svelte-kit sync`);
+  - a `tsconfig.json` mapping `$lib` and `$lib/*` to `./src/lib`;
+  - copies of `components.json` and the CSS files.
 
-## Component architecture
+  It needs the registry host, so it is not in `npm run check`. Run it before a push touching `ui/`, `components.json`
+  or the pin, and after every update.
 
-Shared primitives live in one directory under `frontend/src/lib/components/`
-and are never modified in place — wrap them. Feature components are grouped by
-domain directory, one dir per area.
+## Forms
 
-## UX & design-system standards
+Laravel validates; the browser copy only gives fast feedback. Every form is shadcn's `form` (formsnap) on
+sveltekit-superforms.
 
-**Never make users type identifiers.** No form may ask for an id in a text
-input — every entity reference goes through the searchable `EntityPicker`
-combobox, backed by the per-resource `GET {resource}/search` +
-`GET {resource}/autocomplete` endpoints (the picker sends **`term` +
-`limit`**, optionally id FK filter params to scope results). Closed
-vocabularies (currency, country, status, …) use a Select — never free text.
+- **Schemas come only from the export** (`app/Requests/CLAUDE.md`), committed and never edited:
+  `import * as register from '$lib/validation/generated/register'`.
+- **Adapters** come from `sveltekit-superforms/adapters`: `zod4(register.schema(locale))` on the server and for
+  `defaults()`, `zod4Client(register.schema(locale))` as the client `validators`. Build `schema()` once per locale.
+- `dataType: register.dataType`. It is `'json'` for nested objects, arrays of objects or arrays of arrays: the form
+  then uses `use:enhance` and needs JavaScript. Arrays of primitives are repeated inputs. Arrays are never nullable
+  in the schema: an empty one posts `[]` (`app/Requests/CLAUDE.md`).
+- **A form posted to Node** is a form action, working without JS and calling `/api/v1` only.
+  - `load` returns `{ form: await superValidate(zod4(…)) }`.
+  - The action runs `superValidate(request, zod4(…))`: invalid input returns `fail(400, { form })`. Otherwise it calls
+    Laravel with `event.fetch`. A 422 goes through the helper, then `fail(422, { form })`; success is `message()` or
+    `redirect(303, …)`.
+  - Upload fields (the schema strips them): read the body once, `const fd = await request.formData()`, run
+    `superValidate(fd, zod4(…))`, take the files from `fd` and send them to Laravel as multipart.
+- **A form that calls `/api/auth/*`** runs in the browser:
+  `superForm(defaults(zod4(…)), { SPA: true, validators: zod4Client(…), dataType, onUpdate })`, where `onUpdate`
+  calls Laravel through the browser client and maps a 422 with the same helper.
+- **The 422 helper**, `applyLaravelErrors(form, errors, adapter)` in `src/lib/forms/laravel-errors.ts`, calls
+  `setError` once per key:
+  - branches come from `adapter.shape` (the full `zod4` adapter), never `form.shape` (undefined on a posted form);
+  - dotted keys become superforms paths: `items.0.name` → `items[0].name`;
+  - a key naming an object or an array (`items`, `address`, `items.3`) gets `._errors`;
+  - a key outside the schema becomes a form-level error: `setError(form, '', messages)`.
 
-Design tokens live in one CSS file, an **oklch** color system; icons come from
-one icon set, **never emoji**.
-
-Interaction baseline every surface meets:
-
-- **Forms:** generated-Zod validation with real-time inline errors (see
-  Validation below); multi-step flows use one shared wizard.
-- **Loading states:** skeleton screens while data loads — never a blank pane.
-- **Tables:** one shared data-table wrapper (server-side sorting, filtering,
-  row selection, bulk actions via the backend `{resource}/bulk-action`
-  endpoints, pagination, CSV export).
-- **Search/filter:** debounced inputs, quick-filter chips + saved views,
-  clear-all.
-- **Feedback:** toasts for success/error, confirmation dialogs (one shared
-  `confirmAction`) before destructive actions.
-
-<!-- if:reverb -->
-## Realtime (SPA side)
-
-Channel auth, payload rules and the operational requirements are in
-`app/Events/CLAUDE.md` (Broadcasting).
-
-- **One reconnect spine.** `frontend/src/lib/realtime/connection.ts` binds the
-  pusher connection state once on the Echo singleton (`echo.ts`) and exposes
-  `onReconnect(cb): Unregister`, which fires only on a TRUE reconnect (a
-  `connected` after a real drop, flaps debounced — never the first connect);
-  `disconnectEcho()` clears the registry at logout. Every feature re-auths and
-  backfills through it — never a feature-specific reconnect handler.
-- **"Live" is refetch-on-event.** A list that can have gaps keeps a
-  `lastSeenId` watermark and on reconnect merges the gap from a keyset
-  `…/since` endpoint (dedupe by id) instead of refetching the list; incoming
-  deltas merge in place too.
-- **Ordering is a client guard:** every insert path (initial load, optimistic
-  send, append, delta, backfill, load-older) goes through one setter that
-  dedupes by id and sorts by `(created_at, id)` ascending — the server's keyset
-  order.
-- **Counters reconcile from server truth:** a broadcast carries the
-  recipient's authoritative count; new arrivals are announced in a polite
-  `aria-live` region.
-
-<!-- endif -->
-## Route protection
-
-- Layout groups: `src/routes/(auth)/` is guarded, `src/routes/(public)/` is
-  not. `(auth)/+layout.svelte` guards via `$effect` + `beforeNavigate` on
-  `authStore.isAuthenticated`, redirecting to `/login`.
-- Navigation is one annotated catalog, `navigationCatalog` in
-  `lib/config/navigation.ts`: each item names the permission it requires
-  (`null` = any signed-in user), and `deriveNavigation(user)` filters it,
-  dropping empty sections. A zero-permission user sees the empty-but-safe shell
-  (real identity, no feature nav).
+  An array item's error renders from either shape, `string[]` or `{ _errors }`: superforms stores indexes 0–9 and 10+
+  differently.
+- Server-only rules (unique, exists, …) are listed at the top of each generated file and reach their field through
+  the 422.
+- Numeric fields are `<input type="number">`. Never spread `$constraints` onto inputs (a `pattern` loses its flags).
+  formsnap's `Control` props carry the name, id and aria attributes.
 
 ## API client
 
-- One axios instance, `frontend/src/lib/api/client.ts`: `baseURL` `/api/v1`,
-  `withCredentials` + `withXSRFToken`. The CSRF bootstrap
-  (`initializeSanctum`, `/sanctum/csrf-cookie`) runs before the first
-  authenticated request.
-- **Only the authoritative `/auth/me` probe clears auth** in the shared 401/419
-  interceptor; an incidental 401/419 on any other call rejects to its caller
-  untouched — a raced post-login call must never bounce a fresh login back to
-  `/login`.
-- `login()` (`lib/api/auth.ts`) settles the regenerated session with ONE serial
-  `GET /auth/me` (after the CSRF re-prime) before returning, so the parallel
-  post-login burst never meets a half-written session.
-- Speculative probes — the `/login`, `/`, `/register` guards, where a 401 is the
-  expected answer — call `probeSession()`, which flags the request so the
-  interceptor skips `clearAuth()`. Never exempt by pathname: during a SvelteKit
-  load `window.location.pathname` and `page.url` still hold the previous route,
-  and `clearAuth()` → `goto('/login')` → 401 then loops on `/auth/me`.
-  `clearAuth()` redirects only when a session was actually torn down;
-  `(auth)/+layout.ts` keeps plain `me()`, where a 401 is a real teardown.
+One module, `src/lib/api/client.ts`, takes the `fetch` it is given, so the same calls run on both sides
+(`event.fetch` on the server, a load's `fetch` or `window.fetch` in the browser).
 
-## Validation (frontend side)
+- Relative URLs, JSON bodies, and `Accept: application/json` on every call (Fortify answers JSON only then).
+- Failures are typed: a 422 carries the `errors` bag, a 401, 403, 404, 409, 419 or 423 its status. Nothing is
+  swallowed.
+- A response header a universal load reads during SSR goes in
+  `resolve(event, { filterSerializedResponseHeaders })`.
 
-Runtime Zod schemas are GENERATED from backend FormRequests — never
-hand-maintained. An export command writes descriptors to
-`public/dist/validation/*.json`; `zodFromDescriptor` / `FormController` in
-`frontend/src/lib/validation/schema.ts` turn them into runtime schemas. To
-change validation: edit the FormRequest (backend), re-export. Both halves are
-built with the first form.
+### Browser
 
-## Accessibility & keyboard navigation
+- A mutating call sends `X-XSRF-TOKEN`, URL-decoded from the `XSRF-TOKEN` cookie; without that cookie it first calls
+  `/sanctum/csrf-cookie` (`src/lib/api/csrf.ts`, browser-only).
+- **Only the authoritative `GET /api/v1/auth/me` decides the session is gone.**
+  - An incidental 401 or 419 elsewhere rejects to its caller untouched: a call raced after login never signs the user
+    out.
+  - On an authoritative 401 it calls `invalidateAll()` only when `page.data.user` was set, so a reload never loops.
+  - It never navigates to `/login` itself; the server guards redirect.
+- **`probeSession()`** makes the speculative `GET /api/v1/auth/me` calls, where a 401 is expected; a per-call flag
+  stops it tearing anything down. Never decide by pathname: during a load, `page.url` is still the previous route.
+- **Every sign-in settles the session before anything else runs** (login, the two-factor challenge, register,
+  passkey login). After Laravel's success:
+  1. `/sanctum/csrf-cookie` again, because the session was regenerated;
+  2. ONE serial `GET /api/v1/auth/me`;
+  3. `goto(target, { invalidateAll: true })`.
+- Logout: `POST /api/auth/logout`, then `/sanctum/csrf-cookie`, then `goto('/login', { invalidateAll: true })`.
 
-WCAG 2.1 AA + full keyboard navigation are required. Modal focus trapping comes
-from the dialog primitive's built-in focus management; an overlay opened by a
-global keyboard shortcut (no trigger element to restore) captures
-`document.activeElement` on open and refocuses it on close. Every interactive
-element needs an accessible name; dynamic changes announce via live regions;
-contrast ≥4.5:1 (normal) / ≥3:1 (large text & UI); skip links on every page.
+### Server: `handleFetch`
+
+`handleFetch` in `src/hooks.server.ts` rewrites every same-origin `/api/v1/*` request to `API_INTERNAL_URL`, Caddy's
+internal address (Hosting), and sets the headers itself (SvelteKit stops forwarding them once the host changes):
+
+```
+cookie            ← the browser request's Cookie header
+X-XSRF-TOKEN      ← event.cookies.get('XSRF-TOKEN')
+Origin            ← event.url.origin when the XSRF-TOKEN cookie is present; otherwise API_INTERNAL_URL's origin
+X-Forwarded-For   ← the incoming X-Real-IP header, which Caddy sets in every tier
+X-Forwarded-Host  ← event.url.host
+X-Forwarded-Proto ← event.url.protocol.slice(0, -1)
+X-Forwarded-Port  ← event.url.port || (event.url.protocol === 'https:' ? '443' : '80')
+Accept            ← application/json
+```
+
+Never a `Referer`.
+
+- **`Origin` decides whether the call is the browser's session.** The public origin is in `SANCTUM_STATEFUL_DOMAINS`;
+  `API_INTERNAL_URL`'s host:port never is, so an anonymous render starts no Laravel session. Never leave `Origin`
+  unset: SvelteKit then adds the public origin itself.
+- **`API_INTERNAL_URL`'s origin never equals a page's origin**: SvelteKit would answer such a fetch itself (Hosting
+  keeps the web port off 8080).
+- **`Set-Cookie` from a call Node makes never reaches the browser.** Nothing that creates, regenerates or ends a
+  session runs on the server, and no `/api/auth/*` or `/sanctum/*` call either.
+- **API reads go in universal `+page.ts`/`+layout.ts` loads**: inlined during SSR, called from the browser on client
+  navigation (keeping the session cookie alive). Server loads are for `locals`, secrets and guards.
+- **No hairpin requests**: server code never `event.fetch`es a static file or a prerendered page; import the data.
+- While prerendering (`building`), neither `handle` nor `handleFetch` calls Laravel.
+
+## Auth pages
+
+**Every `/api/auth/*` call goes from the browser, after `/sanctum/csrf-cookie`**: Laravel's `web` group fails the CSRF
+check of an anonymous call from Node. These pages need JavaScript and say so in a `<noscript>`.
+
+| Page | Calls |
+|------|-------|
+| `/login` | `POST /api/auth/login`; `{ two_factor: true }` → `/two-factor-challenge` |
+| `/two-factor-challenge` | `POST /api/auth/two-factor-challenge` (a code or a recovery code) |
+| `/register` | `POST /api/auth/register` |
+| `/forgot-password` | `POST /api/auth/forgot-password` |
+| `/reset-password/[token]?email=` | `POST /api/auth/reset-password`; the mailed link lands here |
+| `/email/verify/[id]/[hash]?expires=&signature=` | `GET /api/auth/email/verify/{id}/{hash}` with the same query unchanged (the signature covers Laravel's `/api/auth/…` URL); the mailed link lands here |
+| `/confirm-password?redirect=` | `POST /api/auth/user/confirm-password`, or a passkey; every 423 from Laravel leads here and back |
+
+- **Confirmation** offers the password when `GET /api/v1/auth/me` reports `has_password`, a passkey when
+  `passkeys_count` > 0, else "sign out and use Forgot password" (root `CLAUDE.md`, Auth).
+- **Account settings** (profile, password, two-factor, passkeys) call `/api/auth/user/*`; a 423 leads to
+  `/confirm-password`.
+- **Redirect targets** from `?redirect=` are used only when they start with a single `/` (not `//`, not `/\`), else
+  `/`, on the server and in the browser.
+- **Social sign-in**, once built: the buttons come from `GET /api/auth/providers`, one link per provider,
+  `<a href="/api/auth/{provider}/redirect" data-sveltekit-reload data-sveltekit-preload-data="false">`. `/login` shows
+  `?social_error=<code>`. Linking calls `POST /api/auth/{provider}/link` and follows its `{redirect}`.
+- **Passkeys.** `@laravel/passkeys` has no base-URL option, so `src/lib/auth/passkeys.ts` passes the routes:
+  - register: `/api/auth/user/passkeys/options` and `/api/auth/user/passkeys`;
+  - sign in: `/api/auth/passkeys/login/options` and `/api/auth/passkeys/login`;
+  - confirm: `/api/auth/passkeys/confirm/options` and `/api/auth/passkeys/confirm`.
+
+  The wrapper is browser-only, imported from event handlers.
+
+## Guards, session state, statelessness
+
+- **`handle`** in `src/hooks.server.ts` does three things, in this order:
+  1. `/healthz` returns `new Response('ok')`, for the container healthcheck on 127.0.0.1:3000. It never reads the
+     client address (with `ADDRESS_HEADER` set, that throws without the header) and never calls Laravel.
+  2. Only when the request carries the `XSRF-TOKEN` cookie, `probeSession(event.fetch)` fills `event.locals.user`
+     (`null` on a 401). An anonymous request makes no Laravel call.
+  3. A response to a request that carried the session gets `Cache-Control: private, no-store`.
+- **Route groups**: `(public)` for anyone; `(guest)` for the sign-in pages, which send a signed-in user away; `(app)`
+  for signed-in users only.
+- **The guard** is a server redirect in the group's `+layout.server.ts`: `redirect(303, '/login?redirect=…')`. Never
+  `$effect`, `beforeNavigate` or `window.location`. It only steers navigation; `auth:sanctum` and the policies decide
+  every call.
+- **The user reaches components as `page.data.user`.** The root and the `(app)` `+layout.server.ts` both return
+  `{ user: locals.user }`: a `locals`-only load does not rerun on client navigation, so without the second, a user
+  arriving from a prerendered page keeps `user: null`.
+- **Node is stateless**, as under Octane: no request or user data in module scope (no module-level `$state`, store or
+  cache the server imports). Per-request data goes in `event.locals`.
+- **Navigation** is one catalog, `src/lib/config/navigation.ts`, each item naming its permission (`null`: any
+  signed-in user); `deriveNavigation(user)` filters it and drops empty sections.
+- **Svelte 5 runes only.** `$effect` is for work outside Svelte (the DOM, a third-party widget), never to derive data
+  or to navigate. Page state comes from `$app/state`.
+
+## Rendering, prerendering, caching
+
+- SSR is the default. **Prerender** only where the data exists at build time: the build stage has no Laravel or
+  database, and a build never calls `/api`. Where that data comes from is a per-project decision on the board. Pages
+  with form actions or reading `url.searchParams` are not prerendered.
+- **A prerendered page is public**: the same for every visitor, no personal data. `handle` never runs for it.
+- **Redirects** belong in SSR (`redirect()`) or Caddy, never a prerendered route (it becomes a 200 meta-refresh
+  page).
+- **Cache headers.** Caddy sets them for prerendered files and `/_app/immutable/*` (Hosting); a `setHeaders` during
+  prerender only becomes a meta tag. An anonymous public SSR page sets
+  `Cache-Control: public, max-age=0, s-maxage=…, stale-while-revalidate=…` and `Vary: Cookie` in its `load` (the root
+  layout carries `user`, so the browser never reuses a signed-out copy). `handle` overrides it with `private, no-store`
+  when the request carried the session.
+- **Absolute URLs** (canonical, `og:url`, the sitemap) come from `PUBLIC_APP_URL`, never `url.origin`, which is
+  `http://sveltekit-prerender` while prerendering.
+- **Prefetch**: `data-sveltekit-preload-data="hover"` on `<body>` in `app.html`; no
+  `data-sveltekit-preload-code="eager"` on listings. A link that leaves SvelteKit (`/api/*`, `/horizon`, a provider
+  redirect) carries `data-sveltekit-reload` and `data-sveltekit-preload-data="false"`.
+- No size or speed budgets and no Lighthouse gates: the practices here are the rule.
+
+## Content Security Policy
+
+`csp` sits in the `sveltekit({ … })` options with `mode: 'auto'`: SSR responses get a nonce header, prerendered pages
+a `<meta>` with hashes.
+
+```ts
+csp: {
+  mode: 'auto',
+  directives: {
+    'default-src': ['self'],
+    'script-src': ['self'],
+    'style-src': ['self', 'unsafe-inline'],
+    'img-src': ['self', 'data:'],
+    'font-src': ['self'],
+    'connect-src': ['self'],
+    'object-src': ['none'],
+    'base-uri': ['self'],
+    'form-action': ['self'],
+    'frame-ancestors': ['none'],
+  },
+},
+```
+
+- **`'unsafe-inline'` is for styles only** (server-rendered `style=` attributes). Scripts never get it, nor
+  `unsafe-eval`.
+- **No inline script in `app.html`, never `%sveltekit.nonce%`** (any prerendered route fails the build). A script goes
+  in a component or under `static/`.
+- **`frame-ancestors` on prerendered pages**: a `<meta>` policy drops it, so Caddy adds `frame-ancestors 'none'` for
+  prerendered files, and never a second full policy on SSR paths (Hosting).
+- **New origins** (a CDN) are added here in the same commit as the code that needs them.
+<!-- if:reverb -->
+- **Reverb**: Echo connects to the page's own origin and Caddy sends `/app/*` to Reverb, so `connect-src 'self'`
+  covers it.
+<!-- endif -->
+
+## SEO, UX and accessibility
+
+- A public page's content is server-rendered, with real `<a href>` links; title, meta description and canonical come
+  from `load` data, in `<svelte:head>`.
+- `sitemap.xml` and `robots.txt` are `+server.ts` routes, prerendered when their data allows, otherwise SSR with
+  `Cache-Control`.
+- `{text}` is safe; `{@html}` only for the output of Laravel's `Markdown::render()`.
+- **Never make users type identifiers.** Every entity reference is a searchable combobox, `EntityPicker`, backed by
+  `GET {resource}/search` and `GET {resource}/autocomplete` (`term`, `limit`, optional id filters). A closed
+  vocabulary uses a Select, never free text.
+- **Shared building blocks**: one data table (server-side sort, filter, pagination, selection; bulk actions via
+  `{resource}/bulk-action`), one confirm dialog before anything destructive, toasts, one wizard for multi-step flows.
+- **Never a blank pane.** SSR delivers the first data (realtime only updates it); client-side waits show skeletons
+  of the final size.
+- **WCAG 2.1 AA, full keyboard navigation.** Dialog focus comes from bits-ui; an overlay opened by a global shortcut
+  saves `document.activeElement` on open and restores it on close. Every interactive element has an accessible name;
+  live regions announce dynamic changes. Contrast ≥ 4.5:1 for text, 3:1 for large text and UI. A skip link on every
+  page. Svelte's a11y warnings are fixed, never silenced.
+<!-- if:reverb -->
+
+## Realtime
+
+Channel auth, payload rules and operations are in `app/Events/CLAUDE.md` (Broadcasting).
+
+- **Echo lives only in the browser**: `src/lib/realtime/echo.ts` creates it on first use after hydration, never at
+  module scope on the server.
+- **It connects to the page's own origin** (Caddy sends `/app/*` to Reverb): `wsHost` = `location.hostname`, `wsPort`
+  and `wssPort` = `location.port` (or 80 and 443), `forceTLS` = `location.protocol === 'https:'`.
+- **Only the key comes from the server**: the `(app)` layout's server load reads `REVERB_APP_KEY` from
+  `$env/dynamic/private`. An empty key (the e2e run) means no Echo.
+- **Channel auth** posts to `/api/broadcasting/auth` with the browser client's cookie, `X-XSRF-TOKEN` and
+  `Accept: application/json`.
+- **One reconnect spine.** `src/lib/realtime/connection.ts` binds the connection state once and exposes
+  `onReconnect(cb): Unregister`, firing only on a true reconnect (a `connected` after a real drop, flaps debounced,
+  never the first connect). `disconnectEcho()` clears it at logout. Every feature re-auths and backfills through it.
+- **"Live" is refetch-on-event.** A list that can have gaps keeps a `lastSeenId` watermark and on reconnect merges the
+  gap from a keyset `…/since` endpoint, deduped by id. Deltas merge in place.
+- **One setter per list** dedupes by id and sorts by `(created_at, id)` ascending.
+- **Counters come from the server**: a broadcast carries the authoritative count; new arrivals are announced in a
+  polite `aria-live` region.
+<!-- endif -->
+<!-- if:tenancy -->
+
+## Tenancy
+
+The tenant appears in a body only as the `_tenant` marker or the switcher's `tenant` (root `CLAUDE.md`, Tenancy).
+
+- `handle` keeps `current_tenant` from `GET /api/v1/auth/me` in `locals.tenant`; the layouts pass it on as
+  `page.data.tenant`.
+- **`X-Tenant` on every call**, carrying the tenant the page was rendered for:
+  - the browser client takes it from `page.data.tenant`;
+  - every form renders `<input type="hidden" name="_tenant" value={page.data.tenant.id}>`; its action sets `X-Tenant`
+    from it (the body read once, Forms), so a stale tab's post meets the 409;
+  - `handleFetch` adds `X-Tenant` from `locals.tenant` only when the request carries none (SSR loads), never over the
+    page's.
+- **A 409 `tenant_changed`**: show "The tenant changed in another tab — reload" with a reload action. Never retry
+  into the new tenant.
+- **A 403 `no_tenant`** shows the project's no-tenant page.
+- **The switcher** is a browser call, because it changes the session: `POST /api/v1/current-tenant` with `tenant`,
+  then `invalidateAll()`.
+- Prerendered pages and `public` caches never depend on a tenant. Browser storage keys include the tenant id.
+<!-- if:reverb -->
+- After a switch, call `disconnectEcho()`, then subscribe to the new tenant's channels (`tenant.{tenantId}.…`).
+<!-- endif -->
+<!-- endif -->
+
+## Before a push
+
+- Always `npm run check`, inside the app container: it runs `validation:export --check` first, so it needs php.
+- `npm run check:ui` when `ui/`, `components.json` or the `shadcn-svelte` pin changed.
+- The Playwright flows and Pest tests the change touches (`tests/CLAUDE.md`).

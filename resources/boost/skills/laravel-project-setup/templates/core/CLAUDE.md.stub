@@ -1,63 +1,69 @@
 # CLAUDE.md — {{app}} (Laravel app)
 
-Scope: the whole repository. This file holds the stack, the hosting model, and
-the project-wide engineering rules; every layer directory carries its own
-`CLAUDE.md` with that layer's checklist. The product, its domain rules and its
-surfaces are in "What we are building" below; the long-form design material is
-in `docs/`.
+Scope: the whole repository: the stack, the hosting model and the project-wide rules. Each layer directory has its
+own `CLAUDE.md`. Long-form design material is in `docs/`.
 
 ## TESTS ARE END TO END OR NOT AT ALL — overrides every other rule about tests
 
-Unit and component tests are not written, not run and not relied on: they give false confidence and catch nothing
-that matters. Correctness is shown on the real thing — the flow run end to end, a read-only query or measurement on
-the data, the output read. When a test is worth writing it is an **E2E test**: one whole flow through its real entry
-point (an HTTP request through routing, middleware, controller, database and the rendered response; an artisan
-command), asserting what a person or operator sees. Only the paid or outside systems (LLM calls, outbound HTTP) are
-faked, at the boundary; nothing of our own code is. There is no unit or feature suite: do not write one, do not run
-one, and no passing suite is a gate before a commit. Anything below or in a layer `CLAUDE.md` that asks for a unit
-test, a fail-first test, a tier choice, `composer test` or a passing suite before a commit is void.
+Unit and component tests are not written, run or relied on. Correctness is shown on the real thing: the flow run end
+to end, a read-only query on the data, the output read. A test worth writing is an **E2E test** of one whole flow
+through its real entry point (`tests/CLAUDE.md`); only paid or outside systems are faked. No suite is a gate before a
+commit. Any rule asking for a unit test, a fail-first test, a tier choice, `composer test` or a passing suite before
+a commit is void.
 
 ## ABSOLUTELY MUST FOLLOW CONVENTIONS
 
-1. Be concise always, being overly verbose is very difficult to follow
-2. Do not overcomment, reserve comments for genuinely hard logic that otherwise cannot be inferred from code. **No provenance anywhere** — comments, docs, CLAUDE.md files and skills state what is, never what it was or where it came from ("was X, now Y", "copied from …", "previously …"); history lives in git and the board
-3. When committing code do not use Co-Authored ever
-4. YAGNI and KISS
-5. Every entity id is Stripe-style: `{prefix}_{16 base-62 chars}` (`bd_7Kq2mZp9Xt4LwRc1`) — the prefix is `ID_PREFIX` on the model, unique across models; migrations use `$table->prefixedId()` / `foreignPrefixedId()`. Only `users` and the hot tables listed in `database/CLAUDE.md` use bigint.
-6. Dependencies: Laravel core and first-party `laravel/*` only, plus own `petar-spasic/*`; nothing deprecated or likely to be abandoned; any other package, npm included, needs owner approval and a maintenance check (active releases, current with the Laravel major or the toolchain it plugs into, backed by more than one person).
-7. No hosted CI (no `.github/workflows`): pint, the type check and the E2E tests a change touches run locally before a push.
+1. Be concise always. Verbose text is hard to follow.
+2. Comment only hard logic the code cannot show. **No provenance anywhere**: comments, docs, CLAUDE.md files and
+   skills state what is, never what it was or where it came from ("was X, now Y", "copied from …", "previously …").
+   History lives in git and the board.
+3. Never add a Co-Authored trailer to a commit.
+4. YAGNI and KISS.
+5. Every entity id is Stripe-style: `{prefix}_{16 base-62 chars}` (`bd_7Kq2mZp9Xt4LwRc1`). The prefix is `ID_PREFIX`
+   on the model, unique across models; migrations use `$table->prefixedId()` / `foreignPrefixedId()`. Only `users`,
+   vendor-owned tables and the hot tables listed in `database/CLAUDE.md` use bigint.
+6. Dependencies: Laravel core, first-party `laravel/*` and own `petar-spasic/*` only; nothing deprecated or likely to
+   be abandoned. Any other package, npm included, needs owner approval and a maintenance check: active releases,
+   current with the Laravel major or its toolchain, more than one maintainer.
+7. No hosted CI (no `.github/workflows`). Pint, the type check and the E2E tests a change touches run locally before
+   a push.
 
 ## Where the docs live
 
 | File | Covers |
 |------|--------|
-| `app/CLAUDE.md` | Backend code design: the flat layer layout, slim controllers / fat models, service taxonomy, Octane and off-request rules |
+| `app/CLAUDE.md` | Backend design: flat layer layout, slim controllers and fat models, services, Octane and off-request rules |
 <!-- if:htmx -->
-| `app/Http/CLAUDE.md` | Framework HTTP layer: middleware, base controller, htmx full-page vs fragment responses, what may live there |
+| `app/Http/CLAUDE.md` | HTTP plumbing: middleware, the base controller, full page vs htmx fragment, the response cache |
 <!-- endif -->
 <!-- unless:htmx -->
-| `app/Http/CLAUDE.md` | Framework HTTP layer: middleware, base controller, JSON Resources, what may live there |
+| `app/Http/CLAUDE.md` | HTTP plumbing: middleware, the base controller, JSON Resources |
 <!-- endif -->
-| `app/Models/CLAUDE.md` | Model machinery: file conventions, state discipline, scopes, what a model must never do |
-| `database/CLAUDE.md` | Migrations: standard table structure, Postgres-only DDL rules; the seeding standard |
-| `routes/CLAUDE.md` | Route registration and which surface each group belongs to; the scheduler |
-| `tests/CLAUDE.md` | E2E tests only: what one is, what may be faked |
+| `app/Models/CLAUDE.md` | Model conventions, state discipline, scopes |
+| `database/CLAUDE.md` | Table structure, Postgres-only DDL; the seeding standard |
+| `routes/CLAUDE.md` | Route groups and the surface each serves; the scheduler |
+<!-- unless:spa -->
+| `tests/CLAUDE.md` | E2E tests: what one is, what may be faked, the auth proofs |
+<!-- endif -->
+<!-- if:spa -->
+| `tests/CLAUDE.md` | E2E tests: what one is, what may be faked, the auth proofs; Playwright in `frontend/e2e` |
+<!-- endif -->
 <!-- if:htmx -->
 <!-- if:islands -->
-| `resources/CLAUDE.md` | Frontend: Blade layouts/components, htmx conventions, Svelte islands (registry, props boundary, swap lifecycle), Tailwind |
+| `resources/CLAUDE.md` | Frontend: Blade, htmx, Svelte islands, shadcn-svelte, Tailwind |
 <!-- endif -->
 <!-- unless:islands -->
-| `resources/CLAUDE.md` | Frontend: Blade layouts/components, htmx conventions, Tailwind |
+| `resources/CLAUDE.md` | Frontend: Blade, htmx, Tailwind |
 <!-- endif -->
 <!-- endif -->
 <!-- if:spa -->
-| `frontend/CLAUDE.md` | Frontend: the SvelteKit SPA — serving, API client, route protection, validation, accessibility |
+| `frontend/CLAUDE.md` | The SvelteKit app: first frontend change, config, components, forms, API client, auth pages, guards, rendering, CSP |
 <!-- endif -->
-| `docs/kanban/` (branch `kanban`) | The board — epics, cards, and owner decisions (`project/decisions`: proposed → decided). Read and change it only with `vendor/bin/kanban`; decided cards are final until superseded |
-| `app/<Layer>/CLAUDE.md` | One per layer directory — `Requests`, `Resources`, `Models`, `Jobs`, `Services`, `Contracts`, `Enums`, `Events`, `Listeners`, `Policies`, `Providers`, `Console`, `Support`, `Http/Controllers`, `Http/Middleware` — each carrying that layer's checklist |
+| `docs/kanban/` (branch `kanban`) | The board: epics, cards, owner decisions (`project/decisions`: proposed → decided). Use only `vendor/bin/kanban`; decided cards are final until superseded |
+| `app/<Layer>/CLAUDE.md` | One per layer directory (`Requests`, `Resources`, `Models`, `Jobs`, `Services`, `Contracts`, `Enums`, `Events`, `Listeners`, `Policies`, `Providers`, `Console`, `Support`, `Http/Controllers`, `Http/Middleware`) |
 
-Any change that alters the layer layout, the process model, the auth model, or
-what a surface exposes MUST update the governing file in the **same commit**.
+A change to the layer layout, the process model, the auth model or what a surface exposes updates the governing file
+in the **same commit**.
 
 ## What we are building
 
@@ -66,189 +72,227 @@ what a surface exposes MUST update the governing file in the **same commit**.
 <!-- if:htmx -->
 ## Non-negotiables — SPEED, SEO, SMOOTHNESS
 
-Every decision in this repo is made with these three in mind, in this order,
-and a change that regresses any of them is a bug regardless of what feature it
-ships.
+Every decision weighs these three, in this order. A change that regresses one is a bug, whatever it ships.
 
-1. **Speed.** Public pages are served from cache, not computed. Budgets,
-   measured with Lighthouse (mobile, throttled) on every public page change:
-   origin TTFB ≤ 200 ms (cached: ≤ 50 ms), LCP ≤ 1.5 s, INP ≤ 200 ms,
-   total JS on a public page ≤ 50 KB gzipped, HTML ≤ 60 KB gzipped, no
-   render-blocking third-party anything. Record the numbers in the PR.
-2. **SEO.** Every public page is **complete without JavaScript** — server
-   rendered, real URLs, real `<a href>` links, canonical, title + meta
-   description set by the controller, structured data, sitemap, sane
-   pagination. A crawler and a user on a 3G phone see the same page. Nothing
-   a crawler needs is behind htmx, an island, or a click.
-3. **Smoothness.** Zero layout shift (CLS ≤ 0.05): dimensions reserved for
-   everything that loads late, fonts self-hosted with `font-display: swap`,
-   htmx swaps are instant (no View Transitions), no spinner for anything under 300 ms, no
-   full-page reloads for in-app navigation.
+1. **Speed.** Public pages are served from the response cache, not computed. Nothing render-blocking from third
+   parties.
+2. **SEO.** Every public page is **complete without JavaScript**: server-rendered, real URLs and `<a href>` links,
+   canonical, title and meta description, structured data, sitemap, sane pagination. A crawler and a user on a 3G
+   phone see the same page.
+3. **Smoothness.** No layout shift, no View Transitions, no spinner on a fast request, no full-page reload for
+   in-app navigation.
 
-**HTML is the asset we cache and prefetch**, at two levels, always both:
+**HTML is the asset we cache and prefetch**, always at both levels:
 
-- **Response cache** for anonymous GETs of public pages — served by a small
-  own middleware from Redis (key = normalised URL + locale; only 200 HTML;
-  never for authenticated or personalised responses), with `ETag` and
-  `Cache-Control: public, max-age, s-maxage, stale-while-revalidate` so Caddy /
-  the proxy / the browser can serve it too. **Invalidated on write by key or
-  tag**, never TTL alone.
-- **Fragment/data cache** underneath (`Cache::flexible`, stale-while-revalidate)
-  so a cache miss on the page is still cheap.
-- **Prefetch** the next page before the click: htmx `hx-boost` on navigation
-  with the `preload` extension (hover/touchstart), and Speculation Rules
-  (`prefetch` for likely links, `prerender` for the single most probable next
-  page) — under the CSP via the `'inline-speculation-rules'` source. A
-  speculative miss renders and warms the cache; volume is bounded by hover
-  eagerness, one prerender per page, and `throttle:public` — never by eager prefetch of whole listings.
+- The **response cache** serves anonymous GETs of public pages from Redis, with `ETag` and a public `Cache-Control`.
+  It is **invalidated on write by tag**, never by TTL alone (`app/Http/CLAUDE.md`).
+- A **fragment cache** (`Cache::flexible`) under it keeps a miss cheap.
+- The next page is **prefetched** before the click (`resources/CLAUDE.md`).
 
 <!-- if:islands -->
-**JavaScript policy:** the default amount of JS on a page is the shared
-`app.ts` bundle (htmx + islands boot) and nothing else. Behaviour is expressed
-with **htmx + Blade first**; a Svelte island is used **only when the
-interaction cannot be expressed cleanly that way** — the test is "would this
-be a tangle of `hx-*` attributes and partial routes?", not "would JS be
-nicer?". Islands are lazy-loaded per page (`islands.ts` imports on first
-mount), never on the critical path of a public page, and always mount into a
-placeholder of the same size. The concrete rules per layer are in
-`resources/CLAUDE.md` (frontend), `app/Http/CLAUDE.md` and `routes/CLAUDE.md`
-(caching, surfaces), `app/CLAUDE.md` (read path).
+**JavaScript policy:** a page loads the shared `app.ts` bundle (htmx + islands boot) and nothing else. Behaviour is
+**htmx + Blade first**. A Svelte island is used only when the htmx version would be a tangle of `hx-*` attributes and
+partial routes, never because JS would be nicer (`resources/CLAUDE.md`).
 <!-- endif -->
 <!-- unless:islands -->
-**JavaScript policy:** the default amount of JS on a page is the shared
-`app.ts` bundle (htmx) and nothing else. Behaviour is expressed with
-**htmx + Blade**. The concrete rules per layer are in `resources/CLAUDE.md`
-(frontend), `app/Http/CLAUDE.md` and `routes/CLAUDE.md` (caching, surfaces),
-`app/CLAUDE.md` (read path).
+**JavaScript policy:** a page loads the shared `app.ts` bundle (htmx) and nothing else. Behaviour is **htmx +
+Blade** (`resources/CLAUDE.md`).
 <!-- endif -->
 
 <!-- endif -->
 ## Stack
 
-- **Laravel {{laravel_version}}**, PHP {{php_version}} (the host, the lock and both images). **Postgres** and **Redis** (queues, cache,
-  sessions, Horizon) in every environment — local and prod run the same
-  sidecars; the E2E tests run on the sidecar's `{{app}}_test` (`phpunit.xml`).
+- **Laravel {{laravel_version}}**, PHP {{php_version}} (the host, the lock and both images). **Postgres** and
+  **Redis** (queues, cache, sessions, Horizon) as the same sidecars locally and in prod.
 <!-- if:htmx -->
 <!-- if:islands -->
-- **Blade + htmx + Svelte 5 islands** for the web tier. Server renders HTML;
-  htmx swaps fragments; Svelte owns only the interactive leaves, mounted from
-  Blade via `<x-island>` (`resources/CLAUDE.md`). **Not an SPA**: no router, no
-  Inertia, no Livewire, no Alpine (its expression evaluation needs
-  `unsafe-eval`, which the CSP forbids, and it has no growth path). Tailwind 4
-  via Vite; TypeScript in `resources/js`, checked by `npm run check`
-  (svelte-check).
+- **Blade + htmx + Svelte 5 islands**: the server renders HTML, htmx swaps fragments, Svelte owns only interactive
+  leaves (`<x-island>`, shadcn-svelte). Tailwind 4 via Vite; TypeScript in `resources/js`.
 <!-- endif -->
 <!-- unless:islands -->
-- **Blade + htmx** for the web tier. Server renders HTML; htmx swaps
-  fragments (`resources/CLAUDE.md`). **Not an SPA**: no router, no Inertia, no
-  Livewire, no Alpine (its expression evaluation needs `unsafe-eval`, which the
-  CSP forbids, and it has no growth path). Tailwind 4 via Vite; TypeScript in
-  `resources/js`, checked by `npm run check` (tsc).
+- **Blade + htmx**: the server renders HTML, htmx swaps fragments. Tailwind 4 via Vite; TypeScript in
+  `resources/js`.
 <!-- endif -->
+- **Not an SPA**: no client router, no Inertia, no Livewire, no Alpine (it needs `unsafe-eval`, which the CSP
+  forbids).
 <!-- endif -->
 <!-- if:spa -->
-- **SvelteKit SPA** in `frontend/` (`frontend/CLAUDE.md`), Svelte 5 runes.
-  Served same-origin with the API in EVERY environment (that's what makes
-  Sanctum cookie auth work); **`laravel/sanctum`** authenticates it.
+- **SvelteKit 2 + Svelte 5** (runes, `adapter-node`, TypeScript) in `frontend/`: SSR, prerendered where the data
+  exists at build time. Tailwind 4, shadcn-svelte, forms on schemas generated from the FormRequests.
+- Laravel serves JSON only: no Blade pages, no `Route::fallback`, nothing of the frontend in `public/`. One origin:
+  Caddy splits by path in both tiers (Frontend below).
 <!-- endif -->
-- **`laravel/fortify`** for session auth (`app/Actions/Fortify/`) and
-  **`laravel/socialite`** for OAuth providers — both frontend-agnostic, which is
-  the point: the views are ours.
-- **`laravel/horizon`** supervises the Redis queue workers; configured in
-  `config/horizon.php`, dashboard gated in `HorizonServiceProvider` (`app/Providers/CLAUDE.md`).
-- **`laravel/octane`** (FrankenPHP) — production server, see Hosting. The app
-  stays in memory between requests: no request state in shared position (`app/CLAUDE.md`).
+- **`laravel/fortify`**, **`laravel/sanctum`**, **`laravel/socialite`**: see Auth.
+- **`laravel/horizon`** runs the Redis queue workers; its dashboard is gated (`app/Providers/CLAUDE.md`).
+- **`laravel/octane`** (FrankenPHP) in production: the app stays in memory between requests (`app/CLAUDE.md`).
 <!-- if:reverb -->
-- **`laravel/reverb`** — WebSockets for the realtime surfaces
-  (`app/Events/CLAUDE.md`, Broadcasting); the client consumes private channels
-  over laravel-echo + pusher-js.
+- **`laravel/reverb`** for WebSockets on private channels (`app/Events/CLAUDE.md`, Broadcasting).
 <!-- endif -->
 <!-- unless:reverb -->
-- **No Reverb and no WebSocket tier.** Adding one is a design change (this
-  file), not a deployment detail.
+- **No Reverb and no WebSocket tier.** Adding one is a design change to this file.
 <!-- endif -->
-- **`laravel/boost`** (dev only) — an MCP server exposing this app to the
-  assistant: version-accurate Laravel docs (`search-docs`), read-only
-  `database-query`, `database-schema`, `tinker`, and `browser-logs`.
-- **Pest {{pest_version}}** runs the E2E tests (the only tests), **Postgres only** against the
-  sidecar's `{{app}}_test`; no sqlite anywhere, no driver branches.
+- **`laravel/boost`** (dev only): see Using Boost.
+<!-- unless:spa -->
+- **Pest {{pest_version}}** runs the E2E tests on the sidecar's `{{app}}_test` (`phpunit.xml`). **Postgres only**: no
+  sqlite, no driver branches.
 
-Approved dependencies are the ones in `composer.json`/`package.json` today
-(convention 6).
+Approved dependencies are those in `composer.json` and `package.json` today (convention 6).
+<!-- endif -->
+<!-- if:spa -->
+- **Pest {{pest_version}}** runs the E2E tests against the API and **Playwright** the browser flows
+  (`tests/CLAUDE.md`), both on the sidecar's `{{app}}_test`. **Postgres only**: no sqlite, no driver branches.
+
+Approved dependencies are those in `composer.json` and `frontend/package.json` today; before the first frontend
+change, the set in `frontend/CLAUDE.md` (convention 6).
+<!-- endif -->
 
 ### Using Boost
 
-- **`search-docs` before writing Laravel code**, not after. It returns docs
-  scoped to the exact installed versions — this app is on **Laravel {{laravel_version}}**,
-  which is newer than most training data (no `Http/Kernel.php`, middleware and
-  providers registered in `bootstrap/`, `casts()` method, etc.).
-- Prefer Boost's tools over shell equivalents: `database-schema` before writing
-  a migration, `database-query` instead of raw SQL in tinker. Its DB and log
-  tools see the main checkout only; in a worktree use `php artisan db:table` / `db:show`.
-- **Boost is `--dev` and must never ship to production.** It exposes database
-  query and arbitrary-code-execution tooling. `composer install --no-dev` for
-  the prod image, and keep its MCP server off any public address.
+- **`search-docs` before writing Laravel code.** This app is on **Laravel {{laravel_version}}**, newer than most
+  training data (no `Http/Kernel.php`, middleware and providers registered in `bootstrap/`, the `casts()` method).
+<!-- if:tenancy -->
+- `database-query` runs as the app role with no tenant set, so it shows no rows of a tenant-owned table. Query those
+  through `pgsql_owner`, or run `select set_config('app.tenant_id', '<id>', false)` first.
+<!-- endif -->
+- **Boost is `--dev` and never ships to production**: it can query the database and run code. The prod image runs
+  `composer install --no-dev`, and its MCP server stays off any public address.
 
+## Auth
+
+This section owns the auth model; the layer files hold routes, schema, models and proofs.
+
+**Fortify** runs every sign-in, sign-up, reset, two-factor and passkey flow (`app/Actions/Fortify/`). Sessions live
+in Redis; no JWT, no stateless browser auth.
+<!-- if:htmx -->
+Its views stay off, with `AcceptJson`, until the project has built its Blade pages. The commit that adds the last
+page turns them on (`resources/CLAUDE.md`, Auth pages).
+<!-- endif -->
+<!-- if:spa -->
+It is mounted at `/api/auth` and answers JSON only; the pages are the SvelteKit app's.
+<!-- endif -->
+<!-- unless:htmx -->
+<!-- unless:spa -->
+Its views are off and it answers JSON only; the client renders the pages.
+<!-- endif -->
+<!-- endif -->
+
+**Passkeys**
+- Never turn passkeys off. Locally they work only on the localhost origin in `APP_URL` (Hosting).
+- A passkey sign-in skips the two-factor challenge, and the house accepts that. A project that needs 2FA for
+  passkey users picks one:
+  - refuse passkey sign-in for users with confirmed 2FA:
+    `Passkeys::authorizeLoginUsing(fn ($request, $user) => $user->two_factor_confirmed_at === null)`. The hook only
+    allows or refuses; it cannot redirect.
+  - or bind its own `Laravel\Passkeys\Contracts\PasskeyLoginResponse`: sign out, put `login.id` and `login.remember`
+    in the session, answer `{redirect: <the challenge>}`, with its own E2E proof.
+
+**Confirmation** (`password.confirm`) passes with the password or a passkey, nothing else. A user with neither (a
+social-only sign-up) sets a first password through "Forgot password" while signed out.
+
+**Sanctum**
+- Every authenticated API route uses `auth:sanctum`, never `auth:web`. `User` has `HasApiTokens`.
+<!-- if:spa -->
+- The SvelteKit app authenticates by the session cookie (`statefulApi()`; `SANCTUM_STATEFUL_DOMAINS` lists every
+  origin the app is browsed at, Hosting). Every other client uses a token.
+<!-- endif -->
+<!-- unless:spa -->
+- `/api/v1` is token-only: `config/sanctum.php` sets `'guard' => []`, so a session never authenticates there.
+<!-- endif -->
+
+### Social sign-in (when the project builds it)
+
+Socialite is installed everywhere; social sign-in is built when a provider is turned on.
+- Providers come from `services.socialite.providers` (`SOCIAL_PROVIDERS`, empty by default). Apple, Microsoft and any
+  SocialiteProviders package need the owner's approval; Socialite's own drivers do not.
+- Accounts live in `social_accounts`, matched on `provider` + `provider_user_id`, **never on email**.
+- The flow runs in the `web` group with the OAuth state in the session; never `stateless()`.
+- `redirect` stores the flow (sign-in or link) in the session, plus the signed-in user's id for a link. The callback
+  pulls them once and refuses when they are missing or the session user changed.
+- No linked account: a user is created only when registration is on, no user has the email, and the provider vouches
+  for it. It gets a null password and `email_verified_at` now.
+- **Vouching:** Google and LinkedIn-OpenID only when the raw `email_verified` claim is `true`; GitHub only with its
+  default `user:email` scope (never `setScopes()` without it); no other provider. Without a vouch, no sign-up.
+- **Never link by email**: it hands the account to whoever controls that address at the provider. An existing user
+  with that email signs in their usual way and links the provider from their account.
+- Linking needs `password.confirm`. An account linked to another user is refused. Unlinking never removes the last
+  way to sign in.
+- Success is `Auth::login`, then `session()->regenerate()`. A user with confirmed 2FA is not signed in: the callback
+  puts `login.id` and `login.remember` in the session and sends them to Fortify's challenge.
+- Provider tokens are stored only when the project calls the provider's API, encrypted.
+- Building it includes a migration that makes `users.password` nullable (`database/CLAUDE.md`).
+<!-- if:htmx -->
+- It is built after the auth pages: linking needs the confirm-password page, the 2FA hand-off the challenge page.
+<!-- endif -->
+
+<!-- if:tenancy -->
+## Tenancy
+
+Row-level multi-tenancy. These rules bind every layer; the layer files hold the detail.
+
+1. **Row-level only.** One database; every tenant-owned row has a non-null `tenant_id`. No tenancy package, no
+   subdomain, no database or schema per tenant.
+2. **The tenant is never in the URL.** It comes from the session or the Sanctum token.
+   - Session: set at login; a user in several tenants changes it with the switcher (`routes/CLAUDE.md`).
+   - Token: each token belongs to one tenant; a client needing several holds one token per tenant.
+   - No path segment, subdomain, query key or body field selects it; the switcher's `tenant` field only asks to
+     change it.
+3. **Enforced twice:** the Eloquent `BelongsToTenant` scope, plus Postgres row-level security (RLS) on every
+   tenant-owned table. The app connects as `{{app}}_app`, which owns nothing and cannot bypass RLS; migrations run as
+   the owner (`pgsql_owner`). Neither layer alone is enough.
+4. **Another tenant's record is a 404, never a 403.**
+5. **A page's requests carry the tenant it was rendered for** (`X-Tenant`). A mismatch answers 409, so a stale tab
+   never writes into the new tenant.
+6. **Off-request work carries the tenant in hidden Context.** Cache keys of tenant data include the tenant id. With
+   no tenant set, tenant queries throw; they never return "no rows".
+7. **Cross-tenant access** (a platform admin) exists only if the project decides it, as an explicit, logged act.
+   Never by leaving the tenant unset.
+
+The tenant is also connection state (`app.tenant_id`); its set and reset points are in `app/CLAUDE.md` (Octane).
+
+<!-- endif -->
 <!-- if:htmx -->
 ## Frontend — Blade + htmx
 
-The full rules live in `resources/CLAUDE.md`; the load-bearing ones:
+The rules are in `resources/CLAUDE.md`. Two bind every layer:
 
-- **Server-rendered HTML is the API.** A controller returns a Blade view. For
-  an htmx request (`HX-Request` header) it returns the fragment the caller
-  will swap; otherwise the full page. **One Blade partial (or `@fragment`) per
-  fragment, rendered by both paths** — never two copies of the same markup.
-<!-- if:islands -->
-- **Svelte is for interactive leaves, not pages.** An island gets its props
-  from Blade as one JSON attribute (`<x-island name="X" :props="…">`), built
-  from a Resource — never a raw model. Islands do not grow their own JSON API
-  layer; persistence goes through htmx/forms, and if an island truly needs
-  JSON it is a Resource-backed route in the `api` group.
-<!-- endif -->
-- **Escape on output, always.** `{{ }}` for everything user-authored;
-  `{!! !!}` **only** for the output of `App\Support\Markdown::render()`
-  (Markdown with raw HTML escaped).
-<!-- if:islands -->
-  Svelte's `{text}` is safe; `{@html}` follows the same rule as `{!! !!}`.
-<!-- endif -->
-- **One CSP header disallowing inline script** (`SecurityHeaders` middleware).
-  Consequences: `htmx.config.allowEval = false`, no `hx-on:*`, no
-  `hx-vals='js:…'`, no inline `<script>`/`onclick`. Behaviour lives in
-  `resources/js/`, bundled by Vite.
-<!-- if:islands -->
-  Svelte is compiled, so it is CSP-clean.
-<!-- endif -->
-- **CSRF once, globally** (`htmx:configRequest` in `app.ts`); **422 re-renders
-  the form fragment** (`htmx:beforeSwap` opts it in); **redirect after an htmx
-  POST with `HX-Redirect`**, never a 302.
-<!-- if:islands -->
-- Islands mount on page load and on `htmx:load`, and unmount on
-  `htmx:beforeCleanupElement` — swapping a fragment that contains an island is
-  safe and needs no extra code.
-<!-- endif -->
-- Links and `hx-*` targets use named routes and `route()`, never hand-typed
-  paths. Timestamps leave the server as ISO 8601 with offset.
-- A change not showing: the Vite dev server runs inside the local container
-  (Hosting); `npm run build` makes the production bundle.
+- **Server-rendered HTML is the API.** A controller returns a Blade view: the fragment for an htmx request
+  (`HX-Request`), else the full page. **Both render the same partial (or `@fragment`)**; never two copies of the
+  markup.
+- **One CSP header disallows inline script** (`SecurityHeaders`). So `htmx.config.allowEval = false`: no `hx-on:*`,
+  no `hx-vals='js:…'`, no inline `<script>` or `onclick`. Behaviour lives in `resources/js/`, bundled by Vite.
 
 <!-- endif -->
 <!-- if:spa -->
-## Frontend — SvelteKit SPA
+## Frontend — SvelteKit
 
-The full rules live in `frontend/CLAUDE.md`; the load-bearing ones:
+The rules are in `frontend/CLAUDE.md`. The processes, Caddy matchers and health checks are in Hosting.
 
-- **The SPA is served same-origin with the API in EVERY environment** (that's
-  what makes Sanctum cookie auth work); deep links fall back to the shell via
-  `Route::fallback` in `routes/web.php`.
-- **Every response is a Resource, every rule a FormRequest** — the SPA's
-  runtime Zod schemas are GENERATED from the FormRequests, never hand-maintained.
-- **Only the authoritative `/auth/me` probe clears auth**; an incidental
-  401/419 on any other call rejects through to its caller untouched.
-- **Never make users type identifiers** — every entity reference goes through a
-  searchable picker backed by `GET {resource}/search` + `GET {resource}/autocomplete`.
-- **Escape on output, always.** Svelte's `{text}` is safe; `{@html}` **only**
-  for the output of `App\Support\Markdown::render()` (Markdown with raw HTML escaped).
-- Timestamps leave the server as ISO 8601 with offset.
+### Surfaces: who answers which path
+
+Code goes where its path says. The matchers are in `docker/Caddyfile` and `docker/Caddyfile.local`; the middleware
+groups in `routes/CLAUDE.md`.
+
+| Path | Answered by | Surface |
+|------|-------------|---------|
+| `/api/v1/*` | Laravel, `api` group | Resources for every client: the browser's session cookie or a token, `auth:sanctum` |
+| `/api/auth/*` | Laravel, `web` group | Fortify (headless, JSON) and Socialite's redirect and callback |
+| `/sanctum/*` | Laravel | the browser's CSRF cookie |
+| `/horizon`, `/horizon/*`, `/up` | Laravel | operators; Laravel's health |
+| `/storage/*` | Laravel | files on the public disk |
+| `/kanban`, `/kanban/*` | Laravel, local only | the board page |
+<!-- if:reverb -->
+| `/api/broadcasting/auth` | Laravel, `api` group | Echo's channel auth, `auth:sanctum` (`routes/CLAUDE.md`, `channels`) |
+| `/app/*` | Reverb | Echo's WebSocket, on the page's own origin |
+<!-- endif -->
+| files in `build/client`, prerendered pages | Caddy, off disk (prod and the e2e site) | public, no session |
+| a missing `/_app/immutable/*` | Caddy, 404 | never reaches Node |
+| `/healthz` | Caddy, 404 from outside | SvelteKit's `handle` answers it on 127.0.0.1:3000 for the healthcheck |
+| everything else | SvelteKit | pages, form actions |
+
+- **Laravel is reached only over HTTP**, on those paths. The browser calls it directly; server-side code goes through
+  Caddy's internal address.
+- **Every response is a Resource and every rule a FormRequest.** The SvelteKit app's Zod schemas are generated from
+  the FormRequests (`app/Requests/CLAUDE.md`), never hand-written.
 
 <!-- endif -->
 ## Hosting

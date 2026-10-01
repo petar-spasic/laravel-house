@@ -1,45 +1,159 @@
 # CLAUDE.md — tests
 
-Scope: `tests/`. **Tests are end to end or not at all** (root `CLAUDE.md`).
+**Tests are end to end or not at all** (root `CLAUDE.md`). No unit or component tests, no tier ladder, no fail-first
+ritual, nothing in `tests/Unit` or `tests/Feature`.
+<!-- if:spa -->
+Browser flows live in `frontend/e2e/` under the same rule (Browser flows, below).
+<!-- endif -->
 
 ## What is written
 
-Only E2E tests, in `tests/E2E/`: one whole flow through its real entry point — an HTTP request through routing,
-middleware, controller, database and the rendered page, redirect or Resource; an artisan command — asserting what a
-person or an operator sees (the page, the flash, the payload, the records it leaves). One flow per test,
-behaviour-named (`it('…')`), `uses(RefreshDatabase::class)`.
+Only E2E tests, in `tests/E2E/`: one whole flow per test through its real entry point (an HTTP request through
+routing, middleware, controller and database; an artisan command), asserting what a person or operator sees: the
+page, the flash, the payload, the records left behind. Behaviour-named (`it('…')`), `uses(RefreshDatabase::class)`.
 
-- Seed the world with the factories; drive it through the entry point, never by calling a service, model or job directly.
+- Seed the world with the factories; drive it through the entry point, never by calling a service, model or job.
 - Reference data is already there: `TestCase` carries `#[Seeder(ReferenceDataSeeder::class)]` (once per process).
   Look reference rows up by slug; never factory them.
-- Fake only what is paid or outside: LLM calls (the SDK's fakes), outbound HTTP (`Http::fake` +
-  `Http::preventStrayRequests()`). Nothing of our own code is faked, mocked or stubbed.
-- The queues run inline in the suite (`QUEUE_CONNECTION=sync` in `phpunit.xml`), so a chain or a queued job runs for
-  real inside the flow.
-- Machine addresses come from the environment (e.g. the host of `LOCAL_APP_URL`), never a literal: a test that
-  hardcodes this machine's IP fails on the next one. Stand-in addresses are RFC 5737 (`192.0.2.x`, `198.51.100.x`,
-  `203.0.113.x`).
+- Fake only what is paid or outside; nothing of our own code:
+  - LLM calls: the SDK's fakes.
+  - Outbound HTTP: `Http::fake` + `Http::preventStrayRequests()`.
+  - OAuth providers: `Socialite::fake('<provider>', Two\User::fake([...]))`, with `services.<provider>` `client_id`,
+    `client_secret` and `redirect` set in the test (the fake forwards `with()` and `scopes()` to the real driver) and
+    the provider on via `config(['services.socialite.providers' => [...]])`.
+- Queues run inline (`QUEUE_CONNECTION=sync` in `phpunit.xml`), so a chain or queued job runs for real in the flow.
+- Machine addresses come from the environment (e.g. the host of `LOCAL_APP_URL`), never a literal; stand-ins are RFC
+  5737 (`192.0.2.x`, `198.51.100.x`, `203.0.113.x`).
 - Run only the E2E test you wrote or touched: `php artisan test --compact tests/E2E/…`.
 
-## What is not
+## Auth proofs
 
-No unit tests, no component tests, no tier ladder, no fail-first ritual, nothing in `tests/Unit` or `tests/Feature`.
-No suite is a gate before a commit. Correctness is shown on the real thing: the flow end to end, a read-only query or
-measurement on the data, the output read.
+Each is an E2E flow, written when the piece it proves is built.
+
+- Fortify: the shipped `FortifyViewRoutesTest` and `TwoFactorAuthenticationTest`.
+<!-- if:htmx -->
+  The views flip rewrites the first (`resources/CLAUDE.md`, Auth pages).
+<!-- endif -->
+- Social sign-in:
+  - a vouched new user is created with a null password, linked and signed in, and the session id changes;
+  - an unvouched provider email creates no user, and an email collision is refused (guest, no row);
+  - a returning user signs in by `provider_user_id`;
+<!-- if:htmx -->
+  - linking while signed in is a POST and needs confirmation: unconfirmed, it redirects to the confirm page;
+<!-- endif -->
+<!-- unless:htmx -->
+  - linking while signed in needs confirmation: a plain POST without `Accept: application/json` answers 423, not a
+    redirect;
+<!-- endif -->
+  - a link callback after the session user changed, or with no stored flow, is refused;
+  - an account linked to another user is refused, and unlinking the last way in is refused;
+  - a user with confirmed 2FA is sent to the challenge, not signed in;
+  - an unknown or disabled provider is a 404;
+  - a passwordless user cannot confirm with an empty password.
+- Sanctum:
+<!-- unless:tenancy -->
+  - a token from `createToken` reaches an `auth:sanctum` route; no token gets a 401 JSON answer;
+<!-- endif -->
+<!-- if:tenancy -->
+  - a token from `User::createTenantToken` reaches an `auth:sanctum` route; no token gets a 401 JSON answer;
+<!-- endif -->
+<!-- if:spa -->
+  - the session-cookie path is proven by the Playwright session flow (below), not by Pest: a Pest test's session store
+    keeps its attributes across requests, so it never exercises the stateful match.
+<!-- endif -->
+<!-- unless:spa -->
+  - `actingAs($user)`, then `getJson` on an `/api/v1` route, is 401 (`sanctum.guard` is empty).
+<!-- endif -->
+<!-- if:spa -->
+
+## Browser flows (Playwright)
+
+Pest proves the API; user flows run in a real browser, in `frontend/e2e/*.spec.ts`, against the e2e site: the
+frontend's production build behind Caddy on `127.0.0.1:8090`, its Laravel side on `{{app}}_test`. Never the dev
+stack.
+
+- `frontend/playwright.config.ts` follows the Playwright contract in `laravel-deployment`'s `references/spa.md`
+  (browser tests). Run the flows only with `docker/e2e.sh` in the app container: it takes the test-database lock,
+  resets `{{app}}_test`, builds and runs Playwright. The image holds the browser for the `@playwright/test` pin;
+  never `playwright install`.
+- One user flow per test, named for what the user does. Each makes its own data (unique emails) through the UI or
+  Laravel's public API (Playwright's `request` fixture); no shared leftovers, no test-only endpoints.
+- Assert what the user sees (`getByRole`, `getByLabel`, text). No selectors into `ui/` internals, no sleeps.
+- Fakes live on the Laravel side of the e2e site (its env, Hosting). Never `page.route()` or a mocked `fetch`.
+- **The session flow**, written with the first auth page: sign in through `/login`, then reload an `(app)` page; it
+  renders server-side with the user. Signed out, the same page redirects to `/login`.
+
+### Validation parity
+
+One proof per exported form (`app/Requests/CLAUDE.md`): a Pest test and a Playwright test send the same invalid input
+and see the same set of messages per field (Pest's 422 body against the browser's field text; order may differ).
+- Stay clear of where Zod and Laravel differ: well-typed values, fewer than 10 array items, no `bail` field with two
+  failures. Use an empty required field, a too-short ASCII string, an email with no `@`, a mismatched confirmation.
+  Never numeric garbage (`12abc`, or `1.5` for an integer), a TLD-less email (`a@b`) or non-BMP characters in a length
+  check.
+- One server-only rule (a taken email) shows on its field through the 422.
+- A `zod` bump reruns them.
+<!-- endif -->
 
 ## Gotchas that still bite an E2E test
 
-- The suite runs on the sidecar's Postgres (`{{app}}_test`); a statement that fails inside the test's transaction
-  aborts it — code expecting a failed insert wraps it in `DB::transaction()` for the savepoint.
+- A statement that fails inside the test's transaction aborts it (Postgres). Code expecting a failed insert wraps it
+  in `DB::transaction()` for the savepoint.
 - `phpunit.xml` sets no `DB_HOST`/`DB_PORT`: they come from `.env`, so a worktree's tests hit its own stack, never
   main's database.
-- A test that reads a materialised view after seeding refreshes it first: nothing refreshes it inside a test.
-- **Never fake an LLM agent with an empty queue**: the SDK then answers with random data for the schema. Queue a real
-  answer for every call the flow makes.
-- `SET LOCAL` is transaction-scoped, not savepoint-scoped: a setting made with it persists for the rest of the test's
-  transaction.
+- A test that reads a materialised view after seeding refreshes it first.
+- **Never fake an LLM agent with an empty queue**: the SDK then returns random data. Queue an answer per call.
+- `SET LOCAL` is transaction-scoped, not savepoint-scoped: it persists for the rest of the test's transaction.
 - `Model::shouldBeStrict()` makes a lazy load throw: fix the eager load, never disable it.
 <!-- if:htmx -->
 - `TestCase::setUp()` calls `withoutVite()`; a test needing real `@vite` output opts back in with `$this->withVite()`.
 <!-- endif -->
-- Tests run one-request-per-process; production runs Octane — a passing test says nothing about state leaking across requests.
+<!-- if:spa -->
+- `php artisan test` refuses while an e2e run holds the test-database lock, and `docker/e2e.sh` refuses during a Pest
+  run: both use `{{app}}_test`. Wait for the other to end.
+- The e2e site's Laravel is another process: phpunit's forced env, `Http::fake()` or `Socialite::fake()` never reach
+  it (Hosting sets its env).
+<!-- endif -->
+- Tests run one request per process; production runs Octane. A passing test says nothing about state leaking across
+  requests.
+<!-- if:tenancy -->
+
+## Tenancy
+
+**Setup:**
+- The suite connects as `{{app}}_app`, so RLS applies. Create and assert tenant-owned rows inside
+  `CurrentTenant::run($tenant->id, …)`, never on a tenant an earlier request left on the connection. Users, tenants
+  and memberships need none.
+- `TestCase::artisan()` adds `'--database' => 'pgsql_owner'` to every `migrate*` command, `RefreshDatabase`'s
+  `migrate:fresh` included. Never a `migrateFreshUsing()` override: a test's own `uses(RefreshDatabase::class)` brings
+  back the trait's version. The test transaction runs as the app role, its rollback also undoing `app.tenant_id`;
+  `#[Seeder]` seeders run as the owner, outside it.
+- `pgsql_owner` has no `url`, so phpunit's forced `DB_DATABASE` reaches it (Hosting).
+- Never `DatabaseTruncation`: the app role has no TRUNCATE, and TRUNCATE ignores RLS.
+- `SeedingTest` gains a case: two `db:seed` runs leave exactly two tenants and the expected memberships.
+<!-- if:spa -->
+- The Playwright run resets `{{app}}_test` as the owner: `docker/e2e.sh` runs
+  `migrate:fresh --database=pgsql_owner --seeder=ReferenceDataSeeder --force`, never a truncate as the app role.
+<!-- endif -->
+
+**The proofs**, in `tests/E2E/TenancyTest.php`:
+1. **The roles**, which every other proof depends on. The app role is not superuser, has no BYPASSRLS and owns no
+   tenant-owned table (`pg_roles`, `pg_tables`). Every `public` relation with a `tenant_id` it can SELECT
+   (`has_table_privilege`) is a table with RLS enabled and forced, or a view with `security_invoker=true` in
+   `reloptions`; `tenant_user`, `personal_access_tokens` and the barrier views are excluded by name. The only
+   `SECURITY DEFINER` functions it can EXECUTE (`pg_proc.prosecdef`) are `refresh_*`.
+2. **Cross-tenant by id.** A member of A reads, updates and deletes B's record through the real routes, sending
+   `X-Tenant: <A>`: all 404, B's row unchanged.
+3. **Tokens.** A token for A gets 404 on B's record and only A's rows in a listing. Removing the membership through
+   the project's action makes the token answer 401 (deleted); a membership row deleted directly, token kept, answers
+   403. Call `app('auth')->forgetGuards()` before each request after such a change: the guard caches the user and
+   token it resolved, so the deleted token would answer 403.
+4. **Stale tab.** After a switch from A to B, a request carrying `X-Tenant: <A>` gets 409 and writes nothing.
+5. **RLS alone.** With A set on the app connection, the route's query with
+   `withoutGlobalScope(TenantScope::class)` finds none of B's rows, and inserting or updating a row into B throws.
+6. **A queued job.** With `config(['queue.default' => 'database'])`, dispatch it from a request in A, run
+   `CurrentTenant::set($b->id)`, then `$this->artisan('queue:work', ['connection' => 'database', '--once' => true])`.
+   The job restores its `SerializesModels` model and sees only A's rows. The same job dispatched with no tenant,
+   queued behind it so the worker still holds A's setting, fails. Call `Context::forgetHidden('tenant_id')` before
+   that dispatch: the test process keeps the earlier request's Context, so the job would carry A and succeed.
+<!-- endif -->

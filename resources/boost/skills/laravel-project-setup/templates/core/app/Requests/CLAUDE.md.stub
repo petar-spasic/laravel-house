@@ -1,35 +1,62 @@
 # CLAUDE.md — app/Requests (FormRequests)
 
-Scope: `app/Requests/`. The design standard is `app/CLAUDE.md`; project-wide
-facts are in the root `CLAUDE.md`.
+One endpoint ⇒ one FormRequest carrying ALL of its rules. No inline `$request->validate([...])` or
+`Validator::make` in a controller, and no `app/Http/Requests/` (`app/CLAUDE.md`, Layout).
 
-One endpoint ⇒ one FormRequest carrying ALL of its rules. Inline
-`$request->validate()` / `Validator::make` in a controller is banned. Requests
-live in `app/Requests/` — **not** `app/Http/Requests/` (this app is flat by
-layer; a second home would fragment them).
-
-- `authorize()` returns the authentication check and nothing more — resource
-  authorization belongs to the policy, never split across both.
-- **Server-owned columns get `['prohibited']`** — `user_id` / owner ids (the
-  owner comes from `$request->user()`, never the body), plus `status`, and
-  anything else the server computes. This pairs with the model's non-fillable
-  column: belt and braces.
-- Enum-valued fields validate via `Rule::enum(X::class)` — never a hand-typed
-  `in:` list that can drift from the enum.
-- Free text is validated for **size and shape only**, never content-filtered
-  (`app/CLAUDE.md`). Bound everything a user can post: `max:` on every string
-  and array, size + mime on uploads. Unbounded input is an easy way to fill the
-  database.
+- `authorize()` returns the authentication check and nothing more. Resource authorization is the policy's.
+- **Server-owned columns get `['prohibited']`**: owner ids such as `user_id` (the owner is `$request->user()`, never
+  the body), `status`, anything the server computes. It pairs with the model's non-fillable column.
+- Enum fields validate with `Rule::enum(X::class)`, never a hand-typed `in:` list that can drift.
+<!-- if:tenancy -->
+- Every `exists` or `unique` rule on a tenant-owned table scopes to the tenant in a closure:
+  `Rule::exists('projects', 'id')->where(fn ($q) => $q->where('tenant_id', CurrentTenant::id()))`, the same on
+  `Rule::unique`. Never the eager `->where('tenant_id', CurrentTenant::id())`: it runs when `rules()` is built, and
+  `CurrentTenant::id()` throws without a tenant. The database half is the composite foreign key
+  (`database/CLAUDE.md`).
+<!-- endif -->
+- Free text is validated for **size and shape only**, never content-filtered (`app/CLAUDE.md`). Bound everything a
+  user can post: `max:` on every string and array, size + mime on uploads.
+- A FormRequest never decides the response shape.
 <!-- if:htmx -->
-- htmx callers get the same 422 as everyone else; the controller re-renders the
-  form fragment with `$errors` (root `CLAUDE.md`). A FormRequest never decides
-  the response shape.
+  htmx callers get the same 422; the controller re-renders the form fragment with `$errors`.
 <!-- endif -->
 <!-- if:spa -->
-- FormRequests are also the single source of truth for the frontend — the
-  exported validation descriptors are generated from them, and the SPA turns
-  them into runtime Zod schemas (`frontend/CLAUDE.md`, Validation), so a rule
-  that bypasses a FormRequest silently never reaches the SPA. Add/adjust
-  validation in the FormRequest and re-export — never hand-maintain the
-  frontend rules. A FormRequest never decides the response shape.
+
+## Exported forms
+
+**Every FormRequest a SvelteKit form posts to is exported** with `#[ExportValidation('<kebab-name>')]`
+(`PetarSpasic\LaravelHouse\Validation\ExportValidation`, the name unique in the app). `php artisan validation:export`
+writes its Zod module into `frontend/src/lib/validation/generated/`; commit it with the FormRequest or `lang/` change,
+or `npm run check` fails. Upload fields stay server-only.
+
+- **Fortify's forms too.** Every Fortify form a SvelteKit page posts is backed by an exported FormRequest in
+  `app/Requests/Auth/`.
+  - The `app/Actions/Fortify/` actions validate with it: `$form = new RegisterRequest()`, then
+    `Validator::make($input, $form->rules(), $form->messages(), $form->attributes())->validate()`. Never
+    `app(RegisterRequest::class)` or injection: resolving a FormRequest validates the live request on the spot.
+  - Where Fortify validates in its own `Laravel\Fortify\Http\Requests\*` class, the exported one extends that class
+    and is bound over it in `FortifyServiceProvider`.
+  - Where Fortify validates inline, the exported rules are never stricter than Fortify's.
+- **`rules()` reads nothing eagerly.** The export runs it with `$this->route()` and `$this->user()` null. Read them
+  null-safely or in a closure, only into server-only rules: `->ignore($this->route('project'))`,
+  `->ignore($this->user()?->id)`, `->where(fn ($q) => …)`. Never into a browser rule
+  (`'max:'.($this->user()?->limit ?? 10)` would export the fallback). A throw refuses the form.
+<!-- if:tenancy -->
+  No tenant is set at export either: the closure form above stays server-only; the eager form refuses the form.
+<!-- endif -->
+- **No `prepareForValidation()`**: the browser would check the unprepared input and could refuse what the server
+  accepts.
+- **Every string or number field** (`*` elements included) carries `required`, `nullable`, `filled`, `accepted` or
+  `declined`. `sometimes` or a conditional `required_*` alone is not enough, because `''` reaches the rules as null.
+- **Without `nullable`, `required` comes first.** Laravel runs `string|required` on the null that `''` became and
+  reports both messages.
+- **Every input the backend reads** (e.g. `remember`) is declared with a type: the schema strips undeclared keys.
+- Every `*` field has a name in `attributes()`.
+- **Arrays are never nullable in the schema**: an empty one posts `[]`, so `min` and `size` still apply.
+- **Arrays of arrays** make the form's `dataType` `'json'` (`frontend/CLAUDE.md`, Forms).
+- **A `regex` with the `i` modifier also needs `u`. Never the `m` modifier.** The export refuses both.
+- A refusal is fixed in the rule, or the check moves into a rule object, which stays server-only. Never drop the
+  attribute to silence it.
+- Each exported form has its parity proof (`tests/CLAUDE.md`). The command, the mapping and the gate:
+  `laravel-project-setup`'s `references/validation-export.md`.
 <!-- endif -->

@@ -3,11 +3,13 @@
 
 	admin {$CADDY_SERVER_ADMIN_HOST}:{$CADDY_SERVER_ADMIN_PORT}
 
-	# TLS terminates at the reverse proxy in front of this container; trust
-	# X-Forwarded-* from private ranges only. Laravel's own TrustProxies is set
-	# from TRUSTED_PROXIES (bootstrap/app.php).
+	# TLS terminates at the reverse proxy in front of this container. Caddy's trust only decides {client_ip} (logs,
+	# X-Real-IP to Node with spa): php_server passes X-Forwarded-* to PHP untouched, so Laravel's TRUSTED_PROXIES
+	# (bootstrap/app.php) alone decides what Laravel sees. Strict: X-Forwarded-For is read right to left, never the
+	# client-controlled left-most entry.
 	servers {
 		trusted_proxies static private_ranges
+		trusted_proxies_strict
 	}
 
 	frankenphp {
@@ -51,6 +53,16 @@
 			not path /.well-known/*
 		}
 		respond @hidden 404
+		# php_server runs any existing .php file, PATH_INFO URLs included (an upload under /storage, the worker by its
+		# own URL); a missing /x.php still reaches Laravel.
+		@phpfile {
+			file {
+				try_files {path}
+				split_path .php
+			}
+			path *.php *.php/*
+		}
+		respond @phpfile 404
 
 		# Built assets straight from disk, never PHP source; everything else is Laravel.
 		@realfile {
@@ -64,7 +76,6 @@
 			php_server {
 				index frankenphp-worker.php
 				try_files {path} frankenphp-worker.php
-				resolve_root_symlink
 			}
 		}
 	}

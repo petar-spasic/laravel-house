@@ -1,43 +1,41 @@
 # CLAUDE.md — app/Support (security-relevant helpers)
 
-Scope: `app/Support/`. The design standard is `app/CLAUDE.md`; project-wide
-facts are in the root `CLAUDE.md`.
+Small on purpose: every file here is a security or API-shape boundary, never casual utility code. A helper with a
+domain meaning belongs in a service.
 
-Small, and every file here is a security or API-shape boundary — none of it is
-casual utility code. Don't grow this directory: a helper with a domain meaning
-belongs in a service.
+Create each when first needed, in this shape:
 
-What lives here (create each when first needed, in this shape):
-
-- **`Redaction`** — the ONE list of secret-bearing key patterns, used by
-  structured logging and by anything that persists a payload snapshot. Add new
-  patterns HERE, never to a second list; a divergent copy is a leak waiting to
-  happen.
-- **The HMAC signer/verifier** — one implementation, constant-time comparison
-  (`hash_equals`), used by the middleware and by any client that signs outbound
-  calls.
+- **`Redaction`**: the ONE list of secret-bearing key patterns, for logging and any persisted payload snapshot.
+- **The HMAC signer/verifier**: one implementation with a constant-time comparison (`hash_equals`), used by the
+  middleware and by any client that signs outbound calls.
 <!-- if:htmx -->
-- **`Markdown::render()`** — `Str::markdown` with raw HTML escaped
-  (`html_input: escape`), unsafe links (`javascript:` and co.) dropped and
-  nesting capped at 100. It is the **only** thing whose output may go through
-  `{!! !!}` in Blade
+- **`Markdown::render()`**: `Str::markdown` with raw HTML escaped (`html_input: escape`), unsafe links
+  (`javascript:` and co.) dropped, nesting capped at 100. It is the **only** output allowed through `{!! !!}` in Blade
 <!-- if:islands -->
   or `{@html}` in an island
 <!-- endif -->
-  (root `CLAUDE.md`); loosening an option is a security change.
+  (`app/CLAUDE.md`). Loosening an option is a security change.
 <!-- endif -->
 <!-- if:spa -->
-- **`Markdown::render()`** — `Str::markdown` with raw HTML escaped
-  (`html_input: escape`), unsafe links (`javascript:` and co.) dropped and
-  nesting capped at 100. It is the **only** thing whose output may go through
-  `{@html}` in the SPA (root `CLAUDE.md`); loosening an option is a security
-  change.
+- **`Markdown::render()`**: `Str::markdown` with raw HTML escaped (`html_input: escape`), unsafe links
+  (`javascript:` and co.) dropped, nesting capped at 100. It is the **only** output allowed through `{@html}` in the
+  SvelteKit app (`app/CLAUDE.md`). Loosening an option is a security change.
+<!-- endif -->
+<!-- if:tenancy -->
+- **`CurrentTenant`**: the one holder of the current tenant, bound `scoped()` (root `CLAUDE.md`, Tenancy). Its
+  methods are static and read that instance:
+  - `id()` throws when no tenant is set; `check()` reports whether one is;
+  - `set(?string $id)` sets the holder and `app.tenant_id` on the default connection (`''` for null), never Context.
+    Where it may run: `app/CLAUDE.md` (Octane);
+  - `run(string $id, Closure $work)` sets the holder, the connection and hidden Context, and restores all three in
+    `finally`.
 <!-- endif -->
 
 Rules:
 
-- Nothing here reaches the network or the filesystem — external systems go
-  behind a contract in `app/Contracts/`.
-- Pure and stateless — safe under Octane by construction. No static caches.
-- Anything here is used by more than one surface, so a change has the widest
-  blast radius in the app. Expect to update `app/CLAUDE.md` in the same commit.
+- Nothing here reaches the network or the filesystem.
+- Pure and stateless, so safe under Octane. No static caches.
+<!-- if:tenancy -->
+  The one exception is `CurrentTenant`, safe because it is `scoped()`; nothing else stores the tenant.
+<!-- endif -->
+- Every surface uses this code: a change here has the widest blast radius.

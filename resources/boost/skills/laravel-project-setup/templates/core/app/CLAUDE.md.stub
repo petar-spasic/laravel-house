@@ -1,14 +1,11 @@
 # CLAUDE.md — app/ (backend code design)
 
-Scope: `app/`. The stack, hosting model and project-wide facts live in the root
-`CLAUDE.md`. This file prescribes **how to write the code**.
+Scope: `app/`: **how to write the code**. Each layer directory's `CLAUDE.md` elaborates it; read it before writing
+there.
 
 ## Layout — flat by layer, no modules
 
-This app is deliberately **not** organised into modules: there is one domain,
-and a module layout would trade auto-discovery away for nothing. If the domain
-grows to the point where that stops being true, that is a decision recorded
-here, not an ad-hoc `app/Modules/` folder.
+One domain, so no modules. If that changes, record the decision here; never an ad-hoc `app/Modules/`.
 
 ```
 app/
@@ -31,43 +28,27 @@ app/
 └── Support/            # small, security-relevant helpers only
 ```
 
-`app/Requests` and `app/Resources` are the canonical namespaces here — **not**
-`app/Http/Requests` / `app/Http/Resources`. `app/Http/` holds framework plumbing
-only (see `app/Http/CLAUDE.md`).
+FormRequests live in `app/Requests` and Resources in `app/Resources`, **never** `app/Http/Requests` or
+`app/Http/Resources`: a second home would fragment them. `app/Http/` holds framework plumbing only.
 <!-- if:htmx -->
 <!-- if:islands -->
-Everything rendered lives under `resources/`
-(`resources/CLAUDE.md`): Blade views and anonymous components in
+Everything rendered lives under `resources/` (`resources/CLAUDE.md`): Blade views and anonymous components in
 `resources/views/`, Svelte islands in `resources/js/islands/`.
 <!-- endif -->
 <!-- unless:islands -->
-Everything rendered lives under `resources/`
-(`resources/CLAUDE.md`): Blade views and anonymous components in
+Everything rendered lives under `resources/` (`resources/CLAUDE.md`): Blade views and anonymous components in
 `resources/views/`.
 <!-- endif -->
-Class-based Blade components go in `app/View/Components/` only when one
-genuinely needs PHP (create the directory with its own `CLAUDE.md` at that
-point).
+A class-based Blade component goes in `app/View/Components/` only when it needs PHP; create the directory with its
+own `CLAUDE.md` then.
 <!-- endif -->
 <!-- if:spa -->
-Everything rendered lives in the SPA under `frontend/` (`frontend/CLAUDE.md`);
-Laravel serves its shell and the JSON API.
+Everything rendered lives in the SvelteKit app under `frontend/` (`frontend/CLAUDE.md`); Laravel serves JSON only.
 <!-- endif -->
-
-**Each layer directory carries its own `CLAUDE.md`** with that layer's
-checklist, loaded automatically when you work on a file under it. This file is
-the standard the layer files elaborate; read the layer file before writing in
-that directory.
 
 ## The layering rule
 
-A controller action is HTTP translation ONLY — authorize, validate in a
-FormRequest, delegate, return a view / fragment / Resource. The action-shape
-checklist lives in `app/Http/Controllers/CLAUDE.md`; what follows is the part
-that governs **every** layer, not just controllers.
-
-Five ownership rules — these are where logic defaults upward into controllers
-when nobody is watching, and it belongs below them:
+A controller action is HTTP translation only (`app/Http/Controllers/CLAUDE.md`). These concerns belong below it:
 
 | Concern | Owner — never the controller |
 |---------|------------------------------|
@@ -78,104 +59,89 @@ when nobody is watching, and it belongs below them:
 | **Export / bulk plumbing** | A shared concern, never a hand-rolled per-controller `export()` pair. |
 
 <!-- if:htmx -->
-And one rule the read path owes the whole app (root `CLAUDE.md`,
-Non-negotiables): **public reads are served from the response cache; the code
-path behind them must still be cheap.** Eager-load what the view renders
-(`Model::shouldBeStrict()` makes a lazy load throw), aggregate and paginate in
-SQL, `Cache::flexible` anything slow, and index every column a public page
-filters or sorts by. Every write to a
-publicly rendered entity **invalidates the response-cache keys/tags that show
-it** — that invalidation belongs to the model event / domain service that
-performs the write, never to the controller.
+**The read path stays cheap**, even behind the response cache: eager-load what the view renders, aggregate and
+paginate in SQL, `Cache::flexible` anything slow, index every column a public page filters or sorts by. A write to a
+publicly rendered entity **invalidates the response-cache tags that show it**, in the model event or domain service
+that writes, never in the controller.
 <!-- endif -->
 <!-- unless:htmx -->
-And one rule the read path owes the whole app: **the code path behind every
-read must be cheap.** Eager-load what the Resource renders
-(`Model::shouldBeStrict()` makes a lazy load throw), aggregate and paginate in
-SQL, `Cache::flexible` anything slow, and index every column a list endpoint
-filters or sorts by.
+**The read path stays cheap**: eager-load what the Resource renders, aggregate and paginate in SQL,
+`Cache::flexible` anything slow, index every column a list endpoint filters or sorts by.
 <!-- endif -->
 
 ## Models — fat, in the Laravel sense
 
-Models own THEIR OWN state: casts, relations, scopes, accessors, predicates,
-guards, and state transitions. Multi-model orchestration goes to a service —
-avoid the god-model as much as the god-controller. File conventions, the state
-discipline and scopes: `app/Models/CLAUDE.md`.
+Models own their own state: casts, relations, scopes, accessors, predicates, guards and state transitions.
+Multi-model orchestration goes to a service (`app/Models/CLAUDE.md`).
 
 ## Records that must not be rewritten
 
-Where a table is an audit trail or a record of what happened (interventions,
-decisions, anything a later reader must trust), treat it as **append-only**: a
-correction is a NEW row superseding an old one (`supersedes_id`), nothing is
-updated in place and nothing is deleted. Where a job observes external state,
-**snapshot absolute state, not deltas** — deltas cannot be re-derived after a
-missed tick — and stamp when the state was *observed*, not when the row was
-inserted. Which tables get this treatment is a domain decision; record it in
-`app/Models/CLAUDE.md` when it is made.
+An audit trail or a record of what happened is **append-only**: a correction is a new row superseding the old one
+(`supersedes_id`), never an update or delete. A job observing external state **snapshots absolute state, not
+deltas**, stamped when *observed*, not inserted. Which tables get this is recorded in `app/Models/CLAUDE.md`.
 
-## Services — a deliberate taxonomy, not a dumping ground
+## Services — a deliberate taxonomy
 
-**Single-model invariant → model method; multi-model workflow → domain service;
-external system → a contract-backed client; reusable filter → ListQuery.** The
-kinds and the client rules: `app/Services/CLAUDE.md`. Every external system goes
-behind a contract in `Contracts/` — the seam where an E2E test fakes the outside
-world and nothing else (`tests/CLAUDE.md`).
+**Single-model invariant → model method; multi-model workflow → domain service; external system → a contract-backed
+client; reusable filter → ListQuery** (`app/Services/CLAUDE.md`). Every external system sits behind a contract in
+`Contracts/`: the one seam an E2E test fakes.
 
 ## Octane: no request state in shared position
 
-Production runs **FrankenPHP + Octane**, so the application stays in memory
-between requests; the local stack's php-fpm does not (root `CLAUDE.md`,
-Hosting). Anything that works locally because state is discarded per request
-will leak in production — across requests, and across *users*.
+Production runs **FrankenPHP + Octane**, so the app stays in memory between requests; the local php-fpm does not.
+State discarded per request locally leaks in production, across requests and *users*. Only a warm worker shows it.
 
-- **Never** store request-specific state in a singleton, a static property, or a
-  captured closure variable. Bind per-request services with
-  `$this->app->scoped()`, never `singleton()`; a binding never captures the
-  current request or user.
-- Transient flags reset in a `finally`, not at the end of the happy path.
-- A static cache keyed by "the user currently being handled" is a cross-user
-  leak.
-- `config('octane.server')` names the active driver when something genuinely
-  needs to branch.
+- **Never** keep request-specific state in a singleton, a static property or a captured closure variable.
+  Per-request services are `$this->app->scoped()`, never `singleton()`; a binding never captures the current request
+  or user.
+- Reset transient flags in a `finally`, not at the end of the happy path.
+- A static cache keyed by "the user currently being handled" is a cross-user leak.
+- `config('octane.server')` names the active driver when something must branch.
+<!-- if:tenancy -->
+- **The tenant is connection state too.** Octane and the queue worker flush the `scoped()` `CurrentTenant`, but not
+  `app.tenant_id` on the reused PDO connection. A setting left behind becomes the next request's tenant.
+  - Set it at every request start (`ResolveTenant`) and every job start (`Context::hydrated`).
+  - Reset it to `''` in `App\Listeners\ResetTenantConnection`, registered in `config/octane.php` under
+    `RequestReceived` and `RequestTerminated`.
+  - Never reset it in a middleware `terminate()`: deferred callbacks and after-response jobs run after it, and
+    Octane skips terminate when sending the response fails.
+  - Re-apply it on reconnect (`ConnectionEstablished`).
+  - Never set it inside an application `DB::transaction()`: a rollback undoes it.
+<!-- endif -->
 
-This is the one bug class the local tier cannot reveal — it only appears under a
-warm worker.
+## Off-request rules (jobs, listeners, commands, services)
 
-## Off-request rules (jobs, listeners, commands)
+Queued and scheduled work has **no authenticated user, no request locale, no request context**.
 
-Everything queued or scheduled runs off-request: **no authenticated user, no
-request locale, no request context of any kind.**
-
-- Anything a job scopes by is **passed in explicitly** — the user/tenant/entity
-  id comes from the work item, never from ambient state (`auth()`, `request()`).
-- **Idempotent**: at-least-once delivery is the contract, so a re-run upserts on
-  the natural key and a duplicate delivery repeats no side effect (email,
-  charge, API call); `ShouldBeUnique` where a second concurrent copy is wrong.
-- Fan out **one job per item** (`Bus::batch()` when the group matters), never a
-  whole batch in one process. One hung item must not stall the rest.
-- Queued payloads serialize FQCNs — moving or renaming a job, event or listener
-  class breaks in-flight payloads. Before a release that moves one, stop dispatching it
-  and wait until the queues are empty (`horizon:status`, queue sizes), or keep a
-  `class_alias` from the old FQCN (`horizon:pause` holds the payloads, it does not remove them).
+- Whatever a job scopes by is **passed in explicitly**: the user or entity id comes from the work item, never from
+  `auth()` or `request()`.
+<!-- if:tenancy -->
+- **Exception: the tenant**, carried in hidden Context (`app/Jobs/CLAUDE.md`).
+<!-- endif -->
+- **Idempotent** (delivery is at least once): a re-run upserts on the natural key and repeats no side effect (email,
+  charge, API call). `ShouldBeUnique` where a second concurrent copy is wrong.
+- Fan out **one job per item** (`Bus::batch()` when the group matters), so one hung item stalls nothing else.
+<!-- if:tenancy -->
+- A command or scheduled task over tenant data loops over the tenants and dispatches one job per tenant inside
+  `CurrentTenant::run($id, …)`.
+- Cache keys of tenant data include `t:{tenant_id}:`.
+<!-- endif -->
+- Queued payloads hold class names: renaming a job, event or listener breaks in-flight payloads. Before such a
+  release, stop dispatching it and wait for empty queues (`horizon:status`), or keep a `class_alias`.
+  `horizon:pause` holds payloads; it does not remove them.
 
 ## User-authored text is untrusted input
 
-Anything a user (or an external system) typed — names, descriptions, markdown,
-uploaded filenames, webhook payloads — is stored raw and treated the same way
-everywhere:
+Anything a user or external system typed is stored raw and handled the same way everywhere:
 
 <!-- if:htmx -->
-- Escape on output, always — Blade `{{ }}`; `{!! !!}` only for
-  `Markdown::render()` (raw HTML escaped). CSP disallows inline script as the
+- Escape on output, always: Blade `{{ }}`; `{!! !!}` only for `Markdown::render()` (raw HTML escaped). The CSP is the
   second layer.
 <!-- endif -->
 <!-- if:spa -->
-- Escape on output, always — Svelte `{text}`; `{@html}` only for
-  `Markdown::render()` (raw HTML escaped). CSP disallows inline script as the
-  second layer.
+- Escape on output, always: Svelte `{text}`; `{@html}` only for `Markdown::render()` (raw HTML escaped). The CSP is
+  the second layer.
 <!-- endif -->
-- Validate for **size and shape**, never content-filter on write; a write-time
-  filter silently rewrites the data.
-- Never let it reach a component that can act on it (a shell, an LLM with tools,
-  an eval) without a deliberate, documented decision here.
+- Validate **size and shape**, never content-filter on write: a write-time filter silently rewrites the data.
+- It never reaches a component that can act on it (a shell, an LLM with tools, an eval) without a deliberate decision
+  recorded here.

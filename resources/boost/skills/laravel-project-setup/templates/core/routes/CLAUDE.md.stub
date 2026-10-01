@@ -1,109 +1,194 @@
 # CLAUDE.md — routes
 
-Scope: `routes/`. Middleware rules are in `app/Http/CLAUDE.md`; the process
-model in the root `CLAUDE.md`.
-
 ## Every route belongs to exactly one surface
 
-Before adding a route, name which one it serves. The surfaces have different
-trust levels and a route in the wrong group is a security change. The starting
-set — extend the table as the project defines its surfaces:
+Name the surface before adding a route. Surfaces have different trust levels, so a route in the wrong group is a
+security change. Extend the table as the project defines its surfaces:
 
 | Group | Reachable by | Middleware |
 |-------|--------------|------------|
-| `guest` | anyone, unauthenticated | Fortify's auth routes (`/login`, `/register`, `/forgot-password`, `/two-factor-challenge`, `/passkeys/login`) — `guest`; `throttle:auth-forms` is on every Fortify route (`config/fortify.php`) but only limits register, forgot-password and reset-password, which Fortify leaves unthrottled (the limit is in `FortifyServiceProvider`); Fortify's own limiters (login, two-factor, passkeys; verification when on) still apply |
-<!-- if:htmx -->
-| `web` (authenticated) | signed-in users | `auth`, `verified` where required, CSRF; Blade + htmx; policies decide per-record access |
-| `public` | the internet + crawlers | Declared explicitly in `routes/web.php` as `Route::middleware('public')` — `web.php` is loaded via `withRouting(then:)`, so **no route gets `web` implicitly**. Group = `CachePublicResponse` (first: a hit never reaches the limiter; root `CLAUDE.md`, Non-negotiables) + `throttle:public` + `SubstituteBindings` (a group outside `web` gets no route-model binding otherwise: a missing slug would render a blank model instead of a 404). The limiter is defined in `AppServiceProvider::boot()`, never in `bootstrap/app.php` (its `withRouting(then:)` closure does not run when routes are cached, and production caches them: a missing limiter is a 500), ceiling `config('{{app}}.public_per_minute')` (default 120); `RequestId` and `SecurityHeaders` are global. `/fragment/…` routes add the `htmx` alias (`HtmxOnly`: 404 without `HX-Request`). **No write routes at all** — no POST/PUT/DELETE, no forms. That absence is what makes "no auth, no CSRF, no moderation, no rate limiting, cache everything" correct; one input route invalidates all five and needs this file updated in the same commit. **No `StartSession`** here either: a session cookie on an anonymous page makes the response personal |
+<!-- unless:spa -->
+| `guest` | anyone, unauthenticated | Fortify's sign-in, registration, password reset, two-factor and passkey-login routes: `guest`, throttled (below) |
 <!-- endif -->
 <!-- if:spa -->
-| `spa` | anyone | The SPA is served same-origin: `Route::fallback` in `routes/web.php` returns the SPA shell (prod routing's source of truth is `docker/Caddyfile`) |
-| `api` (SPA) | signed-in users | `/api/v1`, `auth:sanctum` (stateful session cookie + XSRF), Resources only; policies decide per-record access. Auth endpoints are throttled as in the `guest` row |
+| `guest` | anyone, unauthenticated | Fortify's sign-in, registration, password reset, two-factor and passkey-login routes under `/api/auth`: `guest`, throttled (below) |
 <!-- endif -->
-| `api` (only if needed) | machines | `/api/v1`, token/signature auth, Resources only, own throttle |
+<!-- if:htmx -->
+| `web` (authenticated) | signed-in users | `auth`, `verified` where required, CSRF; Blade + htmx; policies decide per-record access |
+| `public` | the internet + crawlers | `Route::middleware('public')` (below) |
+<!-- endif -->
+<!-- if:spa -->
+| `api` | the SvelteKit app and every other client | `/api/v1`, `auth:sanctum`: the session cookie + XSRF token for the SvelteKit app (`statefulApi`), tokens for the rest; Resources only; policies decide per-record access |
+<!-- endif -->
+<!-- unless:spa -->
+| `api` (only if needed) | machines | `/api/v1`, `auth:sanctum` with tokens only (`sanctum.guard` is empty, so a session is 401 here), Resources only, own throttle |
+<!-- endif -->
 | `ops` | operators | `/horizon` behind the `viewHorizon` gate |
 | `console` | scheduler + operator | not HTTP |
 <!-- if:reverb -->
-| `channels` | signed-in users | Realtime channel auth lives in `routes/channels.php` — a channel's auth must mirror the policy that gates the record, never a looser check |
+<!-- if:spa -->
+| `channels` | signed-in users | `POST /api/broadcasting/auth`, `api` + `auth:sanctum` (`withBroadcasting`, `bootstrap/app.php`); callbacks in `routes/channels.php` |
+<!-- endif -->
+<!-- unless:spa -->
+| `channels` | signed-in users | callbacks in `routes/channels.php` |
+<!-- endif -->
 <!-- endif -->
 
+- **Guest throttling:** `throttle:auth-forms` is on every Fortify route (`config/fortify.php`) but limits only
+  register, forgot-password and reset-password, which Fortify leaves unthrottled (the limiter is in
+  `FortifyServiceProvider`). Fortify's own limiters (login, two-factor, passkeys; verification when on) still apply.
+<!-- if:reverb -->
+- **A channel's auth mirrors the policy** that gates the record, never a looser check.
+<!-- endif -->
 <!-- if:htmx -->
-- **Prefetch**: the layout sets `hx-ext="preload"` on `<body>` (extension
-  imported in `app.ts`); navigation blocks set `hx-boost`, card links add
-  `preload="mouseover"`. A prefetch miss renders and warms the page cache like any
-  request (`app/Http/CLAUDE.md`); hover eagerness and `throttle:public` bound the volume.
-- **Named routes everywhere**, `route()` in Blade and in htmx attributes; no
-  hand-typed paths.
-- **Public URLs are SEO assets**: lowercase, hyphenated slugs (route-model
-  binding on `slug`, never an id in a public URL), no trailing-slash
-  variants, one canonical URL per resource (redirect the rest with 301),
-  pagination as `?page=n` with `rel=next/prev`. Renaming a public route is a
-  breaking change: keep a 301 from the old one.
-- **Listings**: `?page=n` is self-canonical with `rel=prev/next`; **any filter,
-  sort, view or a page past the last makes the URL `noindex,follow`
-  canonicalised to the unfiltered page**. Query-string keys are allow-listed per
-  route; anything else is a 422.
-- `sitemap.xml` is served from files a job writes after the data changes —
-  never generated per request. `robots.txt` is rendered by a controller. Both
-  are non-HTML, so they sit outside the response cache and carry their own
-  `Cache-Control: public, max-age=3600`.
-- **htmx fragment endpoints are ordinary routes in the same group** as the page
-  they serve — same auth, same policy, same throttle. A fragment is not a
-  lower-trust surface.
+- **The `public` group**, declared explicitly in `routes/web.php`. `web.php` is loaded via `withRouting(then:)`, so
+  **no route gets `web` implicitly**.
+  - Middleware: `CachePublicResponse` (first; `app/Http/CLAUDE.md`), `throttle:public`
+    (`config('{{app}}.public_per_minute')`, default 120) and `SubstituteBindings` (outside `web`, without it a
+    missing slug renders a blank model instead of a 404).
+  - `/fragment/…` routes add the `htmx` alias (`HtmxOnly`: 404 without `HX-Request`).
+  - **No write routes**: no POST/PUT/DELETE, no forms. That absence is what makes "no auth, no CSRF, no moderation,
+    no rate limiting, cache everything" correct. One input route breaks all five and updates this file in the same
+    commit.
+  - **No `StartSession`**: a session cookie makes an anonymous page personal.
+- **Prefetch**: the layout sets `hx-ext="preload"` on `<body>` (imported in `app.ts`); navigation blocks set
+  `hx-boost`, card links add `preload="mouseover"` (`resources/CLAUDE.md`).
+- **Named routes everywhere**: `route()` in Blade and in htmx attributes, never hand-typed paths.
+- **Public URLs are SEO assets**: lowercase hyphenated slugs (binding on `slug`, never an id), no trailing-slash
+  variants, one canonical URL per resource (301 the rest, and from a renamed route).
+- **Listings**: `?page=n` is self-canonical with `rel=prev/next`. **Any filter, sort, view, or a page past the last,
+  is `noindex,follow`, canonicalised to the unfiltered page.** Query keys are allow-listed per route; anything else is
+  a 422.
+- `sitemap.xml` is files a job writes after the data changes, never generated per request; `robots.txt` comes from a
+  controller. Both skip the response cache and send `Cache-Control: public, max-age=3600`.
+- **htmx fragment endpoints are ordinary routes in the page's group**: same auth, policy and throttle.
 <!-- endif -->
 <!-- unless:htmx -->
 - **Named routes everywhere**, `route()`; no hand-typed paths.
 <!-- endif -->
-- **Authenticated routes scope to `$request->user()` server-side.** The user
-  identity never comes from a path or body parameter.
-- Route-model binding does the lookup; `->scopeBindings()` on nested resources
-  so `/projects/{project}/tasks/{task}` cannot fetch another project's task.
-- Fortify registers its own routes from `config/fortify.php` (`features`,
-  `views`, `prefix`, `middleware`); do not redeclare them.
-<!-- if:htmx -->
-  **`views` is off until the auth Blade views exist**, and that takes three things, all in place:
-<!-- endif -->
-<!-- unless:htmx -->
-  **`views` is off** — the client renders every auth page — and that takes three things, all in place:
-<!-- endif -->
-  - the GET pages (`login`, `register`, `password.request`, `password.reset`,
-    `two-factor.login`, `password.confirm`) are not registered — `GET /login` and
-    `/register`
+- **Authenticated routes scope to `$request->user()`.** The user never comes from a path or body parameter.
+<!-- if:tenancy -->
+- Every authenticated group touching tenant data adds `tenant` after its auth middleware
+  (`app/Http/Middleware/CLAUDE.md`). No route has a tenant parameter, subdomain or prefix.
+- **The tenant switcher**, `current-tenant.update` with the body field `tenant`:
 <!-- if:spa -->
-    fall through to the SPA shell (`Route::fallback`);
+  `POST /api/v1/current-tenant`, answering the new current tenant; a token request answers 403, since a token's
+  tenant is fixed.
 <!-- endif -->
 <!-- unless:spa -->
-    answer 405 beside their POST twins;
-<!-- endif -->
-  - every Fortify route runs `AcceptJson` (`fortify.middleware`, ahead of `auth` in the
-    priority list, `bootstrap/app.php`), so Fortify and `auth` answer in JSON (a guest
-    gets 401, a 2FA sign-in `{"two_factor": true}`, an unconfirmed password 423) instead
-    of redirecting to a named page that does not exist;
-  - `ResetPassword::createUrlUsing` (`FortifyServiceProvider`) builds the mailed link on
-    Fortify's `/reset-password/{token}?email=` path —
+  `POST /current-tenant` in the authenticated `web` group, never in `api` (token-only, and a token's tenant is fixed);
 <!-- if:htmx -->
-    no page answers it yet.
-  Turning `views` on: a `Fortify::*View()` per page, drop `AcceptJson` and the reset URL override.
+  it answers `HX-Redirect` to the home route.
 <!-- endif -->
 <!-- unless:htmx -->
-    the client's reset page.
+  it answers the new current tenant as JSON.
 <!-- endif -->
-- Socialite callbacks live in the `guest` group with their own throttle.
+<!-- endif -->
+  It sits under auth only, outside `tenant`, because a stale tab may switch. A tenant the user is not a member of is a
+  404; otherwise it writes session `tenant_id`.
+<!-- if:reverb -->
+- Channels carrying tenant data are named `tenant.{tenantId}.…`; their callback checks membership of that tenant.
+<!-- endif -->
+<!-- endif -->
+- Route-model binding does the lookup; `->scopeBindings()` on nested resources, so
+  `/projects/{project}/tasks/{task}` cannot fetch another project's task.
+- `routes/api.php` is loaded under `/api/v1` (`apiPrefix`, `bootstrap/app.php`). Every authenticated route uses
+  `auth:sanctum`, and no closure returns a model.
+<!-- if:spa -->
+- The session probe: `GET /api/v1/auth/me` → `UserResource` (with `has_password` and `passkeys_count`), 401 when
+  signed out. The SvelteKit app reads the user only from it.
+<!-- if:tenancy -->
+  It sits outside `tenant` and adds `current_tenant` (`{id, name, role}` or null) and `tenants`.
+<!-- endif -->
+<!-- endif -->
+
+## Fortify
+
+Fortify registers its own routes from `config/fortify.php`; never redeclare them.
+<!-- if:spa -->
+It is mounted at `/api/auth` (`prefix`), never under `/api/v1`: its routes are the package's and carry no version.
+**`views` is off**, which takes three things, all in place:
+<!-- endif -->
+<!-- if:htmx -->
+**`views` is off until the auth Blade pages exist** (`resources/CLAUDE.md`, Auth pages, owns the flip). That takes
+three things, all in place:
+<!-- endif -->
+<!-- unless:htmx -->
+<!-- unless:spa -->
+**`views` is off**, since the client renders every auth page. That takes three things, all in place:
+<!-- endif -->
+<!-- endif -->
+- The GET pages (`login`, `register`, `password.request`, `password.reset`, `two-factor.login`, `password.confirm`)
+  are not registered.
+<!-- if:spa -->
+  `GET /api/auth/login` answers 405 beside its POST twin, and `/login` is the SvelteKit app's.
+<!-- endif -->
+<!-- unless:spa -->
+  `GET /login` and `/register` answer 405 beside their POST twins.
+<!-- endif -->
+- Every Fortify route runs `AcceptJson` (`fortify.middleware`, ahead of `auth` in the priority list). So Fortify and
+  `auth` answer JSON (a guest 401, a 2FA sign-in `{"two_factor": true}`, an unconfirmed password 423) instead of
+  redirecting to a page that does not exist.
+<!-- if:spa -->
+- `ResetPassword::createUrlUsing` and `VerifyEmail::createUrlUsing` (`FortifyServiceProvider`) point the mailed links
+  at the SvelteKit pages `/reset-password/{token}?email=` and `/email/verify/{id}/{hash}?expires=&signature=`. The
+  verify page calls `/api/auth/email/verify/…` with the same query from the browser.
+<!-- endif -->
+<!-- unless:spa -->
+<!-- if:htmx -->
+- `ResetPassword::createUrlUsing` (`FortifyServiceProvider`) builds the mailed link on Fortify's
+  `/reset-password/{token}?email=` path: the reset page, once it is built.
+<!-- endif -->
+<!-- unless:htmx -->
+- `ResetPassword::createUrlUsing` (`FortifyServiceProvider`) builds the mailed link on Fortify's
+  `/reset-password/{token}?email=` path: the client's reset page.
+<!-- endif -->
+<!-- endif -->
+
+## Social sign-in (when the project builds it)
+
+The policy is root `CLAUDE.md`, Auth. Every route goes in `routes/web.php`, in the `web` group with `throttle:social`
+(the limiter comes with the build, `app/Providers/CLAUDE.md`). Never in `routes/api.php`: an identity provider's
+redirect carries no stateful Referer or Origin.
+
+<!-- if:spa -->
+- `GET /api/auth/{provider}/redirect` (`social.redirect`) and `GET /api/auth/{provider}/callback`
+  (`social.callback`). Failures land on `/login?social_error=<code>`; a 2FA user on `/two-factor-challenge`.
+- `POST /api/auth/{provider}/link` (`social.link`): `AcceptJson`, `auth`, `password.confirm`. It answers
+  `{redirect: <provider URL>}`, and 423 until confirmed: `RequirePassword` decides with `expectsJson()`, and with
+  views off there is no confirm page to redirect to.
+- `DELETE /api/auth/{provider}` (`social.unlink`): `AcceptJson`, `auth`, `password.confirm`.
+- `GET /api/auth/providers`: the enabled providers as JSON, safe for a guest. The sign-in page renders its buttons
+  from it.
+<!-- endif -->
+<!-- unless:spa -->
+- `GET /auth/{provider}/redirect` (`social.redirect`) and `GET /auth/{provider}/callback` (`social.callback`).
+<!-- if:htmx -->
+- `POST /auth/{provider}/link` (`social.link`): `auth`, `password.confirm`. Never a GET, so no other site can start a
+  link.
+- `DELETE /auth/{provider}` (`social.unlink`): `auth`, `password.confirm`.
+- Both are plain forms (`@csrf`, `hx-boost="false"`; unlink adds `@method('DELETE')`), never htmx requests: link
+  redirects to the provider, and an unconfirmed request gets a 302 to the confirm page.
+<!-- endif -->
+<!-- unless:htmx -->
+- `POST /auth/{provider}/link` (`social.link`): `AcceptJson`, `auth`, `password.confirm`. It answers
+  `{redirect: <provider URL>}`, and 423 until confirmed: `RequirePassword` decides with `expectsJson()`, and with
+  views off there is no confirm page to redirect to.
+- `DELETE /auth/{provider}` (`social.unlink`): `AcceptJson`, `auth`, `password.confirm`.
+<!-- endif -->
+<!-- endif -->
+- `{provider}` is checked per request against `services.socialite.providers` (unknown or off is a 404), never baked
+  into the route pattern.
 
 ## Scheduler (`routes/console.php`)
 
-- The Laravel scheduler needs **one real cron entry** (`schedule:run` every
-  minute) or `schedule:work` — in Docker that is its own supervised process in
-  the app container (root `CLAUDE.md`, Hosting). Easy to forget and silently
-  get nothing for a week.
-- `->withoutOverlapping()` on every scheduled job; `->onOneServer()` once more
-  than one container runs the scheduler.
+- The scheduler is its own supervised process in the app container (Hosting). Without it, nothing runs and nothing
+  says so.
+- `->withoutOverlapping()` on every scheduled job; `->onOneServer()` once more than one container runs the scheduler.
 - Stagger anything that fans out against a rate-limited external system.
-- `horizon:snapshot` every five minutes so the Horizon metrics page works.
-- New or changed scheduled command ⇒ update this file in the SAME commit. Currently
-  scheduled: `horizon:snapshot` (every five minutes).
+- A new or changed scheduled command updates this file in the SAME commit. Scheduled now: `horizon:snapshot` (every
+  five minutes, for the Horizon metrics page).
 
 ## Access logging
 
-Log denials on gated surfaces with the request id — a client *trying* to reach
-what it may not is worth knowing about.
+Log denials on gated surfaces with the request id: a client *trying* to reach what it may not is worth knowing.
