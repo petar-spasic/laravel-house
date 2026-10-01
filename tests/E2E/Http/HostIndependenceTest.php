@@ -109,11 +109,11 @@ it('accepts a write from the page when a proxy hides the scheme or the port', fu
 it('keeps the token gate without a session', function () {
     UiSandbox::boot($this->sandbox->root, config: ['kanban.ui.token' => 's3cret']);
 
-    $this->get('/kanban/_api/probe')->assertForbidden();
+    $this->get('/kanban/_api/probe')->assertUnauthorized();
     $this->get('/kanban/_api/probe', ['X-Kanban-Token' => 's3cret'])->assertOk();
-    $response = $this->get('/kanban?token=s3cret')->assertOk();
+    $response = $this->get('/kanban?token=s3cret')->assertRedirect('/kanban');
     $cookie = $response->headers->getCookies()[0];
-    expect($cookie->getName())->toBe('kanban_token')->and($cookie->getValue())->toBe('s3cret')->and($cookie->isHttpOnly())->toBeTrue();
+    expect($cookie->getName())->toBe('kanban_token')->and($cookie->getValue())->toBe('s3cret')->and($cookie->isHttpOnly())->toBeTrue()->and($cookie->getExpiresTime())->toBeGreaterThan(time() + 300 * 86400);
     $this->withUnencryptedCookie('kanban_token', 's3cret')->get('/kanban/_api/probe')->assertOk();
 });
 

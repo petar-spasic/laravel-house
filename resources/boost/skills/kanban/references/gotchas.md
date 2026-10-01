@@ -88,9 +88,6 @@ entry in a published `ui.middleware` is ignored, and so is anything that needs a
 redirect to your login route (or fail without one) and the API answer 401. Gate the UI with `KANBAN_UI_TOKEN`; other
 stateless middleware you list there still applies.
 
-**The UI answers 403 "Kanban UI token required" in a browser that had worked.** → The UI runs outside the `web` group and
-keeps the token cookie as plain text, so a cookie that group encrypted does not match. Open `/kanban?token=…` once.
-
 **The UI shows unstyled black on white, or without colours.** → The stylesheet uses `light-dark()`, which browsers have
 had since 2024 (Chrome 123, Firefox 120, Safari 17.5). Update the browser.
 

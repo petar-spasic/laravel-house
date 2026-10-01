@@ -11,10 +11,12 @@
  *
  * With --perf it holds 300 more chores in the backlog (first-render timing).
  *
+ * With --token the UI asks for a token (in the JSON) before it opens.
+ *
  * With --team the checkout has an origin and a second clone, "peer", whose owner is Ben; the server runs as Ana with sync on and a
  * pull every 5 seconds, so a check can act as the other person (root and origin path are in the JSON).
  *
- *   php docker/browser/seed.php <port> <json file> [--rich|--perf|--team]
+ *   php docker/browser/seed.php <port> <json file> [--rich|--perf|--team|--token]
  */
 
 require dirname(__DIR__, 2).'/vendor/autoload.php';
@@ -36,6 +38,7 @@ use PetarSpasic\Kanban\Tests\Support\UiSandbox;
 $rich = in_array('--rich', $argv, true);
 $perf = in_array('--perf', $argv, true);
 $team = in_array('--team', $argv, true);
+$token = in_array('--token', $argv, true);
 
 $app = Application::create(options: ['extra' => ['providers' => [KanbanServiceProvider::class]]]);
 $app->make(Kernel::class)->bootstrap();
@@ -173,6 +176,10 @@ if ($team) {
     $peer->git('config', 'user.name', 'Ben');
     $extra = ['peer' => $peer->root, 'origin' => $origin->path];
     $env = ['KANBAN_SYNC' => 'on', 'KANBAN_USER' => 'Ana', 'KANBAN_PULL_SECONDS' => '5'];
+}
+if ($token) {
+    $extra = ['token' => 'acme-board-token'];
+    $env = ['KANBAN_UI_TOKEN' => $extra['token']];
 }
 
 file_put_contents($out, json_encode(['root' => $s->root, 'ids' => $ids] + $extra));

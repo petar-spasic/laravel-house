@@ -150,7 +150,7 @@ KANBAN_MAIN_BRANCH=main   # The branch cards are merged into.
 KANBAN_MAX_STACKS=6       # How many card stacks may run on this machine at once.
 KANBAN_PULL_SECONDS=30    # How often an idle board asks for other people's changes.
 KANBAN_UI=true            # Set to false to turn off the /kanban page.
-KANBAN_UI_TOKEN=          # Set to require ?token=… before the /kanban page opens.
+KANBAN_UI_TOKEN=          # Set to make the /kanban page ask for this token once per browser.
 ```
 
 <a name="agent-models"></a>

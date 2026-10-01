@@ -2,7 +2,7 @@
 export const seed = 'rich';
 
 // Runs inside the page. Every visible text node's colour against the first opaque background above it.
-function contrastSweep(threshold) {
+export function contrastSweep(threshold) {
     const canvas = document.createElement('canvas');
     canvas.width = canvas.height = 1;
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
@@ -100,7 +100,7 @@ function iconSweep() {
 }
 
 // Runs inside the page. Interactive elements smaller than 24x24 CSS px, except links inside cards and prose (the card is their target).
-function targetSweep() {
+export function targetSweep() {
     const small = [];
     for (const el of document.querySelectorAll('button, a[href], input:not([type=hidden]), select, summary, textarea, [role=button]')) {
         if (!el.checkVisibility({ checkVisibilityCSS: true }) || (el.matches('a[href]') && el.closest('.card, .md, .log'))) continue;
@@ -111,7 +111,7 @@ function targetSweep() {
 }
 
 // Runs inside the page, on a touch device. Text boxes are 16px so that iOS does not zoom into them, and the controls that take their height from the scale are 40px (a chip and its remove button are 24px, 40px on touch).
-function touchSweep() {
+export function touchSweep() {
     const seen = new Map();
     const found = { push: (line) => seen.set(line, (seen.get(line) || 0) + 1) };
     const name = (el) => `${el.tagName.toLowerCase()}${el.className ? '.' + String(el.className).trim().split(/\s+/).join('.') : ''} "${(el.getAttribute('aria-label') || el.textContent || el.placeholder || '').trim().slice(0, 24)}"`;
@@ -129,7 +129,7 @@ function touchSweep() {
 }
 
 // Runs inside the page. Buttons and links without an accessible name.
-function nameSweep() {
+export function nameSweep() {
     const unnamed = [];
     for (const el of document.querySelectorAll('button, a[href], input:not([type=hidden]), select, textarea')) {
         if (!el.checkVisibility({ checkVisibilityCSS: true })) continue;

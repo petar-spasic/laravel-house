@@ -77,8 +77,24 @@ it('asks for the token when one is configured and remembers it in a cookie', fun
     $s->install('ACME');
     UiSandbox::boot($s->root, config: ['kanban.ui.token' => 's3cret']);
 
-    $this->get('/kanban')->assertForbidden();
-    $this->get('/kanban?token=wrong')->assertForbidden();
-    $this->get('/kanban', ['X-Kanban-Token' => 's3cret'])->assertOk();
-    $this->get('/kanban?token=s3cret')->assertOk()->assertCookie('kanban_token');
+    $this->get('/kanban/project/work?from=ACME-1')->assertStatus(401)
+        ->assertSee('name="token"', false)->assertSee('name="from" value="ACME-1"', false)->assertDontSee('did not work')
+        ->assertHeader('Content-Security-Policy');
+    $this->get('/kanban?token=wrong')->assertStatus(401)->assertSee('did not work');
+    $this->getJson('/kanban/_api/boards')->assertStatus(401)->assertJson(['message' => 'Kanban UI token required']);
+    $this->get('/kanban/assets/kanban.css')->assertOk();
+
+    $this->get('/kanban/project/work?from=ACME-1&token=s3cret')
+        ->assertStatus(303)->assertHeader('Location', '/kanban/project/work?from=ACME-1')->assertCookie('kanban_token');
+    $this->withUnencryptedCookie('kanban_token', 's3cret')->get('/kanban')->assertOk();
+    $this->withUnencryptedCookie('kanban_token', 'old')->get('/kanban')->assertStatus(401)->assertSee('did not work');
+    $this->getJson('/kanban/_api/boards', ['X-Kanban-Token' => 's3cret'])->assertOk();
+});
+
+it('refuses a foreign host before it asks for the token', function () {
+    $s = Sandbox::create();
+    $s->install('ACME');
+    UiSandbox::boot($s->root, config: ['kanban.ui.token' => 's3cret']);
+
+    $this->get('http://rebind.example/kanban')->assertForbidden()->assertDontSee('name="token"', false);
 });

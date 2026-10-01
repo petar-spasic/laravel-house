@@ -165,6 +165,8 @@
             body: payload === undefined ? undefined : JSON.stringify(payload),
         });
         if (response.status === 304) return { status: 304 };
+        // the UI token stopped matching: the page itself asks for it
+        if (response.status === 401) { location.reload(); return new Promise(() => {}); }
         const data = await response.json().catch(() => ({}));
         if (!response.ok) throw Object.assign(new Error(data.message || 'HTTP ' + response.status), { status: response.status, data });
         return { status: response.status, data, etag: response.headers.get('ETag') };
