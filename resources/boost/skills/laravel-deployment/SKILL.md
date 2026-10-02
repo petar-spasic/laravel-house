@@ -137,6 +137,9 @@ Both entrypoints run these steps in order, so healthy means migrated and seeded.
 - Every published port is a `${VAR:-default}`. The web port binds `${WEB_BIND:-0.0.0.0}`, IPv4 on purpose (the
   `/horizon` trap). The sidecars bind `${SIDECAR_BIND:-127.0.0.1}`.
 - Tool caches are host bind mounts, because `down -v` deletes named volumes.
+- The app also mounts `./` at `${KANBAN_WORKTREE_PATH:-/app}`: a card stack has its worktree at the host path too,
+  where the card agents' shells run. `GIT_SSH_COMMAND` is `${KANBAN_GIT_SSH_COMMAND-…}`, which a worktree's `.env` sets
+  empty, so only main's stack pushes the board.
 - The dev server ignores `./.claude/worktrees`, `./docs` and `./vendor`. `phpunit.xml` never sets `DB_HOST`/`DB_PORT`.
 - The generated worktree `.env`, the port pool and Docker address pools: the house README, "Worktree Stacks".
 

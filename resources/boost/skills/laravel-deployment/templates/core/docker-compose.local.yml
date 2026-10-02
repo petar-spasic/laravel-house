@@ -22,7 +22,8 @@
 # and would silently override any same-named default. Only knobs Laravel's
 # .env never defines are substitutable (COMPOSE_PROJECT_NAME, LOCAL_APP_URL,
 # WEB_PORT, WEB_BIND, DB_HOST_PORT, REDIS_HOST_PORT, SIDECAR_BIND,
-# HOST_UID, HOST_GID, DATABASE_SEED, XDEBUG_MODE, XDEBUG_SERVER_NAME).
+# HOST_UID, HOST_GID, DATABASE_SEED, XDEBUG_MODE, XDEBUG_SERVER_NAME,
+# KANBAN_WORKTREE_PATH, KANBAN_GIT_SSH_COMMAND).
 # if:reverb
 # unless:spa
 # WS_PORT too: Reverb's host port, one more worktree port.
@@ -53,6 +54,9 @@ services:
     # endif
     volumes:
       - ./:/app
+      # A worktree stack mounts its worktree at the host path too, where a card agent's shell runs (its .env sets
+      # KANBAN_WORKTREE_PATH). Main mounts ./ at /app once: compose merges the identical second mount.
+      - ./:${KANBAN_WORKTREE_PATH:-/app}
       # Host caches, shared by every stack; a named volume would die with any `down -v`.
       # Create them first (mkdir -p ~/.cache/composer ~/.npm): Docker creates a missing
       # source root-owned and the entrypoint then stops, since npm/composer cannot write.
@@ -91,9 +95,9 @@ services:
       SANCTUM_STATEFUL_DOMAINS: localhost:${WEB_PORT:-{{web_port}}},127.0.0.1:${WEB_PORT:-{{web_port}}}
       # endif
       # The clone's own deploy key (php artisan kanban:install and vendor/bin/kanban attach|doctor --fix make it for an
-      # ssh origin), in the mounted .git. Main stack only: a worktree's .git is a file and its board page is off.
-      # The worker's exec() must stay enabled.
-      GIT_SSH_COMMAND: ssh -i /app/.git/laravel-house/deploy_key -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/app/.git/laravel-house/known_hosts
+      # ssh origin), in the mounted .git. The worker's exec() must stay enabled. A worktree stack's .env sets
+      # KANBAN_GIT_SSH_COMMAND empty: it mounts no main .git, has no board page and never pushes.
+      GIT_SSH_COMMAND: ${KANBAN_GIT_SSH_COMMAND-ssh -i /app/.git/laravel-house/deploy_key -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/app/.git/laravel-house/known_hosts}
       DB_CONNECTION: pgsql
       DB_HOST: postgres
       DB_PORT: 5432
