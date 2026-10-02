@@ -9,13 +9,12 @@ use Illuminate\Support\Str;
 class ProductionSeeder extends Seeder
 {
     /**
-     * The operator first: an address that is also in ADMIN_EMAILS keeps OPERATOR_PASSWORD and is reported once.
-     * What is seeded and what happens to an existing account: database/CLAUDE.md.
+     * The accounts only; reference data is seeded on every boot. The operator first: an address that is also in
+     * ADMIN_EMAILS keeps OPERATOR_PASSWORD and is reported once. What is seeded and what happens to an existing
+     * account: database/CLAUDE.md.
      */
     public function run(): void
     {
-        $this->call(ReferenceDataSeeder::class);
-
         $operator = $this->seedOperator();
 
         foreach (array_diff(config('auth.admins', []), [$operator]) as $email) {

@@ -173,9 +173,11 @@ One module, `src/lib/api/client.ts`, takes the `fetch` it is given, so the same 
 
 - A mutating call sends `X-XSRF-TOKEN`, URL-decoded from the `XSRF-TOKEN` cookie; without that cookie it first calls
   `/sanctum/csrf-cookie` (`src/lib/api/csrf.ts`, browser-only).
+- On a 419 it calls `/sanctum/csrf-cookie` once and retries the call once: Laravel refused it before any controller
+  ran, so the retry is safe, and another stack on the same host may have replaced the token cookie (Hosting). A second
+  419 rejects to its caller.
 - **Only the authoritative `GET /api/v1/auth/me` decides the session is gone.**
-  - An incidental 401 or 419 elsewhere rejects to its caller untouched: a call raced after login never signs the user
-    out.
+  - An incidental 401 elsewhere rejects to its caller untouched: a call raced after login never signs the user out.
   - On an authoritative 401 it calls `invalidateAll()` only when `page.data.user` was set, so a reload never loops.
   - It never navigates to `/login` itself; the server guards redirect.
 - **`probeSession()`** makes the speculative `GET /api/v1/auth/me` calls, where a 401 is expected; a per-call flag
@@ -343,6 +345,8 @@ csp: {
   of the final size. A failed load renders an error state: what failed, the server's message (a 429 says when to
   retry) and a retry action. Never nothing, never a silently empty list: every client-side fetch and `{#await}` has
   its failure branch.
+- **Secure-context APIs** (WebAuthn, `crypto.subtle`, `navigator.clipboard`) exist only on https or `localhost`
+  (Hosting): code using one checks `window.isSecureContext` and says why the feature is unavailable, never throws.
 - **The design reference.** When the owner has decided a visual reference (root `CLAUDE.md`, What we are building), a
   change that adds or changes a page names the reference section it implements, and one of its criteria compares a
   screenshot of the page with that section. A missing layout element fails it.

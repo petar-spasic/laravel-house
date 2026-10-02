@@ -65,10 +65,10 @@ $table->timestamps();
 
 | Seeder | Runs | Content |
 |---|---|---|
-| `DatabaseSeeder` | `db:seed` | `ProductionSeeder` in production, else `ReferenceDataSeeder` + `DevSeeder` |
-| `ReferenceDataSeeder` | every seed, every `auto` boot, the tests (`#[Seeder]`) | `database/data/<table>.json`, or `database/data/<table>/<slug>.json` for tables many branches add to. No faker |
+| `DatabaseSeeder` | `db:seed` | `ReferenceDataSeeder`, then `ProductionSeeder` in production, else `DevSeeder` |
+| `ReferenceDataSeeder` | every boot, every seed, the tests (`#[Seeder]`) | `database/data/<table>.json`, or `database/data/<table>/<slug>.json` for tables many branches add to. No faker |
 | `DevSeeder` | local and testing only (`LogicException` elsewhere) | `fake()->seed(20260928)`; `admin@{{app}}.test`, `dev@{{app}}.test` / `password`; demo content |
-| `ProductionSeeder` | prod boot with `DATABASE_SEED=true` | `ReferenceDataSeeder`, the operator, every admin (below) |
+| `ProductionSeeder` | prod boot with `DATABASE_SEED=true` | the operator, every admin (below); no reference data |
 
 - **`ProductionSeeder`** creates the operator from `OPERATOR_EMAIL`/`OPERATOR_PASSWORD` first (the password applies
   only on creation; skipped with a warning if unset), then each missing `ADMIN_EMAILS` account, verified, with a
