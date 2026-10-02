@@ -25,6 +25,9 @@ final class Node
 
     public bool $omitted = false;
 
+    /** An array keyed by strings: a record, not a list. */
+    public bool $map = false;
+
     /** @var list<array{test: string, key: string, implicit: bool, group: ?string}> */
     public array $steps = [];
 

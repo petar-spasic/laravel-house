@@ -34,16 +34,21 @@ final class FormSchema
         $this->root = new Node('');
     }
 
-    public function dataType(): string
+    /** @param  'json'|null  $override  the attribute's dataType */
+    public function dataType(?string $override = null): string
     {
+        if ($override !== null) {
+            return $override;
+        }
+
         $json = false;
         $walk = function (Node $node, bool $nested) use (&$walk, &$json): void {
             if ($node->omitted) {
                 return;
             }
 
-            // superforms reads neither a nested object nor an array of arrays from FormData.
-            $json = $json || ($nested && $node->type === 'object') || ($node->element !== null && $node->element->type === 'array');
+            // superforms reads neither a nested object, an array of arrays nor a map from FormData.
+            $json = $json || $node->map || ($nested && $node->type === 'object') || ($node->element !== null && $node->element->type === 'array');
 
             foreach ($node->children as $child) {
                 $walk($child, true);

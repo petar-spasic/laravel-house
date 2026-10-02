@@ -8,6 +8,7 @@ use Illuminate\Console\Command;
 use Illuminate\Contracts\Translation\Translator;
 use Illuminate\Validation\Factory;
 use InvalidArgumentException;
+use ReflectionClass;
 use Throwable;
 
 final class ExportValidationCommand extends Command
@@ -66,7 +67,7 @@ final class ExportValidationCommand extends Command
             return $this->refused();
         }
 
-        return $this->option('check') ? $this->check($expected, $actual) : $this->write($directory, $expected, $actual);
+        return $this->option('check') ? $this->check($expected, $actual, array_keys($forms), $root) : $this->write($directory, $expected, $actual);
     }
 
     /**
@@ -129,12 +130,14 @@ final class ExportValidationCommand extends Command
             $this->refusals[] = new ExportRefused($class, '(form)', 'messages()', 'messages() or attributes() depends on the current time');
         }
 
-        $schema = (new FieldTranslator($this->pipeline))->translate($class, $parsed, $read['failOnUnknownFields']);
+        $export = (new ReflectionClass($class))->getAttributes(ExportValidation::class)[0]->newInstance();
+        $schema = (new FieldTranslator($this->pipeline))->translate($class, $parsed, $read['failOnUnknownFields'], $export->maps);
 
         array_push($this->refusals, ...$schema->refusals);
 
-        $messages = [];
-        $attributes = [];
+        // Every locale gets a map, empty when no field remains (an upload-only form): the module's Record needs each.
+        $messages = array_fill_keys($locales, []);
+        $attributes = array_fill_keys($locales, []);
         $original = $this->translator->getLocale();
 
         foreach ($locales as $locale) {
@@ -170,7 +173,7 @@ final class ExportValidationCommand extends Command
             ...($this->pipeline->skipCallbacks ? ['(form): TrimStrings::skipWhen() is registered, so trimming may differ'] : []),
         ];
 
-        return $this->typescript->form($schema, $messages, $attributes, $notes);
+        return $this->typescript->form($schema, $messages, $attributes, $notes, $export->dataType);
     }
 
     /**
@@ -297,8 +300,10 @@ final class ExportValidationCommand extends Command
     /**
      * @param  array<string, string>  $expected
      * @param  array<string, string>  $actual
+     * @param  list<string>  $names  the exported forms
+     * @param  string  $root  the frontend directory
      */
-    private function check(array $expected, array $actual): int
+    private function check(array $expected, array $actual, array $names, string $root): int
     {
         $problems = [];
 
@@ -320,9 +325,21 @@ final class ExportValidationCommand extends Command
             $this->line("{$problem} {$file}");
         }
 
+        $unproven = array_values(array_filter($names, fn (string $name): bool => ! is_file(base_path("{$root}/e2e/parity/{$name}.spec.ts"))));
+
+        foreach ($unproven as $name) {
+            $this->line("unproven {$name}");
+        }
+
         if ($problems !== []) {
             $this->error('run php artisan validation:export');
+        }
 
+        foreach ($unproven as $name) {
+            $this->error("add {$root}/e2e/parity/{$name}.spec.ts: the Playwright spec that posts invalid input and compares the browser's field errors with the 422");
+        }
+
+        if ($problems !== [] || $unproven !== []) {
             return self::FAILURE;
         }
 
