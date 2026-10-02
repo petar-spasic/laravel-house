@@ -30,6 +30,8 @@ final class Transitions
         'review>ready' => ['stop'], 'review>backlog' => ['stop'], 'review>dropped' => ['stop'],
         'backlog>dropped' => ['move'], 'ready>dropped' => ['move'],
         'dropped>backlog' => ['move'],
+        // an open question of a version 1 board becomes a backlog spike
+        'proposed>backlog' => ['fold-boards'],
     ];
 
     private const HINTS = [

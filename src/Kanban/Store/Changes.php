@@ -10,6 +10,9 @@ final class Changes
     /** @var array<string, array{card: Card, data: array<string, mixed>, to: BoardRef}> card id => the new data and board */
     public array $cards = [];
 
+    /** @var list<array{board: BoardRef, fields: array<string, mixed>}> new cards, in order */
+    public array $created = [];
+
     /** @var list<string> board files to delete, relative to the board root */
     public array $removed = [];
 
@@ -24,6 +27,19 @@ final class Changes
     public function put(Card $card, array $data, ?BoardRef $to = null): self
     {
         $this->cards[$card->id()] = ['card' => $card, 'data' => $data, 'to' => $to ?? $card->board];
+
+        return $this;
+    }
+
+    /**
+     * A new card on $board: an id is minted, and $fields may carry `created` and complete `log` entries of their own
+     * (an import dates a card by its source).
+     *
+     * @param  array<string, mixed>  $fields
+     */
+    public function create(BoardRef $board, array $fields): self
+    {
+        $this->created[] = ['board' => $board, 'fields' => $fields];
 
         return $this;
     }
@@ -47,6 +63,6 @@ final class Changes
 
     public function isEmpty(): bool
     {
-        return $this->cards === [] && $this->removed === [] && $this->texts === [];
+        return $this->cards === [] && $this->created === [] && $this->removed === [] && $this->texts === [];
     }
 }

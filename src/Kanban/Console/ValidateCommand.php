@@ -8,7 +8,7 @@ use Symfony\Component\Console\Attribute\AsCommand;
 #[AsCommand(name: 'kanban:validate')]
 class ValidateCommand extends Command
 {
-    protected $signature = 'kanban:validate {--fix : Rewrite canonically, re-id duplicates, complete supersessions (one commit)}';
+    protected $signature = 'kanban:validate {--fix : Rewrite canonically and re-id duplicates (one commit)}';
 
     protected $description = 'Check every board file against the schema and the cross-card rules';
 

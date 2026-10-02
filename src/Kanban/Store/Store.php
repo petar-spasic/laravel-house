@@ -26,7 +26,7 @@ interface Store
     public function relocate(string $id, BoardRef $to, Actor $by): Card;
 
     /**
-     * Many cards, board files and one root Markdown file in one commit: $plan gets the snapshot under the write lock and
+     * New and changed cards, board files and one root Markdown file in one commit: $plan gets the snapshot under the write lock and
      * says what changes; the whole board after it is validated before anything is written.
      *
      * @param  Closure(Snapshot): Changes  $plan

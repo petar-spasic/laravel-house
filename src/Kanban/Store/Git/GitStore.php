@@ -216,6 +216,22 @@ final class GitStore implements Store
                 $checked[$updated->path] = ['card', $updated->data];
                 $written[] = $updated;
             }
+            $remote = $changes->created === [] ? [] : $this->repo->remoteIds();
+            foreach ($changes->created as ['board' => $board, 'fields' => $fields]) {
+                $snapshot->board($board) ?? throw new NotFound("no board {$board}");
+                $id = Ids::card($snapshot->key(), (int) $snapshot->setting('id_length', 6),
+                    fn (string $id) => isset($snapshot->cards[$id]) || isset($cards[$id]) || isset($remote[$id]));
+                $now = Clock::now();
+                $log = array_map(fn (array $entry) => isset($entry['id']) ? $entry : $this->entry($by, $now) + $entry,
+                    $fields['log'] ?? [['event' => 'created']]);
+                $data = array_replace($this->defaults(), $this->normalizeFields($fields),
+                    ['id' => $id, 'created' => $fields['created'] ?? $now, 'updated' => $now, 'log' => $log]);
+                $created = $this->cardFrom($data, $board, "{$board}/{$id}.json");
+                $cards[$id] = $created;
+                $files[$created->path] = $created->data;
+                $checked[$created->path] = ['card', $created->data];
+                $written[] = $created;
+            }
             if ($files === [] && $deleted === [] && $changes->texts === []) {
                 return [];
             }
@@ -382,30 +398,7 @@ final class GitStore implements Store
                 return new SyncResult('up-to-date', 0, 0, $renamed, $warnings);
             }
             [$ahead, $pulled] = $this->write(function () use ($exists, &$renamed, &$warnings) {
-                $pulled = 0;
-                if ($exists) {
-                    $behind = $this->repo->behind() > 0;
-                    $moves = [];
-                    $aside = [];
-                    $displaced = [];
-                    $rebased = false;
-                    $original = $this->repo->headRev();
-                    try {
-                        if ($behind) {
-                            $this->undoLocalMoves($moves);
-                            $this->setAsideEditsOfMovedCards($aside);
-                            $this->setAsideEditsOfDeletedCards($displaced);
-                        }
-                        $renamed += $this->reIdCollisions();
-                        $pulled = $this->repo->rebase();
-                        $rebased = true;
-                    } finally {
-                        $this->afterRebase($aside, $moves, $rebased, $original, $displaced);
-                    }
-                    foreach ($displaced as $id => $file) {
-                        $warnings[] = "{$id} was deleted on ".$this->repo->remote().'; the edits made here are kept in '.$this->paths->relative($file);
-                    }
-                }
+                $pulled = $exists ? $this->pull($renamed, $warnings) : 0;
                 // a board in the older format is pulled and pushed as it is: the upgrade validates it
                 $snapshot = $this->load();
                 $errors = $snapshot->isOld() ? [] : $this->problems($snapshot);
@@ -425,6 +418,146 @@ final class GitStore implements Store
             usleep(random_int(50000, 300000));
         }
         throw new RemoteFailed('push of '.BoardRepo::BRANCH.' kept being rejected (3 attempts)');
+    }
+
+    /**
+     * Under the write lock: rebases this clone's commits onto the fetched origin, with the local moves undone and the
+     * edits of cards origin moved or deleted set aside first. Returns how many commits were pulled.
+     *
+     * @param  array<string, string>  $renamed  old id => new id of the cards re-id'd
+     * @param  list<string>  $warnings
+     */
+    private function pull(array &$renamed, array &$warnings): int
+    {
+        $behind = $this->repo->behind() > 0;
+        $moves = [];
+        $aside = [];
+        $displaced = [];
+        $rebased = false;
+        $original = $this->repo->headRev();
+        try {
+            if ($behind) {
+                $this->undoLocalMoves($moves);
+                $this->setAsideEditsOfMovedCards($aside);
+                $this->setAsideEditsOfDeletedCards($displaced);
+            }
+            $renamed += $this->reIdCollisions();
+            $pulled = $this->repo->rebase();
+            $rebased = true;
+        } finally {
+            $this->afterRebase($aside, $moves, $rebased, $original, $displaced);
+        }
+        foreach ($displaced as $id => $file) {
+            $warnings[] = "{$id} was deleted on ".$this->repo->remote().'; the edits made here are kept in '.$this->paths->relative($file);
+        }
+
+        return $pulled;
+    }
+
+    /**
+     * `fold-boards`: one work board, $into, and a version 2 board (Upgrade). It commits the way claim() does: each round
+     * pulls, plans on what origin now holds, commits once and pushes once; a rejected push drops the commit and starts
+     * over. An empty plan writes nothing. A dry run plans on this clone's board and writes nothing.
+     */
+    public function upgrade(BoardRef $into, Actor $by, bool $dryRun = false): Upgrade
+    {
+        $online = $this->syncOn() && $this->repo->hasRemote();
+        if ($dryRun) {
+            $exists = $online && $this->repo->fetch();
+            $plan = $this->read(fn () => Upgrade::plan($this->load(), $this->archive(), $into, Clock::now()));
+            if ($exists && ($behind = $this->repo->behind()) > 0) {
+                $plan->warnings[] = "planned on this clone's board; {$this->repo->remote()} has {$behind} newer commit(s), which the fold pulls first";
+            }
+
+            return $plan;
+        }
+        for ($round = 1; ; $round++) {
+            $exists = $online && $this->repo->fetch();
+            $plan = $this->write(fn () => $this->upgradeRound($into, $by, $online, $exists), self::CLAIM_TIMEOUT);
+            if ($plan !== null) {
+                return $plan;
+            }
+            if ($round >= 3) {
+                throw new RemoteFailed('fold-boards dropped: push kept being rejected');
+            }
+            usleep(random_int(50000, 300000));
+        }
+    }
+
+    /** One round of upgrade(), under the write lock: the plan, or null when the push was rejected (nothing is left behind). */
+    private function upgradeRound(BoardRef $into, Actor $by, bool $online, bool $exists): ?Upgrade
+    {
+        if ($this->repo->git() === null) {
+            throw new GitFailed('git is unusable in the board worktree; fold-boards needs it');
+        }
+        $renamed = [];
+        $warnings = [];
+        if ($exists) {
+            $this->pull($renamed, $warnings);
+        }
+        $snapshot = $this->load();
+        $plan = Upgrade::plan($snapshot, $this->archive(), $into, Clock::now());
+        $plan->warnings = $warnings;
+        if ($plan->isEmpty()) {
+            return $plan;
+        }
+        if ($plan->active !== []) {
+            throw new PolicyRefused('fold-boards waits until nothing is in doing or review: '.implode(', ', $plan->active).' (drain the board first)');
+        }
+        $after = $plan->after;
+        $files = $plan->files;
+        $texts = [];
+        $deleted = $plan->removed;
+        foreach ($plan->cards as $id => ['data' => $data, 'path' => $path, 'raw' => $raw]) {
+            $card = $snapshot->cards[$id];
+            if ($raw) {
+                $texts[$path] = (string) file_get_contents($this->paths->board($card->path));
+            } else {
+                [$data] = $this->finalize($card->data, $data, $by);
+                $files[$path] = $data;
+                $after = $after->withCard($this->cardFrom($data, $into, $path));
+            }
+            if ($card->path !== $path) {
+                $deleted[] = $card->path;
+            }
+        }
+        if ($plan->archive !== null) {
+            $texts[Archive::PATH] = $plan->archive;
+        }
+        $errors = $this->problems($after);
+        if ($errors !== []) {
+            throw new Invalid('fold-boards would leave the board invalid; nothing written', $errors);
+        }
+        if (! $this->persist($files, array_values(array_unique($deleted)), $plan->message()." [{$by->role}]", $by, $texts)) {
+            throw new GitFailed('the fold could not be committed, so it cannot be pushed');
+        }
+        if (! $online) {
+            return $plan;
+        }
+        try {
+            $pushed = $this->repo->push(self::CLAIM_PUSH_TIMEOUT);
+        } catch (Throwable $e) {
+            $this->repo->resetKeep('HEAD~1');
+
+            throw $e instanceof RemoteFailed ? new RemoteFailed('fold-boards dropped: '.$e->getMessage()) : $e;
+        }
+        $this->wrote = false;
+        if ($pushed === 'rejected') {
+            $this->repo->resetKeep('HEAD~1');
+
+            return null;
+        }
+        $this->status->recordOk();
+
+        return $plan;
+    }
+
+    /** The archive at the board root, or null when there is none. */
+    public function archive(): ?string
+    {
+        $file = $this->paths->board(Archive::PATH);
+
+        return is_file($file) ? (string) file_get_contents($file) : null;
     }
 
     public function maybeSync(): void
