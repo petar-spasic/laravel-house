@@ -1,0 +1,12 @@
+{
+    "session_id": "{session}",
+    "transcript_path": "{main}/.git/transcript.jsonl",
+    "cwd": "{cwd}",
+    "permission_mode": "acceptEdits",
+    "hook_event_name": "SubagentStop",
+    "stop_hook_active": false,
+    "agent_id": "{agent}",
+    "agent_type": "{type}",
+    "agent_transcript_path": "{main}/.git/agent-{agent}.jsonl",
+    "last_assistant_message": "Done."
+}

@@ -1,0 +1,30 @@
+{
+    "hooks": {
+        "SessionStart": [
+            { "matcher": "startup|resume|clear|compact|fork", "hooks": [ { "type": "command", "command": "php", "args": ["-d", "display_errors=0", "-d", "display_startup_errors=0", "${CLAUDE_PROJECT_DIR}/vendor/bin/kanban", "hook", "session-start"], "timeout": 30 } ] }
+        ],
+        "SubagentStart": [
+            { "hooks": [ { "type": "command", "command": "php", "args": ["-d", "display_errors=0", "-d", "display_startup_errors=0", "${CLAUDE_PROJECT_DIR}/vendor/bin/kanban", "hook", "subagent-start"], "timeout": 15 } ] }
+        ],
+        "SubagentStop": [
+            { "matcher": "kanban-worker|kanban-evaluator", "hooks": [ { "type": "command", "command": "php", "args": ["-d", "display_errors=0", "-d", "display_startup_errors=0", "${CLAUDE_PROJECT_DIR}/vendor/bin/kanban", "hook", "subagent-stop"], "timeout": 300 } ] }
+        ],
+        "PreToolUse": [
+            { "matcher": "Bash|Monitor|Edit|Write|NotebookEdit|EnterWorktree|Agent", "hooks": [ { "type": "command", "command": "php", "args": ["-d", "display_errors=0", "-d", "display_startup_errors=0", "${CLAUDE_PROJECT_DIR}/vendor/petar-spasic/laravel-kanban/bin/kanban-guard"], "timeout": 10 } ] }
+        ],
+        "WorktreeCreate": [
+            { "hooks": [ { "type": "command", "command": "php", "args": ["-d", "display_errors=0", "-d", "display_startup_errors=0", "${CLAUDE_PROJECT_DIR}/vendor/bin/kanban", "hook", "worktree-create"], "timeout": 120 } ] }
+        ],
+        "WorktreeRemove": [
+            { "hooks": [ { "type": "command", "command": "php", "args": ["-d", "display_errors=0", "-d", "display_startup_errors=0", "${CLAUDE_PROJECT_DIR}/vendor/bin/kanban", "hook", "worktree-remove"], "timeout": 120 } ] }
+        ]
+    },
+    "permissions": {
+        "allow": ["Bash(vendor/bin/kanban *)"]
+    },
+    "attribution": {
+        "commit": "",
+        "pr": "",
+        "sessionUrl": false
+    }
+}

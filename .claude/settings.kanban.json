@@ -1,0 +1,14 @@
+{
+  "attribution": {
+    "commit": "",
+    "pr": "",
+    "sessionUrl": false
+  },
+  "permissions": {
+    "allow": [
+      "Bash(vendor/bin/pest *)",
+      "Bash(vendor/bin/pint *)",
+      "Bash(bin/kanban *)"
+    ]
+  }
+}

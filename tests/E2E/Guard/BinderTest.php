@@ -1,0 +1,178 @@
+<?php
+
+use PetarSpasic\Kanban\Tests\Support\GuardSandbox;
+
+function guardPayload(GuardSandbox $sandbox, string $name): string
+{
+    $json = file_get_contents(dirname(__DIR__, 2)."/Support/payloads/{$name}.json");
+
+    return strtr($json, array_map(fn (string $path): string => trim(json_encode($path, JSON_UNESCAPED_SLASHES), '"'), [
+        '{main}' => $sandbox->main,
+        '{wt}' => $sandbox->wt(GuardSandbox::DOING),
+        '{outside}' => $sandbox->root.'/outside',
+    ]));
+}
+
+function agentRecord(GuardSandbox $sandbox, string $agentId): ?array
+{
+    $file = $sandbox->main.'/.git/laravel-kanban/agents/'.$agentId.'.json';
+
+    return is_file($file) ? json_decode(file_get_contents($file), true) : null;
+}
+
+it('binds an agent to its card on EnterWorktree and stays silent', function (string $actor, array $input, ?string $card) {
+    $sandbox = new GuardSandbox;
+
+    $result = $sandbox->case($actor, 'EnterWorktree', $input);
+
+    expect($result['out'])->toBe('')
+        ->and(agentRecord($sandbox, explode(':', $actor)[1] ?? $actor.'-agent')['card'] ?? null)->toBe($card);
+})->with([
+    'worker on its doing card' => ['worker:w1', ['path' => '{wt}'], GuardSandbox::DOING],
+    'worker by relative path' => ['worker:w1', ['path' => '.claude/worktrees/acme-7k2m9q'], GuardSandbox::DOING],
+    'worker by worktree_path' => ['worker:w1', ['worktree_path' => '{wt}'], GuardSandbox::DOING],
+    'evaluator on its review card' => ['evaluator:e1', ['path' => '{review}'], GuardSandbox::REVIEW],
+    'worker on a review card' => ['worker:w1', ['path' => '{review}'], null],
+    'evaluator on a doing card' => ['evaluator:e1', ['path' => '{wt}'], null],
+    'worker on a random dir' => ['worker:w1', ['path' => '{outside}'], null],
+    'worker without a path' => ['worker:w1', ['name' => 'x'], null],
+    'other subagent' => ['other:o1', ['path' => '{wt}'], null],
+]);
+
+it('records the binding with the fields the runtime reads', function () {
+    $sandbox = new GuardSandbox;
+    $sandbox->case('worker:w1', 'EnterWorktree', ['path' => '{wt}']);
+
+    expect(agentRecord($sandbox, 'w1'))->toMatchArray([
+        'agent_id' => 'w1', 'agent_type' => 'kanban-worker', 'card' => GuardSandbox::DOING,
+        'worktree' => '.claude/worktrees/acme-7k2m9q', 'stopped_at' => null, 'stop_blocks' => 0,
+    ])->and(agentRecord($sandbox, 'w1')['bound_at'])->toMatch('/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}\+00:00$/');
+});
+
+it('keeps an agent on its first card', function () {
+    $sandbox = new GuardSandbox;
+    $sandbox->case('worker:w1', 'EnterWorktree', ['path' => '{wt}']);
+    $sandbox->card('ACME-ZZZZ00', 'doing', '.claude/worktrees/acme-zzzz00');
+    mkdir($sandbox->main.'/.claude/worktrees/acme-zzzz00');
+
+    $sandbox->case('worker:w1', 'EnterWorktree', ['path' => '{main}/.claude/worktrees/acme-zzzz00']);
+
+    expect(agentRecord($sandbox, 'w1')['card'])->toBe(GuardSandbox::DOING);
+});
+
+it('does not bind a second agent to a card a live agent already holds', function () {
+    $sandbox = new GuardSandbox;
+    $sandbox->case('worker:w1', 'EnterWorktree', ['path' => '{wt}']);
+
+    $sandbox->case('worker:w2', 'EnterWorktree', ['path' => '{wt}']);
+
+    expect(agentRecord($sandbox, 'w1')['card'])->toBe(GuardSandbox::DOING)
+        ->and(agentRecord($sandbox, 'w2'))->toBeNull();
+});
+
+it('binds to a card whose earlier agent stopped or has been silent for minutes', function (?string $stoppedAt, int $ageMinutes) {
+    $sandbox = new GuardSandbox;
+    $sandbox->bind('old', 'kanban-worker', GuardSandbox::DOING, ageMinutes: $ageMinutes, stoppedAt: $stoppedAt);
+
+    $sandbox->case('worker:new', 'EnterWorktree', ['path' => '{wt}']);
+
+    expect(agentRecord($sandbox, 'new')['card'])->toBe(GuardSandbox::DOING);
+})->with([
+    'stopped' => ['2026-09-28T19:00:00.000+00:00', 0],
+    'silent for ten minutes' => [null, 10],
+]);
+
+it('does not bind while the earlier agent beat a minute ago', function () {
+    $sandbox = new GuardSandbox;
+    $sandbox->bind('old', 'kanban-worker', GuardSandbox::DOING, ageMinutes: 1);
+
+    $sandbox->case('worker:new', 'EnterWorktree', ['path' => '{wt}']);
+
+    expect(agentRecord($sandbox, 'new'))->toBeNull();
+});
+
+it('binds an evaluator to a card a worker of the same card has not stopped yet', function () {
+    $sandbox = new GuardSandbox;
+    $sandbox->card(GuardSandbox::DOING, 'review', '.claude/worktrees/acme-7k2m9q');
+    $sandbox->bind('w-old', 'kanban-worker', GuardSandbox::DOING, ageMinutes: 1);
+
+    $sandbox->case('evaluator:e1', 'EnterWorktree', ['path' => '{wt}']);
+
+    expect(agentRecord($sandbox, 'e1')['card'])->toBe(GuardSandbox::DOING);
+});
+
+it('touches the bound agent heartbeat on every call', function () {
+    $sandbox = new GuardSandbox;
+    $file = $sandbox->bind('w1', 'kanban-worker', GuardSandbox::DOING, ageMinutes: 30);
+
+    $sandbox->case('worker:w1', 'Bash', ['command' => 'ls'], '{wt}');
+    clearstatcache();
+
+    expect(filemtime($file))->toBeGreaterThan(time() - 5);
+});
+
+it('records a spawn for a kanban agent that names exactly one card in the right stage', function () {
+    $sandbox = new GuardSandbox;
+    $spawns = $sandbox->main.'/.git/laravel-kanban/spawns';
+
+    $worker = $sandbox->case('main', 'Agent', ['subagent_type' => 'kanban-worker', 'isolation' => 'worktree', 'prompt' => 'Card ACME-7K2M9Q. Worktree {wt}']);
+    $evaluator = $sandbox->case('main', 'Agent', ['subagent_type' => 'kanban-evaluator', 'prompt' => 'Evaluate acme-a1b2c3']);
+
+    expect($worker['out'])->toBe('')
+        ->and($evaluator['out'])->toBe('')
+        ->and(json_decode(file_get_contents($spawns.'/ACME-7K2M9Q.json'), true))
+        ->toMatchArray(['card' => 'ACME-7K2M9Q', 'agent_type' => 'kanban-worker', 'worktree' => '.claude/worktrees/acme-7k2m9q'])
+        ->and(json_decode(file_get_contents($spawns.'/ACME-A1B2C3.json'), true)['agent_type'])->toBe('kanban-evaluator');
+});
+
+it('records no spawn for anything else', function (array $input) {
+    $sandbox = new GuardSandbox;
+    $sandbox->card('ACME-ZZZZ00', 'doing', '.claude/worktrees/acme-zzzz00');
+
+    $sandbox->case('main', 'Agent', $input);
+
+    expect(glob($sandbox->main.'/.git/laravel-kanban/spawns/*.json') ?: [])->toBe([]);
+})->with([
+    'no card' => [['subagent_type' => 'kanban-worker', 'prompt' => 'Fix things']],
+    'a ready card' => [['subagent_type' => 'kanban-worker', 'prompt' => 'Work on ACME-K9M2P1']],
+    'two cards' => [['subagent_type' => 'kanban-worker', 'prompt' => 'ACME-7K2M9Q and ACME-ZZZZ00']],
+    'an evaluator for a doing card' => [['subagent_type' => 'kanban-evaluator', 'prompt' => 'Evaluate ACME-7K2M9Q']],
+    'another agent type' => [['subagent_type' => 'general-purpose', 'prompt' => 'Work on ACME-7K2M9Q']],
+]);
+
+it('never prints a decision', function (string $actor, string $tool, array $input) {
+    $result = GuardSandbox::shared()->case($actor, $tool, $input, '{wt}');
+
+    expect($result['out'])->toBe('');
+})->with([
+    'worker pushes' => ['worker', 'Bash', ['command' => 'git push origin main']],
+    'worker writes the board' => ['worker', 'Write', ['file_path' => '{board}/kanban.json']],
+    'evaluator edits' => ['evaluator', 'Edit', ['file_path' => '{review}/app/A.php']],
+    'main removes the board' => ['main', 'Bash', ['command' => 'rm -rf docs/kanban/project']],
+    'worker exits its worktree' => ['worker', 'ExitWorktree', []],
+]);
+
+it('stays silent on malformed input, a traversal agent_id and outside a git repository', function () {
+    $sandbox = GuardSandbox::shared();
+
+    expect($sandbox->raw('{"agent_id":"a1","agent_type":"kanban-worker","tool_name":"Bash","tool_input":')['out'])->toBe('')
+        ->and($sandbox->raw(json_encode(['agent_id' => '../../x', 'agent_type' => 'kanban-worker', 'cwd' => $sandbox->main, 'tool_name' => 'EnterWorktree', 'tool_input' => ['path' => '{wt}']]))['out'])->toBe('')
+        ->and($sandbox->raw(json_encode(['cwd' => '/', 'tool_name' => 'Edit', 'tool_input' => ['file_path' => '/tmp/x']]))['out'])->toBe('')
+        ->and(glob($sandbox->root.'/*.json') ?: [])->toBe([]);
+});
+
+it('runs within 50 ms at p95', function () {
+    $sandbox = GuardSandbox::shared();
+    $payload = guardPayload($sandbox, 'worker-commit');
+
+    $times = [];
+    for ($run = 0; $run < 200; $run++) {
+        $times[] = $sandbox->raw($payload)['ms'];
+    }
+    sort($times);
+    $p95 = $times[(int) floor(count($times) * 0.95) - 1];
+
+    fwrite(STDERR, sprintf("\n  kanban-guard latency: p50 %.1f ms, p95 %.1f ms\n", $times[99], $p95));
+
+    expect($p95)->toBeLessThan(50.0);
+});

@@ -1,0 +1,8 @@
+#!/usr/bin/env php
+<?php
+
+use PetarSpasic\Kanban\Guard\Guard;
+
+require_once __DIR__.'/../src/Guard/Guard.php';
+
+(new Guard)->run((string) stream_get_contents(STDIN));

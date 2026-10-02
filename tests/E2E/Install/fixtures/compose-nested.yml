@@ -1,0 +1,13 @@
+name: ${COMPOSE_PROJECT_NAME:?set it in .env}
+
+services:
+  app:
+    build: .
+    command: ["sh", "-c", "echo build #1 && exec php-fpm"]
+    ports:
+      - "${WEB_PORT:-${OTHER_DEFAULT}}:80"
+      - "${MAIL_PORT:-${WEB_PORT}}:8025"
+      - "127.0.0.1:${DB_HOST_PORT}:5432"
+      - "${BIND:-${LAN_IP}}:${REDIS_HOST_PORT}:6379"
+      - "${BIND:-${LAN_IP}}:${STRAY_PORT}:6380"
+      - "$$LITERAL:80"

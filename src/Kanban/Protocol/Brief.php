@@ -1,0 +1,160 @@
+<?php
+
+namespace PetarSpasic\Kanban\Protocol;
+
+use PetarSpasic\Kanban\Policy\PullPolicy;
+use PetarSpasic\Kanban\Store\Card;
+use PetarSpasic\Kanban\Store\Git\Bootstrap;
+use PetarSpasic\Kanban\Store\Git\GitStore;
+use PetarSpasic\Kanban\Store\Git\SyncStatus;
+use PetarSpasic\Kanban\Store\Priority;
+use PetarSpasic\Kanban\Store\Snapshot;
+use PetarSpasic\Kanban\Store\Store;
+use PetarSpasic\Kanban\Support\Clock;
+use PetarSpasic\Kanban\Support\Git;
+use PetarSpasic\Kanban\Support\Paths;
+use PetarSpasic\Kanban\Support\Sync;
+
+/** The factual board brief printed by `status` and SessionStart. */
+final class Brief
+{
+    /** @param  array<string, mixed>  $config  the `kanban` config */
+    public function __construct(
+        private readonly Store $store,
+        private readonly Paths $paths,
+        private readonly array $config,
+    ) {}
+
+    /** @return list<string> */
+    public function lines(?string $session): array
+    {
+        $snapshot = $this->store->snapshot();
+        $runtime = new Runtime($this->paths, $snapshot->staleMinutes());
+        $repo = $this->store instanceof GitStore ? $this->store->repo() : null;
+        $pull = new PullPolicy;
+        $capacity = $pull->capacity($snapshot);
+        $next = $pull->next($snapshot, 3);
+        $counts = [];
+        foreach ($snapshot->cards as $card) {
+            $counts[$card->stage()] = ($counts[$card->stage()] ?? 0) + 1;
+        }
+        $work = fn (string $stage) => $pull->sort($snapshot, $snapshot->cards(fn (Card $c) => $c->stage() === $stage && ! $c->isDecision()), $stage);
+        $blocked = $snapshot->cards(fn (Card $c) => $c->blocked() !== null);
+        $unpushed = $repo !== null && $repo->hasRemoteRef() ? $repo->ahead() : null;
+
+        $lines = [];
+        $lines[] = "Kanban {$snapshot->key()}: branch kanban @".($repo?->head() ?? '-').', '
+            .($unpushed === null ? 'not published' : "{$unpushed} unpushed").', sync '.Sync::label($this->config['sync'] ?? 'off', $repo?->hasRemote() ?? false).', '.gmdate('Y-m-d H:i').'Z';
+        if ($unpushed !== null && ! ($this->store instanceof GitStore && $this->store->syncOn())) {
+            $lines[] = Sync::PUBLISHED_BUT_OFF;
+        }
+        if (($sync = (new SyncStatus($this->paths))->line()) !== null) {
+            $lines[] = $sync;
+        }
+        $elsewhere = $capacity['doing'] - $capacity['here'];
+        $lines[] = "WIP doing {$capacity['here']}/{$capacity['max_parallel']}".($elsewhere > 0 ? " (+{$elsewhere} elsewhere)" : '').", review {$capacity['review']}/{$capacity['review_limit']}"
+            .' · ready '.($counts['ready'] ?? 0).' · backlog '.($counts['backlog'] ?? 0).' · blocked '.count($blocked)
+            .' · proposed decisions '.($counts['proposed'] ?? 0);
+        foreach ($work('doing') as $card) {
+            $lines[] = 'doing  '.$this->short($card).': '.implode(', ', $this->flight($card, $runtime, 'kanban-worker'));
+        }
+        foreach ($work('review') as $card) {
+            $approved = $card->work()['approved']['head'] ?? null;
+            $parts = [$approved ? 'approved '.substr($approved, 0, 7).', not merged' : 'awaiting verdict'];
+            $parts = array_merge($parts, array_slice($this->flight($card, $runtime, 'kanban-evaluator'), 0, 1));
+            $lines[] = 'review '.$this->short($card).': '.implode(', ', array_filter($parts, fn ($p) => $p !== 'no agent'));
+        }
+        foreach (array_slice($blocked, 0, 10) as $card) {
+            $lines[] = "blocked {$card->id()} {$card->title()}: \"".mb_strimwidth((string) $card->blocked(), 0, 160, '…').'"';
+        }
+        if (count($blocked) > 10) {
+            $lines[] = 'blocked: '.(count($blocked) - 10).' more (`kanban list`)';
+        }
+        $lines[] = 'next: '.($next['cards'] === []
+            ? 'none: '.$next['reason']
+            : implode(', ', array_map(fn (Card $c) => $c->id().' '.Priority::short($c->priority()), $next['cards'])));
+        $decided = $snapshot->cards(fn (Card $c) => $c->stage() === 'decided');
+        usort($decided, fn (Card $a, Card $b) => [$b->data['decided_on'] ?? '', $b->id()] <=> [$a->data['decided_on'] ?? '', $a->id()]);
+        $decided = array_slice($decided, 0, 8);
+        if ($decided !== []) {
+            $lines[] = 'decided (latest '.count($decided).'): '.implode('; ', array_map(
+                fn (Card $c) => ($c->data['decided_on'] ?? '').' '.$c->id().' '.mb_strimwidth($c->title(), 0, 60, '…'), $decided));
+        }
+        $lines[] = 'checks: '.implode(' · ', $this->checks($snapshot, $repo?->mergeDriver() !== null, $session));
+
+        return $lines;
+    }
+
+    private function short(Card $card): string
+    {
+        return "{$card->id()} ".Priority::short($card->priority())." {$card->board} {$card->title()}";
+    }
+
+    /**
+     * `worker a4d2 live 4m`, `wt key-7k2m9q`, the stack URL.
+     *
+     * @return list<string>
+     */
+    private function flight(Card $card, Runtime $runtime, string $type): array
+    {
+        $agent = $runtime->agentFor($card->id(), $type);
+        $parts = [];
+        if ($agent === null && ($host = $card->host()) !== null && $host !== (string) gethostname()) {
+            $parts[] = "on {$host}";
+        } elseif ($agent === null) {
+            $parts[] = 'no agent';
+        } else {
+            $state = $runtime->state($agent);
+            $since = $state === 'live' && ! empty($agent['bound_at']) ? Clock::seconds((string) $agent['bound_at']) : time() - (int) $agent['beat'];
+            $parts[] = str_replace('kanban-', '', $type).' '.substr((string) $agent['agent_id'], 0, 4).' '.$state
+                .($state === 'stopped' ? '' : ' '.Clock::human($since));
+        }
+        if (is_string($worktree = $card->work()['worktree'] ?? null)) {
+            $parts[] = 'wt '.basename($worktree);
+        }
+        if (is_string($url = $card->work()['stack']['url'] ?? null)) {
+            $parts[] = $url;
+        }
+
+        return $parts;
+    }
+
+    /** @return list<string> */
+    private function checks(Snapshot $snapshot, bool $driver, ?string $session): array
+    {
+        $guard = dirname(__DIR__, 2).'/bin/kanban-guard';
+        $hooksPath = (new Git($this->paths->main))->line(['config', '--get', 'core.hooksPath']);
+        $orphans = $this->orphans($snapshot);
+
+        return [
+            'merge driver '.($driver ? 'ok' : 'missing (run `kanban attach`)'),
+            'journal '.$this->store->pending(),
+            'guard '.(is_executable($guard) ? 'ok' : 'not executable ('.$guard.')'),
+            'hooksPath '.($hooksPath === Bootstrap::HOOKS_PATH ? 'ok' : ($hooksPath === null || $hooksPath === '' ? 'unset' : $hooksPath)),
+            count($orphans).' orphan worktrees'.($orphans === [] ? '' : ' ('.implode(', ', $orphans).')'),
+            'lease: '.(new Lease($this->paths))->describe($session),
+        ];
+    }
+
+    /**
+     * Card worktrees (named after a card id) whose card is not in doing/review with that worktree.
+     *
+     * @return list<string>
+     */
+    private function orphans(Snapshot $snapshot): array
+    {
+        $orphans = [];
+        foreach (glob($this->paths->worktrees().'/*', GLOB_ONLYDIR) ?: [] as $dir) {
+            $card = $snapshot->card(strtoupper(basename($dir)));
+            if ($card === null) {
+                continue;
+            }
+            $worktree = (string) ($card->work()['worktree'] ?? '');
+            if (! in_array($card->stage(), ['doing', 'review'], true) || $this->paths->relative($dir) !== $worktree) {
+                $orphans[] = basename($dir);
+            }
+        }
+
+        return $orphans;
+    }
+}

@@ -1,0 +1,31 @@
+<?php
+
+namespace PetarSpasic\Kanban\Console;
+
+use PetarSpasic\Kanban\Protocol\Context;
+use PetarSpasic\Kanban\Store\Exceptions\NotFound;
+use Symfony\Component\Console\Attribute\AsCommand;
+
+#[AsCommand(name: 'kanban:context')]
+class ContextCommand extends Command
+{
+    protected $signature = 'kanban:context
+        {id? : The card (default: the card whose worktree is the cwd)}
+        {--evaluate : Add the worker report, the diff stat and the gate commands}';
+
+    protected $description = 'Everything an agent needs about its card: acceptance, deps, stack, last verdict, commits, dirty files';
+
+    protected function perform(): int
+    {
+        $snapshot = $this->store()->snapshot();
+        $context = new Context($this->paths(), $this->config());
+        $card = $this->argument('id') !== null
+            ? $snapshot->resolve($this->argument('id'))
+            : ($context->cardAt($snapshot, $this->paths()->cwd) ?? throw new NotFound('the cwd is not the worktree of a card in doing or review: give the card id'));
+        foreach ($context->lines($card, $snapshot, (bool) $this->option('evaluate')) as $line) {
+            $this->say($line);
+        }
+
+        return self::SUCCESS;
+    }
+}

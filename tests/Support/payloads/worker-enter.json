@@ -1,0 +1,14 @@
+{
+    "session_id": "5f0c1d2e-0000-4000-8000-000000000001",
+    "transcript_path": "{outside}/transcript.jsonl",
+    "cwd": "{main}",
+    "permission_mode": "default",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "EnterWorktree",
+    "tool_input": {
+        "path": "{wt}"
+    },
+    "tool_use_id": "toolu_01DEF",
+    "agent_id": "a4d2c0ffee",
+    "agent_type": "kanban-worker"
+}

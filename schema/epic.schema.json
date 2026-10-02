@@ -1,0 +1,18 @@
+{
+    "$id": "epic.schema.json",
+    "title": "<epic>/epic.json",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["title", "goal", "done_when", "body", "order", "updated"],
+    "properties": {
+        "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "goal": { "type": "string", "maxLength": 2000 },
+        "done_when": { "type": "array", "maxItems": 12, "items": { "type": "string", "minLength": 1, "maxLength": 300 } },
+        "body": { "type": "string", "maxLength": 20000 },
+        "order": { "type": "integer" },
+        "updated": { "$ref": "#/$defs/timestamp" }
+    },
+    "$defs": {
+        "timestamp": { "type": "string", "format": "date-time", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}\\+00:00$" }
+    }
+}

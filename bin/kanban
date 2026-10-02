@@ -1,0 +1,16 @@
+#!/usr/bin/env php
+<?php
+
+foreach ([$GLOBALS['_composer_autoload_path'] ?? null, __DIR__.'/../vendor/autoload.php', __DIR__.'/../../../autoload.php'] as $autoload) {
+    if ($autoload !== null && is_file($autoload)) {
+        require $autoload;
+        break;
+    }
+}
+
+if (($main = PetarSpasic\Kanban\Console\Standalone::mainCheckoutBinary((string) ($_SERVER['SCRIPT_FILENAME'] ?? ''))) !== null) {
+    passthru(implode(' ', array_map('escapeshellarg', [PHP_BINARY, $main, ...array_slice($_SERVER['argv'], 1)])), $exit);
+    exit($exit);
+}
+
+exit(PetarSpasic\Kanban\Console\Standalone::run($_SERVER['argv']));
