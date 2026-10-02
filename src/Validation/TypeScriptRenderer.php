@@ -123,8 +123,9 @@ final readonly class TypeScriptRenderer
      * @param  array<string, array<string, string>>  $messages  locale => key => text
      * @param  array<string, array<string, string>>  $attributes  locale => field => name
      * @param  list<string>  $notes  extra server-only comment lines
+     * @param  'json'|null  $dataType  the attribute's dataType
      */
-    public function form(FormSchema $schema, array $messages, array $attributes, array $notes): string
+    public function form(FormSchema $schema, array $messages, array $attributes, array $notes, ?string $dataType = null): string
     {
         $comment = [];
 
@@ -141,7 +142,7 @@ final readonly class TypeScriptRenderer
         $body = $this->build($schema);
         $used = array_values(array_filter(self::RUNTIME_EXPORTS, fn (string $name): bool => preg_match('/\b'.$name.'[(<]/', $body) === 1));
         $imports = implode(', ', ['type Locale', ...$used, 'defaultLocale', 'locales']);
-        $dataType = $this->js($schema->dataType());
+        $dataType = $this->js($schema->dataType($dataType));
 
         return implode("\n", [
             $this->header(" from {$schema->class}"),
@@ -208,7 +209,7 @@ final readonly class TypeScriptRenderer
             'string' => "z.string({$error})",
             'number' => "z.number({$error})",
             'boolean' => "z.boolean({$error})",
-            'array' => 'z.array('.($node->element === null ? 'z.unknown()' : $this->node($node->element, $depth)).($error === '' ? '' : ", {$error}").')',
+            'array' => ($node->map ? 'z.record(z.string(), ' : 'z.array(').($node->element === null ? 'z.unknown()' : $this->node($node->element, $depth)).($error === '' ? '' : ", {$error}").')',
             default => 'z.object('.$this->object($node, $depth).')',
         };
 
@@ -217,7 +218,7 @@ final readonly class TypeScriptRenderer
         }
 
         if ($node->steps !== []) {
-            $type = ['string' => 'string', 'number' => 'number', 'boolean' => 'boolean', 'array' => 'unknown[]'][$node->type] ?? 'Record<string, unknown>';
+            $type = ['string' => 'string', 'number' => 'number', 'boolean' => 'boolean', 'array' => $node->map ? null : 'unknown[]'][$node->type] ?? 'Record<string, unknown>';
             $options = '{ trim: '.($node->trim ? 'true' : 'false').($node->bail ? ', bail: true' : '').' }';
             $pad = str_repeat('  ', $depth + 1);
             $steps = array_map(fn (array $step): string => $pad.'  ['.implode(', ', array_filter([

@@ -19,13 +19,25 @@ final class RegisterRequest extends FormRequest
 - Every class under `app/` is scanned, so a marked form outside `app/Requests/` is exported too.
 - The package is a dev dependency. Without it the attribute is inert: Laravel never instantiates an unknown class
   attribute on a FormRequest, so production validates as usual.
+- `dataType: 'json'` posts the form as JSON even when it has no nested field. It is the only value: a flat form is
+  already `'form'`, and nested data never travels as FormData.
+- `maps: ['settings']` names the array fields keyed by strings (`settings => array`, `settings.* => string`).
+  Rules alone cannot tell such a map from a list, so without it `settings` is exported as a list. A map is an
+  `array` field with no named keys, never a `list`.
+
+```php
+#[ExportValidation('preferences', maps: ['settings'])]
+```
 
 ## Running it
 
 - `php artisan validation:export` writes `frontend/src/lib/validation/generated/`: `_runtime.ts` plus one module
   per marked form. It rewrites only changed files, removes generated files whose form is gone, and refuses to
   touch a file it did not generate. Dotfiles there (`.gitkeep`) are left alone.
-- `--check` writes nothing; it lists `changed`, `missing` or `stale` files and exits 1 when there are any.
+- `--check` writes nothing; it lists `changed`, `missing` or `stale` files and exits 1 when there are any. It
+  also lists `unproven <name>` and exits 1 for each exported form without its parity proof,
+  `frontend/e2e/parity/<name>.spec.ts` (`frontend` being the first directory of `--path`). The export itself
+  never needs the proof, so the page can be built against the module first.
 - `--path=<dir>` changes the output directory (project-relative).
 - No marked form and no `frontend/` directory: it prints `no exported forms` and exits 0. A marked form without
   `frontend/` is refused.
@@ -55,7 +67,8 @@ superForm(data.form, { validators: zod4Client(register.schema(locale)), dataType
 - `messages[locale]` holds every message, rendered by Laravel's own Validator, keyed `<field>.<rule>`
   (wildcards as `items.*.name.max`); the same rule again with other parameters is `<field>.<rule>.2`.
 - `attributes[locale]` holds each field's display name.
-- `dataType` is `'json'` when the form has nested objects, arrays of objects or arrays of arrays, else `'form'`.
+- `dataType` is `'json'` when the form has nested objects, arrays of objects, arrays of arrays or maps, or when
+  the attribute says so; else `'form'`.
 - `type Input` is the schema's input type.
 - The header comment lists the rules only Laravel checks and the fields left out of the schema.
 - `_runtime.ts` exports `locales`, `type Locale`, `defaultLocale` and the helpers the modules use.
@@ -75,8 +88,8 @@ null for nullable ones and empty numbers, and false for unchecked boxes. Hence:
 - Without `nullable`, `required` comes before every other rule: Laravel runs `string|required` on the null
   that '' became and reports both messages.
 - Number fields are always nullable in the schema, with the required check as a rule step.
-- Array fields are never nullable in the schema: an empty one posts `[]`, which Laravel validates, so `min`
-  and `size` on an optional array still apply to it.
+- Array fields are never nullable in the schema: an empty list posts `[]` (a map `{}`), so an optional one
+  carries no lower bound.
 - Every input the backend reads is declared in `rules()` with a type, because the schema strips undeclared keys.
 
 ## Mapping
@@ -90,7 +103,8 @@ Presence:
 
 Types (with no type rule, a field that has value rules is a string):
 - `string`; `integer`/`int` (`Number.isInteger`); `numeric` (`Number.isFinite`); `boolean`/`bool`;
-  `array`/`list`; dotted keys build nested objects, `*` builds arrays.
+  `array`/`list`; dotted keys build nested objects, `*` builds arrays, and a field in `maps` is a
+  `z.record(z.string(), …)`.
 - A backed `Rule::enum` with int values and no type rule gives a number field.
 
 Formats:
@@ -106,7 +120,7 @@ Formats:
 
 Sizes (`min`, `max`, `between`, `size`):
 - with a numeric rule: the value;
-- on an array: its length;
+- on an array: its length; on a map: its key count;
 - otherwise: code points of the trimmed string (`mb_strlen`).
 
 Value sets:
@@ -181,6 +195,9 @@ Refused (the export fails):
 - a string or number field without a settling presence rule, or without `nullable` and with a rule before
   `required`;
 - a field with only presence and server-only rules and no type rule;
+- an array without `required` or `filled` whose `min`, `size` or `between` asks for an item: write
+  `required|array|min:1` for a list that needs items, or drop the bound for an optional one;
+- a `dataType` other than `'json'`; a `maps` entry that is not a declared `array` field without named keys;
 - `prepareForValidation()`, `validationData()` or `validator()` on the form;
 - request, user or tenant state that fails without them (`$this->user()->id`, an eager `CurrentTenant::id()`);
 - `rules()` that differ by locale; `messages()` or `attributes()` that change with the date;
@@ -205,5 +222,4 @@ Request, user or tenant values may only feed server-only rules, read null-safely
 
 ## Project checks
 
-- `npm run check` passes.
-- Each exported form has its parity proof, as `tests/CLAUDE.md` describes.
+- `npm run check` passes; it fails while an exported form lacks its parity proof (`tests/CLAUDE.md`).

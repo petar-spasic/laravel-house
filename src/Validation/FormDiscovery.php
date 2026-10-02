@@ -89,10 +89,19 @@ final class FormDiscovery
             return $this->refuse($class->name, 'only a concrete FormRequest can be exported');
         }
 
-        $name = $attributes[0]->newInstance()->name;
+        $export = $attributes[0]->newInstance();
+        $name = $export->name;
 
         if (preg_match('/^[a-z][a-z0-9]*(-[a-z0-9]+)*$/', $name) !== 1) {
             return $this->refuse($class->name, "'{$name}' is not a kebab-case name");
+        }
+
+        if ($export->dataType !== null && $export->dataType !== 'json') {
+            return $this->refuse($class->name, "dataType takes only 'json': a form without nested fields is already 'form', and superforms reads no nested data from FormData");
+        }
+
+        if (array_filter($export->maps, fn (mixed $path): bool => ! is_string($path)) !== []) {
+            return $this->refuse($class->name, 'maps lists field paths as strings');
         }
 
         return $name;

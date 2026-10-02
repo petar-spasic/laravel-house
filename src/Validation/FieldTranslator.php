@@ -69,8 +69,9 @@ final class FieldTranslator
     /**
      * @param  class-string  $class
      * @param  array<string, list<ParsedRule>>  $rules
+     * @param  list<string>  $maps  array paths keyed by strings
      */
-    public function translate(string $class, array $rules, bool $failOnUnknownFields): FormSchema
+    public function translate(string $class, array $rules, bool $failOnUnknownFields, array $maps = []): FormSchema
     {
         $this->schema = new FormSchema($class);
         $this->failOnUnknownFields = $failOnUnknownFields;
@@ -84,6 +85,16 @@ final class FieldTranslator
                 $this->declared[] = $node;
             } catch (ExportRefused $e) {
                 $this->schema->refusals[] = $e;
+            }
+        }
+
+        foreach ($maps as $path) {
+            $node = $this->schema->find($path);
+
+            if ($node?->rules === null) {
+                $this->schema->refusals[] = new ExportRefused($class, $path, '(field)', 'maps names a field rules() does not declare');
+            } else {
+                $node->map = true;
             }
         }
 
@@ -175,12 +186,20 @@ final class FieldTranslator
         $node->trim = $node->type === 'string' && $this->pipeline->trims($node->path);
         $this->schema->rendererRules[$node->path] = $names;
 
+        if ($node->map) {
+            $this->map($node, $names);
+        }
+
         if (in_array($node->type, ['string', 'number'], true) && array_intersect($names, self::SETTLING) === []) {
             throw $this->refusal($node, $this->sources($node), 'add required or nullable: Laravel turns an empty value into null, which then fails the type rule');
         }
 
         if ($this->pipeline->emptyToNull && in_array($node->type, ['string', 'number'], true) && ! in_array('nullable', $names, true)) {
             $this->presenceFirst($node);
+        }
+
+        if ($node->type === 'array' && array_intersect($names, ['required', 'filled']) === []) {
+            $this->emptyArray($node);
         }
 
         foreach ($node->rules ?? [] as $rule) {
@@ -247,6 +266,35 @@ final class FieldTranslator
         return 'string';
     }
 
+    /**
+     * @param  list<string>  $names
+     */
+    private function map(Node $node, array $names): void
+    {
+        $reason = match (true) {
+            in_array('list', $names, true) => 'a map takes array, never list: list requires the keys 0, 1, 2…',
+            $node->children !== [] => 'a map has no named keys: drop it from maps for an object',
+            $node->type !== 'array' => 'a map is an array field',
+            default => null,
+        };
+
+        if ($reason !== null) {
+            throw $this->refusal($node, '', $reason);
+        }
+    }
+
+    /** superforms posts an empty optional array as [] (a map as {}), never null, so Laravel runs its size rules on it. */
+    private function emptyArray(Node $node): void
+    {
+        [$kind, $empty] = $node->map ? ['map', '{}'] : ['list', '[]'];
+
+        foreach ($node->rules ?? [] as $rule) {
+            if (! $rule->serverOnly && in_array($rule->name, ['min', 'size', 'between'], true) && is_numeric($rule->params[0] ?? null) && $rule->params[0] >= 1) {
+                throw $this->refusal($node, $rule->source, "an empty {$kind} posts {$empty}, which {$rule->source} refuses: write required|array|{$rule->source} for a {$kind} that needs items, or drop {$rule->source} for an optional one");
+            }
+        }
+    }
+
     /** On a '' turned into null, Laravel runs every rule before `required` and stops only there. */
     private function presenceFirst(Node $node): void
     {
@@ -300,7 +348,7 @@ final class FieldTranslator
             $test = match ($type) {
                 'number' => $this->numberTest($name, $p),
                 'string' => $this->stringTest($node, $name, $p),
-                'array' => in_array($name, ['min', 'max', 'between', 'size'], true) ? $this->size('v.length', $name, $p) : null,
+                'array' => in_array($name, ['min', 'max', 'between', 'size'], true) ? $this->size($node->map ? 'Object.keys(v).length' : 'v.length', $name, $p) : null,
                 default => null,
             };
         } catch (InvalidArgumentException $e) {
