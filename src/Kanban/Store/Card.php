@@ -12,6 +12,13 @@ final class Card
     /** Characters in one acceptance criterion. */
     public const MAX_CRITERION = 500;
 
+    public const MAX_LABELS = 10;
+
+    public const MAX_DEPENDS = 20;
+
+    /** Characters in the body. */
+    public const MAX_BODY = 20000;
+
     /**
      * @param  array<string, mixed>  $data  the card file, decoded
      * @param  string  $path  relative to the board root

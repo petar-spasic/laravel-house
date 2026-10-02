@@ -28,7 +28,7 @@ final class Transitions
         'review>done' => ['finish'],
         'doing>ready' => ['stop'], 'doing>backlog' => ['stop'], 'doing>dropped' => ['stop'],
         'review>ready' => ['stop'], 'review>backlog' => ['stop'], 'review>dropped' => ['stop'],
-        'backlog>dropped' => ['move'], 'ready>dropped' => ['move'],
+        'backlog>dropped' => ['move', 'fold'], 'ready>dropped' => ['move', 'fold'],
         'dropped>backlog' => ['move'],
         // an open question of a version 1 board becomes a backlog spike
         'proposed>backlog' => ['fold-boards'],
