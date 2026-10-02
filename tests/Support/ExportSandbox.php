@@ -3,6 +3,7 @@
 namespace PetarSpasic\LaravelHouse\Tests\Support;
 
 use Illuminate\Support\Facades\Artisan;
+use RuntimeException;
 
 /** A throwaway app for `php artisan validation:export`: its own app/ and frontend/, the paths rebound here. */
 final class ExportSandbox
@@ -64,6 +65,6 @@ final class ExportSandbox
     {
         $file = "{$this->root}/frontend/src/lib/validation/generated/{$name}.ts";
 
-        return is_file($file) ? (string) file_get_contents($file) : throw new \RuntimeException("{$name}.ts was not written");
+        return is_file($file) ? (string) file_get_contents($file) : throw new RuntimeException("{$name}.ts was not written");
     }
 }

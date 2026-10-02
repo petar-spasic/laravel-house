@@ -124,6 +124,15 @@ it('refuses a map that is not a declared array', function (string $rules, string
     'string' => ["['prefs' => 'required|string']", 'a map is an array field'],
 ]);
 
+it('refuses an optional map with a lower bound', function () {
+    acmeForm($this->sandbox, 'AcmePrefsRequest', 'acme-prefs', "['prefs' => 'nullable|array|size:2']", ", maps: ['prefs']");
+
+    [$code, $output] = $this->sandbox->export();
+
+    expect($code)->toBe(1)
+        ->and($output)->toContain('AcmePrefsRequest › prefs › size:2: an empty map posts {}, which size:2 refuses: write required|array|size:2 for a map that needs items, or drop size:2 for an optional one');
+});
+
 it('fails the check until every exported form has its parity spec', function () {
     acmeForm($this->sandbox, 'AcmeNoteRequest', 'acme-note', "['title' => 'required|string']");
 
