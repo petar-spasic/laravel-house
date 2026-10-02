@@ -101,6 +101,27 @@ it('describes a board as columns of card summaries in pull order', function () {
         ->and($cards[$dropped]['stage'])->toBe('dropped');
 });
 
+it('names a question apart from a plain block, and how many open cards wait on a hub', function () {
+    $s = $this->sandbox;
+    $asked = $s->card('Print notes', ['--label=area:print']);
+    $s->ok(['set', $asked, 'blocked=question: which renderer?']);
+    $held = $s->card('Rotate keys');
+    $s->ok(['set', $held, 'blocked=waiting on security']);
+    $hub = $s->card('Define the schema');
+    $waiting = array_map(fn (int $i) => $s->card("Export {$i}", ["--depends={$hub}"]), [1, 2, 3]);
+    $s->ok(['move', $waiting[2], 'dropped', '--reason=not needed']);
+    $two = collect($this->getJson('/kanban/_api/project/work')->json('stages'))->pluck('cards')->flatten(1)->keyBy('id');
+    $s->card('Export 4', ["--depends={$hub}"]);
+
+    $cards = collect($this->getJson('/kanban/_api/project/work')->assertOk()->json('stages'))->pluck('cards')->flatten(1)->keyBy('id');
+    expect($cards[$asked])->toMatchArray(['blocked' => 'question: which renderer?', 'question' => 'which renderer?'])
+        ->and($cards[$held])->toMatchArray(['blocked' => 'waiting on security', 'question' => null])
+        ->and($two[$hub]['blocks'])->toBe(0)
+        ->and($cards[$hub]['blocks'])->toBe(3)
+        ->and($cards[$waiting[0]]['blocks'])->toBe(0);
+    $this->getJson("/kanban/_api/cards/{$asked}")->assertOk()->assertJsonPath('card.question', 'which renderer?');
+});
+
 it('reports an agent with no recent heartbeat as stale and a finished one as stopped', function () {
     $s = $this->sandbox;
     $stale = $s->readyCard('Went quiet');

@@ -5,6 +5,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Env;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\URL;
+use PetarSpasic\LaravelHouse\Kanban\Store\Card;
 use PetarSpasic\LaravelHouse\Tests\Support\Sandbox;
 use PetarSpasic\LaravelHouse\Tests\Support\UiSandbox;
 
@@ -31,7 +32,8 @@ it('serves the same shell page for the boards, a board and a card', function () 
 
     expect($this->get('/kanban/project/work')->getContent())->toBe($index)
         ->and($this->get('/kanban/cards/ACME-1')->getContent())->toBe($index)
-        ->and($index)->toContain('data-base="/kanban"')->toContain('data-poll-ms="3000"');
+        ->and($index)->toContain('data-base="/kanban"')->toContain('data-poll-ms="3000"')
+        ->toContain('data-max-criteria="'.Card::MAX_CRITERIA.'"')->toContain('data-max-criterion="'.Card::MAX_CRITERION.'"');
 });
 
 it('answers API calls as JSON even when the client does not ask for it', function () {

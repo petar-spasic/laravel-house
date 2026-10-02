@@ -34,22 +34,14 @@ export default async (t) => {
     await t.shot(phone, 'phone-drawer');
     t.ok('a phone-width page does not scroll sideways', await phone.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
 
-    const decisions = await t.open();
-    await decisions.goto(t.url + '/project/decisions', { waitUntil: 'networkidle' });
-    await decisions.keyboard.press('n');
-    await decisions.keyboard.type('Adopt event sourcing');
-    await decisions.keyboard.press('Enter');
-    await decisions.waitForTimeout(800);
-    t.ok('n adds a decision', (await decisions.locator('.card', { hasText: 'Adopt event sourcing' }).count()) === 1);
-    await decisions.keyboard.press('Escape');
-    await decisions.click('.card:has-text("Workspace per team") .c-title');
-    await decisions.waitForSelector('.drawer:not([hidden]) .md');
-    t.ok('a decision shows its why', (await decisions.locator('.drawer .sec:has-text("Why")').count()) >= 1);
-    t.ok('and has no acceptance criteria', (await decisions.locator('.drawer .sec:has-text("Acceptance"):visible').count()) === 0);
-    t.ok('nor a Block button', (await decisions.locator('.drawer button:has-text("Block…"):visible').count()) === 0);
-    t.ok('a board without labels or types shows no stray text in its filters', !(await decisions.locator('.toolbar-chips').innerText()).includes('null'));
-    await pick(decisions, 'stage', 'decided');
-    await decisions.waitForTimeout(800);
-    t.ok('deciding moves it', (await decisions.locator('.col[data-stage=decided] .card', { hasText: 'Workspace per team' }).count()) === 1);
-    await t.shot(decisions, 'decisions');
+    // another board: n adds there, and a board whose cards carry no labels shows no stray text in its filters
+    t.cli(['board', 'platform/infra', 'Infra']);
+    const other = await t.open();
+    await other.goto(t.url + '/platform/infra', { waitUntil: 'networkidle' });
+    await other.keyboard.press('n');
+    await other.keyboard.type('Move the queue to Redis');
+    await other.keyboard.press('Enter');
+    await other.waitForTimeout(800);
+    t.ok('n adds a card on any board', (await other.locator('.col[data-stage=backlog] .card', { hasText: 'Move the queue to Redis' }).count()) === 1);
+    t.ok('a board without labels shows no stray text in its filters', !(await other.locator('.toolbar-chips').innerText()).includes('null'));
 };

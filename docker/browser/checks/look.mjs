@@ -9,14 +9,14 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const script = fs.readFileSync(path.join(here, '../../../resources/dist/kanban.js'), 'utf8');
 
 export default async (t) => {
-    const { w1, decided, nightly, job, schema, blocked } = t.seed.ids;
+    const { w1, question, nightly, job, schema, blocked } = t.seed.ids;
     const views = [
         ['index', ''],
         ['work', '/project/work'],
-        ['decisions', '/project/decisions'],
+        ['infra', '/platform/infra'],
         ['drawer', `/cards/${w1}`],
         ['drawer-blocked', `/cards/${blocked}`],
-        ['drawer-decision', `/cards/${decided}`],
+        ['drawer-question', `/cards/${question}`],
         ['stack', `/cards/${schema}?from=${nightly},${job}`],
     ];
 

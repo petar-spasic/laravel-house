@@ -4,6 +4,7 @@ import { choices, pick, switchTo } from '../lib.mjs';
 
 export default async (t) => {
     const { a, c, d, f, g } = t.seed.ids;
+    t.cli(['board', 'platform/infra', 'Infra']);
     const page = await t.open();
     await page.addInitScript(() => { if (!sessionStorage.getItem('seeded')) { localStorage.setItem('kanban.collapsed', '{broken'); sessionStorage.setItem('seeded', '1'); } });
     await page.goto(t.url + '/cards/' + g, { waitUntil: 'networkidle' });
@@ -19,7 +20,7 @@ export default async (t) => {
     t.ok('a stage a card cannot move to is no drop target', (await page.locator(`.col[data-stage=backlog] .card[data-id="${c}"]`).count()) === 1 && (await page.locator('.toast.err').count()) === 0);
 
     await page.goto(t.url, { waitUntil: 'networkidle' });
-    await page.focus('.board-tile >> nth=1');
+    await page.focus('.board-tile[href$="/project/work"]');
     await page.keyboard.press('Enter');
     await page.waitForTimeout(500);
     t.ok('Enter follows a board link', page.url().includes('/project/'));
@@ -43,15 +44,15 @@ export default async (t) => {
     t.ok('a card that loads after it was closed does not reopen', (await page.locator('.drawer[hidden]').count()) === 1 && !page.url().includes('/cards/'));
     await page.unroute('**/_api/cards/' + a);
 
-    await page.goto(t.url + '/project/decisions', { waitUntil: 'networkidle' });
+    await page.goto(t.url + '/project/work', { waitUntil: 'networkidle' });
     const width = (stage) => page.locator(`.col[data-stage=${stage}]`).evaluate((el) => Math.round(el.getBoundingClientRect().width));
-    t.ok('a collapsed column that cannot be dropped on is still a narrow strip', (await width('superseded')) <= 50);
-    await page.click('.col[data-stage=superseded] .col-h');
+    t.ok('a folded column is a narrow strip', (await width('dropped')) <= 50);
+    await page.click('.col[data-stage=dropped] .col-h');
     await page.waitForTimeout(300);
-    t.ok('and a click opens it', (await width('superseded')) > 150);
-    await page.click('.col[data-stage=superseded] .col-h');
+    t.ok('and a click opens it', (await width('dropped')) > 150);
+    await page.click('.col[data-stage=dropped] .col-h');
     await page.waitForTimeout(300);
-    t.ok('and another folds it again', (await width('superseded')) <= 50);
+    t.ok('and another folds it again', (await width('dropped')) <= 50);
 
     await page.goto(t.url + '/project/work?p=high', { waitUntil: 'networkidle' });
     await page.click(`.card[data-id="${a}"] .c-title`);
@@ -61,7 +62,7 @@ export default async (t) => {
 
     await page.goto(t.url + '/project/work', { waitUntil: 'networkidle' });
     await page.click('.col[data-stage=backlog] .add');
-    await switchTo(page, 'Decisions');
+    await switchTo(page, 'Infra');
     t.ok('a new-card box does not follow to another board', (await page.locator('.composer').count()) === 0);
 
     await page.goto(t.url + '/project/nothing', { waitUntil: 'networkidle' });

@@ -6,8 +6,8 @@
  * The server replaces this process (exec), so the sandbox's shutdown cleanup never runs while it is served.
  *
  * With --rich the board also holds every state the UI draws (agents working, stale and stopped, review and done cards,
- * blocked and waiting cards, long titles, many labels, a stack link, decisions in every stage, a second epic) and
- * realistic ages; the default seed stays small so the checks' counts do not move.
+ * blocked and waiting cards, an open question, a card three others wait on, long titles, many labels, a stack link, a
+ * second epic) and realistic ages; the default seed stays small so the checks' counts do not move.
  *
  * With --perf it holds 300 more chores in the backlog (first-render timing).
  *
@@ -66,8 +66,6 @@ $s->ok(['move', $ids['g'], 'dropped', '--reason=out of scope']);
 for ($i = 1; $i <= 6; $i++) {
     $s->card("Chore number {$i}", ['--type=chore']);
 }
-$s->card('Workspace per team', ['--why=Teams share notes'], 'project/decisions');
-$s->card('Use SQLite for local dev', [], 'project/decisions');
 
 if ($rich || $perf) {
     UiSandbox::boot($s->root);
@@ -103,13 +101,13 @@ if ($rich) {
     $stack = fn (string $name, int $port) => ['branch' => 'card/'.$name, 'stack' => ['project' => "acme-wt-{$name}", 'slot' => 1, 'ports' => [], 'url' => "http://{$host}:{$port}"]];
 
     // in flight: an agent working with a stack, one gone stale, one review card whose agent stopped
-    $ids['w1'] = $ready('Wire billing webhooks to the ledger', ['priority' => 'high', 'labels' => ['backend', 'billing']]);
+    $ids['w1'] = $ready('Wire billing webhooks to the ledger', ['priority' => 'high', 'labels' => ['area:billing', 'backend']]);
     $transitions->start($ids['w1'], $main, null, $stack('billing', 21010));
     $agent('worker-1', $ids['w1'], 240);
-    $ids['w2'] = $ready('Cache the notebook index between requests', ['labels' => ['perf']]);
+    $ids['w2'] = $ready('Cache the notebook index between requests', ['labels' => ['area:search', 'perf']]);
     $transitions->start($ids['w2'], $main, null, $stack('cache', 21020));
     $agent('worker-2', $ids['w2'], 3000, 2400);
-    $ids['r1'] = $ready('Paginate the activity feed', ['labels' => ['frontend']]);
+    $ids['r1'] = $ready('Paginate the activity feed', ['labels' => ['area:feed', 'frontend']]);
     $transitions->start($ids['r1'], $main, null, $stack('feed', 21030));
     $transitions->apply($ids['r1'], $main);
     $agent('worker-3', $ids['r1'], 5400, 60, true);
@@ -117,20 +115,24 @@ if ($rich) {
     // attention states and stress shapes
     $ids['blocked'] = $make('Rotate the signing keys before the audit', ['priority' => 'urgent', 'type' => 'bug']);
     $s->ok(['set', $ids['blocked'], 'blocked=Waiting for the security team to approve the new key length and the rollout window before anything else can move']);
-    $ids['schema'] = $make('Define the export schema', ['priority' => 'high', 'accept' => ['Schema documented', 'Sample export attached']]);
+    $ids['schema'] = $make('Define the export schema', ['priority' => 'high', 'labels' => ['area:export'], 'accept' => ['Schema documented', 'Sample export attached']]);
     $ids['job'] = $make('Build the export job', ['depends' => [$ids['schema']]]);
+    $ids['csv'] = $make('Export a notebook as CSV', ['depends' => [$ids['schema']]]);
+    $ids['md'] = $make('Export a notebook as Markdown', ['depends' => [$ids['schema']]]);
+    $ids['question'] = $make('Print notes as PDF', ['labels' => ['area:print'], 'body' => "## Goal\n\nA printable PDF of one note.\n\n## Open question\n\nRender with a headless browser, or with a PDF library on the server?"]);
+    $s->ok(['set', $ids['question'], 'blocked=question: headless browser or a server-side PDF library?']);
     $ids['nightly'] = $make('Schedule nightly exports', ['depends' => [$ids['job']], 'labels' => ['ops']]);
     $ids['long'] = $make('Migrate notebook sharing from the legacy queue worker to the new event pipeline without any downtime for users', ['type' => 'spike']);
-    $ids['labels'] = $make('Clean up the sync module', ['labels' => ['area:sync', 'backend', 'perf', 'needs-design', 'tech-debt'], 'accept' => ['No dead code left']]);
+    $ids['labels'] = $make('Clean up the sync module', ['labels' => ['backend', 'perf', 'needs-design', 'tech-debt', 'area:sync'], 'accept' => ['No dead code left']]);
     $ids['low'] = $make('Tidy the settings copy', ['priority' => 'low', 'labels' => ['ui']]);
-    $ids['cand'] = $make('Add CSV import', ['body' => 'Build it', 'accept' => ['It works'], 'priority' => 'low']);
+    $ids['cand'] = $make('Add CSV import', ['body' => 'Build it', 'accept' => ['It works'], 'priority' => 'low', 'labels' => ['area:import']]);
     $ages[$ids['nightly']] = 9 * 86400;
     $ages[$ids['long']] = 3 * 86400;
     $ages[$ids['low']] = 26 * 3600;
 
     // shipped work: the done lane caps at 20, so 23 shows the older link
     for ($i = 1; $i <= 23; $i++) {
-        $id = $ready("Shipped change {$i}", ['labels' => $i % 4 === 0 ? ['backend'] : []]);
+        $id = $ready("Shipped change {$i}", ['labels' => $i % 4 === 0 ? ['area:changes', 'backend'] : ['area:changes']]);
         $transitions->start($id, $main, null, ['branch' => "card/shipped-{$i}", 'stack' => null]);
         $transitions->apply($id, $main);
         $transitions->finish($id, sprintf('%07x', 0xABC000 + $i), $main);
@@ -139,23 +141,12 @@ if ($rich) {
     // the blocked card also depends on something already shipped, so its panel shows the banner and a dependency (nothing waits on it)
     $s->ok(['set', $ids['blocked'], 'depends_on=+'.$id]);
 
-    // decisions in every stage, with a supersedes chain
-    $old = $make('Use polling to sync notebooks', ['stage' => 'decided', 'why' => 'Simplest thing that works for a first release.'], 'project/decisions');
-    $new = $make('Use webhooks to sync notebooks', ['stage' => 'decided', 'why' => 'Polling cost more than it saved once notebooks grew.'], 'project/decisions');
-    $s->ok(['set', $new, "supersedes=+{$old}"]);
-    $ids['old'] = $old;
-    $ids['new'] = $new;
-    $ids['decided'] = $make('Store attachments outside the database', ['stage' => 'decided', 'why' => "Blobs made backups slow.\n\n- keep metadata in the database\n- keep files on disk"], 'project/decisions');
-    $ids['dropped_decision'] = $make('Build our own markdown parser', [], 'project/decisions');
-    $s->ok(['move', $ids['dropped_decision'], 'dropped', '--reason=The library we already have is enough']);
-    $ages[$old] = 40 * 86400;
-
     // a second epic, so the switcher shows groups
     $s->ok(['board', 'platform/infra', 'Infra']);
     foreach (['Move the queue to Redis', 'Rotate database credentials', 'Add a staging environment'] as $title) {
         $make($title, [], 'platform/infra');
     }
-    $ready('Enable nightly backups', [], 'platform/infra');
+    $ready('Enable nightly backups', ['labels' => ['area:backups']], 'platform/infra');
 
     // backdate: every timestamp of a card moves back by its age, keeping the file's formatting
     foreach ($ages as $id => $seconds) {

@@ -2,6 +2,7 @@
 export const seed = 'rich';
 
 export default async (t) => {
+    t.cli(['board', 'project/ops', 'Ops']);
     const page = await t.open({ w: 1440, h: 900 });
     const pins = () => page.locator('.pins .pin');
     const shown = () => pins().evaluateAll((all) => all.map((el) => `${el.querySelector('kbd').textContent} ${el.querySelector('.pin-name').textContent}`).join(', '));
@@ -13,41 +14,41 @@ export default async (t) => {
     t.ok('Shift+1 puts the board you are on in slot 1, and the bar shows it', (await shown()) === '1 Work' && (await pins().first().getAttribute('aria-current')) === 'page');
     t.ok('with a message saying what happened', (await page.locator('.toast.ok').innerText()).includes('Work is on Alt+1'));
 
-    await page.goto(t.url + '/project/decisions', { waitUntil: 'networkidle' });
+    await page.goto(t.url + '/project/ops', { waitUntil: 'networkidle' });
     await page.keyboard.press('Shift+2');
-    t.ok('another board goes in another slot, in slot order', (await shown()) === '1 Work, 2 Decisions' && (await pins().nth(1).getAttribute('aria-current')) === 'page' && (await pins().first().getAttribute('aria-current')) === null);
+    t.ok('another board goes in another slot, in slot order', (await shown()) === '1 Work, 2 Ops' && (await pins().nth(1).getAttribute('aria-current')) === 'page' && (await pins().first().getAttribute('aria-current')) === null);
 
     await page.keyboard.press('Alt+1');
     await page.waitForTimeout(500);
     t.ok('Alt+1 goes to the board in slot 1', path().endsWith('/project/work'));
     await page.keyboard.press('Alt+2');
     await page.waitForTimeout(500);
-    t.ok('Alt+2 to the one in slot 2', path().endsWith('/project/decisions'));
+    t.ok('Alt+2 to the one in slot 2', path().endsWith('/project/ops'));
     await page.keyboard.press('/');
     await page.keyboard.press('Alt+1');
     await page.waitForTimeout(500);
     t.ok('also while typing in the search box, where Shift+2 is only a character', path().endsWith('/project/work'));
     await page.fill('input[type=search]', '');
     await page.keyboard.press('Shift+2');
-    t.ok('Shift+2 in the search box types a character and pins nothing', (await page.inputValue('input[type=search]')).length === 1 && (await shown()) === '1 Work, 2 Decisions');
+    t.ok('Shift+2 in the search box types a character and pins nothing', (await page.inputValue('input[type=search]')).length === 1 && (await shown()) === '1 Work, 2 Ops');
     await page.keyboard.press('Escape');
 
     await page.goto(t.url, { waitUntil: 'networkidle' });
-    t.ok('the slots are on the boards page too, and survive a reload', (await shown()) === '1 Work, 2 Decisions');
+    t.ok('the slots are on the boards page too, and survive a reload', (await shown()) === '1 Work, 2 Ops');
     await page.keyboard.press('Alt+2');
     await page.waitForTimeout(500);
-    t.ok('Alt+2 goes from the boards page to slot 2', path().endsWith('/project/decisions'));
+    t.ok('Alt+2 goes from the boards page to slot 2', path().endsWith('/project/ops'));
     await page.goto(t.url, { waitUntil: 'networkidle' });
     await page.keyboard.press('Shift+3');
-    t.ok('Shift+3 on the boards page has no board to pin and says so', (await page.locator('.toast').innerText()).includes('Open a board first') && (await shown()) === '1 Work, 2 Decisions');
+    t.ok('Shift+3 on the boards page has no board to pin and says so', (await page.locator('.toast').innerText()).includes('Open a board first') && (await shown()) === '1 Work, 2 Ops');
 
     await page.goto(t.url + '/project/work', { waitUntil: 'networkidle' });
     await page.keyboard.press('Alt+5');
     t.ok('an empty slot says how to fill it and stays where it is', (await page.locator('.toast').last().innerText()).includes('Shift+5') && path().endsWith('/project/work'));
     await page.keyboard.press('Shift+3');
-    t.ok('a board is in one slot only: pinning Work again moves it', (await shown()) === '2 Decisions, 3 Work');
+    t.ok('a board is in one slot only: pinning Work again moves it', (await shown()) === '2 Ops, 3 Work');
     await page.keyboard.press('Shift+3');
-    t.ok('the same key again takes the board off', (await shown()) === '2 Decisions');
+    t.ok('the same key again takes the board off', (await shown()) === '2 Ops');
 
     // in the middle of the bar, where they stay: whichever board is open, however long its name, whatever else the bar holds
     await page.keyboard.press('Shift+1');
@@ -75,7 +76,7 @@ export default async (t) => {
     for (const width of [1180, 1000, 800, 1440]) {
         await page.setViewportSize({ width, height: 900 });
         const at = [];
-        for (const path of ['/project/work', '/project/decisions', '/platform/infra', '/platform/cost', '']) {
+        for (const path of ['/project/work', '/project/ops', '/platform/infra', '/platform/cost', '']) {
             await page.goto(t.url + path, { waitUntil: 'networkidle' });
             at.push(await spot());
         }
@@ -99,7 +100,7 @@ export default async (t) => {
     await page.keyboard.press('Escape');
 
     // nine slots with long names are more than the bar can show: the slots give way, never the board name, the search box or the buttons
-    const refs = ['project/work', 'project/decisions', 'platform/infra', 'platform/cost'];
+    const refs = ['project/work', 'project/ops', 'platform/infra', 'platform/cost'];
     for (let i = 1; i <= 5; i++) { t.cli(['board', `platform/team${i}`, `Team ${i} planning and delivery`]); refs.push(`platform/team${i}`); }
     await page.evaluate((all) => localStorage.setItem('kanban.pins', JSON.stringify(Object.fromEntries(all.map((ref, i) => [i + 1, ref])))), refs);
     for (const width of [1000, 1280, 1440]) {
@@ -117,11 +118,11 @@ export default async (t) => {
     }
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto(t.url + '/project/work', { waitUntil: 'networkidle' });
-    await page.evaluate(() => localStorage.setItem('kanban.pins', JSON.stringify({ 1: 'project/work', 2: 'project/decisions', 3: 'platform/infra' })));
+    await page.evaluate(() => localStorage.setItem('kanban.pins', JSON.stringify({ 1: 'project/work', 2: 'project/ops', 3: 'platform/infra' })));
     await page.goto(t.url + '/project/work', { waitUntil: 'networkidle' });
-    await page.locator('.pins .pin', { hasText: 'Decisions' }).click();
+    await page.locator('.pins .pin', { hasText: 'Ops' }).click();
     await page.waitForTimeout(500);
-    t.ok('a slot in the bar is a link to its board', path().endsWith('/project/decisions'));
+    t.ok('a slot in the bar is a link to its board', path().endsWith('/project/ops'));
     await page.locator('.pins .pin', { hasText: 'Work' }).focus();
     await page.keyboard.press('Enter');
     await page.waitForTimeout(500);

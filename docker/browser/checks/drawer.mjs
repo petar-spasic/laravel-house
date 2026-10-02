@@ -91,7 +91,7 @@ export default async (t) => {
     await noteBox.fill('');
     const hint = (section) => page.locator(`.drawer .prop:has-text("${section}") .hint, .drawer .sec:has(h3:has-text("${section}")) .hint`).allInnerTexts().then((texts) => texts.join(' '));
     const acceptanceHint = await hint('Acceptance');
-    t.ok('the acceptance box says Enter adds a criterion, that there can be several and how many', /press\s+Enter to add it/i.test(acceptanceHint) && /next one/.test(acceptanceHint) && /up to 12/.test(acceptanceHint) && /tick/i.test(acceptanceHint));
+    t.ok('the acceptance box says Enter adds a criterion, that there can be several and how many', /press\s+Enter to add it/i.test(acceptanceHint) && /next one/.test(acceptanceHint) && /up to 24/.test(acceptanceHint) && /tick/i.test(acceptanceHint));
     const labelHint = await hint('Labels');
     t.ok('the label box says Enter or a comma adds one, and what a label looks like', /press\s+Enter/i.test(labelHint) && /comma/.test(labelHint) && /area:billing/.test(labelHint) && /up to 10/i.test(labelHint));
     t.ok('and the dependency box says what to type and what it means', /id or a title/.test(await hint('Depends on')) && /waits/.test(await hint('Depends on')));

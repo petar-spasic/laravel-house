@@ -3,6 +3,7 @@
 namespace PetarSpasic\LaravelHouse\Kanban\Http;
 
 use PetarSpasic\LaravelHouse\Kanban\Policy\PullPolicy;
+use PetarSpasic\LaravelHouse\Kanban\Policy\Shape;
 use PetarSpasic\LaravelHouse\Kanban\Store\Board;
 use PetarSpasic\LaravelHouse\Kanban\Store\BoardRef;
 use PetarSpasic\LaravelHouse\Kanban\Store\Card;
@@ -25,6 +26,9 @@ final class Presenter
 
     /** @var array<string, array{state: string, since: int, beat: int}>|null read on first use: most requests need no agent */
     private ?array $agents = null;
+
+    /** @var array<string, list<string>>|null */
+    private ?array $hubs = null;
 
     public function __construct(private readonly Snapshot $snapshot, private readonly Paths $paths) {}
 
@@ -137,6 +141,8 @@ final class Presenter
             'type' => $card->type(),
             'labels' => $card->labels(),
             'blocked' => $card->blocked(),
+            'question' => $card->asks() ? substr((string) $card->blocked(), strlen(Card::QUESTION)) : null,
+            'blocks' => count(($this->hubs ??= Shape::hubs($this->snapshot))[$card->id()] ?? []),
             'deps' => ['open' => count(array_filter($deps, fn (string $id) => ! $this->snapshot->isSatisfied($id))), 'total' => count($deps)],
             'progress' => ['done' => count(array_filter($acceptance, fn (array $c) => $c['done'])), 'total' => count($acceptance)],
             'agent' => $agent,

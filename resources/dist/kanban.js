@@ -6,24 +6,22 @@
     const BASE = body.dataset.base ?? '/kanban';
     const POLL = Math.max(1000, Number(body.dataset.pollMs) || 3000);
     const root = document.getElementById('app');
-    const SUMMARY = ['id', 'short', 'title', 'stage', 'priority', 'type', 'labels', 'blocked', 'deps', 'progress', 'agent', 'url', 'since', 'rev'];
+    const SUMMARY = ['id', 'short', 'title', 'stage', 'priority', 'type', 'labels', 'blocked', 'question', 'blocks', 'deps', 'progress', 'agent', 'url', 'since', 'rev'];
     const PRIORITIES = ['urgent', 'high', 'normal', 'low'];
-    const LIMITS = { body: 20000, why: 10000 };
-    const MAX = { criteria: 12, labels: 10 };
+    const MAX = { body: 20000, criteria: Number(body.dataset.maxCriteria), criterion: Number(body.dataset.maxCriterion), labels: 10 };
     // what an empty lane says
     const EMPTY = {
         backlog: 'No cards yet. Press N to add one.', ready: 'Cards that pass the ready checks wait here.', doing: 'Started by agents: kanban start.',
         review: 'Finished work waits here for evaluation.', done: 'Completed cards collect here.', dropped: 'Nothing dropped.',
-        proposed: 'Press N to propose a decision.', decided: 'Accepted decisions.', superseded: 'Replaced decisions.',
     };
     // lanes a card cannot be dropped into, and how a card gets there; and how one gets out
     const CLI_HINT = {
         doing: 'Cards move here from the command line: vendor/bin/kanban start ID', review: "A worker's report moves cards here: vendor/bin/kanban apply ID",
-        done: 'Finished from the command line: vendor/bin/kanban finish ID', superseded: 'Automatic: a decision that supersedes it moves it here',
+        done: 'Finished from the command line: vendor/bin/kanban finish ID',
     };
     const CLI_ONWARD = {
         doing: 'It moves to review when a worker reports: vendor/bin/kanban apply ID', review: 'It moves to done with vendor/bin/kanban finish ID',
-        done: 'Finished cards stay done', superseded: 'Replaced decisions stay replaced',
+        done: 'Finished cards stay done',
     };
     const TYPES = ['feature', 'bug', 'chore', 'spike'];
 
@@ -59,7 +57,6 @@
         sun: 'M8 10.75a2.75 2.75 0 1 0 0-5.5 2.75 2.75 0 0 0 0 5.5zM8 1.5v1.25M8 13.25v1.25M1.5 8h1.25M13.25 8h1.25M3.4 3.4l.9.9M11.7 11.7l.9.9M3.4 12.6l.9-.9M11.7 4.3l.9-.9',
         moon: 'M13.25 9.25A5.5 5.5 0 0 1 6.75 2.75a5.5 5.5 0 1 0 6.5 6.5z',
         help: 'M8 13.5a5.5 5.5 0 1 0 0-11 5.5 5.5 0 0 0 0 11zM6.4 6.4a1.7 1.7 0 0 1 3.3.55c0 1.15-1.7 1.35-1.7 2.3M8 11.25h.01',
-        'check-circle': 'M8 13.5a5.5 5.5 0 1 0 0-11 5.5 5.5 0 0 0 0 11zM5.6 8.2l1.7 1.7 3.2-3.5',
         alert: 'M8 2.5l5.75 10h-11.5zM8 6.5v2M8 10.5h.01',
         note: 'M3 3.5h10v7H8l-3 2.5v-2.5H3z',
         'arrow-right': 'M3.5 8h9M9 4.5L12.5 8 9 11.5',
@@ -89,18 +86,17 @@
         };
         return [el, draw];
     }
-    /** The mark of a stage: a dashed circle for backlog and proposed, an outline for ready, half filled for doing, a dot inside for review, ticked for done and decided, crossed for dropped and superseded. */
+    /** The mark of a stage: a dashed circle for backlog, an outline for ready, half filled for doing, a dot inside for review, ticked for done, crossed for dropped. */
     function stageIcon(stage) {
         const [el, draw] = drawing('i stage-i');
         const circle = { cx: 8, cy: 8, r: 5.25 };
-        if (stage === 'backlog' || stage === 'proposed') draw('circle', { ...circle, pathLength: 24, 'stroke-dasharray': '1.5 1.5' });
-        else if (stage === 'done' || stage === 'decided') { draw('circle', { ...circle, class: 'solid' }); draw('path', { d: 'M5.5 8.25l1.9 1.9 3.2-3.6', class: 'tick' }); }
+        if (stage === 'backlog') draw('circle', { ...circle, pathLength: 24, 'stroke-dasharray': '1.5 1.5' });
+        else if (stage === 'done') { draw('circle', { ...circle, class: 'solid' }); draw('path', { d: 'M5.5 8.25l1.9 1.9 3.2-3.6', class: 'tick' }); }
         else {
             draw('circle', circle);
             if (stage === 'doing') draw('path', { d: 'M8 2.75a5.25 5.25 0 0 1 0 10.5z', class: 'solid' });
             if (stage === 'review') draw('circle', { cx: 8, cy: 8, r: 2, class: 'solid' });
             if (stage === 'dropped') draw('path', { d: 'M5.75 10.25l4.5-4.5' });
-            if (stage === 'superseded') draw('path', { d: 'M5.5 8h5' });
         }
         return el;
     }
@@ -176,6 +172,7 @@
 
     const S = {
         route: { name: 'boards' },
+        landed: false,
         boards: null,
         board: null,
         ref: null,
@@ -186,7 +183,7 @@
         busy: 0,
         seq: 0,
         failures: 0,
-        collapsed: new Set(storedList('collapsed', ['dropped', 'superseded'])),
+        collapsed: new Set(storedList('collapsed', ['dropped'])),
         pins: storedPins(),
         filter: { q: '', priority: new Set(), type: new Set(), label: new Set(), flag: new Set() },
         composer: null,
@@ -320,6 +317,9 @@
         const mine = ++routeSeq;
         const current = () => mine === routeSeq;
         const r = parse(location.pathname);
+        // a page that opens on the boards of a one-board project shows that board (a failed first load opens it on Retry); asked for later, the boards stay
+        const landing = !S.landed;
+        S.landed = true;
         S.route = r;
         if (r.name !== 'card') { S.stack = []; syncPanels(); }
         readFilterFromUrl();
@@ -327,7 +327,7 @@
             if (r.name === 'boards') {
                 await loadBoards();
                 if (!current()) return;
-                if (S.boards && flatBoards().length === 1 && !S.jumped) { S.jumped = true; return go(BASE + '/' + flatBoards()[0].ref, true); }
+                if (landing && S.boards && flatBoards().length === 1) return go(BASE + '/' + flatBoards()[0].ref, true);
                 S.ref = null;
                 S.board = null;
                 renderView();
@@ -355,7 +355,7 @@
             if (!current()) return;
             if (e.status === 404) { S.stack = []; syncPanels(); missing(r, r.name === 'card' ? 'No such card.' : 'No such board.'); } else {
                 toastError(e);
-                if (!(r.name === 'boards' ? S.boards : S.board)) failedLoad();
+                if (!(r.name === 'boards' ? S.boards : S.board)) { S.landed = !landing; failedLoad(); }
             }
         }
         if (!current()) return;
@@ -507,19 +507,14 @@
         if (ref !== S.ref || S.route.name === 'boards') go(BASE + '/' + ref);
     }
 
-    /** What a board is, when its title does not already say so. */
-    const kindOf = (board) => {
-        const kind = board.kind === 'decisions' ? 'Decisions' : 'Work';
-        return kind.toLowerCase() === board.title.toLowerCase() ? null : kind;
-    };
-    /** Open cards (not done, dropped or superseded) on a board of the boards response. */
+    /** Open cards (not done or dropped) on a board of the boards response. */
     const openCount = (board) => Object.entries(board.counts).filter(([stage]) => !QUIET.includes(stage)).reduce((sum, [, n]) => sum + n, 0);
     async function toggleSwitcher() {
         if (menu && menu.trigger === ui.switcher) { closeMenu(); return; }
         try { await loadBoards(true); } catch { /* the list on hand will do */ }
         const groups = S.boards ? S.boards.epics.filter((e) => e.boards.length) : [];
         openList(ui.switcher, [
-            ...groups.flatMap((epic) => [{ heading: epic.title }, ...epic.boards.map((board) => ({ value: BASE + '/' + board.ref, label: board.title, sub: kindOf(board), hint: openCount(board), checked: board.ref === S.ref, current: board.ref === S.ref, search: epic.title + ' ' + board.title }))]),
+            ...groups.flatMap((epic) => [{ heading: epic.title }, ...epic.boards.map((board) => ({ value: BASE + '/' + board.ref, label: board.title, hint: openCount(board), checked: board.ref === S.ref, current: board.ref === S.ref, search: epic.title + ' ' + board.title }))]),
             { separator: true },
             { value: BASE, label: 'All boards', keys: 'B' },
         ], { kind: 'menu', title: 'Boards', trigger: ui.switcher, numbered: true, minWidth: 280, search: groups.reduce((n, epic) => n + epic.boards.length, 0) > SEARCH_ABOVE, onPick: (item) => go(item.value) });
@@ -557,14 +552,13 @@
     function boardTile(board) {
         const stages = Object.entries(board.counts).filter(([, n]) => n > 0);
         const total = stages.reduce((sum, [, n]) => sum + n, 0);
-        const kind = kindOf(board);
         const bar = h('div', { class: 'dist' + (total ? '' : ' is-empty'), 'aria-hidden': 'true' }, stages.filter(([stage]) => stage !== 'dropped').map(([stage, n]) => {
             const seg = h('span', { class: 'seg', data: { stage } });
             seg.style.flexGrow = String(n);
             return seg;
         }));
         return h('a', { class: 'board-tile', href: BASE + '/' + board.ref, onclick: nav },
-            h('div', { class: 'tile-top' }, svg(board.kind === 'decisions' ? 'check-circle' : 'board', 'tile-i'), h('h3', { text: board.title }), kind ? h('span', { class: 'kind', text: kind }) : null),
+            h('div', { class: 'tile-top' }, svg('board', 'tile-i'), h('h3', { text: board.title })),
             bar,
             h('div', { class: 'tile-foot' }, h('span', {}, stages.flatMap(([stage, n], i) => [i ? ' · ' : '', h('b', { text: n }), ' ' + stage])), h('span', { text: total + (total === 1 ? ' card' : ' cards') })));
     }
@@ -723,29 +717,37 @@
     const hasMoves = (c) => S.board && (S.board.moves[c.stage] || []).length > 0;
     const isLocked = (c) => !!S.board && (S.board.locked || []).includes(c.stage);
 
+    /** Whether the card waits on the owner's answer (its block is a question). */
+    const asks = (c) => typeof c.question === 'string';
+
     function fillCard(el, c) {
         const moves = hasMoves(c);
-        const signature = JSON.stringify([c.rev, c.deps, c.agent && [c.agent.state, c.agent.since, c.agent.beat], moves]);
+        const signature = JSON.stringify([c.rev, c.deps, c.blocks, c.agent && [c.agent.state, c.agent.since, c.agent.beat], moves]);
         if (el._sig === signature) return;
         el._sig = signature;
         if (el._rev !== undefined && el._rev !== c.rev && S.fromPoll && S.loaded) flash(el);
         el._rev = c.rev;
         const working = !!c.agent && c.agent.state === 'working';
         const stale = !!c.agent && c.agent.state === 'stale';
-        el.className = 'card p-' + c.priority + (c.blocked ? ' is-blocked' : '') + (c.deps.open ? ' is-waiting' : '') + (working ? ' is-working' : '') + (stale ? ' is-stale' : '') + (S.sel === c.id ? ' is-selected' : '');
+        el.className = 'card p-' + c.priority + (asks(c) ? ' is-question' : c.blocked ? ' is-blocked' : '') + (c.deps.open ? ' is-waiting' : '') + (working ? ' is-working' : '') + (stale ? ' is-stale' : '') + (S.sel === c.id ? ' is-selected' : '');
         el.setAttribute('aria-label', c.id + ' ' + c.title);
 
         // what needs attention comes first, as tags; the rest is quiet
         const tags = [];
-        if (c.blocked) tags.push(h('span', { class: 'tag red', title: c.blocked }, svg('lock'), 'Blocked'));
+        if (asks(c)) tags.push(h('span', { class: 'tag purple', title: 'Waits on the owner\'s answer: ' + c.question }, svg('help'), 'Question'));
+        else if (c.blocked) tags.push(h('span', { class: 'tag red', title: c.blocked }, svg('lock'), 'Blocked'));
         if (c.deps.open) tags.push(h('span', { class: 'tag amber', title: c.deps.open + ' of ' + c.deps.total + ' dependencies not done' }, svg('clock'), 'Waits on ' + c.deps.open));
+        if (c.blocks) tags.push(h('span', { class: 'tag', title: c.blocks + ' open cards wait on this one; if they are one piece of work, fold them into it' }, svg('arrow-right'), 'Blocks ' + c.blocks));
         if (c.agent) tags.push(agentTag(c.agent));
         const facts = [];
-        if (c.blocked) facts.push(h('span', { class: 'fact reason', title: c.blocked, text: c.blocked }));
+        const reason = c.question ?? c.blocked;
+        if (reason) facts.push(h('span', { class: 'fact reason', title: reason, text: reason }));
         if (c.progress.total) facts.push(h('span', { class: 'fact', title: 'Acceptance criteria' }, ring(c.progress.done, c.progress.total), c.progress.done + '/' + c.progress.total));
         if (c.type === 'bug' || c.type === 'spike') facts.push(h('span', { class: 'fact type-' + c.type }, h('i', { class: 'dot' }), c.type));
-        for (const label of c.labels.slice(0, 2)) facts.push(h('span', { class: 'fact plain', text: label }));
-        if (c.labels.length > 2) facts.push(h('span', { class: 'fact plain', title: c.labels.slice(2).join(', '), text: '+' + (c.labels.length - 2) }));
+        // the area comes first: it says what the card is about
+        const labels = [...c.labels.filter((l) => l.startsWith('area:')), ...c.labels.filter((l) => !l.startsWith('area:'))];
+        for (const label of labels.slice(0, 2)) facts.push(h('span', { class: 'fact plain', text: label }));
+        if (labels.length > 2) facts.push(h('span', { class: 'fact plain', title: labels.slice(2).join(', '), text: '+' + (labels.length - 2) }));
         if (c.url && /^https?:\/\//i.test(c.url)) facts.push(h('a', { class: 'fact link', href: c.url, target: '_blank', rel: 'noopener noreferrer', draggable: 'false', title: c.url }, svg('external'), hostOf(c.url)));
         el.replaceChildren(
             h('div', { class: 'c-top' },
@@ -1096,7 +1098,7 @@
             const row = h('button', { class: 'menu-item', type: 'button', role, id: listId + '-' + index, tabindex: '-1', disabled: !!item.disabled,
                 'aria-current': item.current ? 'page' : null,
                 onmousedown: (e) => e.preventDefault(), onmousemove: () => highlight(row), onclick: () => pick(row) },
-                h('span', { class: multi ? 'box' : 'tick' }, svg('check')), item.icon ? item.icon() : null, h('span', { class: 'grow' }, item.label, item.sub ? h('span', { class: 'sub', text: item.sub }) : null),
+                h('span', { class: multi ? 'box' : 'tick' }, svg('check')), item.icon ? item.icon() : null, h('span', { class: 'grow' }, item.label),
                 item.hint !== undefined ? h('span', { class: 'n', text: item.hint }) : null,
                 item.keys && !searchable ? h('kbd', { text: item.keys }) : null, num);
             row.item = item;
@@ -1260,16 +1262,15 @@
         closeComposer();
         const col = columns.get(stage || S.board.stages[0].stage);
         if (!col) return;
-        const decisions = S.board.kind === 'decisions';
         const title = h('input', { type: 'text', placeholder: 'What needs doing?', maxlength: '120', 'aria-label': 'Title' });
-        const type = decisions ? null : selectPill('Type', TYPES.map((t) => ({ value: t, label: t })), 'feature', (next) => type.set(next));
+        const type = selectPill('Type', TYPES.map((t) => ({ value: t, label: t })), 'feature', (next) => type.set(next));
         const priority = selectPill('Priority', PRIORITIES.map((p) => ({ value: p, label: p })), 'normal', (next) => priority.set(next), priorityMark);
         const submit = async (open) => {
             const value = title.value.trim();
             if (!value) return;
             title.disabled = true;
             try {
-                const { data } = await writing(() => api('/' + S.ref + '/cards', { method: 'POST', body: { title: value, priority: priority.value, ...(type ? { type: type.value } : {}) } }));
+                const { data } = await writing(() => api('/' + S.ref + '/cards', { method: 'POST', body: { title: value, priority: priority.value, type: type.value } }));
                 place(data.card);
                 title.value = '';
                 renderView();
@@ -1280,7 +1281,7 @@
         };
         const el = h('form', { class: 'composer', onsubmit: (e) => { e.preventDefault(); submit(false); } },
             title,
-            h('div', { class: 'row' }, type && type.el, priority.el, h('span', { class: 'grow' }), h('button', { class: 'btn primary small', type: 'submit', text: 'Add' })),
+            h('div', { class: 'row' }, type.el, priority.el, h('span', { class: 'grow' }), h('button', { class: 'btn primary small', type: 'submit', text: 'Add' })),
             h('p', { class: 'hint' }, kbd('Enter'), ' adds, ', kbd('Shift'), '+', kbd('Enter'), ' adds and opens, ', kbd('Esc'), ' closes'));
         title.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.shiftKey) { e.preventDefault(); submit(true); } });
         S.composer = { el, stage: col.stage };
@@ -1340,7 +1341,7 @@
 
     /* ---------- toolbar: quick filters that double as a board summary ---------- */
 
-    const QUIET = ['done', 'dropped', 'superseded'];
+    const QUIET = ['done', 'dropped'];
     const FLAGS = [['blocked', 'lock', 'Blocked'], ['waiting', 'clock', 'Waiting'], ['agent', null, 'Working']];
     let toolbarSig = '';
 
@@ -1639,19 +1640,15 @@
         P.depPicker = h('div', { class: 'picker' }, P.depInput, P.depPick);
         P.depHint = h('p', { class: 'hint', text: 'Type an id or a title and pick a card. This card waits until those are done.' });
         P.deps = prop('Depends on', P.depList, P.depPicker, P.depHint);
-        P.supersedesList = h('div', { class: 'chips' });
-        P.supersedes = prop('Supersedes', P.supersedesList);
-        P.supersededByList = h('div', { class: 'chips' });
-        P.supersededBy = prop('Superseded by', P.supersededByList);
         P.workList = h('div', { class: 'chips' });
         P.work = prop('Work', P.workList);
-        P.props = h('div', { class: 'props' }, P.labels, P.deps, P.supersedes, P.supersededBy, P.work);
+        P.props = h('div', { class: 'props' }, P.labels, P.deps, P.work);
 
         P.desc = h('section', { class: 'sec' });
         P.accHead = h('h3');
         P.accList = h('ul', { class: 'check' });
         const accHint = 'hint-' + ++hintSeq;
-        P.accAdd = h('input', { class: 'field', type: 'text', maxlength: '300', placeholder: 'Add a criterion…', 'aria-label': 'New criterion', 'aria-describedby': accHint,
+        P.accAdd = h('input', { class: 'field', type: 'text', maxlength: String(MAX.criterion), placeholder: 'Add a criterion…', 'aria-label': 'New criterion', 'aria-describedby': accHint,
             onkeydown: (e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); addCriterion(P); } } });
         P.accAddBtn = h('button', { class: 'btn small', type: 'button', text: 'Add', onclick: () => addCriterion(P) });
         P.accEmpty = h('p', { class: 'empty-note' });
@@ -1659,13 +1656,12 @@
         P.accRow = h('div', { class: 'add-line' }, P.accAdd, P.accAddBtn);
         P.accHint = h('p', { class: 'hint', id: accHint }, 'Type a criterion and press ', kbd('Enter'), ' to add it; the box stays ready for the next one. A card can have up to ' + MAX.criteria + '. Tick each one when it is true.');
         P.acc = h('section', { class: 'sec' }, P.accHead, P.accEmpty, P.accList, P.accRow, P.accHint, P.accNote);
-        P.why = h('section', { class: 'sec' });
         P.logHead = h('h3');
         P.log = h('ol', { class: 'log' });
         P.activity = h('section', { class: 'sec' }, P.logHead, P.log);
         P.facts = h('details', { class: 'sec' });
         P.mark = h('div', { class: 'd-mark', role: 'status', hidden: true });
-        P.body = h('div', { class: 'd-body', tabindex: '-1', role: 'group', 'aria-label': 'Card details' }, P.mark, P.titleBox, P.lockNote, P.controls, P.blocked, P.props, P.desc, P.acc, P.why, P.activity, P.facts);
+        P.body = h('div', { class: 'd-body', tabindex: '-1', role: 'group', 'aria-label': 'Card details' }, P.mark, P.titleBox, P.lockNote, P.controls, P.blocked, P.props, P.desc, P.acc, P.activity, P.facts);
 
         P.note = h('textarea', { class: 'field', rows: '2', maxlength: '5000', placeholder: 'Add a note…', 'aria-label': 'Note',
             oninput: () => { if (P.note.value) drafts.set(P.id + ':note', P.note.value); else drafts.delete(P.id + ':note'); growNote(P); },
@@ -1703,15 +1699,13 @@
             return;
         }
         if (!P.shown) { P.shown = true; P.note.value = drafts.get(P.id + ':note') || ''; growNote(P); }
-        const decision = c.type === 'decision';
         P.board.textContent = c.board.epic + ' / ' + c.board.title;
         P.board.href = BASE + '/' + c.board.ref;
         if (document.activeElement !== P.title) P.title.value = c.title;
         grow(P);
         P.stage.set(c.stage, [...new Set([c.stage, ...c.targets])].map((s) => ({ value: s, label: s, disabled: !c.targets.includes(s) })));
         P.priority.set(c.priority);
-        P.type.el.hidden = decision;
-        if (!decision) P.type.set(c.type);
+        P.type.set(c.type);
         // a card in a locked stage takes a note, a block and ticks: the rest is shown, not offered
         P.el.classList.toggle('is-locked', !!c.locked);
         P.lockNote.hidden = !c.locked;
@@ -1723,30 +1717,25 @@
         P.stage.el.disabled = c.targets.length === 0;
         renderBlocked(P, c);
         renderLabels(P, c);
-        P.deps.hidden = decision;
-        if (!decision) renderDeps(P, c);
-        renderRelations(P, c);
+        renderDeps(P, c);
         renderWork(P, c);
         renderDescription(P, P.desc, 'Description', 'body', c.body, c.body_html, 'Add a description…');
-        P.acc.hidden = decision;
-        if (!decision) renderAcceptance(P, c);
-        P.why.hidden = !decision;
-        if (decision) renderDescription(P, P.why, 'Why', 'why', c.why || '', c.why_html || '', 'Why was this decided?');
+        renderAcceptance(P, c);
         renderFacts(P, c);
         renderLog(P, c);
     }
 
     /** Why a card is locked, what stays open, and how to reopen it. */
     function lockText(c) {
-        const why = { doing: 'an agent is working on it', review: 'it is in review', done: 'it is done', superseded: 'it is superseded' }[c.stage] || 'it is in ' + c.stage;
-        const open = c.type === 'decision' ? 'A note stays open.' : 'A note, a block and ticks stay open.';
-        return ['Locked while ' + why + '. ' + open, ...(c.stage === 'doing' || c.stage === 'review' ? [' ', h('code', { text: 'kanban stop ' + c.id + ' --to=ready' }), ' reopens it.'] : [])];
+        const why = { doing: 'an agent is working on it', review: 'it is in review', done: 'it is done' }[c.stage] || 'it is in ' + c.stage;
+        return ['Locked while ' + why + '. A note, a block and ticks stay open.', ...(c.stage === 'doing' || c.stage === 'review' ? [' ', h('code', { text: 'kanban stop ' + c.id + ' --to=ready' }), ' reopens it.'] : [])];
     }
 
     function renderBlocked(P, c) {
-        P.block.hidden = c.type === 'decision' || !!c.blocked || P.editing === 'blocked';
+        P.block.hidden = !!c.blocked || P.editing === 'blocked';
         if (P.editing === 'blocked') return;
-        P.blocked.replaceChildren(...(c.blocked ? [h('div', { class: 'banner' }, svg('lock'), h('strong', { text: 'Blocked' }), h('span', { class: 'grow', text: c.blocked }),
+        const question = asks(c);
+        P.blocked.replaceChildren(...(c.blocked ? [h('div', { class: 'banner' + (question ? ' question' : '') }, svg(question ? 'help' : 'lock'), h('strong', { text: question ? 'Question for the owner' : 'Blocked' }), h('span', { class: 'grow', text: question ? c.question : c.blocked }),
             h('button', { class: 'btn small', type: 'button', text: 'Edit', onclick: () => editBlocked(P, c.blocked) }), h('button', { class: 'btn small', type: 'button', text: 'Unblock', onclick: () => save(c.id, { blocked: null }) }))] : []));
     }
     /**
@@ -1854,13 +1843,6 @@
     /** A link to another card: opens it on top of this one. */
     const cardChip = (r, red = false) => h('span', { class: 'chip' + (red ? ' red' : ''), title: r.title },
         h('a', { href: BASE + '/cards/' + r.id, onclick: (e) => cardLink(e, r.id), text: r.id }), h('span', { class: 'muted', text: r.stage }));
-    function renderRelations(P, c) {
-        const replaced = c.supersedes || [];
-        P.supersedesList.replaceChildren(...replaced.map((r) => cardChip(r)));
-        P.supersedes.hidden = !replaced.length;
-        P.supersededByList.replaceChildren(...(c.superseded_by ? [cardChip(c.superseded_by)] : []));
-        P.supersededBy.hidden = !c.superseded_by;
-    }
 
     /** A Markdown field: rendered, click to edit as text. */
     function renderDescription(P, box, title, field, raw, html, placeholder) {
@@ -1878,7 +1860,7 @@
             P.editing = field;
             const guard = { base: draft ? draft.rev : P.detail.rev };
             P.guards.add(guard);
-            const area = h('textarea', { class: 'field', rows: '8', maxlength: String(LIMITS[field] || 20000), 'aria-label': title });
+            const area = h('textarea', { class: 'field', rows: '8', maxlength: String(MAX.body), 'aria-label': title });
             area.value = draft ? draft.text : raw;
             const editor = { field, area, raw: draft ? draft.raw : raw, guard, theirs: null, block: null };
             P.editor = editor;
@@ -1948,7 +1930,7 @@
             const label = frozen ? h('span', { class: 'text', text: item.text })
                 : h('span', { class: 'text', tabindex: '0', role: 'button', text: item.text, title: 'Click to edit', onclick: startEdit, onkeydown: (e) => e.key === 'Enter' && startEdit() });
             function startEdit() {
-                const input = h('input', { class: 'text field', type: 'text', value: item.text, maxlength: '300', 'aria-label': 'Criterion' });
+                const input = h('input', { class: 'text field', type: 'text', value: item.text, maxlength: String(MAX.criterion), 'aria-label': 'Criterion' });
                 let finished = false;
                 const guard = { base: P.detail.rev };
                 P.guards.add(guard);
@@ -2043,7 +2025,7 @@
         const f = c.facts;
         const at = (value) => text(value).slice(0, 16).replace('T', ' ');
         const rows = [['In stage', age(now() - c.since) + ' (since ' + at(f.stage_since) + ')'], ['Branch', f.branch], ['Worktree', f.worktree], ['Merge', f.merge], ['Parked branch', f.parked_branch],
-            ['Claimed by', f.claim && f.claim.by + ' · ' + at(f.claim.at)], ['Host', f.host], ['Decided', f.decided_on], ['Resolution', f.resolution], ['Created', at(f.created)], ['Updated', at(f.updated)]].filter(([, v]) => v);
+            ['Claimed by', f.claim && f.claim.by + ' · ' + at(f.claim.at)], ['Host', f.host], ['Created', at(f.created)], ['Updated', at(f.updated)]].filter(([, v]) => v);
         const wasOpen = P.facts.open;
         P.facts.replaceChildren(h('summary', { text: 'Details' }), h('dl', { class: 'facts' }, rows.flatMap(([k, v]) => [h('dt', { text: k }), h('dd', { text: v })])));
         P.facts.open = wasOpen;

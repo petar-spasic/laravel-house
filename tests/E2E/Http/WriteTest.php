@@ -71,6 +71,16 @@ it('refuses a move the ready policy rejects with 422 and leaves the file alone',
     expect(cardFile($s, $id))->toBe($before)->and(count($s->boardLog()))->toBe($commits);
 });
 
+it('refuses a question block on a ready card with 422 and leaves the file alone', function () {
+    $s = $this->sandbox;
+    $id = $s->readyCard('Print notes');
+    $before = cardFile($s, $id);
+
+    $refused = send($this, 'PATCH', "/cards/{$id}", ['rev' => sha1($before), 'blocked' => 'question: which renderer?'])->assertStatus(422);
+    expect($refused->json('message'))->toContain('question');
+    expect(cardFile($s, $id))->toBe($before);
+});
+
 it('refuses doing, review and done as CLI only', function (string $to) {
     $s = $this->sandbox;
     $id = $s->readyCard('Not from the UI');
