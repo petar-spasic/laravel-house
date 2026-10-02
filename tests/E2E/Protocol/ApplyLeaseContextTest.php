@@ -83,7 +83,7 @@ it('prints the card context with the configured gates from its worktree, with --
     expect($context->getExitCode())->toBe(0)
         ->and($context->getOutput())->toContain("{$id} doing normal feature project/work Conditional clauses\n")
         ->toContain("commits not on main: 1\n")->toContain("{$id}: clauses")
-        ->toMatch('/notes from the owner and main:\n  \S+ (owner|main)( \([^)\n]*\))?: The image builds: checked by main\n/')
+        ->toMatch('/notes from the owner and main:\n  \S+ (owner|main)( \([^)\n]*\))? @[0-9a-f]{7}: The image builds: checked by main\n/')
         ->toContain("dirty: notes.txt\n")
         ->toContain("gates:\n  vendor/bin/pint --test --diff=main\n  npm run check\nmigrate: php artisan migrate --force\nprotocol: work and commit only in this worktree;");
 

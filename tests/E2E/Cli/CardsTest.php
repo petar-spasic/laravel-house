@@ -83,10 +83,11 @@ it('sets fields with the key=value syntax', function () {
         'acceptance' => [['id' => 1, 'text' => 'First, reworded', 'done' => false], ['id' => 2, 'text' => 'Second', 'done' => true]],
     ]);
     $log = array_column($card['log'], null, 'event');
-    expect(array_keys($log))->toEqualCanonicalizing(['created', 'note', 'set'])
+    expect(array_keys($log))->toEqualCanonicalizing(['created', 'note', 'set', 'tick'])
+        ->and($log['tick'])->toMatchArray(['ids' => [2], 'done' => true])->not->toHaveKey('head')
         ->and($log['set']['fields'])->toBe(['acceptance', 'body', 'depends_on', 'labels', 'priority'])
         ->and($log['note']['text'])->toBe('Talked to the owner')
-        ->and($this->sandbox->boardLog()[0])->toBe("{$id} note; set acceptance,body,depends_on,labels,priority [owner]");
+        ->and($this->sandbox->boardLog()[0])->toBe("{$id} tick; note; set acceptance,body,depends_on,labels,priority [owner]");
 
     $this->sandbox->ok(['set', $id, 'accept-=1']);
     $this->sandbox->ok(['set', $id, 'accept+=Third']);

@@ -135,7 +135,7 @@ it('converges two clones: field edits merge, logs union, a true conflict takes t
             'labels' => ['area:pdf'],
             'acceptance' => [['id' => 1, 'text' => 'One', 'done' => true], ['id' => 2, 'text' => 'Two', 'done' => false]],
         ])
-        ->and(collect($fromA['log'])->pluck('event')->sort()->values()->all())->toBe(['conflict', 'created', 'set', 'set'])
+        ->and(collect($fromA['log'])->pluck('event')->sort()->values()->all())->toBe(['conflict', 'created', 'set', 'set', 'tick'])
         ->and(array_values(array_filter($fromA['log'], fn ($e) => $e['event'] === 'conflict'))[0])->toMatchArray(['field' => 'title', 'lost' => 'Title from A', 'by' => 'hook'])
         ->and(trim($a->boardGit('rev-parse', 'HEAD')))->toBe(trim($b->boardGit('rev-parse', 'HEAD')))
         ->and($origin->log('kanban'))->toHaveCount(4)

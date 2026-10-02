@@ -8,6 +8,7 @@ use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Invalid;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\NotFound;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
 use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
+use PetarSpasic\LaravelHouse\Kanban\Support\Git;
 use Symfony\Component\Console\Attribute\AsCommand;
 
 #[AsCommand(name: 'kanban:set')]
@@ -16,9 +17,10 @@ class SetCommand extends Command
     protected $signature = 'kanban:set
         {id : Card id or unique prefix}
         {changes* : title= priority= type= labels=+a,-b depends_on=+ID accept+="…" accept[2]="…" accept-=3 accept=@- tick=1 untick=2 blocked="…" body=@- note="…"}
+        {--reason= : Why criteria are reworded (accept[N]=); lets a card in doing or review take it, unticked, and sends a review card back to doing}
         {--force : Change a card in a locked stage (main session only)}';
 
-    protected $description = 'Change card fields (a card in a locked stage takes only note, blocked, tick and untick)';
+    protected $description = 'Change card fields (a card in a locked stage takes only note, blocked, tick, untick and a reworded criterion with --reason)';
 
     private const SCALARS = ['title', 'priority', 'type', 'blocked', 'body'];
 
@@ -40,16 +42,22 @@ class SetCommand extends Command
         }
         $changes = array_map(fn (string $pair) => $this->parse($pair, $snapshot), $this->argument('changes'));
 
+        $reason = $this->option('reason');
+        if ($reason !== null && trim($reason) === '') {
+            throw new Invalid('--reason needs text');
+        }
+        $head = $this->head($card->work()['worktree'] ?? null);
         $locked = $snapshot->lockedStages();
-        $updated = $store->update($card->id(), function (array $data) use ($changes, $locked, $force) {
+        $updated = $store->update($card->id(), function (array $data) use ($changes, $locked, $force, $reason, $head) {
             $before = $data;
             $removed = [];
             foreach ($changes as [$key, $index, $op, $value]) {
-                $data = $this->apply($data, $key, $index, $op, $value, $removed);
+                $data = $this->apply($data, $key, $index, $op, $value, $removed, $head);
             }
-            Edits::assertOpen($before, $data, $locked, $force);
+            Edits::assertOpen($before, $data, $locked, $force, $reason !== null);
+            $data = Edits::recordRemoved($before, $data, $removed);
 
-            return Edits::recordRemoved($before, $data, $removed);
+            return $reason === null ? $data : Edits::reworded($before, $data, trim($reason), $head);
         }, $this->actor(), $card->rev);
 
         if ($updated->updated() === $card->updated()) {
@@ -103,7 +111,7 @@ class SetCommand extends Command
      * @param  list<int>  $removed
      * @return array<string, mixed>
      */
-    private function apply(array $data, string $key, ?int $index, string $op, string $value, array &$removed): array
+    private function apply(array $data, string $key, ?int $index, string $op, string $value, array &$removed, ?string $head): array
     {
         if (in_array($key, self::SCALARS, true)) {
             $this->expect($key, $op === '=' && $index === null);
@@ -126,8 +134,8 @@ class SetCommand extends Command
         }
 
         return match ($key) {
-            'note' => Edits::note($data, $value),
-            'tick', 'untick' => $this->tick($data, $value, $key === 'tick'),
+            'note' => Edits::note($data, $value, $head),
+            'tick', 'untick' => $this->tick($data, $value, $key === 'tick', $head),
             default => $this->accept($data, $index, $op, $value, $removed),
         };
     }
@@ -172,14 +180,27 @@ class SetCommand extends Command
      * @param  array<string, mixed>  $data
      * @return array<string, mixed>
      */
-    private function tick(array $data, string $value, bool $done): array
+    private function tick(array $data, string $value, bool $done, ?string $head): array
     {
         $ids = array_column($data['acceptance'] ?? [], 'id');
+        $ticked = [];
         foreach (array_filter(array_map('trim', explode(',', $value))) as $item) {
-            $data = Edits::tick($data, $this->criterion($ids, $item), $done);
+            $data = Edits::tick($data, $ticked[] = $this->criterion($ids, $item), $done);
         }
+        $data['log'][] = array_filter(['event' => 'tick', 'ids' => $ticked, 'done' => $done, 'head' => $head], fn ($v) => $v !== null);
 
         return $data;
+    }
+
+    /** The HEAD of the card's worktree, which what main records about the card is checked against, or null. */
+    private function head(mixed $worktree): ?string
+    {
+        if (! is_string($worktree) || $worktree === '') {
+            return null;
+        }
+        $path = str_starts_with($worktree, '/') ? $worktree : $this->paths()->main.'/'.$worktree;
+
+        return is_dir($path) ? (new Git($path))->line(['rev-parse', '--verify', '-q', 'HEAD']) : null;
     }
 
     /** @param  list<int>  $ids */

@@ -91,8 +91,10 @@ final class Context
             }
         }
         $lines[] = 'acceptance:';
+        $byMain = $this->tickedByMain($card);
         foreach ($card->acceptance() as $criterion) {
-            $lines[] = '  ['.($criterion['done'] ? 'x' : ' ')."] {$criterion['id']}. {$criterion['text']}";
+            $lines[] = '  ['.($criterion['done'] ? 'x' : ' ')."] {$criterion['id']}. {$criterion['text']}"
+                .($criterion['done'] && isset($byMain[$criterion['id']]) ? " ({$byMain[$criterion['id']]})" : '');
         }
         if ($card->dependsOn() !== []) {
             $lines[] = 'deps: '.implode(', ', array_map(fn (string $id) => $id.' '.($snapshot->card($id)?->stage() ?? 'missing'), $card->dependsOn()));
@@ -221,11 +223,36 @@ final class Context
                 default => null,
             };
             if (is_string($text) && $text !== '') {
-                $notes[] = substr((string) $entry['at'], 0, 16).' '.self::actor($entry).": {$text}";
+                $notes[] = substr((string) $entry['at'], 0, 16).' '.self::actor($entry).(isset($entry['head']) ? ' @'.substr((string) $entry['head'], 0, 7) : '').": {$text}";
             }
         }
 
         return $notes;
+    }
+
+    /**
+     * Criteria whose latest tick came from the owner or main, by id: `main @abc1234`, the worktree's commit then.
+     *
+     * @return array<int, string>
+     */
+    private function tickedByMain(Card $card): array
+    {
+        $last = [];
+        foreach ($card->log() as $entry) {
+            $ids = match ($entry['event'] ?? null) {
+                'tick' => (array) ($entry['ids'] ?? []),
+                'report' => (array) ($entry['ticks'] ?? []),
+                'verdict' => array_column($card->acceptance(), 'id'),
+                default => [],
+            };
+            foreach ($ids as $id) {
+                $last[(int) $id] = ($entry['event'] === 'tick' && in_array($entry['by'] ?? null, ['owner', 'main'], true))
+                    ? ($entry['by'].(isset($entry['head']) ? ' @'.substr((string) $entry['head'], 0, 7) : ''))
+                    : null;
+            }
+        }
+
+        return array_filter($last, fn (?string $by) => $by !== null);
     }
 
     /**

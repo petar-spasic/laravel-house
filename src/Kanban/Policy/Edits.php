@@ -57,14 +57,15 @@ final class Edits
     }
 
     /**
-     * A card in a locked stage takes a note, a blocked reason and ticked criteria, and nothing else: refuses a change that
-     * touches any other field. $forced is the main session's `--force`.
+     * A card in a locked stage takes a note, a blocked reason and ticked criteria, and with $reworded the new text of
+     * existing criteria, and nothing else: refuses a change that touches any other field. $forced is the main session's
+     * `--force`.
      *
      * @param  array<string, mixed>  $before
      * @param  array<string, mixed>  $after
      * @param  list<string>  $locked  the locked stages, from kanban.json
      */
-    public static function assertOpen(array $before, array $after, array $locked, bool $forced = false): void
+    public static function assertOpen(array $before, array $after, array $locked, bool $forced = false, bool $reworded = false): void
     {
         $stage = (string) ($before['stage'] ?? '');
         if ($forced || ! in_array($stage, $locked, true)) {
@@ -78,8 +79,8 @@ final class Edits
             $was = $before[$key] ?? null;
             $is = $after[$key] ?? null;
             if ($key === 'acceptance') {
-                $was = self::withoutTicks($was);
-                $is = self::withoutTicks($is);
+                $was = self::withoutTicks($was, $reworded);
+                $is = self::withoutTicks($is, $reworded);
             }
             if ($was !== $is) {
                 $frozen[] = $key;
@@ -87,7 +88,7 @@ final class Edits
         }
         if ($frozen !== []) {
             sort($frozen);
-            self::locked($before, $stage, implode(', ', $frozen).' cannot change; a note, a blocked reason and ticks can');
+            self::locked($before, $stage, implode(', ', $frozen).' cannot change; a note, a blocked reason, ticks and a criterion reworded with --reason can');
         }
     }
 
@@ -110,10 +111,41 @@ final class Edits
         throw new PolicyRefused("{$card['id']} is in {$stage}, a locked stage: {$what} (--force from the main session overrides; `locked` in kanban.json lists the stages)");
     }
 
-    /** @return mixed the criteria without their ticks */
-    private static function withoutTicks(mixed $items): mixed
+    /** @return mixed the criteria without their ticks, and without their text when $text */
+    private static function withoutTicks(mixed $items, bool $text = false): mixed
     {
-        return is_array($items) ? array_map(fn ($item) => is_array($item) ? array_diff_key($item, ['done' => true]) : $item, $items) : $items;
+        $drop = $text ? ['done' => true, 'text' => true] : ['done' => true];
+
+        return is_array($items) ? array_map(fn ($item) => is_array($item) ? array_diff_key($item, $drop) : $item, $items) : $items;
+    }
+
+    /**
+     * Records each criterion whose text changed as a note (old → new: $reason) and unticks it, as the work no longer
+     * shows it; a card in review goes back to doing, its approval with it.
+     *
+     * @param  array<string, mixed>  $before
+     * @param  array<string, mixed>  $after
+     * @return array<string, mixed>
+     */
+    public static function reworded(array $before, array $after, string $reason, ?string $head = null): array
+    {
+        $was = array_column(self::criteria($before), 'text', 'id');
+        $changed = array_values(array_filter(self::criteria($after), fn (array $c) => isset($was[$c['id']]) && $was[$c['id']] !== $c['text']));
+        if ($changed === []) {
+            throw new Invalid('--reason goes with a reworded criterion: accept[N]="…"');
+        }
+        foreach ($changed as $criterion) {
+            $after = self::tick($after, $criterion['id'], false);
+            $after = self::note($after, "criterion {$criterion['id']} reworded: {$was[$criterion['id']]} → {$criterion['text']}: {$reason}", $head);
+        }
+        if (($after['stage'] ?? null) !== 'review') {
+            return $after;
+        }
+        if (is_array($after['work'] ?? null)) {
+            $after['work']['approved'] = null;
+        }
+
+        return Transitions::stage($after, 'doing', 'move', 'criteria '.implode(', ', array_column($changed, 'id')).' reworded');
     }
 
     /** @param  array<string, mixed>  $data */
@@ -203,15 +235,17 @@ final class Edits
     }
 
     /**
+     * $head: the commit of the card's worktree the note was made at.
+     *
      * @param  array<string, mixed>  $data
      * @return array<string, mixed>
      */
-    public static function note(array $data, string $text): array
+    public static function note(array $data, string $text, ?string $head = null): array
     {
         if (trim($text) === '') {
             throw new Invalid('note needs text');
         }
-        $data['log'][] = ['event' => 'note', 'text' => $text];
+        $data['log'][] = array_filter(['event' => 'note', 'text' => $text, 'head' => $head], fn ($v) => $v !== null);
 
         return $data;
     }
