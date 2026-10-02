@@ -4,24 +4,21 @@ namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
 use PetarSpasic\LaravelHouse\Kanban\Import\DecisionsMarkdown;
 use PetarSpasic\LaravelHouse\Kanban\Import\IdeasMarkdown;
-use PetarSpasic\LaravelHouse\Kanban\Schema\CrossCardRules;
-use PetarSpasic\LaravelHouse\Kanban\Schema\Validator;
-use PetarSpasic\LaravelHouse\Kanban\Store\BoardRef;
 use PetarSpasic\LaravelHouse\Kanban\Store\Card;
-use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\GitFailed;
+use PetarSpasic\LaravelHouse\Kanban\Store\Changes;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Invalid;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\NotFound;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
-use PetarSpasic\LaravelHouse\Kanban\Store\Rev;
+use PetarSpasic\LaravelHouse\Kanban\Store\Git\Archive;
 use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
-use PetarSpasic\LaravelHouse\Kanban\Support\Clock;
 use PetarSpasic\LaravelHouse\Kanban\Support\Ids;
-use PetarSpasic\LaravelHouse\Kanban\Support\Json;
 use Symfony\Component\Console\Attribute\AsCommand;
 
 /**
- * The house docs (`docs/decisions.md`, `docs/ideas.md`) as decision cards, in one commit. Idempotent: a card
- * remembers the sha1 of its source line, and a line already imported is skipped.
+ * The house docs (`docs/decisions.md`, `docs/ideas.md`) on the board, in one commit: what was decided or dropped goes
+ * to the archive (`decisions.md` on the board branch), and an idea still floated becomes a backlog spike whose open
+ * question is its block. Idempotent: an archive section's id is derived from its source line, and a spike's `created`
+ * log entry keeps the line's sha1.
  *
  * @phpstan-import-type Entry from DecisionsMarkdown
  */
@@ -31,11 +28,10 @@ class ImportHouseDocsCommand extends Command
     protected $signature = 'kanban:import-house-docs
         {--decisions= : Decisions file, relative to the main checkout (default docs/decisions.md)}
         {--ideas= : Ideas file, relative to the main checkout (default docs/ideas.md)}
-        {--board=project/decisions : Target board}
         {--dry-run : Print what would be imported; write nothing}
         {--strict : Exit 2 when any line cannot be parsed}';
 
-    protected $description = 'Import docs/decisions.md and docs/ideas.md as decision cards';
+    protected $description = 'Import docs/decisions.md and docs/ideas.md: decisions to the archive, open ideas as backlog spikes';
 
     private const STOPWORDS = ['the', 'and', 'for', 'not', 'are', 'with', 'from', 'its', 'but', 'that', 'this', 'one', 'all'];
 
@@ -71,100 +67,145 @@ class ImportHouseDocsCommand extends Command
         if ($unparsed !== [] && $this->option('strict')) {
             throw new Invalid('strict: '.count($unparsed).' line(s) could not be parsed; nothing imported', $unparsed);
         }
+        $this->assertDates($entries);
         $this->duplicates($decisions[1]['entries'] ?? [], $ideas[1]['entries'] ?? [], $decisions[0] ?? '', $ideas[0] ?? '');
 
-        $ref = BoardRef::parse((string) $this->option('board'));
-        $snapshot = $this->store()->snapshot();
-        $board = $snapshot->board($ref);
+        $store = $this->gitStore() ?? throw new PolicyRefused('import-house-docs needs the git store');
+        $snapshot = $store->snapshot();
+        $board = ($snapshot->boards()[0] ?? null)?->ref ?? throw new NotFound('no board to import onto');
+        [$archive, $spikes] = $this->fresh($entries, $snapshot, $store->archive());
 
         if ($this->option('dry-run')) {
-            if ($board === null) {
-                $this->say("would create board {$ref}");
+            foreach ($archive as $entry) {
+                $this->say("{$entry['file']}:{$entry['line']} {$entry['stage']} {$entry['date']} {$entry['title']} → archive ".$this->archiveId($entry, $snapshot));
             }
-            $new = $this->fresh($entries, $this->importedHashes($snapshot));
-            foreach ($new as $entry) {
-                $this->say("{$entry['file']}:{$entry['line']} {$entry['stage']} {$entry['date']} {$entry['title']}");
-                $this->supersession($entry, "{$entry['file']}:{$entry['line']}");
+            foreach ($spikes as $entry) {
+                $this->say("{$entry['file']}:{$entry['line']} {$entry['stage']} {$entry['date']} {$entry['title']} → backlog spike on {$board}");
             }
-            $this->totals('would import', $new, count($entries) - count($new));
+            $this->totals('would import', $archive, $spikes, count($entries) - count($archive) - count($spikes));
+
+            return self::SUCCESS;
+        }
+        if ($archive === [] && $spikes === []) {
+            $this->totals('imported', [], [], count($entries));
 
             return self::SUCCESS;
         }
 
-        if ($board === null) {
-            $this->store()->saveBoard($ref, [], $this->actor());
-            $this->say("created board {$ref}");
+        $created = $store->batch(function (Snapshot $snapshot) use ($store, $entries, $board, &$archive, &$spikes) {
+            [$archive, $spikes] = $this->fresh($entries, $snapshot, $current = $store->archive());
+            $changes = new Changes;
+            foreach ($spikes as $entry) {
+                $changes->create($board, $this->spike($entry));
+            }
+            $sections = array_map(fn (array $entry) => $this->section($entry, $snapshot), $archive);
+            if ($sections !== []) {
+                $changes->text(Archive::PATH, (string) Archive::add($current, $sections));
+            }
+
+            return $changes;
+        }, $this->actor(), 'Kanban: import house docs ('.count($archive).' archived, '.count($spikes).' spikes)');
+
+        foreach ($archive as $entry) {
+            $this->say('archived '.$this->archiveId($entry, $snapshot)." {$entry['stage']} {$entry['file']}:{$entry['line']} {$entry['title']}");
         }
-        $created = $this->import($ref, $entries);
-        foreach ($created as [$card, $entry]) {
-            $this->say("created {$card->id()} {$card->stage()} {$entry['file']}:{$entry['line']} {$card->title()}");
+        foreach (array_values($created) as $i => $card) {
+            $this->say("created {$card->id()} {$card->stage()} {$spikes[$i]['file']}:{$spikes[$i]['line']} {$card->title()}");
         }
-        foreach ($created as [$card, $entry]) {
-            $this->supersession($entry, $card->id());
-        }
-        $this->totals('imported', array_column($created, 1), count($entries) - count($created));
+        $this->totals('imported', $archive, $spikes, count($entries) - count($archive) - count($spikes));
 
         return self::SUCCESS;
     }
 
     /**
-     * Writes every new card and commits them together, under the board's write lock.
+     * An idea still floated, as the fields of a backlog spike: the idea under `## Open question`, the question as the
+     * block, created on its date.
+     *
+     * @param  Entry&array{file: string}  $entry
+     * @return array<string, mixed>
+     */
+    private function spike(array $entry): array
+    {
+        $at = $entry['date'].'T00:00:00.000+00:00';
+        $text = implode("\n\n", array_filter([trim($entry['body']), trim($entry['why']) === '' ? '' : 'Why: '.trim($entry['why']),
+            "Floated on {$entry['date']} ({$entry['file']}:{$entry['line']})."]));
+
+        return [
+            'type' => 'spike', 'title' => $entry['title'], 'body' => "## Open question\n\n{$text}", 'blocked' => Card::QUESTION.$entry['title'],
+            'created' => $at,
+            'log' => [['id' => Ids::log(), 'at' => $at, 'by' => 'import', 'event' => 'created', 'source' => "{$entry['file']}:{$entry['line']}", 'hash' => sha1($entry['raw'])]],
+        ];
+    }
+
+    /**
+     * @param  Entry&array{file: string}  $entry
+     * @return array{id: string, title: string, date: string, facts: list<string>, body: string, why: string, resolution: string|null}
+     */
+    private function section(array $entry, Snapshot $snapshot): array
+    {
+        return [
+            'id' => $this->archiveId($entry, $snapshot), 'title' => $entry['title'], 'date' => $entry['decided_on'] ?? $entry['date'],
+            'facts' => [$entry['stage'], "{$entry['file']}:{$entry['line']}"], 'body' => $entry['body'], 'why' => $entry['why'],
+            'resolution' => $entry['resolution'],
+        ];
+    }
+
+    /** @param  Entry  $entry */
+    private function archiveId(array $entry, Snapshot $snapshot): string
+    {
+        return $snapshot->key().'-'.substr(Ids::derived('import '.sha1($entry['raw'])), 0, min(8, max(4, (int) $snapshot->setting('id_length', 6))));
+    }
+
+    /**
+     * What is not on the board yet: decided and dropped entries without an archive section, floated ones without a
+     * spike (a line repeated in the docs counts once).
      *
      * @param  list<Entry&array{file: string}>  $entries
-     * @return list<array{0: Card, 1: Entry&array{file: string}}>
+     * @return array{0: list<Entry&array{file: string}>, 1: list<Entry&array{file: string}>}
      */
-    private function import(BoardRef $ref, array $entries): array
+    private function fresh(array $entries, Snapshot $snapshot, ?string $archive): array
     {
-        $store = $this->gitStore() ?? throw new PolicyRefused('import-house-docs needs the git store');
-
-        return $store->write(function () use ($store, $ref, $entries) {
-            if ($store->repo()->git() === null) {
-                throw new GitFailed('git is unusable in the board worktree; nothing imported');
-            }
-            $snapshot = $store->snapshot();
-            $taken = $snapshot->cards + $store->repo()->remoteIds();
-            $before = $snapshot;
-            $now = Clock::now();
-            $created = [];
-            $errors = [];
-            $validator = new Validator;
-            foreach ($this->fresh($entries, $this->importedHashes($snapshot)) as $entry) {
-                $id = Ids::card($snapshot->key(), (int) $snapshot->setting('id_length', 6), fn (string $id) => isset($taken[$id]));
-                $taken[$id] = true;
-                $at = $entry['date'].'T00:00:00.000+00:00';
-                $data = Json::canonical([
-                    'id' => $id, 'type' => 'decision', 'title' => $entry['title'], 'stage' => $entry['stage'], 'priority' => 'normal',
-                    'labels' => [], 'body' => $entry['body'], 'why' => $entry['why'], 'decided_on' => $entry['decided_on'],
-                    'supersedes' => [], 'superseded_by' => null, 'resolution' => $entry['resolution'],
-                    'source' => ['file' => $entry['file'], 'line' => $entry['line'], 'hash' => sha1($entry['raw'])],
-                    'created' => $at, 'updated' => $now,
-                    'log' => [['id' => Ids::log(), 'at' => $at, 'by' => 'import', 'event' => 'created']],
-                ], 'card');
-                $card = new Card($data, $ref, "{$ref}/{$id}.json", Rev::of(Json::encode($data, 'card')));
-                foreach ($validator->validate('card', $data) as $error) {
-                    $errors[] = "{$entry['file']}:{$entry['line']}: {$error}";
+        $done = Archive::ids($archive);
+        foreach ($snapshot->cards as $card) {
+            foreach ($card->log() as $entry) {
+                if (isset($entry['hash'])) {
+                    $done[$entry['hash']] = true;
                 }
-                $snapshot = $snapshot->withCard($card);
-                $created[] = [$card, $entry];
             }
-            $rules = new CrossCardRules;
-            $errors = array_merge($errors, array_values(array_diff($rules->check($snapshot), $rules->check($before))));
-            if ($errors !== []) {
-                throw new Invalid('invalid: '.$errors[0].'; nothing imported', $errors);
+        }
+        $toArchive = [];
+        $spikes = [];
+        foreach ($entries as $entry) {
+            $key = $entry['stage'] === 'proposed' ? sha1($entry['raw']) : $this->archiveId($entry, $snapshot);
+            if (isset($done[$key])) {
+                continue;
             }
-            if ($created === []) {
-                return [];
+            $done[$key] = true;
+            if ($entry['stage'] === 'proposed') {
+                $spikes[] = $entry;
+            } else {
+                $toArchive[] = $entry;
             }
-            foreach ($created as [$card]) {
-                Json::write($this->paths()->board($card->path), Json::encode($card->data, 'card'));
-            }
-            $message = 'Kanban: import house docs ('.count($created).' cards) ['.$this->actor()->role.']';
-            if (! $store->repo()->commit(array_map(fn (array $pair) => $pair[0]->path, $created), $message)) {
-                throw new GitFailed('the imported cards were written but could not be committed');
-            }
+        }
 
-            return $created;
-        });
+        return [$toArchive, $spikes];
+    }
+
+    /** @param  list<Entry&array{file: string}>  $entries */
+    private function assertDates(array $entries): void
+    {
+        $errors = [];
+        foreach ($entries as $entry) {
+            foreach (array_unique(array_filter([$entry['date'], $entry['decided_on']])) as $date) {
+                [$y, $m, $d] = array_map('intval', explode('-', $date));
+                if (! checkdate($m, $d, $y)) {
+                    $errors[] = "{$entry['file']}:{$entry['line']}: {$date} is not a date on the calendar";
+                }
+            }
+        }
+        if ($errors !== []) {
+            throw new Invalid('invalid: '.$errors[0].'; nothing imported', $errors);
+        }
     }
 
     /**
@@ -188,48 +229,6 @@ class ImportHouseDocsCommand extends Command
         $display = $this->paths()->relative($absolute);
 
         return [$display, $which === 'decisions' ? DecisionsMarkdown::parse($markdown) : IdeasMarkdown::parse($markdown)];
-    }
-
-    /** @return array<string, true> source hashes of every card (a moved card stays imported) */
-    private function importedHashes(Snapshot $snapshot): array
-    {
-        $hashes = [];
-        foreach ($snapshot->cards as $card) {
-            if (isset($card->data['source']['hash'])) {
-                $hashes[$card->data['source']['hash']] = true;
-            }
-        }
-
-        return $hashes;
-    }
-
-    /**
-     * Entries whose source line is not imported yet (a line repeated in the docs counts once).
-     *
-     * @param  list<Entry&array{file: string}>  $entries
-     * @param  array<string, true>  $hashes
-     * @return list<Entry&array{file: string}>
-     */
-    private function fresh(array $entries, array $hashes): array
-    {
-        $fresh = [];
-        foreach ($entries as $entry) {
-            $hash = sha1($entry['raw']);
-            if (! isset($hashes[$hash])) {
-                $hashes[$hash] = true;
-                $fresh[] = $entry;
-            }
-        }
-
-        return $fresh;
-    }
-
-    /** @param  Entry  $entry */
-    private function supersession(array $entry, string $card): void
-    {
-        if ($entry['supersession']) {
-            $this->say("warning: {$entry['file']}:{$entry['line']} mentions a supersession; link it by hand: kanban set {$card} supersedes=+<ID>");
-        }
     }
 
     /**
@@ -262,13 +261,16 @@ class ImportHouseDocsCommand extends Command
         return array_values(array_unique(array_filter($words, fn (string $w) => mb_strlen($w) >= 3 && ! in_array($w, self::STOPWORDS, true))));
     }
 
-    /** @param  list<array{stage: string, file: string}>  $entries */
-    private function totals(string $verb, array $entries, int $skipped): void
+    /**
+     * @param  list<array{stage: string, file: string}>  $archived
+     * @param  list<array{stage: string, file: string}>  $spikes
+     */
+    private function totals(string $verb, array $archived, array $spikes, int $skipped): void
     {
-        $stages = array_count_values(array_column($entries, 'stage')) + ['decided' => 0, 'proposed' => 0, 'dropped' => 0];
-        $files = array_count_values(array_column($entries, 'file'));
+        $stages = array_count_values(array_column($archived, 'stage')) + ['decided' => 0, 'dropped' => 0];
+        $files = array_count_values(array_column([...$archived, ...$spikes], 'file'));
         $from = implode(', ', array_map(fn (string $file, int $n) => "{$n} from {$file}", array_keys($files), $files));
-        $this->say("{$verb} ".count($entries).": {$stages['decided']} decided, {$stages['proposed']} proposed, {$stages['dropped']} dropped"
-            .($from !== '' ? " ({$from})" : '')."; {$skipped} already imported");
+        $this->say("{$verb} ".(count($archived) + count($spikes)).': '.count($archived)." archived ({$stages['decided']} decided, {$stages['dropped']} dropped), "
+            .count($spikes).' backlog spikes with an open question'.($from !== '' ? " ({$from})" : '')."; {$skipped} already imported");
     }
 }

@@ -5,7 +5,7 @@ namespace PetarSpasic\LaravelHouse\Kanban\Import;
 /**
  * `docs/decisions.md` of the house docs: one bullet per decision, `- **YYYY-MM-DD — Title.** Body. Why: reason.`
  *
- * @phpstan-type Entry array{line: int, raw: string, date: string, stage: string, title: string, body: string, why: string, decided_on: ?string, resolution: ?string, supersession: bool}
+ * @phpstan-type Entry array{line: int, raw: string, date: string, stage: string, title: string, body: string, why: string, decided_on: ?string, resolution: ?string}
  * @phpstan-type Warning array{line: int, message: string, unparsed: bool}
  */
 final class DecisionsMarkdown
@@ -15,8 +15,6 @@ final class DecisionsMarkdown
     private const BOLD = '/^\*\*(\d{4}-\d{2}-\d{2})\s+[—–-]\s+(.+?)\*\*\s*(.*)$/u';
 
     private const WHY = '/(?:^|\s)Why(?:\s*\([^)]*\))?:\s*/u';
-
-    private const SUPERSESSION = '/\bSupersedes\b|\bSuperseded\b.*\bby\b/iu';
 
     private const TITLE_MAX = 120;
 
@@ -49,7 +47,7 @@ final class DecisionsMarkdown
             $title = self::title($m[2], $line, $warnings);
             $entries[] = [
                 'line' => $line, 'raw' => $raw, 'date' => $m[1], 'stage' => 'decided', 'title' => $title, 'body' => $body, 'why' => $why,
-                'decided_on' => $m[1], 'resolution' => null, 'supersession' => preg_match(self::SUPERSESSION, $text) === 1,
+                'decided_on' => $m[1], 'resolution' => null,
             ];
         }
 

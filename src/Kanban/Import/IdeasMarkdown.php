@@ -50,7 +50,7 @@ final class IdeasMarkdown
             [$title, $rest] = self::title($idea, $line, $warnings);
             [$body, $why] = DecisionsMarkdown::splitWhy($rest);
             $entry = ['line' => $line, 'raw' => $raw, 'date' => $date, 'stage' => 'proposed', 'title' => $title, 'body' => $body, 'why' => $why,
-                'decided_on' => null, 'resolution' => null, 'supersession' => false];
+                'decided_on' => null, 'resolution' => null];
 
             if (preg_match('/^decided\b\s*(\d{4}-\d{2}-\d{2})?\s*:?\s*(.*)$/iu', $status, $m) === 1) {
                 $entry = ['stage' => 'decided', 'decided_on' => $m[1] !== '' ? $m[1] : $date, 'resolution' => $m[2] !== '' ? $m[2] : null] + $entry;
