@@ -26,11 +26,20 @@ cp .env.prod.example .env.prod && docker compose --env-file .env.prod up -d --bu
   or network `name:`, or `image:` to `docker-compose.local.yml`.
 - **Worktree stacks**: each `.claude/worktrees/<name>` runs its own stack, `{{app}}-wt-<name>`, from the same compose
   file. Its generated `.env` sets its own ports and turns Xdebug off (`vendor/bin/kanban stack create`).
+<!-- unless:spa -->
 - **Opened from another machine**: set `LOCAL_APP_URL=http://<LAN address>:{{web_port}}` in `.env`. Compose passes it
   as the container's `APP_URL`, and Vite writes it into `public/hot` as the asset and HMR origin. Apply it with
   `docker compose -f docker-compose.local.yml up -d`; a `restart` keeps the old value. With `localhost` there, the page
   loads but every asset fails. The board (`/kanban`) answers only to IPs, `localhost`/`*.localhost`, `*.test` and the
   host of `LOCAL_APP_URL` (more via `kanban.ui.hosts`).
+<!-- endif -->
+<!-- if:spa -->
+- **Opened from another machine**: set `LOCAL_APP_URL=http://<LAN address>:{{web_port}}` in `.env`. Compose passes it
+  as the container's `APP_URL` and `PUBLIC_APP_URL`, and the entrypoint adds its host to `SANCTUM_STATEFUL_DOMAINS`.
+  Apply it with `docker compose -f docker-compose.local.yml up -d`; a `restart` keeps the old value. Without it, signing
+  in from that address answers 401. The board (`/kanban`) answers only to IPs, `localhost`/`*.localhost`, `*.test` and
+  the host of `LOCAL_APP_URL` (more via `kanban.ui.hosts`).
+<!-- endif -->
 - **Passkeys** take their relying party and allowed origin from `APP_URL`. Locally they work only while `APP_URL` is
   `http://localhost:<the stack's web port>` (`LOCAL_APP_URL` unset or set to that) and the browser is on exactly that
   origin: not `127.0.0.1`, a LAN address or a `.test` name. WebAuthn needs a secure context and a domain, and over http
@@ -79,7 +88,13 @@ cp .env.prod.example .env.prod && docker compose --env-file .env.prod up -d --bu
   the browser its address.
 <!-- endif -->
 <!-- endif -->
-- **Binds**: the web port publishes on `WEB_BIND`, default `0.0.0.0`, so the stack is LAN-visible; `127.0.0.1` keeps
+- **Binds**: the web port
+<!-- if:reverb -->
+<!-- unless:spa -->
+  (and the WebSocket port)
+<!-- endif -->
+<!-- endif -->
+  publishes on `WEB_BIND`, default `0.0.0.0`, so the stack is LAN-visible; `127.0.0.1` keeps
   it on this machine. Postgres and Redis publish on `SIDECAR_BIND`, default `127.0.0.1`. Override either in `.env`. The web bind stays an explicit IPv4 address: the Horizon gate reads a
   bare publish's IPv6 clients as the host.
 - **PHP {{php_version}} everywhere**: the host (tests, artisan), the lock and both images.

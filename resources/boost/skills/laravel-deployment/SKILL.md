@@ -66,8 +66,9 @@ The modules are the project's, as laravel-project-setup chose them: `htmx`, `isl
 
    ```shell
    php "${CLAUDE_SKILL_DIR}/../laravel-project-setup/scripts/install.php" . --templates="${CLAUDE_SKILL_DIR}/templates" \
-     --modules=htmx,reverb --set app=acme --set app_name=Acme --set php_version=8.5 --set web_port=<port> \
-     --set db_port=<port> --set redis_port=<port> --set ws_port=<port> --set domain=<host> --dry-run
+     --modules=htmx,reverb --set app={{app}} --set app_name={{app_name}} --set php_version={{php_version}} \
+     --set web_port={{web_port}} --set db_port={{db_port}} --set redis_port={{redis_port}} --set ws_port={{ws_port}} \
+     --set domain={{domain}} --dry-run
    ```
 
    - A `placeholders left in` line means a missing `--set`: rerun with it.
