@@ -2,6 +2,7 @@
 
 namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
+use PetarSpasic\LaravelHouse\Kanban\Code\DatabaseSteps;
 use PetarSpasic\LaravelHouse\Kanban\Code\MainCheck;
 use PetarSpasic\LaravelHouse\Kanban\Code\MainPush;
 use PetarSpasic\LaravelHouse\Kanban\Code\MergeCheck;
@@ -167,7 +168,7 @@ class FinishCommand extends Command
      */
     private function afterMerge(Worktrees $worktrees, array $files, MainCheck $mainCheck, Card $card, string $sha): int
     {
-        ['migrate' => $migrate, 'finish' => $finish] = $this->merged();
+        $finish = $this->merged()['finish'];
         foreach ($this->installs($files, (array) $finish['install']) as [$dir, $command]) {
             if (! $this->step('install', $command, $dir)) {
                 $this->fault("after: skipped, `{$command}` failed; fix it and run the rest by hand");
@@ -177,11 +178,7 @@ class FinishCommand extends Command
         }
         $exit = self::SUCCESS;
         if ($worktrees->stackEnabled()) {
-            $steps = [...(is_string($migrate) && $migrate !== '' ? [$migrate] : []), ...array_map('strval', (array) $finish['after'])];
-            foreach ($steps as $command) {
-                if (preg_match('/--class=(\S+)/', $command, $m) && ! is_file($this->paths()->main.'/database/seeders/'.class_basename(str_replace('\\\\', '\\', $m[1])).'.php')) {
-                    continue;
-                }
+            foreach (DatabaseSteps::commands(Standalone::config($this->paths()->main), $this->paths()->main) as $command) {
                 $exit = $this->step('after', $command, $this->paths()->main) ? $exit : 1;
             }
         }
@@ -214,17 +211,17 @@ class FinishCommand extends Command
     }
 
     /**
-     * `migrate` and `finish` as the merged main states them, so a card that adds a step has it run by its own finish. A
-     * project's `finish` replaces the package's whole, so each key it leaves out keeps the package default.
+     * `finish` as the merged main states it, so a card that adds a step has it run by its own finish. A project's `finish`
+     * replaces the package's whole, so each key it leaves out keeps the package default.
      *
-     * @return array{migrate: mixed, finish: array<string, mixed>}
+     * @return array{finish: array<string, mixed>}
      */
     private function merged(): array
     {
         $package = require dirname(__DIR__, 3).'/config/kanban.php';
         $config = Standalone::config($this->paths()->main);
 
-        return ['migrate' => $config['migrate'] ?? null, 'finish' => (array) ($config['finish'] ?? []) + $package['finish']];
+        return ['finish' => (array) ($config['finish'] ?? []) + $package['finish']];
     }
 
     /**

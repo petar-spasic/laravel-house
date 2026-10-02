@@ -2,13 +2,16 @@
 
 namespace PetarSpasic\LaravelHouse\Kanban\Protocol;
 
+use PetarSpasic\LaravelHouse\Kanban\Code\DatabaseSteps;
 use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
+use PetarSpasic\LaravelHouse\Kanban\Console\Standalone;
 use PetarSpasic\LaravelHouse\Kanban\Store\Card;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
 use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
 use PetarSpasic\LaravelHouse\Kanban\Support\Git;
 use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
 use PetarSpasic\LaravelHouse\Kanban\Upstream\Findings;
+use Throwable;
 
 /** What an agent needs about its card: `kanban context` and the SessionStart context of a card worktree. */
 final class Context
@@ -177,13 +180,22 @@ final class Context
                 $lines[] = '  '.$line;
             }
         }
-        $gates = (new Gates($this->config))->commands();
-        $lines[] = 'gates:'.($gates === [] ? ' none' : '');
-        foreach ($gates as $gate) {
-            $lines[] = '  '.$gate;
+        $gates = new Gates($this->config);
+        $lines[] = $gates->commands() === [] ? 'gates: none'
+            : "gates (main's config/kanban.php; `vendor/bin/kanban gates` runs them in this worktree, and `report` before it stages, up to {$gates->total()} s):";
+        foreach ($gates->commands() as $gate) {
+            $lines[] = '  '.$gate['run'];
         }
-        if (is_string($migrate = $this->config['migrate'] ?? null) && $migrate !== '') {
-            $lines[] = "migrate: {$migrate}";
+        if ($worktree !== null && $this->gatesDiffer($worktree)) {
+            $lines[] = "this branch's config/kanban.php has other gates than main's: main's apply; merge main if a gate needs code the branch lacks";
+        }
+        // without a stack of its own the worktree's database is main's
+        $database = is_array($stack) && $worktree !== null ? DatabaseSteps::commands($this->config, $worktree) : [];
+        if ($database !== []) {
+            $lines[] = 'database (run after a refresh or a change to migrations, seeders or seed data, and before e2e):';
+            foreach ($database as $command) {
+                $lines[] = '  '.$command;
+            }
         }
         if ($evaluate) {
             $criteria = implode(' ', array_map(fn (array $c) => "--check={$c['id']}:pass|fail:\"evidence\"", $card->acceptance()));
@@ -196,6 +208,22 @@ final class Context
         }
 
         return $lines;
+    }
+
+    /** Whether the worktree's config/kanban.php resolves to other gates than main's (the ones every check uses). */
+    private function gatesDiffer(string $worktree): bool
+    {
+        $own = $worktree.'/config/kanban.php';
+        if (! is_file($own) || @file_get_contents($own) === @file_get_contents($this->paths->main.'/config/kanban.php')) {
+            return false;
+        }
+        try {
+            $branch = Standalone::config($worktree);
+        } catch (Throwable) {
+            return false;
+        }
+
+        return (new Gates(['main_branch' => $this->config['main_branch'] ?? 'main'] + $branch))->commands() !== (new Gates($this->config))->commands();
     }
 
     /**
@@ -319,7 +347,7 @@ final class Context
 
         return 're-verify: approved @'.substr($head, 0, 7).'; since then only clean merges of main'
             .($touched === [] ? '' : ', touching '.implode(', ', array_slice($touched, 0, 10)).(count($touched) > 10 ? ' …' : ''))
-            .'. Run every gate and the whole suite; a full review is not needed.';
+            .'. Run `vendor/bin/kanban gates` and the whole suite; a full review is not needed.';
     }
 
     /**

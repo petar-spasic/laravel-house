@@ -162,7 +162,7 @@ it('says when a refresh brings migrations from main', function () {
     @mkdir($code->root().'/database/migrations', 0775, true);
     $code->commitMain('database/migrations/2026_01_10_093015_create_notes_table.php', "<?php\n");
 
-    expect($code->ok(['refresh', $id]))->toContain("1 migration(s) arrived from main: the card's agent runs the `migrate:` command `kanban context` prints\n");
+    expect($code->ok(['refresh', $id]))->toContain("1 migration(s) arrived from main: the card's agent runs the `database` commands `kanban context` prints\n");
 });
 
 it('refuses to refresh a card whose agent is still running, and skips it under --all', function () {
@@ -208,8 +208,8 @@ it('leaves a conflicting refresh in progress, sends the card back to doing and d
             ."stack {$project} serves the conflicted tree until the worker concludes the merge; run no checks against it\n"
             ."SendMessage: Card {$id}: main moved; a merge of main into your branch is in progress in your worktree, with conflicts in app.php. "
             ."Resolve each conflict by keeping both sides' content and adding nothing neither side had, then `git add` the files and "
-            .'`git commit --no-edit` to conclude the merge. After it, run the `migrate:` command and every gate `vendor/bin/kanban context` lists, '
-            ."and the whole test suite, then report with `vendor/bin/kanban report {$id} --status=review`.\n")
+            .'`git commit --no-edit` to conclude the merge. After it, run the `database` commands `vendor/bin/kanban context` lists, '
+            ."`vendor/bin/kanban gates` and the whole test suite, then report with `vendor/bin/kanban report {$id} --status=review`.\n")
         ->and($staged)->not->toBeFile()
         ->and($code->sandbox->read($id)['stage'])->toBe('doing')
         ->and($code->sandbox->read($id)['work']['approved'])->toBeNull()

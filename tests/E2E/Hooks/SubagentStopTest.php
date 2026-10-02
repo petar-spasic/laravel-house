@@ -32,12 +32,13 @@ it('blocks a worker that stops without a report, three times, then marks the car
         ->and($this->p->agent('a4d2c0ffee')['stopped_at'])->not->toBeNull();
 });
 
-it('blocks a review report on a dirty tree, on zero commits and on a failing gate', function () {
+it('blocks a review report on a dirty tree, on zero commits and on gates that have not passed at its head', function () {
     $this->p->in($this->wt, ['report', $this->id, '--status=review', '--tick=1', '--summary=Done'])->mustRun();
 
     $stop = stop($this->p, $this->wt);
     expect($stop['json']['decision'])->toBe('block')
-        ->and($stop['json']['reason'])->toContain("Report for {$this->id} not applied. No commits beyond work.base");
+        ->and($stop['json']['reason'])->toContain("Report for {$this->id} not applied. No commits beyond work.base")
+        ->toContain('run `vendor/bin/kanban report` again (it runs the gates), then finish again');
 
     file_put_contents($this->wt.'/app.php', "<?php\n");
     $stop = stop($this->p, $this->wt);
@@ -45,14 +46,20 @@ it('blocks a review report on a dirty tree, on zero commits and on a failing gat
 
     $this->p->git($this->wt, 'add', 'app.php');
     $this->p->git($this->wt, 'commit', '-q', '-m', "{$this->id}: app");
-    $this->p->config(['gates' => ['report' => ['php -r \'for ($i = 1; $i <= 60; $i++) { echo "line $i\n"; } exit(3);\'']]]);
+    $this->p->config(['gates' => ['report' => ['php -r "exit(0);"']]]);
     $stop = stop($this->p, $this->wt);
-    expect($stop['json']['reason'])->toContain('Gate failed: `php -r')->toContain('(exit 3)')
-        ->toContain('line 60')->toContain('line 21')->not->toContain("line 20\n")
+    expect($stop['json']['reason'])->toContain('Gates not proven: the gates have not passed for this report. Run `vendor/bin/kanban report` again')
         ->and($this->p->card($this->id)['stage'])->toBe('doing');
 
+    $this->p->config(['gates' => ['report' => ['php -r \'for ($i = 1; $i <= 60; $i++) { echo "line $i\n"; } exit(3);\'']]]);
+    $report = $this->p->in($this->wt, ['report', $this->id, '--status=review', '--tick=1', '--summary=Done']);
+    expect($report->getExitCode())->not->toBe(0)
+        ->and($report->getErrorOutput())->toContain('report not staged: Gate failed: `php -r')->toContain('(exit 3)')
+        ->toContain('line 60')->toContain('line 21')->not->toContain("line 20\n");
+
     $this->p->config(['gates' => ['report' => ['php -r "exit(0);"']]]);
-    expect(stop($this->p, $this->wt)['out'])->toBe('')
+    expect($this->p->in($this->wt, ['report', $this->id, '--status=review', '--tick=1', '--summary=Done'])->getOutput())->toStartWith("gates passed (1)\nstaged report")
+        ->and(stop($this->p, $this->wt)['out'])->toBe('')
         ->and($this->p->card($this->id)['stage'])->toBe('review');
 });
 

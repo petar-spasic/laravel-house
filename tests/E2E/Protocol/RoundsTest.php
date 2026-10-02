@@ -125,12 +125,11 @@ it('keeps at most five reports in the evaluator context and points to the rest',
         ->and($context)->toMatch('/… [2-6] earlier: `vendor\/bin\/kanban show '.$this->id.' --log=50`/');
 });
 
-it('names the gate that refused a staged report in status, context and apply', function () {
+it('names the gate that refused a new report beside the staged one in status, context and apply', function () {
     $this->p->commit($this->wt, 'app.php', "<?php\n", "{$this->id}: clauses");
-    $this->p->config(['gates' => ['report' => ['php -r \'for ($i = 1; $i <= 60; $i++) { echo "test $i of the suite failed with a long message\n"; } echo "3 tests failed\n"; exit(2);\'']]]);
     $this->p->in($this->wt, ['report', $this->id, '--status=review', '--tick=1', '--summary=Done'])->mustRun();
-
-    expect(stopAgent($this->p, $this->wt)['json']['decision'])->toBe('block');
+    $this->p->config(['gates' => ['report' => ['php -r \'for ($i = 1; $i <= 60; $i++) { echo "test $i of the suite failed with a long message\n"; } echo "3 tests failed\n"; exit(2);\'']]]);
+    expect($this->p->in($this->wt, ['report', $this->id, '--status=review', '--tick=1', '--summary=Done again'])->getExitCode())->not->toBe(0);
     $gate = 'report staged, not applied: Gate failed: `php -r \'for ($i = 1; $i <= 60; $i++) {';
 
     expect($this->p->sandbox->ok(['status']))->toMatch('/^doing  '.$this->id.' .*'.preg_quote($gate, '/').'.*\(exit 2\)$/m')
@@ -166,7 +165,7 @@ it('asks only for a re-verify when nothing but a clean merge of main followed th
     $this->p->sandbox->ok(['refresh', $this->id]);
 
     expect($this->p->sandbox->ok(['context', $this->id, '--evaluate']))
-        ->toContain('re-verify: approved @'.substr($approved, 0, 7).'; since then only clean merges of main. Run every gate and the whole suite; a full review is not needed.');
+        ->toContain('re-verify: approved @'.substr($approved, 0, 7).'; since then only clean merges of main. Run `vendor/bin/kanban gates` and the whole suite; a full review is not needed.');
 
     $this->p->commit($this->wt, 'more.php');
     expect($this->p->sandbox->ok(['context', $this->id, '--evaluate']))->not->toContain('re-verify');

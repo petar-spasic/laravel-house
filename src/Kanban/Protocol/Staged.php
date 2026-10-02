@@ -137,7 +137,7 @@ final class Staged
      */
     public static function hash(array $item): string
     {
-        $content = array_diff_key($item, ['staged_at' => 1, 'hash' => 1, 'session' => 1]);
+        $content = array_diff_key($item, ['staged_at' => 1, 'hash' => 1, 'session' => 1, 'gates' => 1]);
         ksort($content);
 
         return substr(hash('sha256', json_encode($content, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)), 0, 16);

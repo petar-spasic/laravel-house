@@ -3,8 +3,6 @@
 namespace PetarSpasic\LaravelHouse\Kanban\Http;
 
 use Illuminate\Contracts\Foundation\Application;
-use Illuminate\Foundation\Http\Middleware\TrimStrings;
-use Illuminate\Http\Request;
 use Illuminate\Routing\Router;
 use PetarSpasic\LaravelHouse\Kanban\Http\Middleware\UiGuard;
 use PetarSpasic\LaravelHouse\Kanban\Http\Middleware\UiHeaders;
@@ -32,9 +30,6 @@ final class Ui
         }
         $app['view']->addNamespace('kanban', dirname(__DIR__, 3).'/resources/views');
         $prefix = trim((string) $app['config']->get('kanban.ui.path', 'kanban'), '/');
-        // Markdown keeps its leading whitespace
-        $api = fn (Request $request) => $request->is(ltrim($prefix.'/_api/*', '/'));
-        TrimStrings::skipWhen($api);
 
         /** @var Router $router */
         $router = $app['router'];

@@ -225,3 +225,13 @@ it('recreates on up when the docker files changed since the stack came up', func
             fn ($call) => $call->not->toContain('--force-recreate'),
         );
 });
+
+it('prints the database commands for a card with its own stack, without a seeder the branch lacks', function () {
+    $code = $this->code;
+    $code->configure(['migrate' => 'php artisan migrate --force', 'finish' => ['after' => ['php artisan db:seed --class=ReferenceDataSeeder --force', 'php artisan db:seed --class=DemoSeeder --force']]]);
+    $id = $code->started('Seed the demo');
+    $code->commit($id, 'database/seeders/DemoSeeder.php', "<?php\n");
+
+    expect($code->ok(['context'], cwd: $code->worktree($id)))
+        ->toContain("database (run after a refresh or a change to migrations, seeders or seed data, and before e2e):\n  php artisan migrate --force\n  php artisan db:seed --class=DemoSeeder --force\n");
+});

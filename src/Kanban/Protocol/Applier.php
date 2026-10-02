@@ -40,8 +40,13 @@ final class Applier
         return realpath($path) ?: $path;
     }
 
-    /** Why a review report cannot be applied (dirty tree, no commits, a leftover conflict marker, failing gate), or null. */
-    public function refusal(Card $card, bool $gates = true): ?string
+    /**
+     * Why a review report cannot be applied (dirty tree, no commits, a leftover conflict marker), or null. With $staged,
+     * also when its record does not show the gates passing at the worktree's HEAD; the gates themselves never run here.
+     *
+     * @param  array<string, mixed>|null  $staged
+     */
+    public function refusal(Card $card, ?array $staged = null): ?string
     {
         $worktree = $this->worktree($card);
         if ($worktree === null || ! is_dir($worktree)) {
@@ -63,7 +68,11 @@ final class Applier
             return MergeCheck::markersMessage($markers);
         }
 
-        return $gates ? (new Gates($this->config))->failure($worktree) : null;
+        if ($staged !== null && ($unproven = (new Gates($this->config))->unproven($staged['gates'] ?? null, (string) $git->line(['rev-parse', 'HEAD']))) !== null) {
+            return "Gates not proven: {$unproven}. Run `vendor/bin/kanban report` again: it runs the gates and stages the report.";
+        }
+
+        return null;
     }
 
     /**
@@ -104,7 +113,7 @@ final class Applier
                     return "{$cardId}: report {$predates} and was discarded";
                 }
             }
-            if ($kind === 'report' && $item['status'] === 'review' && ($refusal = $this->refusal($this->store->card($cardId))) !== null) {
+            if ($kind === 'report' && $item['status'] === 'review' && ($refusal = $this->refusal($this->store->card($cardId), $item)) !== null) {
                 $this->runtime->noteRefusal($cardId, $kind, $refusal);
 
                 return "{$cardId}: report stays staged: ".strtok($refusal, "\n");

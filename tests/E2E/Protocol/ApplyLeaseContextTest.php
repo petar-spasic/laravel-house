@@ -85,11 +85,13 @@ it('prints the card context with the configured gates from its worktree, with --
         ->toContain("commits not on main: 1\n")->toContain("{$id}: clauses")
         ->toMatch('/notes from the owner and main:\n  \S+ (owner|main)( \([^)\n]*\))? @[0-9a-f]{7}: The image builds: checked by main\n/')
         ->toContain("dirty: notes.txt\n")
-        ->toContain("gates:\n  vendor/bin/pint --test --diff=main\n  npm run check\nmigrate: php artisan migrate --force\nprotocol: work and commit only in this worktree;");
+        ->toContain("gates (main's config/kanban.php; `vendor/bin/kanban gates` runs them in this worktree, and `report` before it stages, up to 240 s):\n"
+            ."  vendor/bin/pint --test --diff=main\n  npm run check\nprotocol: work and commit only in this worktree;")
+        ->not->toContain('database');
 
     unlink($wt.'/notes.txt');
-    $p->in($wt, ['report', $id, '--status=review', '--tick=1', '--summary=Built it', '--verified=pest → ok'])->mustRun();
     $p->config(['gates' => ['report' => []], 'migrate' => null]);
+    $p->in($wt, ['report', $id, '--status=review', '--tick=1', '--summary=Built it', '--verified=pest → ok'])->mustRun();
     expect($p->in($wt, ['context'])->getOutput())->toContain("gates: none\nprotocol:");
     $p->hook('subagent-stop', $p->payload('subagent-stop', ['cwd' => $wt]));
     $p->config($gates);
@@ -99,7 +101,7 @@ it('prints the card context with the configured gates from its worktree, with --
         ->toContain("  [x] 1. It renders\n  [ ] 2. It is tested\n")
         ->toMatch("/report 1\\/1 review \\S+ @\\w{7} ticks 1\n  Built it\n  verified: pest → ok\n/")
         ->toContain("this card's changes, diff --stat main...HEAD:\n  app.php | 1 +\n")
-        ->toContain("gates:\n  vendor/bin/pint --test --diff=main\n  npm run check\n")
+        ->toContain("up to 240 s):\n  vendor/bin/pint --test --diff=main\n  npm run check\n")
         ->toContain("protocol: read-only; verify each criterion, then `vendor/bin/kanban verdict {$id} approve|reject --check=1:pass|fail:\"evidence\" --check=2:pass|fail:\"evidence\" [--issue=\"…\"] [--discovered=\"bug: Title — body\"]`");
 
     $nowhere = $p->sandbox->kanban(['context']);

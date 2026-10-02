@@ -75,3 +75,94 @@ it('refuses two added migrations that share a timestamp', function () {
         ->and($run->getErrorOutput())->toContain('create_labels_table.php: timestamp 2026_02_03_141522 is shared with another migration')
         ->toContain('create_tags_table.php: timestamp 2026_02_03_141522 is shared with another migration');
 });
+
+it('runs each gate under its own timeout, else gates.timeout', function () {
+    $this->p->commit($this->wt, 'app.php', "<?php\n", "{$this->id}: clauses");
+    $this->p->config(['gates' => ['timeout' => 1, 'report' => ['sleep 3']]]);
+
+    $gates = $this->p->in($this->wt, ['gates']);
+    $report = $this->p->in($this->wt, ['report', $this->id, '--status=review', '--tick=1', '--summary=Done']);
+
+    expect($gates->getExitCode())->toBe(1)
+        ->and($gates->getOutput())->toBe("fail sleep 3 (timed out after 1 s)\n")
+        ->and($report->getErrorOutput())->toContain('report not staged: Gate failed: `sleep 3` (timed out after 1 s)')
+        ->and(glob($this->p->runtime('staged/*')))->toBe([]);
+
+    $this->p->config(['gates' => ['timeout' => 1, 'report' => [['run' => 'sleep 3', 'timeout' => 10]]]]);
+    expect($this->p->in($this->wt, ['gates'])->getOutput())->toBe("pass sleep 3 (exit 0)\n")
+        ->and($this->p->in($this->wt, ['report', $this->id, '--status=review', '--tick=1', '--summary=Done'])->getExitCode())->toBe(0)
+        ->and($this->p->in($this->wt, ['context'])->getOutput())->toContain("and `report` before it stages, up to 10 s):\n  sleep 3\n");
+});
+
+it('runs the gates when the report is staged, never again in the stop hook for the same head and gates', function () {
+    $counter = $this->p->sandbox->root.'/../gate-runs-'.$this->id;
+    $this->p->commit($this->wt, 'app.php', "<?php\n", "{$this->id}: clauses");
+    $this->p->config(['gates' => ['report' => ['echo run >> '.escapeshellarg($counter)]]]);
+
+    expect($this->p->in($this->wt, ['report', $this->id, '--status=review', '--tick=1', '--summary=Done'])->getExitCode())->toBe(0)
+        ->and(file($counter))->toHaveCount(1)
+        ->and(stopWorker($this->p, $this->wt))->toBe([])
+        ->and(file($counter))->toHaveCount(1)
+        ->and($this->p->card($this->id)['stage'])->toBe('review');
+    @unlink($counter);
+});
+
+it('refuses a stop whose report predates a commit or a change of the gates', function () {
+    $this->p->commit($this->wt, 'app.php', "<?php\n", "{$this->id}: clauses");
+    $this->p->config(['gates' => ['report' => ['true']]]);
+    $staged = $this->p->in($this->wt, ['report', $this->id, '--status=review', '--tick=1', '--summary=Done']);
+    $reported = substr(trim($this->p->git($this->wt, 'rev-parse', 'HEAD')), 0, 7);
+    $head = substr($this->p->commit($this->wt, 'more.php', "<?php\n", "{$this->id}: more"), 0, 7);
+
+    expect($staged->getOutput())->toStartWith("gates passed (1)\n")
+        ->and(stopWorker($this->p, $this->wt)['reason'])->toContain("Gates not proven: the gates passed at {$reported}, the branch is at {$head}.");
+
+    $this->p->in($this->wt, ['report', $this->id, '--status=review', '--tick=1', '--summary=Done'])->mustRun();
+    $this->p->config(['gates' => ['report' => ['true', 'true --again']]]);
+    expect(stopWorker($this->p, $this->wt)['reason'])->toContain("Gates not proven: main's gates changed since they passed.")
+        ->and($this->p->sandbox->ok(['apply']))->toContain("{$this->id}: report waits for live agent");
+});
+
+it('refuses a report when a gate writes into the worktree', function () {
+    $this->p->commit($this->wt, 'app.php', "<?php\n", "{$this->id}: clauses");
+    $this->p->config(['gates' => ['report' => ['echo formatted > app.php']]]);
+
+    $report = $this->p->in($this->wt, ['report', $this->id, '--status=review', '--tick=1', '--summary=Done']);
+
+    expect($report->getExitCode())->not->toBe(0)
+        ->and($report->getErrorOutput())->toContain('report not staged: a gate changed the worktree: gates must not write files')
+        ->and(glob($this->p->runtime('staged/*')))->toBe([]);
+});
+
+it('runs every gate for the evaluator from the card worktree and names each failure', function () {
+    $this->p->config(['gates' => ['report' => ["! git grep -n '<<<<<<<' -- ':!*.lock'", 'php -r "echo \'all good\';"']]]);
+    $this->p->commit($this->wt, 'app.php', "<?php\n", "{$this->id}: clauses");
+
+    $pass = $this->p->in($this->wt, ['gates']);
+    expect($pass->getExitCode())->toBe(0)
+        ->and($pass->getOutput())->toBe("pass ! git grep -n '<<<<<<<' -- ':!*.lock' (exit 0)\npass php -r \"echo 'all good';\" (exit 0)\n");
+
+    $this->p->commit($this->wt, 'clauses.md', "<<<<<<< HEAD\nours\n", "{$this->id}: marker");
+    $fail = $this->p->in($this->wt, ['gates', $this->id]);
+    expect($fail->getExitCode())->toBe(1)
+        ->and($fail->getOutput())->toBe("fail ! git grep -n '<<<<<<<' -- ':!*.lock' (exit 1)\n  clauses.md:1:<<<<<<< HEAD\npass php -r \"echo 'all good';\" (exit 0)\n")
+        ->and(glob($this->p->runtime('staged/*')))->toBe([]);
+
+    $elsewhere = $this->p->sandbox->kanban(['gates', $this->id]);
+    expect($elsewhere->getExitCode())->not->toBe(0)
+        ->and($elsewhere->getErrorOutput())->toContain("gates runs from {$this->id}'s worktree");
+});
+
+it("says when the branch's config/kanban.php has other gates than main's", function () {
+    $this->p->config(['gates' => ['report' => ['true']]]);
+    @mkdir($this->wt.'/config');
+    copy($this->p->main.'/config/kanban.php', $this->wt.'/config/kanban.php');
+    expect($this->p->in($this->wt, ['context'])->getOutput())->not->toContain("this branch's config/kanban.php");
+
+    file_put_contents($this->wt.'/config/kanban.php', "<?php\n// the branch's own\nreturn ['gates' => ['report' => ['true']]];\n");
+    expect($this->p->in($this->wt, ['context'])->getOutput())->not->toContain("this branch's config/kanban.php");
+
+    file_put_contents($this->wt.'/config/kanban.php', "<?php return ['gates' => ['report' => ['true', 'npm run check']]];\n");
+    expect($this->p->in($this->wt, ['context'])->getOutput())
+        ->toContain("  true\nthis branch's config/kanban.php has other gates than main's: main's apply; merge main if a gate needs code the branch lacks\n");
+});

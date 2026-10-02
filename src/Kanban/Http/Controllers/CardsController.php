@@ -5,6 +5,7 @@ namespace PetarSpasic\LaravelHouse\Kanban\Http\Controllers;
 use Closure;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use PetarSpasic\LaravelHouse\Kanban\Http\Api;
 use PetarSpasic\LaravelHouse\Kanban\Http\Presenter;
@@ -54,7 +55,7 @@ class CardsController
     public function store(Request $request, string $epic, string $board): JsonResponse
     {
         return Api::run(function () use ($request, $epic, $board) {
-            $input = $request->validate($this->fieldRules(new: true) + [
+            $input = self::input($request, $this->fieldRules(new: true) + [
                 'acceptance' => ['array', 'max:'.Card::MAX_CRITERIA], 'acceptance.*' => ['required', 'string', 'max:'.Card::MAX_CRITERION],
                 'stage' => ['nullable', Rule::in(Stage::WORK)],
             ]);
@@ -156,7 +157,7 @@ class CardsController
     private function write(Request $request, string $id, array $rules, Closure $change): JsonResponse
     {
         return Api::run(function () use ($request, $id, $rules, $change) {
-            $input = $request->validate($rules + ['rev' => ['required', 'string', 'regex:/^[0-9a-f]{40}$/']]);
+            $input = self::input($request, $rules + ['rev' => ['required', 'string', 'regex:/^[0-9a-f]{40}$/']]);
             $snapshot = $this->store->snapshot();
             $card = $snapshot->resolve($id);
             $updated = $change($card, $snapshot, $input, new Rev($input['rev']));
@@ -167,6 +168,23 @@ class CardsController
 
             return ['card' => $this->present($snapshot)->detail($snapshot->resolve($id))];
         });
+    }
+
+    /**
+     * The JSON body as the page sent it, validated. The host app's TrimStrings never reaches it, so Markdown keeps its
+     * whitespace; an empty string is no value, whether or not the host converts empty strings.
+     *
+     * @param  array<string, mixed>  $rules
+     * @return array<string, mixed>
+     */
+    private static function input(Request $request, array $rules): array
+    {
+        $body = json_decode($request->getContent(), true);
+        $blank = function (mixed $value) use (&$blank): mixed {
+            return is_array($value) ? array_map($blank, $value) : ($value === '' ? null : $value);
+        };
+
+        return Validator::make(is_array($body) ? $blank($body) : [], $rules)->validate();
     }
 
     /**

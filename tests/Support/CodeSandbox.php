@@ -181,6 +181,7 @@ final class CodeSandbox
     public function commit(string $id, string $file, string $content, string $message = 'work'): string
     {
         $wt = $this->worktree($id);
+        @mkdir(dirname($wt.'/'.$file), 0775, true);
         file_put_contents($wt.'/'.$file, $content);
         $this->gitIn($wt, 'add', '-A');
         $this->gitIn($wt, 'commit', '-q', '-m', $message);

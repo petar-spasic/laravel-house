@@ -69,7 +69,7 @@ class RefreshCommand extends Command
         $before = $worktrees->head('HEAD', $path);
         $merge = $git->attempt(['merge', '--no-edit', $main]);
         $migrations = array_values(array_filter(explode("\n", trim($git->attempt(['diff', '--name-only', '--diff-filter=A', "{$before}...refs/heads/{$main}", '--', 'database/migrations/'])->out))));
-        $arrived = $migrations === [] ? null : count($migrations)." migration(s) arrived from {$main}: the card's agent runs the `migrate:` command `kanban context` prints";
+        $arrived = $migrations === [] ? null : count($migrations)." migration(s) arrived from {$main}: the card's agent runs the `database` commands `kanban context` prints";
         $conflicted = array_values(array_filter(explode("\n", trim($git->attempt(['diff', '--name-only', '--diff-filter=U'])->out))));
 
         if ($conflicted !== []) {
@@ -156,7 +156,7 @@ class RefreshCommand extends Command
     {
         return "Card {$id}: {$main} moved; a merge of {$main} into your branch is in progress in your worktree, with conflicts in "
             .implode(', ', $files).'. Resolve each conflict by keeping both sides\' content and adding nothing neither side had, '
-            .'then `git add` the files and `git commit --no-edit` to conclude the merge. After it, run the `migrate:` command and every gate '
-            ."`vendor/bin/kanban context` lists, and the whole test suite, then report with `vendor/bin/kanban report {$id} --status=review`.";
+            .'then `git add` the files and `git commit --no-edit` to conclude the merge. After it, run the `database` commands '
+            ."`vendor/bin/kanban context` lists, `vendor/bin/kanban gates` and the whole test suite, then report with `vendor/bin/kanban report {$id} --status=review`.";
     }
 }

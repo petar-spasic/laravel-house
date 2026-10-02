@@ -4,6 +4,7 @@ namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Applier;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Context;
+use PetarSpasic\LaravelHouse\Kanban\Protocol\Gates;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Runtime;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Staged;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\NotFound;
@@ -44,6 +45,10 @@ class ReportCommand extends Command
                 'session' => (getenv('KANBAN_SESSION') ?: null),
             ], $this->upstream($card));
         $runtime = new Runtime($this->paths());
+        $refusal = $report['status'] === 'review' ? (new Applier($this->store(), $this->paths(), $this->config(), $runtime))->refusal($card) : null;
+        if ($report['status'] === 'review' && $refusal === null) {
+            $report['gates'] = $this->gates($card->id(), $git, $report['head'], $runtime);
+        }
         $runtime->stage($report, 'report');
 
         $this->say("staged report for {$card->id()}: {$report['status']}, head ".substr($report['head'], 0, 7)
@@ -53,12 +58,40 @@ class ReportCommand extends Command
         if (mb_strlen((string) $report['summary']) > Staged::SUMMARY) {
             $this->say('warning: the summary is '.mb_strlen((string) $report['summary']).' characters; the card keeps the first '.Staged::SUMMARY.'; shorten it and stage the report again');
         }
-        if ($report['status'] === 'review' && ($refusal = (new Applier($this->store(), $this->paths(), $this->config(), $runtime))->refusal($card, false)) !== null) {
-            $this->say('warning: '.strtok($refusal, "\n").' — the stop is refused until that is fixed');
+        if ($refusal !== null) {
+            $this->say('warning: '.strtok($refusal, "\n").' — the stop is refused until that is fixed'
+                .((new Gates($this->config()))->commands() === [] ? '' : '; then report again, which runs the gates'));
         }
         $this->say('applied when you stop');
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Runs main's gates in the worktree: the record of their pass, or refused with the failing gate (nothing staged).
+     *
+     * @return array<string, string>|null
+     */
+    private function gates(string $id, Git $git, string $head, Runtime $runtime): ?array
+    {
+        $gates = new Gates($this->config());
+        if ($gates->commands() === []) {
+            return null;
+        }
+        $status = $git->attempt(['status', '--porcelain', '--untracked-files=all'])->out;
+        $failure = $gates->failure($git->cwd);
+        if ($git->line(['rev-parse', 'HEAD']) !== $head || $git->attempt(['status', '--porcelain', '--untracked-files=all'])->out !== $status) {
+            $failure ??= 'a gate changed the worktree: gates must not write files (fix the gate in config/kanban.php or ask main)';
+        }
+        if ($failure !== null) {
+            if ($runtime->staged($id, 'report') !== null) {
+                $runtime->noteRefusal($id, 'report', $failure);
+            }
+            throw new PolicyRefused("report not staged: {$failure}");
+        }
+        $this->say('gates passed ('.count($gates->commands()).')');
+
+        return $gates->passed($head);
     }
 
     private function readFile(string $file): string

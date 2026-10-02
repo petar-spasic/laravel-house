@@ -115,9 +115,11 @@ return [
         'every' => 5,
     ],
 
-    // Commands a worker's branch must pass before its report is applied ({main_branch} is replaced);
-    // `kanban context` prints them for the worker and the evaluator.
+    // Commands a worker's branch must pass before its report is applied ({main_branch} is replaced). `kanban report`
+    // runs them in the worker's worktree and `kanban gates` runs them for the evaluator, so they must not write files.
+    // An entry is a command or ['run' => '…', 'timeout' => seconds]; `timeout` is the default for the others.
     'gates' => [
+        'timeout' => 120,
         'report' => [
             'vendor/bin/pint --test --diff={main_branch}',
             'vendor/bin/kanban migrations --base={main_branch}',

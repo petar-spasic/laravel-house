@@ -471,3 +471,20 @@ it('refuses a write whose Origin is another site, even from a same-site page', f
     $write(['Origin' => 'http://localhost', 'Sec-Fetch-Site' => 'same-origin'])->assertOk();
     $write([])->assertOk();
 });
+
+it('reads an empty string in the body as no value, whether or not the host converts empty strings', function () {
+    $s = $this->sandbox;
+    $id = $s->card('Blank fields', ['--body=Build it', '--accept=First', '--label=area:api']);
+
+    send($this, 'PATCH', "/cards/{$id}", ['rev' => rev($s, $id), 'type' => ''])->assertStatus(422);
+    send($this, 'PATCH', "/cards/{$id}", ['rev' => rev($s, $id), 'priority' => ''])->assertStatus(422);
+    send($this, 'PATCH', "/cards/{$id}", ['rev' => rev($s, $id), 'acceptance' => [['id' => 1, 'text' => 'First', 'done' => false], ['id' => '', 'text' => 'Second']]])->assertOk();
+    send($this, 'POST', "/cards/{$id}/stage", ['rev' => rev($s, $id), 'to' => 'ready', 'reason' => ''])->assertOk();
+    $made = send($this, 'POST', '/project/work/cards', ['title' => 'Blank stage', 'stage' => '', 'type' => '', 'priority' => ''])->assertStatus(201);
+
+    $card = $s->read($id);
+    expect(array_column($card['acceptance'], 'id'))->toBe([1, 2])
+        ->and($card['type'])->toBe('feature')
+        ->and(end($card['log']))->toMatchArray(['event' => 'stage', 'to' => 'ready'])->not->toHaveKey('reason')
+        ->and($s->read($made->json('card.id')))->toMatchArray(['stage' => 'backlog', 'type' => 'feature', 'priority' => 'normal']);
+});

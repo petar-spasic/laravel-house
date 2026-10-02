@@ -1,6 +1,8 @@
 <?php
 
 use PetarSpasic\LaravelHouse\Tests\Support\ExportSandbox;
+use PetarSpasic\LaravelHouse\Tests\Support\Sandbox;
+use PetarSpasic\LaravelHouse\Tests\Support\UiSandbox;
 
 beforeEach(function () {
     $this->sandbox = ExportSandbox::create();
@@ -150,4 +152,17 @@ it('fails the check until every exported form has its parity spec', function () 
     [$code, $output] = $this->sandbox->export(['--check' => true]);
 
     expect($code)->toBe(0, $output)->and($output)->toContain('validation export is current');
+});
+
+it('exports the same trimming whether or not the board UI is booted', function () {
+    $board = Sandbox::create();
+    $board->install('ACME');
+    UiSandbox::boot($board->root);
+    $sandbox = ExportSandbox::create();
+    acmeForm($sandbox, 'AcmeNoteRequest', 'acme-note', "['title' => 'required|string|max:120']");
+
+    [$code, $output] = $sandbox->export();
+
+    expect($code)->toBe(0, $output)
+        ->and($sandbox->module('acme-note'))->not->toContain('skipWhen')->not->toContain('trimming may differ');
 });
