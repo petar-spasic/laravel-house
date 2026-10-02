@@ -77,7 +77,7 @@ it('refuses nothing for a stock Laravel name', function () {
     file_put_contents($this->p->main.'/.env', "APP_NAME=Laravel\nAPP_URL=http://localhost\n");
     file_put_contents($this->p->main.'/composer.json', json_encode(['name' => 'laravel/laravel']));
 
-    expect(($this->report)(['Laravel boots twice — the laravel app in localhost'])->getExitCode())->toBe(0);
+    expect(($this->report)(['Laravel boots twice — the laravel app of laravel/laravel in localhost'])->getExitCode())->toBe(0);
 });
 
 it('applies findings as upstream log entries and never as cards', function () {
