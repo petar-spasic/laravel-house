@@ -11,5 +11,3 @@ Commands are the scheduler's entry points and the operator's tools. Scheduling i
 - Operator actions that change state (pause, retract, republish) are **logged rows, never quiet fixes**: timestamp,
   actor, what, why.
 - Output through `$this->components->*` for humans; exit codes for cron.
-
-A new or changed scheduled command updates `routes/CLAUDE.md` in the SAME commit.

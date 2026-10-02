@@ -7,12 +7,12 @@ authenticated action on a record goes through one.
   visible inventory. Discovery finds only a policy whose name and namespace match its model; a mismatched one silently
   never runs, and every check on that model is denied.
 <!-- if:htmx -->
-- Every ability is a named method, and the action actually invokes it (`$this->authorize()`). `@can` in Blade only
-  hides affordances; hiding a button is not authorization.
+- Every ability is a named method, and the action actually invokes it (`->can()` on the route for writes,
+  `$this->authorize()` otherwise). `@can` in Blade only hides affordances; hiding a button is not authorization.
 <!-- endif -->
 <!-- unless:htmx -->
-- Every ability is a named method, and the action actually invokes it (`$this->authorize()`). Hiding a button in the
-  frontend is not authorization.
+- Every ability is a named method, and the action actually invokes it (`->can()` on the route for writes,
+  `$this->authorize()` otherwise). Hiding a button in the frontend is not authorization.
 <!-- endif -->
 - **Never authorize by a request-supplied identifier.** The subject is `$request->user()`, the record comes from
   route-model binding.

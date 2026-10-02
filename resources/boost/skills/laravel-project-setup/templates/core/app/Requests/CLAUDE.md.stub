@@ -7,6 +7,8 @@ One endpoint ⇒ one FormRequest carrying ALL of its rules. No inline `$request-
 - **Server-owned columns get `['prohibited']`**: owner ids such as `user_id` (the owner is `$request->user()`, never
   the body), `status`, anything the server computes. It pairs with the model's non-fillable column.
 - Enum fields validate with `Rule::enum(X::class)`, never a hand-typed `in:` list that can drift.
+- An integer in a JSON body is `integer:strict`: plain `integer` accepts `1500.0` and `1e3`. Form posts and query
+  strings arrive as strings, which `strict` refuses, so there it stays `integer`. Money is an integer in minor units.
 <!-- if:tenancy -->
 - Every `exists` or `unique` rule on a tenant-owned table scopes to the tenant in a closure:
   `Rule::exists('projects', 'id')->where(fn ($q) => $q->where('tenant_id', CurrentTenant::id()))`, the same on

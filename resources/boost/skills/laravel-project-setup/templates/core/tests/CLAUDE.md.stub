@@ -13,6 +13,9 @@ routing, middleware, controller and database; an artisan command), asserting wha
 page, the flash, the payload, the records left behind. Behaviour-named (`it('…')`), `uses(RefreshDatabase::class)`.
 
 - Seed the world with the factories; drive it through the entry point, never by calling a service, model or job.
+- Auth state comes through its route: `actingAs($user)` for a signed-in user, `POST route('password.confirm.store')`
+  for a confirmation (as `TwoFactorAuthenticationTest` does). Never `withSession([...])` to forge a gate's state
+  (`auth.password_confirmed_at`, `login.id`, a stored OAuth flow).
 - Reference data is already there: `TestCase` carries `#[Seeder(ReferenceDataSeeder::class)]` (once per process).
   Look reference rows up by slug; never factory them.
 - Fake only what is paid or outside; nothing of our own code:
@@ -24,12 +27,15 @@ page, the flash, the payload, the records left behind. Behaviour-named (`it('…
 - Queues run inline (`QUEUE_CONNECTION=sync` in `phpunit.xml`), so a chain or queued job runs for real in the flow.
 - Machine addresses come from the environment (e.g. the host of `LOCAL_APP_URL`), never a literal; stand-ins are RFC
   5737 (`192.0.2.x`, `198.51.100.x`, `203.0.113.x`).
-- Run only the E2E test you wrote or touched: `php artisan test --compact tests/E2E/…`.
+- Run only the E2E test you wrote or touched: `php artisan test --compact tests/E2E/…`. The full run belongs to
+  review and to the owner before a push, never to a commit.
 
 ## Auth proofs
 
 Each is an E2E flow, written when the piece it proves is built.
 
+- Every write flow's denial test posts an invalid body as a user without access and asserts 403 (or 404), never 422:
+  authorization runs before validation (`app/Http/Controllers/CLAUDE.md`).
 - Fortify: the shipped `FortifyViewRoutesTest` and `TwoFactorAuthenticationTest`.
 <!-- if:htmx -->
   The views flip rewrites the first (`resources/CLAUDE.md`, Auth pages).
@@ -79,6 +85,7 @@ stack.
 - One user flow per test, named for what the user does. Each makes its own data (unique emails) through the UI or
   Laravel's public API (Playwright's `request` fixture); no shared leftovers, no test-only endpoints.
 - Assert what the user sees (`getByRole`, `getByLabel`, text). No selectors into `ui/` internals, no sleeps.
+- A form's flow saves, reloads and asserts every field it renders.
 - Fakes live on the Laravel side of the e2e site (its env, Hosting). Never `page.route()` or a mocked `fetch`.
 - **The session flow**, written with the first auth page: sign in through `/login`, then reload an `(app)` page; it
   renders server-side with the user. Signed out, the same page redirects to `/login`.

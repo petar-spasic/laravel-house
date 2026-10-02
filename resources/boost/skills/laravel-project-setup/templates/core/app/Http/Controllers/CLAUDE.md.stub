@@ -2,8 +2,10 @@
 
 A controller action is HTTP translation ONLY, about 20 lines at most:
 
-1. **Authorize** first (`$this->authorize()` / `Gate`) where the surface has authorization. Public read-only pages
-   have none; token API routes authenticate in middleware.
+1. **Authorize before validation** where the surface has authorization. A type-hinted FormRequest validates before
+   the action's body runs, so a write route carries `->can('<ability>', '<model>')` (the route-bound model, or the
+   class for a create): a member without access gets 403, never a 422. `$this->authorize()` in the body is for actions
+   without a FormRequest. Public read-only pages have no authorization; token API routes authenticate in middleware.
 2. **Validate** in the endpoint's own FormRequest (`app/Requests/CLAUDE.md`).
 3. **Delegate** to a model method, a domain service, an `app/Contracts/` client or a ListQuery.
 <!-- if:htmx -->

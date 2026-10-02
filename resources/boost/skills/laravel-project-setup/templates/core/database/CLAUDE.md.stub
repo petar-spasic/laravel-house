@@ -20,13 +20,15 @@ $table->timestamps();
 - A tenant-owned table adds `$table->tenantId()`, and a key between two tenant-owned tables is composite (Tenancy,
   below). The one vendor-table change is `personal_access_tokens.tenant_id`.
 <!-- endif -->
-- **bigint exception:** a hot table (tens of millions of rows, never exposed) may use `$table->id()`. List each here
-  with its reason: _(none yet)_.
+- **bigint exception:** a hot table (tens of millions of rows, never exposed) may use `$table->id()`, with a comment
+  on that line giving the reason.
+- **Ids are random, never an order.** A table whose rows need write order (feeds, keyset cursors, "latest wins") uses
+  `$table->timestampsTz(6)`, and its model sets `protected $dateFormat = 'Y-m-d H:i:s.uO'` so Eloquent keeps the
+  microseconds. Order and keyset by `(created_at, id)`, the id only breaking ties.
 - Every column a query filters or sorts by gets an index in the same migration.
-- **Reference tables** (`ReferenceDataSeeder`, below) carry no timestamps: _(none yet)_.
 - A table recording an observation of external state adds
   `$table->timestampTz('observed_at')->index();`: when the state was OBSERVED, not inserted.
-- **Append-only tables** (listed in `app/Models/CLAUDE.md`): no in-place edits, no soft or hard deletes. A correction
+- **Append-only tables** (`app/Models/CLAUDE.md`): no in-place edits, no soft or hard deletes. A correction
   is a new row with a `supersedes_id` back-link.
 - **High-volume event tables** are short-lived or live outside Postgres; keep only aggregates here.
 - Runtime flags (`visibility`, feature toggles) are **columns with a default**.
@@ -42,6 +44,8 @@ $table->timestamps();
 
 - One concern per migration, named for what it does. Never edit a migration that has run anywhere but your machine;
   add a new one.
+- Every migration comes from `php artisan make:migration`; never type or edit its timestamp. When main gains a newer
+  migration before yours merges, regenerate yours and move the body.
 - Secrets at rest: a `text` column with the `encrypted` cast on the model.
 - Postgres everywhere, tests included: a migration never branches on `DB::getDriverName()`. Partitions,
   `pg_trgm`/GiST indexes, `CREATE EXTENSION` and materialised views are written plainly ("today" in a view is
@@ -81,6 +85,9 @@ $table->timestamps();
 - **No timestamps on reference tables** (git is their history). A table the product edits at runtime is not reference
   data.
 - **No deletion by omission**: removing a reference row is a migration.
+- **A change to `database/data/` keeps every existing `id`**: `git diff main -- database/data` shows no removed or
+  changed `id`. A removed row, or a slug or unique value moved to another id, comes with its data-fix migration in the
+  same commit. An importer that regenerates these files reads the existing ids and keeps them.
 - **Admins before roles exist**: `config('auth.admins')` from `ADMIN_EMAILS`, created verified for the `viewHorizon`
   gate (`app/Providers/CLAUDE.md`). When roles land, only the gate body and the seeders change.
 - Every model gets a factory with **named states** for the lifecycle (`->pending()`, `->archived()`), so tests never
@@ -125,6 +132,9 @@ Other rules:
 - A table that becomes tenant-owned later gets the column, backfill, unique and policy in its own migration.
 - Every index on a tenant-owned table but the primary key leads with `tenant_id`, and every unique includes it.
 - Reference tables are global.
+- **Tenant-owned defaults** (rows each tenant starts with) come from one idempotent action that writes a tenant's
+  defaults inside `CurrentTenant::run`. Tenant creation calls it. The migration that adds such a table dispatches a job
+  that runs it for every existing tenant, never inserts itself: FORCE RLS refuses rows written with no tenant set.
 
 **Views, materialised views and partitions** are granted to `{{app}}_app` like tables; only the queried table's own
 policy binds:

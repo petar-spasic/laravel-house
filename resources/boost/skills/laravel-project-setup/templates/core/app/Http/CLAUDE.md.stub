@@ -67,20 +67,23 @@ reads it after `$next`).
 - Fragment routes pass a `PageMeta` too (tags only), or their entry lives on TTL alone.
 
 **Authenticated responses are `Cache-Control: private, no-store`**, no exceptions: a personalised page in a shared
-cache is a data leak.
+cache is a data leak. `bootstrap/app.php` applies it to the `web` and `api` groups (Registered).
 <!-- endif -->
 <!-- unless:htmx -->
 ## Caching
 
 **Authenticated responses are `Cache-Control: private, no-store`**, no exceptions: a personalised response in a shared
-cache is a data leak.
+cache is a data leak. `bootstrap/app.php` applies it to the `web` and `api` groups (Registered).
 <!-- endif -->
 
 ## Registered (`bootstrap/app.php`)
 
-There is no `Http/Kernel.php`, and **a missing registration fails silently**. The house names; create each under this
-name when first needed:
+There is no `Http/Kernel.php`, and **a missing registration fails silently**. Every alias goes in the one
+`$middleware->alias([...])` call: each call replaces the whole alias map. The house names; create each under this name
+when first needed:
 
+- `cache.headers:private;no_store` appended to the `web` and `api` groups. A successful `GET`/`HEAD` with a body
+  answers `Cache-Control: no-store, private`.
 - `RequestId` prepended globally; `SecurityHeaders` appended globally. The Horizon path is exempt: its dashboard is an
   inline-script SPA behind the gate.
 <!-- if:htmx -->

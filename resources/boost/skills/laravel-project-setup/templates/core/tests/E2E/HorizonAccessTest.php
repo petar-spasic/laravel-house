@@ -46,12 +46,13 @@ it('opens /horizon to a guest on the host itself in local', function () {
         ->assertOk();
 });
 
-it('opens /horizon to admin@{{app}}.test from the LAN', function () {
+it('opens /horizon to admin@{{app}}.test from the LAN, never cacheable', function () {
     $this->actingAs(User::factory()->create(['email' => 'admin@{{app}}.test']))
         ->withServerVariables(['REMOTE_ADDR' => lanClientAddress()])
         ->get('/horizon')
         ->assertOk()
-        ->assertSee('Horizon');
+        ->assertSee('Horizon')
+        ->assertHeader('Cache-Control', 'no-store, private');
 });
 
 it('refuses /horizon to an address that only differs in case from an admin', function () {

@@ -21,7 +21,7 @@ a commit is void.
 4. YAGNI and KISS.
 5. Every entity id is Stripe-style: `{prefix}_{16 base-62 chars}` (`bd_7Kq2mZp9Xt4LwRc1`). The prefix is `ID_PREFIX`
    on the model, unique across models; migrations use `$table->prefixedId()` / `foreignPrefixedId()`. Only `users`,
-   vendor-owned tables and the hot tables listed in `database/CLAUDE.md` use bigint.
+   vendor-owned tables and hot tables (`database/CLAUDE.md`) use bigint.
 6. Dependencies: Laravel core, first-party `laravel/*` and own `petar-spasic/*` only; nothing deprecated or likely to
    be abandoned. Any other package, npm included, needs owner approval and a maintenance check: active releases,
    current with the Laravel major or its toolchain, more than one maintainer.
@@ -62,7 +62,9 @@ a commit is void.
 | `app/<Layer>/CLAUDE.md` | One per layer directory (`Requests`, `Resources`, `Models`, `Jobs`, `Services`, `Contracts`, `Enums`, `Events`, `Listeners`, `Policies`, `Providers`, `Console`, `Support`, `Http/Controllers`, `Http/Middleware`) |
 
 A change to the layer layout, the process model, the auth model or what a surface exposes updates the governing file
-in the **same commit**.
+in the **same commit**. A `CLAUDE.md` states rules, never an inventory: no list of tests, routes, policies, services,
+flows, tables or scheduled commands. The code is the list (`route:list`, `schedule:list`, the directory, a grep), so a
+`CLAUDE.md` changes only when a rule does.
 
 ## What we are building
 
