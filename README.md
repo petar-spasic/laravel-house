@@ -1129,8 +1129,14 @@ Skip the `doctor` line in a project without the board. Then restart Claude Code.
 
 > [!WARNING]
 > A project that still requires `petar-spasic/laravel-kanban` cannot require this package next to it: the two
-> conflict. Its own copy of `/implement-kanban` is too old to help, so run the plugin's copy,
-> `/laravel-house:implement-kanban`, and follow its case for that package.
+> conflict. Stop any running agents, then swap them in one shell call. Leave out `vendor/bin/kanban doctor --fix` when
+> the project has no board:
+>
+> ```shell
+> composer remove --dev petar-spasic/laravel-kanban && composer require --dev petar-spasic/laravel-house -W && vendor/bin/kanban doctor --fix && php artisan boost:update
+> ```
+>
+> Then restart Claude Code and run `/implement-kanban`. Its case for that package finishes the move on every clone.
 
 > [!WARNING]
 > Every clone that shares a board must run the same version of the package. Commit `composer.lock`. Each other clone

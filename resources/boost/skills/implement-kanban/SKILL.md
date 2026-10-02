@@ -38,8 +38,8 @@ the `kanban` skill's `references/gotchas.md` in the same session.
 | (d) A board on the separate kanban package | `composer.json` requires the board as a package of its own | "Upgrading a board", (d) |
 | (e) The separate package, no board | `composer.json` requires it, but there is no `kanban` branch, local or on `origin` | (e), then (a) or (b) |
 
-A project on the separate package runs this skill from the plugin (`/laravel-house:implement-kanban`): its own copy
-is older than cases (d) and (e).
+A project still on the separate package has an older copy of this skill. The swap in the house README, "Updating the
+Composer Package", brings this one; (d) step 2 and (e) are then done.
 
 ## 1. Prerequisites: stop and report any that fail
 

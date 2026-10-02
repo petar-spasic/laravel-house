@@ -231,8 +231,9 @@ the next bump. Consumers update as the README's Updating section says.
 A release that changes the core is a new minor. A 0.x caret never crosses a minor, so consumers cross it with
 `composer require --dev petar-spasic/laravel-house` and no constraint (README, Updating).
 
-`src/Kanban/Console/Install/Migrate.php` moves projects off the old stored names. Delete it and its test in the first
-minor after every project is upgraded.
+`src/Kanban/Console/Install/Migrate.php` moves projects off the old stored names. Delete it, its test, the README
+warning about `petar-spasic/laravel-kanban` and implement-kanban's cases (d) and (e) in the first minor after every
+project is upgraded.
 
 Before tagging a release that touches `src/`, `bin/` or `composer.json`, smoke-install it on the host into a scratch
 Laravel app outside the repo, with `house` set to this repository's path. Export `XDG_STATE_HOME` to a scratch
