@@ -1,6 +1,7 @@
 <?php
 
 use PetarSpasic\LaravelHouse\Tests\Support\CodeSandbox;
+use PetarSpasic\LaravelHouse\Tests\Support\Sandbox;
 use Symfony\Component\Process\Process;
 
 beforeEach(function () {
@@ -230,7 +231,7 @@ it('resumes a start whose worktree went missing, and the brief points at it', fu
     $code = $this->code;
     $id = $code->started('Lost worktree');
     $before = $code->sandbox->read($id)['work'];
-    $code->sandbox->git('worktree', 'remove', '--force', $code->worktree($id));
+    exec('rm -rf '.escapeshellarg($code->worktree($id)));
 
     expect($code->ok(['status']))->toContain("worktree missing (`kanban start {$id}` resumes the start)");
 
@@ -263,4 +264,66 @@ it('records where the work goes with the claim, so a start killed before its sta
     expect($again->getExitCode())->toBe(0)
         ->and($again->getOutput())->toContain("resumed {$id}\n")
         ->and($code->sandbox->read($id)['work']['stack'])->not->toBeNull();
+});
+
+it("makes the card's worktree a clone of main that names main, carries main's identity and owns its own .git", function () {
+    $code = $this->code;
+    $code->sandbox->git('config', 'user.name', 'Ana Acme');
+    $id = $code->started('Own repository');
+    $wt = $code->worktree($id);
+    $branch = $code->sandbox->read($id)['work']['branch'];
+
+    expect(is_dir($wt.'/.git'))->toBeTrue()
+        ->and(trim($code->gitIn($wt, 'config', 'kanban.main')))->toBe($code->root())
+        ->and(trim($code->gitIn($wt, 'config', 'user.name')))->toBe('Ana Acme')
+        ->and(trim($code->gitIn($wt, 'remote', 'get-url', 'origin')))->toBe($code->root())
+        ->and(trim($code->gitIn($wt, 'symbolic-ref', '--short', 'HEAD')))->toBe($branch)
+        ->and(trim($code->sandbox->git('worktree', 'list')))->not->toContain($wt)
+        // a commit in the clone is not in main until a kanban command levels them
+        ->and($code->sandbox->git('branch', '--list', $branch))->toBe('');
+
+    $head = $code->commit($id, 'app/Own.php', "<?php\n");
+    $code->ok(['context'], cwd: $wt);
+
+    expect(trim($code->sandbox->git('rev-parse', 'refs/heads/'.$branch)))->toBe($head);
+});
+
+it("never runs what a card clone's config or attributes name, from a kanban command on this machine", function () {
+    $code = $this->code;
+    $id = $code->started('Hostile config');
+    $wt = $code->worktree($id);
+    $marker = $code->root().'/../pwned';
+    $code->commit($id, 'app/A.php', "<?php\n");
+    foreach (['core.fsmonitor' => "touch {$marker}-fsmonitor", 'core.hooksPath' => $wt.'/hooks', 'filter.x.clean' => "touch {$marker}-filter",
+        'diff.x.textconv' => "touch {$marker}-textconv", 'core.pager' => "touch {$marker}-pager"] as $key => $value) {
+        $code->gitIn($wt, 'config', $key, $value);
+    }
+    mkdir($wt.'/hooks');
+    foreach (['pre-commit', 'commit-msg', 'post-merge', 'reference-transaction'] as $hook) {
+        file_put_contents("{$wt}/hooks/{$hook}", "#!/bin/sh\ntouch {$marker}-hook-{$hook}\n");
+        chmod("{$wt}/hooks/{$hook}", 0755);
+    }
+    file_put_contents($wt.'/.gitattributes', "* filter=x diff=x\n");
+    file_put_contents($wt.'/app/A.php', "<?php // changed\n");
+    $code->commitMain('main.txt', "main\n");
+
+    $code->kanban(['context'], cwd: $wt);
+    $code->kanban(['report', $id, '--status=review', '--summary=x'], cwd: $wt);
+    $code->kanban(['refresh', $id]);
+
+    expect(glob($marker.'-*') ?: [])->toBe([]);
+});
+
+it("tells an agent to run vendor/bin/kanban on its own when its card's container runs it", function () {
+    // a card clone as its container sees it: kanban.main names a main checkout that is not mounted there
+    $clone = Sandbox::tmp().'/card';
+    mkdir($clone);
+    (new Process(['git', 'init', '-q'], $clone))->mustRun();
+    (new Process(['git', 'config', 'kanban.main', '/nonexistent/main'], $clone))->mustRun();
+
+    $run = new Process([PHP_BINARY, Sandbox::package().'/bin/kanban', 'status'], $clone);
+    $run->run();
+
+    expect($run->getExitCode())->toBe(1)
+        ->and($run->getErrorOutput())->toContain('run it as a command of its own');
 });

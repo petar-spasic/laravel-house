@@ -65,6 +65,7 @@ final class Context
         if ($worktree === null || ($cwd !== $worktree && ! str_starts_with($cwd, $worktree.'/'))) {
             throw new PolicyRefused("{$what} runs from {$card->id()}'s worktree".($worktree === null ? ' (it has none)' : ": cd {$worktree}"));
         }
+        (new Worktrees($this->paths, $this->config))->sync($worktree);
 
         return $worktree;
     }
@@ -74,7 +75,8 @@ final class Context
     {
         $work = $card->work() ?? [];
         $worktree = $this->worktree($card);
-        $git = $worktree !== null && is_dir($worktree) ? new Git($worktree) : null;
+        $git = $worktree !== null && is_dir($worktree) ? Git::untrusted($worktree) : null;
+        $git === null || (new Worktrees($this->paths, $this->config))->sync($worktree);
         $base = is_string($work['base'] ?? null) ? $work['base'] : null;
 
         $lines = ["{$card->id()} {$card->stage()} {$card->priority()} {$card->type()} {$card->board} {$card->title()}"];

@@ -31,7 +31,7 @@ class VerdictCommand extends Command
         if ($card->stage() !== 'review') {
             throw new PolicyRefused("{$card->id()} is {$card->stage()}, not review: only a card in review takes a verdict");
         }
-        $git = new Git($worktree);
+        $git = Git::untrusted($worktree);
         $main = 'refs/heads/'.$this->setting('main_branch', 'main');
         $runtime = new Runtime($this->paths());
         $evaluator = $runtime->agentFor($card->id(), SubagentStop::EVALUATOR);

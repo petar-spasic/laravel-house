@@ -66,6 +66,7 @@ class RefreshCommand extends Command
         }
         $main = $worktrees->mainBranch();
         $git = $worktrees->git($path);
+        $worktrees->sync($path);
         $before = $worktrees->head('HEAD', $path);
         $merge = $git->attempt(['merge', '--no-edit', $main]);
         $migrations = array_values(array_filter(explode("\n", trim($git->attempt(['diff', '--name-only', '--diff-filter=A', "{$before}...refs/heads/{$main}", '--', 'database/migrations/'])->out))));
@@ -96,6 +97,7 @@ class RefreshCommand extends Command
             return 1;
         }
         $after = $worktrees->head('HEAD', $path);
+        $worktrees->sync($path);
         if ($after === $before) {
             $this->say("up to date {$id}");
             $this->spawn($card, $path);

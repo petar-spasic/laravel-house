@@ -132,7 +132,7 @@ it('gives a card stack its host-path mount and no ssh command, and records its c
     $wt = $code->worktree($id);
     $lc = basename($wt);
 
-    expect(file_get_contents($wt.'/.env'))->toContain("\nKANBAN_WORKTREE_PATH={$wt}\nKANBAN_GIT_SSH_COMMAND=\nKANBAN_GIT_TOKEN=\n")
+    expect(file_get_contents($wt.'/.env'))->toContain("\nKANBAN_WORKTREE_PATH={$wt}\nKANBAN_TMPDIR={$wt}/.tmp\nKANBAN_GIT_SSH_COMMAND=\nKANBAN_GIT_TOKEN=\n")
         ->and(stackRecord($code, $wt))->toMatchArray([
             'worktree' => $wt, 'project' => "acme-wt-{$lc}", 'container' => "acme-wt-{$lc}-app-1", 'shell' => $shell,
         ])

@@ -7,10 +7,11 @@ use DateTimeZone;
 use Throwable;
 
 /**
- * Claude Code PreToolUse hook. It never allows or denies; it keeps the runtime files the rest of kanban reads:
- * the agent's heartbeat (agents/<id>.json mtime), its binding to a card at EnterWorktree, and the spawn record
- * that WorktreeCreate hands to the next isolated kanban agent. It rewrites a bound agent's shell command to run in
- * its card stack (`updatedInput`). Any error is swallowed and prints nothing.
+ * Claude Code PreToolUse hook. It keeps the runtime files the rest of kanban reads: the agent's heartbeat
+ * (agents/<id>.json mtime), its binding to a card at EnterWorktree, and the spawn record that WorktreeCreate hands
+ * to the next isolated kanban agent. For a bound worker or evaluator it routes every shell command but a plain
+ * `vendor/bin/kanban` one into the card's container (`updatedInput`), and fences its file tools to the card's
+ * directory: the only thing it denies. Any error is swallowed and prints nothing.
  */
 final class Guard
 {
@@ -20,8 +21,16 @@ final class Guard
 
     private const HELD_SECONDS = 300;
 
-    /** Commands that stay on this machine: `git` (it needs .git) and `vendor/bin/kanban` (host docker, the board), by any path. */
-    private const HOST = '#^\s*(?:[A-Za-z_][A-Za-z0-9_]*=[A-Za-z0-9_.,:/@%+=-]*\s+)*(?:php\s+)?(?:[A-Za-z0-9_.~/-]*/)?(?:git|vendor/bin/kanban)(?:\s|$)#';
+    /** The one command that stays on this machine: `vendor/bin/kanban` (host docker, the board, main's runtime), by any path. */
+    private const HOST = '#^\s*(?:[A-Za-z_][A-Za-z0-9_]*=[A-Za-z0-9_.,:/@%+=-]*\s+)*(?:php\s+)?(?:[A-Za-z0-9_.~/-]*/)?vendor/bin/kanban(?:\s|$)#';
+
+    /** What makes a command more than one plain command: anything chained to a host command would run on the host too. */
+    private const COMPOUND = '/[;&|<>`\n\r]|\$\(/';
+
+    /** File tools and the input key that holds their path (Glob and Grep default to the cwd). */
+    private const FILE_TOOLS = ['Read' => 'file_path', 'Edit' => 'file_path', 'Write' => 'file_path', 'NotebookEdit' => 'notebook_path', 'Glob' => 'path', 'Grep' => 'path'];
+
+    private const WRITES = ['Edit', 'Write', 'NotebookEdit'];
 
     /** The command a card agent's shell runs through; ClaudeSettings allows exactly this prefix. */
     public static function exec(string $main): string
@@ -81,7 +90,48 @@ final class Guard
             $this->bind($main, $file, $agentId, $type, is_array($binding) ? $binding : [], $input, $cwd);
         } elseif (($tool === 'Bash' || $tool === 'Monitor') && is_array($binding)) {
             $this->route($main, $binding, $input, $cwd);
+        } elseif (isset(self::FILE_TOOLS[$tool]) && is_array($binding)) {
+            $this->fence($main, $binding, (string) $tool, $input, $cwd);
         }
+    }
+
+    /**
+     * A bound worker's or evaluator's file tool outside its card's directory is denied, and so is a write into the card's
+     * `.git` or `.claude`. Reads may also reach Claude Code's own temp directory and the skill directories.
+     *
+     * @param  array<string, mixed>  $binding
+     * @param  array<string, mixed>  $input
+     */
+    private function fence(string $main, array $binding, string $tool, array $input, string $cwd): void
+    {
+        $worktree = $binding['worktree'] ?? null;
+        if (! is_string($worktree) || $worktree === '' || ! in_array($binding['agent_type'] ?? null, [self::WORKER, self::EVALUATOR], true)) {
+            return;
+        }
+        $root = self::canonical($worktree[0] === '/' ? $worktree : $main.'/'.$worktree);
+        $given = $input[self::FILE_TOOLS[$tool]] ?? null;
+        $path = self::canonical(! is_string($given) || $given === '' ? $cwd : ($given[0] === '/' ? $given : $cwd.'/'.$given));
+        $inside = fn (string $dir) => $path === $dir || str_starts_with($path, $dir.'/');
+        $write = in_array($tool, self::WRITES, true);
+
+        if ($inside($root)) {
+            if (! $write || (! $inside($root.'/.git') && ! $inside($root.'/.claude'))) {
+                return;
+            }
+            $why = "{$path}: .git and .claude in your card's directory are kanban's; work in the code";
+        } else {
+            $home = getenv('HOME');
+            $tmp = rtrim((string) (getenv('CLAUDE_CODE_TMPDIR') ?: sys_get_temp_dir()), '/').'/claude-'.(function_exists('posix_getuid') ? posix_getuid() : getmyuid());
+            $readable = [self::canonical($tmp), self::canonical($main.'/.claude/skills'), ...(is_string($home) && $home !== '' ? [self::canonical($home.'/.claude')] : [])];
+            foreach ($readable as $dir) {
+                if ($inside($dir) && (! $write || $dir === $readable[0])) {
+                    return;
+                }
+            }
+            $why = "{$path} is outside your card's directory {$root}; work only there (scratch files go in {$root}/.tmp)";
+        }
+        echo json_encode(['hookSpecificOutput' => ['hookEventName' => 'PreToolUse', 'permissionDecision' => 'deny',
+            'permissionDecisionReason' => "kanban: {$why}"]], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
     }
 
     /**
@@ -96,7 +146,7 @@ final class Guard
     {
         $command = $input['command'] ?? null;
         $worktree = $binding['worktree'] ?? null;
-        if (! is_string($command) || trim($command) === '' || preg_match(self::HOST, $command) || ! is_string($worktree) || $worktree === ''
+        if (! is_string($command) || trim($command) === '' || (preg_match(self::HOST, $command) && ! preg_match(self::COMPOUND, $command)) || ! is_string($worktree) || $worktree === ''
             || ! in_array($binding['agent_type'] ?? null, [self::WORKER, self::EVALUATOR], true)) {
             return;
         }
@@ -246,7 +296,7 @@ final class Guard
             $git = $dir.'/.git';
 
             if (is_dir($git)) {
-                return $dir;
+                return self::cloneMain($dir) ?? $dir;
             }
 
             if (is_file($git) && preg_match('/^gitdir:\s*(.+)$/m', (string) file_get_contents($git), $m)) {
@@ -263,6 +313,18 @@ final class Guard
         }
 
         return null;
+    }
+
+    /** A card clone's main checkout (`kanban.main`, see Paths::cloneMainOf), or null. */
+    private static function cloneMain(string $dir): ?string
+    {
+        $config = @file_get_contents($dir.'/.git/config');
+        if (! is_string($config) || ! preg_match('/^\[kanban\]\R(?:[ \t]+[^\[\r\n]*\R)*?[ \t]+main[ \t]*=[ \t]*(.+?)[ \t]*$/m', $config, $m)) {
+            return null;
+        }
+        $main = realpath($m[1]);
+
+        return $main !== false && is_dir($main.'/.git') && str_starts_with($dir, $main.'/.claude/worktrees/') ? $main : null;
     }
 
     /** Absolute path with symlinks resolved as far as the path exists. */

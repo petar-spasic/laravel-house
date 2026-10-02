@@ -23,7 +23,7 @@
 # .env never defines are substitutable (COMPOSE_PROJECT_NAME, LOCAL_APP_URL,
 # WEB_PORT, WEB_BIND, DB_HOST_PORT, REDIS_HOST_PORT, SIDECAR_BIND,
 # HOST_UID, HOST_GID, DATABASE_SEED, XDEBUG_MODE, XDEBUG_SERVER_NAME,
-# KANBAN_WORKTREE_PATH, KANBAN_GIT_SSH_COMMAND, KANBAN_GIT_TOKEN).
+# KANBAN_WORKTREE_PATH, KANBAN_TMPDIR, KANBAN_GIT_SSH_COMMAND, KANBAN_GIT_TOKEN).
 # if:reverb
 # unless:spa
 # WS_PORT too: Reverb's host port, one more worktree port.
@@ -101,6 +101,8 @@ services:
       # with read and write on this repository's contents only. This container's credential helper hands it to git
       # only for origin's own host, never to another host that asks (a dependency, a pasted URL), and no git config
       # holds it.
+      # A worktree stack's scratch space: its .tmp, removed with the worktree.
+      TMPDIR: ${KANBAN_TMPDIR:-/tmp}
       GIT_SSH_COMMAND: ${KANBAN_GIT_SSH_COMMAND-ssh -i /app/.git/laravel-house/deploy_key -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/app/.git/laravel-house/known_hosts}
       KANBAN_GIT_TOKEN: ${KANBAN_GIT_TOKEN:-}
       GIT_CONFIG_COUNT: 1

@@ -158,9 +158,12 @@ final class Brief
         return $parts;
     }
 
-    /** A linked worktree's MERGE_HEAD, found through its `.git` file without running git. */
+    /** A card's MERGE_HEAD, in its clone's `.git` or found through a linked worktree's `.git` file, without running git. */
     private static function merging(string $worktree): bool
     {
+        if (is_dir($worktree.'/.git')) {
+            return is_file($worktree.'/.git/MERGE_HEAD');
+        }
         $link = @file_get_contents($worktree.'/.git');
         if (! is_string($link) || preg_match('/^gitdir: (.+)$/m', $link, $m) !== 1) {
             return false;

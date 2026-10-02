@@ -24,6 +24,18 @@ final class Git
         private readonly array $env = [],
     ) {}
 
+    /**
+     * Git in a directory whose config and attributes a card's agent controls (a card clone): nothing from them runs on
+     * this machine. No hooks, fsmonitor, ssh command, pager or external diff, and attributes read from the empty tree,
+     * so no filter or diff driver either.
+     */
+    public static function untrusted(string $cwd): self
+    {
+        return new self($cwd, ['-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false', '-c', 'core.sshCommand=false',
+            '-c', 'core.pager=cat', '-c', 'diff.external=', '-c', 'core.alternateRefsCommand=', '-c', 'protocol.allow=never',
+            '-c', 'protocol.file.allow=always', '-c', 'attr.tree=4b825dc642cb6eb9a060e54bf8d69288fbee4904', '--no-replace-objects']);
+    }
+
     /** @param  array<string, string>  $env */
     public function withEnv(array $env): self
     {

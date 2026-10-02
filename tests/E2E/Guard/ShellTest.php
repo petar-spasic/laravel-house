@@ -24,19 +24,30 @@ it('routes a bound agent\'s shell into its card container, keeping the rest of t
     'evaluator Bash' => ['evaluator', GuardSandbox::REVIEW, 'Bash'],
 ]);
 
-it('keeps git and vendor/bin/kanban on this machine, in any path form', function (string $command) {
+it('keeps a plain vendor/bin/kanban command on this machine, in any path form', function (string $command) {
     $sandbox = GuardSandbox::shared();
     $sandbox->stack(GuardSandbox::DOING);
 
     expect($sandbox->case('worker', 'Bash', ['command' => $command], '{wt}')['out'])->toBe('');
 })->with([
-    'git' => ['git status'],
-    'git chained' => ['git add -A && git commit -m "ACME-7K2M9Q: x"'],
     'kanban' => ['vendor/bin/kanban report ACME-7K2M9Q --summary=x'],
     'kanban by ./' => ['./vendor/bin/kanban stack wait'],
     'kanban by absolute path' => ['{main}/vendor/bin/kanban context'],
     'kanban through php' => ['php vendor/bin/kanban status'],
     'kanban with an env prefix' => ['KANBAN_USER=x vendor/bin/kanban status'],
+]);
+
+it('routes git, and a kanban command chained to anything, into the container', function (string $command) {
+    $sandbox = GuardSandbox::shared();
+    $sandbox->stack(GuardSandbox::DOING);
+
+    expect($sandbox->case('worker', 'Bash', ['command' => $command], '{wt}')['input']['command'])->toContain('/vendor/bin/kanban-exec ');
+})->with([
+    'git' => ['git status'],
+    'git chained' => ['git add -A && git commit -m "ACME-7K2M9Q: x"'],
+    'kanban then something' => ['vendor/bin/kanban context; rm -rf x'],
+    'kanban piped' => ['vendor/bin/kanban context | tee out'],
+    'kanban in a subshell' => ['vendor/bin/kanban report $(cat id)'],
 ]);
 
 it('leaves every other shell alone', function (string $actor, ?string $shell, string $cwd) {

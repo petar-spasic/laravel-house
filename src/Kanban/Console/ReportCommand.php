@@ -37,7 +37,7 @@ class ReportCommand extends Command
         }
         $worktree = (new Context($this->paths(), $this->config()))->requireInside($card, $this->paths()->cwd, 'report');
         $summary = $this->option('summary-file') !== null ? $this->readFile((string) $this->option('summary-file')) : $this->option('summary');
-        $git = new Git($worktree);
+        $git = Git::untrusted($worktree);
         $report = Staged::report($card, (string) $this->option('status'), $this->option('tick'), $summary, $this->option('verified'),
             $this->option('discovered'), $this->option('reason'), $this->option('note'), [
                 'head' => (string) $git->line(['rev-parse', 'HEAD']),

@@ -4,6 +4,7 @@ namespace PetarSpasic\LaravelHouse\Kanban\Protocol;
 
 use Closure;
 use PetarSpasic\LaravelHouse\Kanban\Code\MergeCheck;
+use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
 use PetarSpasic\LaravelHouse\Kanban\Policy\Transitions;
 use PetarSpasic\LaravelHouse\Kanban\Store\Actor;
 use PetarSpasic\LaravelHouse\Kanban\Store\Card;
@@ -52,7 +53,8 @@ final class Applier
         if ($worktree === null || ! is_dir($worktree)) {
             return "{$card->id()} has no worktree to check";
         }
-        $git = new Git($worktree);
+        (new Worktrees($this->paths, $this->config))->sync($worktree);
+        $git = Git::untrusted($worktree);
         $dirty = array_values(array_filter(explode("\n", rtrim($git->attempt(['status', '--porcelain', '--untracked-files=all'])->out))));
         if ($dirty !== []) {
             return 'The worktree has uncommitted changes; commit them (git add … && git commit -m "'.$card->id().': …"):'."\n"
@@ -152,7 +154,7 @@ final class Applier
                 return "{$id}: report {$predates} and was discarded";
             }
             $worktree = $this->worktree($card);
-            $head = ($worktree !== null && is_dir($worktree) ? (new Git($worktree))->line(['rev-parse', 'HEAD']) : null) ?? $report['head'] ?? null;
+            $head = ($worktree !== null && is_dir($worktree) ? Git::untrusted($worktree)->line(['rev-parse', 'HEAD']) : null) ?? $report['head'] ?? null;
             $created = $this->discover($card, $report['discovered'] ?? [], $by, 'working on', $known);
 
             $status = (string) $report['status'];
@@ -426,11 +428,15 @@ final class Applier
             fn (string $v) => $v !== ''), $staged['upstream'] ?? []);
     }
 
+    /** The branch's head where the work happens: the card's worktree while it exists, else main. */
     public function branchHead(Card $card): ?string
     {
         $branch = $card->work()['branch'] ?? null;
+        $worktree = $this->worktree($card);
 
-        return is_string($branch) && $branch !== '' ? (new Git($this->paths->main))->line(['rev-parse', '--verify', '-q', 'refs/heads/'.$branch]) : null;
+        return is_string($branch) && $branch !== ''
+            ? (new Git($worktree !== null && is_dir($worktree) ? $worktree : $this->paths->main))->line(['rev-parse', '--verify', '-q', 'refs/heads/'.$branch])
+            : null;
     }
 
     private function locked(Closure $fn): string

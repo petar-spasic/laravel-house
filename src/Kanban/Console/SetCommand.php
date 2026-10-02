@@ -200,7 +200,7 @@ class SetCommand extends Command
         }
         $path = str_starts_with($worktree, '/') ? $worktree : $this->paths()->main.'/'.$worktree;
 
-        return is_dir($path) ? (new Git($path))->line(['rev-parse', '--verify', '-q', 'HEAD']) : null;
+        return is_dir($path) ? Git::untrusted($path)->line(['rev-parse', '--verify', '-q', 'HEAD']) : null;
     }
 
     /** @param  list<int>  $ids */

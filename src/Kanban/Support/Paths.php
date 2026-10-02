@@ -8,6 +8,9 @@ final class Paths
 {
     public const BOARD = 'docs/kanban';
 
+    /** Git config key in a card clone naming its main checkout. */
+    public const CLONE_KEY = 'kanban.main';
+
     public const RUNTIME = '.git/laravel-house';
 
     public const WORKTREES = '.claude/worktrees';
@@ -29,7 +32,7 @@ final class Paths
         for ($dir = $start; ; $dir = dirname($dir)) {
             $git = $dir.'/.git';
             if (is_dir($git)) {
-                return new self($dir, $start);
+                return new self(self::cloneMainOf($dir) ?? $dir, $start);
             }
             if (is_file($git) && ($main = self::mainOf($git)) !== null) {
                 return new self($main, $start);
@@ -52,6 +55,38 @@ final class Paths
         $real = realpath($common);
 
         return $real === false ? null : dirname($real);
+    }
+
+    /**
+     * Main checkout of a card clone: `kanban.main` in the clone's `.git/config`, when that directory is a checkout
+     * whose `.claude/worktrees/` holds the clone. Null for any other repository, and inside a card's container, where
+     * main is not mounted.
+     */
+    public static function cloneMainOf(string $dir): ?string
+    {
+        $config = @file_get_contents($dir.'/.git/config');
+        if (! is_string($config) || ! preg_match('/^\[kanban\]\R(?:[ \t]+[^\[\r\n]*\R)*?[ \t]+main[ \t]*=[ \t]*(.+?)[ \t]*$/m', $config, $m)) {
+            return null;
+        }
+        $main = realpath($m[1]);
+
+        return $main !== false && is_dir($main.'/.git') && str_starts_with(realpath($dir) ?: $dir, $main.'/'.self::WORKTREES.'/') ? $main : null;
+    }
+
+    /** Inside a card's container: the nearest repository is a card clone whose main checkout is not there. */
+    public static function inCardContainer(string $from): bool
+    {
+        for ($dir = realpath($from) ?: $from; ; $dir = dirname($dir)) {
+            if (is_dir($dir.'/.git')) {
+                $config = (string) @file_get_contents($dir.'/.git/config');
+
+                return preg_match('/^\[kanban\]\R(?:[ \t]+[^\[\r\n]*\R)*?[ \t]+main[ \t]*=[ \t]*(.+?)[ \t]*$/m', $config, $m) === 1
+                    && ! is_dir($m[1].'/.git');
+            }
+            if (dirname($dir) === $dir) {
+                return false;
+            }
+        }
     }
 
     /** The `gitdir:` target of a `.git` file, as written (absolute or relative to the file). */

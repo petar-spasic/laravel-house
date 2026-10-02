@@ -2,7 +2,10 @@
 
 namespace PetarSpasic\LaravelHouse\Kanban\Protocol;
 
+use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
+use PetarSpasic\LaravelHouse\Kanban\Guard\Guard;
 use PetarSpasic\LaravelHouse\Kanban\Support\Clock;
+use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
 use Symfony\Component\Process\Exception\ProcessTimedOutException;
 use Symfony\Component\Process\Process;
 
@@ -93,6 +96,24 @@ final class Gates
     }
 
     /**
+     * A gate runs the card's own code, so in a card whose agents' shells run in its container it runs there too, unless
+     * it is a `vendor/bin/kanban` command (the host's, like the agents' own).
+     */
+    private function where(string $command, string $worktree): string
+    {
+        $paths = Paths::discover($worktree);
+        $worktrees = new Worktrees($paths, $this->config);
+        $record = $worktrees->stackRecord($worktree);
+        $exec = Guard::exec($paths->main);
+        if (($record['shell'] ?? null) !== 'container' || ! is_string($record['container'] ?? null) || ! is_file($paths->main.'/vendor/bin/kanban-exec')
+            || preg_match('#^\s*(?:php\s+)?(?:[A-Za-z0-9_.~/-]*/)?vendor/bin/kanban(?:\s|$)#', $command)) {
+            return $command;
+        }
+
+        return $exec.' '.escapeshellarg($record['container']).' '.escapeshellarg(realpath($worktree) ?: $worktree).' '.escapeshellarg($command);
+    }
+
+    /**
      * Every gate, run in order.
      *
      * @return list<array{run: string, ok: bool, why: string, tail: string}>
@@ -108,7 +129,7 @@ final class Gates
      */
     private function run(array $gate, string $worktree): array
     {
-        $process = Process::fromShellCommandline($gate['run'], $worktree, ['XDEBUG_MODE' => 'off'], null, $gate['timeout']);
+        $process = Process::fromShellCommandline($this->where($gate['run'], $worktree), $worktree, ['XDEBUG_MODE' => 'off'], null, $gate['timeout']);
         try {
             $process->run();
             $code = $process->getExitCode();

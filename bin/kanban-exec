@@ -2,9 +2,10 @@
 # kanban-exec [-u UID:GID] CONTAINER CWD CMD
 #
 # Runs CMD with bash in CONTAINER at CWD as UID:GID (default: yours). Kanban's PreToolUse hook routes a card agent's
-# shell through it. Only a card stack qualifies: a running container that mounts no main checkout (a .git directory)
-# and mounts CWD from a linked worktree (a .git file). CMD dies with this client: when this shell or the docker
-# client is killed, docker closes the exec's stdin, and the watchdog in the container ends CMD's process group.
+# shell through it. Only a card stack qualifies: a running container that mounts no main checkout and mounts CWD from
+# a card's directory under .claude/worktrees/ (a clone or a linked worktree). CMD dies with this client: when this
+# shell or the docker client is killed, docker closes the exec's stdin, and the watchdog in the container ends CMD's
+# process group.
 
 user="$(id -u):$(id -g)"
 if [ "${1:-}" = -u ]; then
@@ -39,8 +40,10 @@ inside=
 if [[ $info == *$'\n'* ]]; then
     while IFS= read -r source; do
         [ -n "$source" ] || continue
-        [ ! -d "$source/.git" ] || refuse "$container mounts the main checkout $source"
-        if [ -f "$source/.git" ] && { [ "$cwd" = "$source" ] || [ "${cwd#"$source"/}" != "$cwd" ]; }; then
+        card=
+        [[ $source =~ /\.claude/worktrees/[^/]+$ ]] && card=1
+        [ -n "$card" ] || [ ! -d "$source/.git" ] || refuse "$container mounts the main checkout $source"
+        if [ -n "$card" ] && [ -e "$source/.git" ] && { [ "$cwd" = "$source" ] || [ "${cwd#"$source"/}" != "$cwd" ]; }; then
             inside=1
         fi
     done <<<"${info#*$'\n'}"

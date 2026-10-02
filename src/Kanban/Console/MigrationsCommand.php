@@ -2,6 +2,7 @@
 
 namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
+use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
 use PetarSpasic\LaravelHouse\Kanban\Support\Git;
 use Symfony\Component\Console\Attribute\AsCommand;
 
@@ -16,7 +17,10 @@ class MigrationsCommand extends Command
 
     protected function perform(): int
     {
-        $git = new Git($this->paths()->cwd);
+        $worktrees = new Worktrees($this->paths(), $this->config());
+        $card = $worktrees->containing($this->paths()->cwd);
+        $card === null || $worktrees->sync($card);
+        $git = Git::untrusted($this->paths()->cwd);
         $base = (string) ($this->option('base') ?: $this->setting('main_branch', 'main'));
         $dir = trim((string) $this->option('dir'), '/');
         $names = fn (array $args) => array_values(array_filter(explode("\n", trim($git->attempt($args)->out))));

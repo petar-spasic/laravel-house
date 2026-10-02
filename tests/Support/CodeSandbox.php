@@ -204,7 +204,7 @@ final class CodeSandbox
     {
         $card = $this->sandbox->read($id);
         $branch = $card['work']['branch'];
-        $head ??= trim($this->sandbox->git('rev-parse', 'refs/heads/'.$branch));
+        $head ??= trim($this->gitIn($this->worktree($id), 'rev-parse', 'refs/heads/'.$branch));
         $card['stage'] = 'review';
         $card['work']['head'] = $head;
         $card['work']['approved'] = ['head' => $head, 'base' => $base ?? trim($this->sandbox->git('rev-parse', 'refs/heads/main')), 'at' => $at ?? $card['updated']];

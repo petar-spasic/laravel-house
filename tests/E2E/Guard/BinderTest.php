@@ -149,16 +149,40 @@ it('records no spawn for anything else', function (array $input) {
     'another agent type' => [['subagent_type' => 'general-purpose', 'prompt' => 'Work on ACME-7K2M9Q']],
 ]);
 
-it('never prints a decision', function (string $actor, string $tool, array $input) {
+it('decides nothing about a shell command or a file inside the card', function (string $actor, string $tool, array $input) {
     $result = GuardSandbox::shared()->case($actor, $tool, $input, '{wt}');
 
     expect($result['out'])->toBe('');
 })->with([
     'worker pushes' => ['worker', 'Bash', ['command' => 'git push origin main']],
-    'worker writes the board' => ['worker', 'Write', ['file_path' => '{board}/kanban.json']],
-    'evaluator edits' => ['evaluator', 'Edit', ['file_path' => '{review}/app/A.php']],
+    'worker edits its card' => ['worker', 'Edit', ['file_path' => '{wt}/app/A.php']],
     'main removes the board' => ['main', 'Bash', ['command' => 'rm -rf docs/kanban/project']],
+    'main writes anywhere' => ['main', 'Write', ['file_path' => '{board}/kanban.json']],
     'worker exits its worktree' => ['worker', 'ExitWorktree', []],
+]);
+
+it("denies a card agent's file tool outside its card, and writes to the card's .git and .claude", function (string $actor, string $tool, array $input) {
+    $result = GuardSandbox::shared()->case($actor, $tool, $input, '{wt}');
+
+    expect($result['decision'])->toBe('deny')
+        ->and(json_decode($result['out'], true)['hookSpecificOutput']['permissionDecisionReason'])->toStartWith('kanban: ');
+})->with([
+    'worker writes the board' => ['worker', 'Write', ['file_path' => '{board}/kanban.json']],
+    'worker reads main' => ['worker', 'Read', ['file_path' => '{main}/app/A.php']],
+    'worker greps main' => ['worker', 'Grep', ['pattern' => 'x', 'path' => '{main}']],
+    'evaluator edits another card' => ['evaluator', 'Edit', ['file_path' => '{wt}/app/A.php']],
+    'worker writes host tmp' => ['worker', 'Write', ['file_path' => '/tmp/scratch.txt']],
+    'worker edits its .git' => ['worker', 'Edit', ['file_path' => '{wt}/.git/config']],
+    'worker writes its .claude' => ['worker', 'Write', ['file_path' => '{wt}/.claude/settings.json']],
+]);
+
+it("lets a card agent read the skills and Claude Code's own temp directory", function (string $path) {
+    $result = GuardSandbox::shared()->case('worker', 'Read', ['file_path' => $path], '{wt}');
+
+    expect($result['out'])->toBe('');
+})->with([
+    'project skills' => ['{main}/.claude/skills/kanban/SKILL.md'],
+    'a task output' => [sys_get_temp_dir().'/claude-'.posix_getuid().'/project/session/tasks/x.output'],
 ]);
 
 it('stays silent on malformed input, a traversal agent_id and outside a git repository', function () {

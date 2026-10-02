@@ -10,8 +10,8 @@ use PetarSpasic\LaravelHouse\Kanban\Support\Json;
  * The worktree `.env`: main's `.env` minus the managed keys, plus the `stack.env` block with its
  * placeholders resolved ({project}, {name}, {app}, {scheme}, {host} and every `stack.ports` key), and the
  * card stack's own keys: KANBAN_WORKTREE_PATH (the compose file also mounts the worktree there, so an agent's shell
- * runs in the container at the path it sees), and KANBAN_GIT_SSH_COMMAND and KANBAN_GIT_TOKEN empty (only main's
- * stack syncs the board).
+ * runs in the container at the path it sees), KANBAN_TMPDIR (the card's `.tmp`, so scratch files go with the card),
+ * and KANBAN_GIT_SSH_COMMAND and KANBAN_GIT_TOKEN empty (only main's stack syncs the board).
  */
 final class EnvWriter
 {
@@ -53,7 +53,8 @@ final class EnvWriter
     /** @param  array<string, int>  $ports */
     public function write(string $worktree, array $ports): void
     {
-        $own = ['KANBAN_WORKTREE_PATH' => realpath($worktree) ?: $worktree, 'KANBAN_GIT_SSH_COMMAND' => '', 'KANBAN_GIT_TOKEN' => ''];
+        $real = realpath($worktree) ?: $worktree;
+        $own = ['KANBAN_WORKTREE_PATH' => $real, 'KANBAN_TMPDIR' => $real.'/.tmp', 'KANBAN_GIT_SSH_COMMAND' => '', 'KANBAN_GIT_TOKEN' => ''];
         $managed = array_merge(array_keys($ports), array_keys((array) ($this->config['stack']['env'] ?? [])), array_keys($own));
         $lines = [];
         $source = is_file($this->main.'/.env') ? (string) file_get_contents($this->main.'/.env') : '';

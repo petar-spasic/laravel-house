@@ -13,6 +13,11 @@ if (! class_exists(PetarSpasic\LaravelHouse\Kanban\Console\Standalone::class)) {
     exit(1);
 }
 
+if (PetarSpasic\LaravelHouse\Kanban\Support\Paths::inCardContainer((string) getcwd())) {
+    fwrite(STDERR, "kanban: vendor/bin/kanban runs on the host, not in the card's container: run it as a command of its own, never inside a script or chained to another command\n");
+    exit(1);
+}
+
 if (($main = PetarSpasic\LaravelHouse\Kanban\Console\Standalone::mainCheckoutBinary((string) ($_SERVER['SCRIPT_FILENAME'] ?? ''))) !== null) {
     passthru(implode(' ', array_map('escapeshellarg', [PHP_BINARY, $main, ...array_slice($_SERVER['argv'], 1)])), $exit);
     exit($exit);

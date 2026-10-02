@@ -10,6 +10,7 @@ use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Lease;
 use PetarSpasic\LaravelHouse\Kanban\Store\Card;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Conflict;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\GitFailed;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\KanbanException;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
 use PetarSpasic\LaravelHouse\Kanban\Support\Git;
@@ -41,6 +42,10 @@ class FinishCommand extends Command
             throw new PolicyRefused("{$id} is {$card->stage()}, not review");
         }
         $branch = (string) ($work['branch'] ?? '');
+        $path = $this->paths()->main.'/'.($work['worktree'] ?? '');
+        if (isset($work['worktree']) && is_dir($path)) {
+            $worktrees->sync($path);
+        }
         if ($branch === '' || ! $worktrees->branchExists($branch)) {
             throw new PolicyRefused("{$id}: branch '{$branch}' does not exist");
         }
@@ -49,7 +54,6 @@ class FinishCommand extends Command
         if (! is_array($approved) || ($approved['head'] ?? null) !== $head) {
             throw new PolicyRefused("{$id}: no approval for the branch head ".substr($head, 0, 7).(is_array($approved) ? ' (approved '.substr((string) ($approved['head'] ?? '?'), 0, 7).')' : '').'; run the evaluator again');
         }
-        $path = $this->paths()->main.'/'.($work['worktree'] ?? '');
         if (isset($work['worktree']) && is_dir($path) && ($dirty = $worktrees->dirty($path)) !== []) {
             throw new PolicyRefused("{$id}: the worktree has uncommitted changes", $dirty);
         }
@@ -107,11 +111,11 @@ class FinishCommand extends Command
             $exit = 7;
         }
         if (isset($work['worktree']) && is_dir($path)) {
-            $removed = $git->attempt(['worktree', 'remove', $path]);
-            if ($removed->ok()) {
+            try {
+                $worktrees->remove($path);
                 $this->say("removed worktree {$work['worktree']}");
-            } else {
-                $this->fault("git worktree remove {$work['worktree']}: ".trim($removed->err));
+            } catch (GitFailed $e) {
+                $this->fault("removing {$work['worktree']}: ".$e->getMessage());
                 $exit = max($exit, 1);
             }
         }

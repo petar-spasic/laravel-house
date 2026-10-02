@@ -14,7 +14,11 @@ use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 use Symfony\Component\Process\Process;
 
-/** Code worktrees under `<main>/.claude/worktrees/` and the slot, `.env` and Docker stack that go with each. */
+/**
+ * Code worktrees under `<main>/.claude/worktrees/` and the slot, `.env` and Docker stack that go with each. A card's
+ * worktree is a clone of main (its own `.git`, objects hardlinked, `kanban.main` naming main), so its agents run git
+ * inside their stack without reaching main's refs, config or runtime. Other worktrees are git worktrees.
+ */
 final class Worktrees
 {
     /** The variable the local compose file mounts a worktree at, at its host path, for the card agents' shells. */
@@ -23,9 +27,10 @@ final class Worktrees
     /** @param  array<string, mixed>  $config  the whole `kanban` config */
     public function __construct(public readonly Paths $paths, private readonly array $config) {}
 
+    /** Git in main, or in a card's directory, where its agent controls the config (Git::untrusted). */
     public function git(?string $cwd = null): Git
     {
-        return new Git($cwd ?? $this->paths->main);
+        return $cwd === null || $cwd === $this->paths->main ? new Git($this->paths->main) : Git::untrusted($cwd);
     }
 
     public function mainBranch(): string
@@ -97,12 +102,15 @@ final class Worktrees
         return $this->git()->attempt(['show-ref', '--verify', '--quiet', 'refs/heads/'.$branch])->ok();
     }
 
-    /** Is $path a registered worktree of this repository? */
+    /** Is $path a registered worktree of this repository, or a card clone of it? */
     public function isWorktree(string $path): bool
     {
         $real = realpath($path);
         if ($real === false) {
             return false;
+        }
+        if ($this->isClone($real)) {
+            return true;
         }
         foreach (explode("\n", $this->git()->line(['worktree', 'list', '--porcelain']) ?? '') as $line) {
             if (str_starts_with($line, 'worktree ') && realpath(substr($line, 9)) === $real) {
@@ -113,14 +121,64 @@ final class Worktrees
         return false;
     }
 
-    /** `git worktree add`: an existing branch is checked out, otherwise it is created from local main. */
+    /** A card clone of this repository: its own `.git` directory, with `kanban.main` naming this main checkout. */
+    public function isClone(string $path): bool
+    {
+        return is_dir($path.'/.git') && Paths::cloneMainOf($path) === $this->paths->main;
+    }
+
+    /**
+     * A card's clone at $path on $branch: an existing branch is fetched from main, otherwise it is created from local
+     * main. It carries main's identity and hooks path, and `kanban.main`, which `Paths` follows back to main.
+     */
     public function add(string $path, string $branch): void
+    {
+        @mkdir(dirname($path), 0775, true);
+        $main = $this->mainBranch();
+        $this->git()->run(['clone', '-q', '--no-checkout', '--origin', 'origin', $this->paths->main, $path]);
+        $clone = new Git($path);
+        foreach (['user.name', 'user.email', 'core.hooksPath'] as $key) {
+            if (($value = $this->git()->line(['config', '--get', $key])) !== null) {
+                $clone->run(['config', $key, $value]);
+            }
+        }
+        $clone->run(['config', Paths::CLONE_KEY, $this->paths->main]);
+        $this->branchExists($branch)
+            ? $clone->run(['checkout', '-q', '-b', $branch, 'refs/remotes/origin/'.$branch])
+            : $clone->run(['checkout', '-q', '-b', $branch, 'refs/remotes/origin/'.$main]);
+        $clone->run(['branch', '-q', '--force', $main, 'refs/remotes/origin/'.$main]);
+        $clone->attempt(['branch', '-q', '--unset-upstream']);
+        // scratch space that goes with the card: the container's TMPDIR (EnvWriter), out of git
+        @mkdir($path.'/.tmp', 0775);
+        file_put_contents($path.'/.git/info/exclude', "/.tmp/\n", FILE_APPEND);
+    }
+
+    /** `git worktree add` of a plain (non-card) worktree: an existing branch is checked out, otherwise it is created from local main. */
+    private function addWorktree(string $path, string $branch): void
     {
         @mkdir(dirname($path), 0775, true);
         $args = $this->branchExists($branch)
             ? ['worktree', 'add', '-q', $path, $branch]
             : ['worktree', 'add', '-q', '-b', $branch, $path, 'refs/heads/'.$this->mainBranch()];
         $this->git()->run($args);
+    }
+
+    /**
+     * Brings a card clone and main level: main's branch into the clone (its gates and diffs compare against it) and
+     * the clone's branch into main (finish, stop and the merge checks read it there). A git worktree needs neither.
+     */
+    public function sync(string $path): void
+    {
+        if (! $this->isClone(realpath($path) ?: $path)) {
+            return;
+        }
+        $main = $this->mainBranch();
+        $clone = Git::untrusted($path);
+        $clone->attempt(['fetch', '-q', '--no-tags', 'origin', "+refs/heads/{$main}:refs/heads/{$main}"]);
+        $branch = $clone->line(['symbolic-ref', '--short', '-q', 'HEAD']);
+        if ($branch !== null && $branch !== $main) {
+            $this->git()->attempt(['fetch', '-q', '--no-tags', $path, "+refs/heads/{$branch}:refs/heads/{$branch}"]);
+        }
     }
 
     /**
@@ -134,7 +192,7 @@ final class Worktrees
             if (file_exists($path)) {
                 throw new PolicyRefused("{$this->paths->relative($path)} exists but is not a worktree of this repository");
             }
-            $this->add($path, 'worktree-'.$name);
+            $this->addWorktree($path, 'worktree-'.$name);
         }
         $this->copyDependencies($path);
 
@@ -356,9 +414,23 @@ final class Worktrees
         return array_values(array_filter(explode("\n", rtrim($out->out))));
     }
 
+    /** A clone's branch reaches main first, so removing it never loses a commit. */
     public function remove(string $path, bool $force = false): void
     {
-        $this->git()->run(['worktree', 'remove', ...($force ? ['--force'] : []), $path]);
+        if (! $this->isClone(realpath($path) ?: $path)) {
+            $this->git()->run(['worktree', 'remove', ...($force ? ['--force'] : []), $path]);
+
+            return;
+        }
+        if (! $force && $this->dirty($path) !== []) {
+            throw new GitFailed("{$this->paths->relative($path)} has uncommitted changes");
+        }
+        $this->sync($path);
+        $rm = new Process(['rm', '-rf', $path]);
+        $rm->run();
+        if (! $rm->isSuccessful()) {
+            throw new GitFailed("removing {$this->paths->relative($path)} failed: ".trim($rm->getErrorOutput()));
+        }
     }
 
     public function prune(): void
