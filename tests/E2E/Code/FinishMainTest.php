@@ -71,7 +71,7 @@ it('warns about untracked files left in the main checkout', function () {
     $id = $code->started('Leftovers');
     $code->commit($id, 'feature.php', "<?php\n");
     $code->approve($id);
-    file_put_contents($code->root().'/hot', "http://localhost:5173\n");
+    file_put_contents($code->root().'/hot', "leftover\n");
 
     expect($code->ok(['finish', $id], $this->env))->toContain("warning: main has untracked files (an agent's leftovers?): hot; remove or commit them\n");
 });

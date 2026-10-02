@@ -286,7 +286,7 @@ final class Context
 
         return 're-verify: approved @'.substr($head, 0, 7).'; since then only clean merges of main'
             .($touched === [] ? '' : ', touching '.implode(', ', array_slice($touched, 0, 10)).(count($touched) > 10 ? ' …' : ''))
-            .'. Run every gate and the tests covering those files; a full review is not needed.';
+            .'. Run every gate and the whole suite; a full review is not needed.';
     }
 
     /**

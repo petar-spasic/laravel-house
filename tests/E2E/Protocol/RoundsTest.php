@@ -166,7 +166,7 @@ it('asks only for a re-verify when nothing but a clean merge of main followed th
     $this->p->sandbox->ok(['refresh', $this->id]);
 
     expect($this->p->sandbox->ok(['context', $this->id, '--evaluate']))
-        ->toContain('re-verify: approved @'.substr($approved, 0, 7).'; since then only clean merges of main. Run every gate and the tests covering those files; a full review is not needed.');
+        ->toContain('re-verify: approved @'.substr($approved, 0, 7).'; since then only clean merges of main. Run every gate and the whole suite; a full review is not needed.');
 
     $this->p->commit($this->wt, 'more.php');
     expect($this->p->sandbox->ok(['context', $this->id, '--evaluate']))->not->toContain('re-verify');
