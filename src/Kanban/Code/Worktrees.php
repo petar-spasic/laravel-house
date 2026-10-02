@@ -2,16 +2,23 @@
 
 namespace PetarSpasic\LaravelHouse\Kanban\Code;
 
+use FilesystemIterator;
 use Illuminate\Support\Str;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\GitFailed;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
 use PetarSpasic\LaravelHouse\Kanban\Support\Git;
+use PetarSpasic\LaravelHouse\Kanban\Support\Json;
 use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
+use RecursiveDirectoryIterator;
+use RecursiveIteratorIterator;
 use Symfony\Component\Process\Process;
 
 /** Code worktrees under `<main>/.claude/worktrees/` and the slot, `.env` and Docker stack that go with each. */
 final class Worktrees
 {
+    /** The variable the local compose file mounts a worktree at, at its host path, for the card agents' shells. */
+    public const MOUNT = 'KANBAN_WORKTREE_PATH';
+
     /** @param  array<string, mixed>  $config  the whole `kanban` config */
     public function __construct(public readonly Paths $paths, private readonly array $config) {}
 
@@ -209,31 +216,104 @@ final class Worktrees
     }
 
     /**
-     * Resource precheck, project name check, `up -d --build` (no wait). "port is already allocated" → the next
-     * slot, `.env` rewritten, one retry.
+     * Resource precheck (not for a recreate), project name check, `up -d --build` (no wait). "port is already
+     * allocated" → the next slot, `.env` rewritten, one retry. The stack record is written after a successful up.
      *
      * @return array<string, mixed> the registry entry the stack runs on, plus `url`
      */
-    public function up(string $path, ?string $branch, ?string $card): array
+    public function up(string $path, ?string $branch, ?string $card, bool $recreate = false): array
     {
         $entry = $this->prepare($path, $branch, $card) ?? throw new StackFailed('stacks are disabled (stack.compose_file unset or missing)');
-        $refusals = $this->registry()->resourceRefusals();
+        $refusals = $recreate ? [] : $this->registry()->resourceRefusals();
         if ($refusals !== []) {
             throw new StackFailed('not starting a stack: '.implode('; ', $refusals), $refusals);
         }
         $stack = $this->stack($path, $entry['project']);
         $stack->assertProject();
-        $result = $stack->up();
+        $result = $stack->up($recreate);
         if (Stack::portAllocated($result)) {
             $stack->down();
             $entry = $this->prepare($path, $branch, $card, [(int) $entry['slot']]);
-            $result = $stack->up();
+            $result = $stack->up($recreate);
         }
         if ($result['code'] !== 0) {
             throw new StackFailed("docker compose up failed for {$entry['project']}: ".self::tail($result['err'] ?: $result['out']));
         }
+        $this->record($path, $entry['project']);
 
         return $entry;
+    }
+
+    /**
+     * `.git/laravel-house/stacks/<worktree name>.json`, written once the stack is up: the container that Guard routes
+     * the card agents' shells into (with `agents.shell`), and the hash of the docker files the stack was built from.
+     */
+    public function recordFile(string $path, ?string $main = null): string
+    {
+        return ($main ?? $this->paths->main).'/'.Paths::RUNTIME.'/stacks/'.basename($path).'.json';
+    }
+
+    /** @return array<string, mixed>|null */
+    public function stackRecord(string $path): ?array
+    {
+        $file = $this->recordFile($path);
+        $record = is_file($file) ? json_decode((string) file_get_contents($file), true) : null;
+
+        return is_array($record) ? $record : null;
+    }
+
+    public function record(string $path, string $project): void
+    {
+        $compose = $path.'/'.($this->config['stack']['compose_file'] ?? '');
+        $mounted = is_file($compose) && str_contains((string) file_get_contents($compose), self::MOUNT);
+        Json::write($this->recordFile($path), json_encode([
+            'worktree' => realpath($path) ?: $path,
+            'project' => $project,
+            'container' => $this->stack($path, $project)->container(),
+            'shell' => $this->agentShell() === 'container' && $mounted ? 'container' : 'host',
+            'hash' => $this->dockerHash($path),
+        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)."\n");
+    }
+
+    /** `agents.shell`: container (the default) or host. */
+    public function agentShell(): string
+    {
+        return ($this->config['agents']['shell'] ?? null) === 'host' ? 'host' : 'container';
+    }
+
+    public function forget(string $path, ?string $main = null): void
+    {
+        @unlink($this->recordFile($path, $main));
+    }
+
+    /** Hash of the files whose change needs a rebuilt, recreated stack (MergeCheck::REBUILD and the compose file). */
+    public function dockerHash(string $path): string
+    {
+        $files = [];
+        foreach ([...MergeCheck::REBUILD, (string) ($this->config['stack']['compose_file'] ?? '')] as $pattern) {
+            $full = $path.'/'.rtrim($pattern, '/');
+            if ($pattern === '' || ! file_exists($full)) {
+                continue;
+            }
+            if (is_file($full)) {
+                $files[$pattern] = $full;
+
+                continue;
+            }
+            $tree = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($full, FilesystemIterator::SKIP_DOTS));
+            foreach ($tree as $file) {
+                if ($file->isFile()) {
+                    $files[substr($file->getPathname(), strlen($path) + 1)] = $file->getPathname();
+                }
+            }
+        }
+        ksort($files);
+        $hash = hash_init('sha256');
+        foreach ($files as $relative => $file) {
+            hash_update($hash, $relative."\0".hash_file('sha256', $file)."\n");
+        }
+
+        return hash_final($hash);
     }
 
     /** Stack down with `stack.down`; the slot is released only after a successful down. */
@@ -250,6 +330,7 @@ final class Worktrees
         if ($result['code'] !== 0) {
             return false;
         }
+        $this->forget($path);
         $this->registry()->release($path);
 
         return true;

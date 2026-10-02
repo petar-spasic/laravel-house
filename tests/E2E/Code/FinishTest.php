@@ -50,13 +50,13 @@ it('prints a rebuild hint when the merge touches lockfiles, docker files or the 
     $code->commit($id, 'composer.lock', "{}\n");
     $code->approve($id);
 
-    expect($code->ok(['finish', $id]))->toContain('rebuild main: composer.lock changed; run `docker compose -f docker-compose.local.yml up -d --build`');
+    expect($code->ok(['finish', $id]))->toContain('rebuild main: composer.lock changed; run `docker compose -f docker-compose.local.yml up -d --build --force-recreate`');
 
     $compose = $code->started('Publish the web port on IPv4 only');
     $code->commit($compose, 'docker-compose.local.yml', file_get_contents($code->sandbox->root.'/docker-compose.local.yml')."# ipv4\n");
     $code->approve($compose);
 
-    expect($code->ok(['finish', $compose]))->toContain('rebuild main: docker-compose.local.yml changed; run `docker compose -f docker-compose.local.yml up -d --build`');
+    expect($code->ok(['finish', $compose]))->toContain('rebuild main: docker-compose.local.yml changed; run `docker compose -f docker-compose.local.yml up -d --build --force-recreate`');
 });
 
 it('refuses to finish', function (Closure $arrange, int $exit, string $message, string $stage) {

@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# kanban-exec [-u UID:GID] CONTAINER CWD CMD
+#
+# Runs CMD with bash in CONTAINER at CWD as UID:GID (default: yours). Kanban's PreToolUse hook routes a card agent's
+# shell through it. Only a card stack qualifies: a running container that mounts no main checkout (a .git directory)
+# and mounts CWD from a linked worktree (a .git file). CMD dies with this client: when this shell or the docker
+# client is killed, docker closes the exec's stdin, and the watchdog in the container ends CMD's process group.
+
+user="$(id -u):$(id -g)"
+if [ "${1:-}" = -u ]; then
+    user="${2:-}"
+    shift 2
+fi
+if [ $# -ne 3 ]; then
+    echo 'usage: kanban-exec [-u UID:GID] CONTAINER CWD CMD' >&2
+    exit 2
+fi
+container=$1 cwd=$2 cmd=$3
+
+refuse() {
+    echo "kanban-exec: $1" >&2
+    exit 125
+}
+
+[[ $user =~ ^[0-9]+:[0-9]+$ ]] || refuse "-u takes a numeric UID:GID, not '$user'"
+[ "${user%%:*}" != 0 ] || refuse 'refusing to run as root'
+case "/$cwd/" in
+    //*) ;;
+    *) refuse "CWD must be absolute: $cwd" ;;
+esac
+case "/$cwd/" in
+    */../* | */./*) refuse "CWD must be a plain path: $cwd" ;;
+esac
+
+info=$(docker container inspect -f '{{.State.Running}}{{range .Mounts}}{{if eq .Type "bind"}}{{"\n"}}{{.Source}}{{end}}{{end}}' -- "$container" 2>&1) \
+    || refuse "$info"
+[ "${info%%$'\n'*}" = true ] || refuse "container $container is not running (vendor/bin/kanban stack wait starts it)"
+inside=
+if [[ $info == *$'\n'* ]]; then
+    while IFS= read -r source; do
+        [ -n "$source" ] || continue
+        [ ! -d "$source/.git" ] || refuse "$container mounts the main checkout $source"
+        if [ -f "$source/.git" ] && { [ "$cwd" = "$source" ] || [ "${cwd#"$source"/}" != "$cwd" ]; }; then
+            inside=1
+        fi
+    done <<<"${info#*$'\n'}"
+fi
+[ -n "$inside" ] || refuse "$container does not mount $cwd from a worktree"
+
+# fd 3 stays open while this shell lives; the in-container watchdog reads the copy of stdin saved as fd 4, because a
+# background job's own stdin is /dev/null.
+exec 3< <(while kill -0 $$ 2>/dev/null; do sleep 1; done)
+holder=$!
+docker exec -i -u "$user" -w "$cwd" "$container" bash -c 'exec 4<&0; setsid bash -c "$1" </dev/null 4<&- & c=$!; (while read -r _ <&4; do :; done; kill -TERM -- -$c; sleep 3; kill -KILL -- -$c) 2>/dev/null & w=$!; wait $c; r=$?; kill $w 2>/dev/null; exit $r' kanban "$cmd" <&3 3<&-
+code=$?
+exec 3<&-
+kill "$holder" 2>/dev/null
+exit $code

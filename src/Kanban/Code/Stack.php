@@ -43,13 +43,14 @@ final class Stack
     /**
      * @param  list<string>  $args
      * @param  array<string, string|false>  $env
+     * @param  (callable(string, string): void)|null  $output  receives each chunk as it comes (Process::OUT or ERR)
      * @return array{code: int, out: string, err: string}
      */
-    public static function run(array $args, array $env = [], float $timeout = 600): array
+    public static function run(array $args, array $env = [], ?float $timeout = 600, ?callable $output = null): array
     {
         $process = new Process(['docker', ...$args], null, $env, null, $timeout);
         try {
-            $process->run();
+            $process->run($output);
         } catch (Throwable $e) {
             return ['code' => 127, 'out' => '', 'err' => $e->getMessage()];
         }
@@ -59,12 +60,27 @@ final class Stack
 
     /**
      * @param  list<string>  $args
+     * @param  (callable(string, string): void)|null  $output
      * @return array{code: int, out: string, err: string}
      */
-    public function compose(array $args, float $timeout = 600): array
+    public function compose(array $args, ?float $timeout = 600, ?callable $output = null): array
     {
         return self::run(['compose', '--project-directory', $this->worktree, '-f', $this->worktree.'/'.$this->config['compose_file'],
-            '-p', $this->project, ...$args], $this->environment(), $timeout);
+            '-p', $this->project, ...$args], $this->environment(), $timeout, $output);
+    }
+
+    /** `stack.service`: where agents' shells and `stack exec` run. */
+    public function service(): string
+    {
+        $service = $this->config['service'] ?? null;
+
+        return is_string($service) && $service !== '' ? $service : 'app';
+    }
+
+    /** The service's container: compose names it `<project>-<service>-1` (the template sets no `container_name`). */
+    public function container(): string
+    {
+        return $this->project.'-'.$this->service().'-1';
     }
 
     /** `config --format json` must name this project; otherwise compose would act on another stack. */
@@ -80,10 +96,14 @@ final class Stack
         }
     }
 
-    /** @return array{code: int, out: string, err: string} */
-    public function up(): array
+    /**
+     * `--force-recreate` also restarts containers whose image did not change, so they re-read bind-mounted config.
+     *
+     * @return array{code: int, out: string, err: string}
+     */
+    public function up(bool $recreate = false): array
     {
-        return $this->compose(['up', '-d', '--build']);
+        return $this->compose(['up', '-d', '--build', ...($recreate ? ['--force-recreate'] : [])]);
     }
 
     public static function portAllocated(array $result): bool

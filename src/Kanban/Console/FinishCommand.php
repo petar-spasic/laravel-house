@@ -77,7 +77,7 @@ class FinishCommand extends Command
         $exit = $this->afterMerge($worktrees);
         $compose = $this->setting('stack.compose_file') ?? 'docker-compose.yml';
         if (($rebuild = MergeCheck::rebuildFiles($files, $compose)) !== []) {
-            $this->say('rebuild main: '.implode(', ', $rebuild)." changed; run `docker compose -f {$compose} up -d --build`");
+            $this->say('rebuild main: '.implode(', ', $rebuild)." changed; run `docker compose -f {$compose} up -d --build --force-recreate`");
         }
 
         if ($worktrees->down($path, $work['stack']['project'] ?? null)) {

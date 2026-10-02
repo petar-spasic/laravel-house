@@ -3,13 +3,15 @@
 namespace PetarSpasic\LaravelHouse\Kanban\Console\Install;
 
 use JsonException;
+use PetarSpasic\LaravelHouse\Kanban\Guard\Guard;
 use PetarSpasic\LaravelHouse\Kanban\Store\Git\Bootstrap;
 use stdClass;
 
 /**
  * Merges `.claude/settings.json`: our hooks (identified by the `vendor/bin/kanban` / `kanban-guard` path) are replaced
- * in place and foreign hooks kept; `permissions.allow` gets the kanban CLI; commit/PR attribution is turned off
- * while commit-msg rejects Co-Authored-By trailers.
+ * in place and foreign hooks kept; `permissions.allow` gets the kanban CLI and, unless `agents.shell` is host, this
+ * checkout's absolute `vendor/bin/kanban-exec`, which Guard routes card agents' shells through; commit/PR attribution
+ * is turned off while commit-msg rejects Co-Authored-By trailers.
  */
 final class ClaudeSettings extends Step
 {
@@ -58,13 +60,19 @@ final class ClaudeSettings extends Step
         foreach (array_diff($changes, $hooks) as $change) {
             $results[] = ['warn', self::FILE.' '.$change.' not set'];
         }
-        foreach (['vendor/bin/kanban', self::GUARD] as $handler) {
+        foreach (['vendor/bin/kanban', 'vendor/bin/kanban-exec', self::GUARD] as $handler) {
             $results[] = is_executable($this->path($handler))
                 ? ['ok', "{$handler} executable"]
                 : ['fail', "{$handler} missing or not executable (composer install)"];
         }
 
         return $results;
+    }
+
+    /** `Bash(<main>/vendor/bin/kanban-exec *)`: the command prefix Guard writes. */
+    public static function execPermission(string $main): string
+    {
+        return 'Bash('.Guard::exec(realpath($main) ?: $main).' *)';
     }
 
     /** @throws JsonException */
@@ -104,10 +112,17 @@ final class ClaudeSettings extends Step
 
         $permissions = ($settings->permissions ?? null) instanceof stdClass ? $settings->permissions : new stdClass;
         $allow = is_array($permissions->allow ?? null) ? $permissions->allow : [];
-        if (! in_array(self::PERMISSION, $allow, true)) {
-            $permissions->allow = [...$allow, self::PERMISSION];
-            $settings->permissions = $permissions;
-            $changes[] = 'permissions.allow '.self::PERMISSION;
+        $rules = [self::PERMISSION];
+        if (($this->config['agents']['shell'] ?? null) !== 'host') {
+            $rules[] = self::execPermission($this->paths->main);
+        }
+        foreach ($rules as $rule) {
+            if (! in_array($rule, $allow, true)) {
+                $allow[] = $rule;
+                $permissions->allow = $allow;
+                $settings->permissions = $permissions;
+                $changes[] = 'permissions.allow '.$rule;
+            }
         }
 
         if (Bootstrap::rejectsCoAuthored($this->config) && ($settings->attribution ?? null) !== false) {

@@ -10,6 +10,7 @@ services:
       - "${WEB_PORT:-8011}:80"
     volumes:
       - .:/app
+      - .:${KANBAN_WORKTREE_PATH:-/app}
   postgres:
     image: postgres:16-alpine
     ports:

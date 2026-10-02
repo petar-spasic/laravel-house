@@ -9,7 +9,8 @@ use Throwable;
 /**
  * Claude Code PreToolUse hook. It never allows or denies; it keeps the runtime files the rest of kanban reads:
  * the agent's heartbeat (agents/<id>.json mtime), its binding to a card at EnterWorktree, and the spawn record
- * that WorktreeCreate hands to the next isolated kanban agent. Any error is swallowed.
+ * that WorktreeCreate hands to the next isolated kanban agent. It rewrites a bound agent's shell command to run in
+ * its card stack (`updatedInput`). Any error is swallowed and prints nothing.
  */
 final class Guard
 {
@@ -18,6 +19,17 @@ final class Guard
     private const EVALUATOR = 'kanban-evaluator';
 
     private const HELD_SECONDS = 300;
+
+    /** Commands that stay on this machine: `git` (it needs .git) and `vendor/bin/kanban` (host docker, the board), by any path. */
+    private const HOST = '#^\s*(?:[A-Za-z_][A-Za-z0-9_]*=[A-Za-z0-9_.,:/@%+=-]*\s+)*(?:php\s+)?(?:[A-Za-z0-9_.~/-]*/)?(?:git|vendor/bin/kanban)(?:\s|$)#';
+
+    /** The command a card agent's shell runs through; ClaudeSettings allows exactly this prefix. */
+    public static function exec(string $main): string
+    {
+        $path = $main.'/vendor/bin/kanban-exec';
+
+        return preg_match('#^[A-Za-z0-9_.,:/@%+=-]+$#', $path) ? $path : escapeshellarg($path);
+    }
 
     public function run(string $raw): void
     {
@@ -64,9 +76,44 @@ final class Guard
         }
 
         $type = $payload['agent_type'] ?? null;
-        if (($payload['tool_name'] ?? null) === 'EnterWorktree' && ($type === self::WORKER || $type === self::EVALUATOR)) {
+        $tool = $payload['tool_name'] ?? null;
+        if ($tool === 'EnterWorktree' && ($type === self::WORKER || $type === self::EVALUATOR)) {
             $this->bind($main, $file, $agentId, $type, is_array($binding) ? $binding : [], $input, $cwd);
+        } elseif (($tool === 'Bash' || $tool === 'Monitor') && is_array($binding)) {
+            $this->route($main, $binding, $input, $cwd);
         }
+    }
+
+    /**
+     * A bound worker's or evaluator's command → `<main>/vendor/bin/kanban-exec <container> <cwd> '<command>'`, when its
+     * card's stack is up with `agents.shell` = container (the stack record). The whole input is returned with only the
+     * command replaced, and no permission decision.
+     *
+     * @param  array<string, mixed>  $binding
+     * @param  array<string, mixed>  $input
+     */
+    private function route(string $main, array $binding, array $input, string $cwd): void
+    {
+        $command = $input['command'] ?? null;
+        $worktree = $binding['worktree'] ?? null;
+        if (! is_string($command) || trim($command) === '' || preg_match(self::HOST, $command) || ! is_string($worktree) || $worktree === ''
+            || ! in_array($binding['agent_type'] ?? null, [self::WORKER, self::EVALUATOR], true)) {
+            return;
+        }
+        $record = json_decode((string) @file_get_contents($main.'/.git/laravel-house/stacks/'.basename($worktree).'.json'), true);
+        $container = $record['container'] ?? null;
+        if (($record['shell'] ?? null) !== 'container' || ! is_string($container) || ! preg_match('/^[A-Za-z0-9][A-Za-z0-9_.-]*$/', $container)
+            || ! is_file($main.'/vendor/bin/kanban-exec')) {
+            return;
+        }
+        $root = self::canonical($worktree[0] === '/' ? $worktree : $main.'/'.$worktree);
+        $dir = self::canonical($cwd);
+        if ($dir !== $root && ! str_starts_with($dir, $root.'/')) {
+            $dir = $root;
+        }
+
+        $input['command'] = self::exec($main).' '.$container.' '.escapeshellarg($dir).' '.escapeshellarg($command);
+        echo json_encode(['hookSpecificOutput' => ['hookEventName' => 'PreToolUse', 'updatedInput' => $input]], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
     }
 
     /**

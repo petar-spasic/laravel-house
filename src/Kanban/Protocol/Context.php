@@ -2,6 +2,7 @@
 
 namespace PetarSpasic\LaravelHouse\Kanban\Protocol;
 
+use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
 use PetarSpasic\LaravelHouse\Kanban\Store\Card;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
 use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
@@ -77,6 +78,10 @@ final class Context
         if (is_array($stack)) {
             $ports = (array) ($stack['ports'] ?? []);
             $lines[] = 'stack '.($stack['url'] ?? '-').($ports === [] ? '' : ' ports '.implode(' ', array_map(fn ($k, $v) => "{$k}={$v}", array_keys($ports), $ports)));
+            $record = $worktree === null ? null : (new Worktrees($this->paths, $this->config))->stackRecord($worktree);
+            if (($record['shell'] ?? null) === 'container') {
+                $lines[] = "shell in container {$record['container']}; git and vendor/bin/kanban run on this machine";
+            }
         }
         $lines[] = 'acceptance:';
         foreach ($card->acceptance() as $criterion) {

@@ -12,6 +12,13 @@
  * FAKE_DOCKER_CONFIG_NAME=x    `compose config` reports this project name instead of -p
  * FAKE_DOCKER_FAIL=up|down|ps that subcommand exits 1
  * FAKE_DOCKER_DELAY=n          every compose subcommand sleeps n seconds first
+ * FAKE_DOCKER_CONTAINERS=json  {"name": ["bind source", …]}: running containers besides `<project>-app-1` of each
+ *                              project that is up (which binds its directory)
+ * FAKE_DOCKER_STOPPED=a,b       those containers exist but are not running
+ *
+ * `exec [-i] [-u u:g] [-w dir] <container> <cmd…>` and `compose exec -T <service> <cmd…>` run the command here, in
+ * dir or the project's directory, with this process's stdio, in a session of its own: like a process in a container,
+ * it outlives a killed client and sees only its stdin close.
  *
  * Each call also appends {"args": …, "env": {…}} to $FAKE_DOCKER_DIR/env.log: the process environment it was started
  * with, limited to WEB_PORT, DB_PORT, DB_HOST_PORT, REDIS_HOST_PORT and COMPOSE_*.
@@ -43,6 +50,46 @@ if (($args[0] ?? null) === 'inspect') {
         echo str_starts_with($id, 'bound') ? json_encode(['80/tcp' => [['HostIp' => '', 'HostPort' => substr($id, 5)]]])."\n" : "{}\n";
     }
     exit(0);
+}
+$containers = function () use ($state): array {
+    $all = [];
+    foreach ($state['projects'] as $name => $project) {
+        $all[$name.'-app-1'] = [(string) $project['directory']];
+    }
+
+    return array_merge($all, (array) json_decode((string) getenv('FAKE_DOCKER_CONTAINERS'), true));
+};
+$run = function (array $command, string $dir): never {
+    $process = proc_open(['setsid', '-w', ...$command], [STDIN, STDOUT, STDERR], $pipes, $dir);
+    exit($process === false ? 127 : proc_close($process));
+};
+if (($args[0] ?? null) === 'container' && ($args[1] ?? null) === 'inspect') {
+    $name = end($args);
+    if (! isset($containers()[$name])) {
+        fwrite(STDERR, "Error: No such container: {$name}\n");
+        exit(1);
+    }
+    echo implode("\n", [in_array($name, $list('FAKE_DOCKER_STOPPED'), true) ? 'false' : 'true', ...$containers()[$name]])."\n";
+    exit(0);
+}
+if (($args[0] ?? null) === 'exec') {
+    $dir = null;
+    for ($i = 1; in_array($args[$i] ?? null, ['-i', '-u', '-w'], true); $i++) {
+        match ($args[$i]) {
+            '-w' => $dir = $args[++$i],
+            '-u' => $i++,
+            default => null,
+        };
+    }
+    if (! isset($containers()[$args[$i] ?? ''])) {
+        fwrite(STDERR, 'Error response from daemon: No such container: '.($args[$i] ?? '')."\n");
+        exit(1);
+    }
+    if ($dir !== null && ! is_dir($dir)) {
+        fwrite(STDERR, "OCI runtime exec failed: chdir to cwd (\"{$dir}\") set in config.json failed: no such file or directory\n");
+        exit(126);
+    }
+    $run(array_slice($args, $i + 1), $dir ?? '/');
 }
 if (($args[0] ?? null) !== 'compose') {
     fwrite(STDERR, "fake docker: unsupported {$args[0]}\n");
@@ -115,6 +162,12 @@ switch ($sub) {
     case 'port':
         echo '0.0.0.0:'.($state['projects'][$project]['port'] ?? 0)."\n";
         exit(0);
+    case 'exec':
+        if (! isset($state['projects'][$project])) {
+            fwrite(STDERR, "service \"app\" is not running\n");
+            exit(1);
+        }
+        $run(array_slice($rest, 3), (string) $directory);
     case 'logs':
         echo "{$project}-app-1 | fake log line\n";
         exit(0);

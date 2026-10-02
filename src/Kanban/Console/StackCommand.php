@@ -11,18 +11,25 @@ use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Invalid;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\NotFound;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
 use Symfony\Component\Console\Attribute\AsCommand;
+use Symfony\Component\Console\Output\ConsoleOutputInterface;
+use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Process\Process;
 
 #[AsCommand(name: 'kanban:stack')]
 class StackCommand extends Command
 {
-    private const ACTIONS = ['create', 'up', 'down', 'status', 'wait', 'logs', 'url', 'list', 'gc'];
+    private const ACTIONS = ['create', 'up', 'down', 'status', 'wait', 'reload', 'exec', 'logs', 'url', 'list', 'gc'];
+
+    /** Actions that from inside a code worktree reach only that worktree's own stack. */
+    private const OWN = ['reload', 'exec'];
 
     protected $signature = 'kanban:stack
         {target? : Card id, worktree path or name (default: the worktree of the current directory); or the action}
-        {action? : create, up, down, status, wait, logs, url; `stack list`, `stack gc`}
+        {action? : create, up, down, status, wait, reload, exec, logs, url; `stack list`, `stack gc`}
+        {args?* : exec: the command, after `--` (`stack <id> exec -- php artisan test`)}
         {--force : gc: also remove unregistered *-wt-* compose projects}';
 
-    protected $description = 'Per-worktree Docker stack: create, up, down, status, wait, logs, url; list and gc machine-wide';
+    protected $description = 'Per-worktree Docker stack: create, up, down, status, wait, reload, exec, logs, url; list and gc machine-wide';
 
     private Worktrees $worktrees;
 
@@ -30,8 +37,8 @@ class StackCommand extends Command
     {
         $this->worktrees = new Worktrees($this->paths(), $this->config());
         [$target, $action] = [$this->argument('target'), $this->argument('action')];
-        if ($action === null && in_array($target, self::ACTIONS, true)) {
-            [$target, $action] = [null, $target];
+        if (in_array($target, self::ACTIONS, true) && ! in_array($action, self::ACTIONS, true)) {
+            [$target, $action] = [$action, $target];
         }
         if (! in_array($action, self::ACTIONS, true)) {
             throw new Invalid('action must be one of '.implode(', ', self::ACTIONS));
@@ -43,6 +50,9 @@ class StackCommand extends Command
             return $this->gc();
         }
         [$path, $card] = $this->resolve($target, $action);
+        if (in_array($action, self::OWN, true)) {
+            $this->requireOwn($path, $action);
+        }
 
         return match ($action) {
             'create' => $this->create($path, $card),
@@ -50,6 +60,8 @@ class StackCommand extends Command
             'down' => $this->down($path),
             'status' => $this->status($path),
             'wait' => $this->wait($path, $card),
+            'reload' => $this->reload($path, $card),
+            'exec' => $this->exec($path),
             'logs' => $this->logs($path),
             'url' => $this->url($path),
         };
@@ -99,6 +111,15 @@ class StackCommand extends Command
         }
 
         return null;
+    }
+
+    /** From inside a code worktree only its own stack; from the main checkout any card's. */
+    private function requireOwn(string $path, string $action): void
+    {
+        $own = $this->worktrees->containing($this->paths()->cwd);
+        if ($own !== null && $own !== (realpath($path) ?: $path)) {
+            throw new PolicyRefused("from a worktree, `stack {$action}` acts only on that worktree's own stack");
+        }
     }
 
     private function requireWorktree(string $path): void
@@ -176,16 +197,60 @@ class StackCommand extends Command
         return self::SUCCESS;
     }
 
-    /** Polls `http://127.0.0.1:<WEB_PORT><health_path>` until 200; starts the stack first when it is not running. */
+    /**
+     * Polls `http://127.0.0.1:<WEB_PORT><health_path>` until 200. Starts the stack first when it is not running, and
+     * recreates it when the docker files changed since it came up.
+     */
     private function wait(string $path, ?string $card): int
     {
         $this->requireWorktree($path);
         $entry = $this->worktrees->registry()->find($path);
         $stack = $entry === null ? null : $this->worktrees->stack($path, $entry['project']);
+        $hash = $this->worktrees->stackRecord($path)['hash'] ?? null;
         if ($stack === null || ! $stack->running()) {
             $entry = $this->worktrees->up($path, $this->branch($path), $card);
             $this->say("up {$entry['project']}");
+        } elseif ($hash !== null && $hash !== $this->worktrees->dockerHash($path)) {
+            $entry = $this->worktrees->up($path, $this->branch($path), $card, recreate: true);
+            $this->say("reloaded {$entry['project']}: docker files changed");
+        } else {
+            $this->worktrees->record($path, $entry['project']);
         }
+
+        return $this->ready($entry);
+    }
+
+    /** `up -d --build --force-recreate`, then waits like `wait`. */
+    private function reload(string $path, ?string $card): int
+    {
+        $this->requireWorktree($path);
+        $entry = $this->worktrees->up($path, $this->branch($path), $card, recreate: true);
+        $this->say("reloaded {$entry['project']}");
+
+        return $this->ready($entry);
+    }
+
+    /** `compose exec -T <stack.service> <args>` with the host env stripped; output streamed, the command's exit code returned. */
+    private function exec(string $path): int
+    {
+        $args = array_values(array_map('strval', (array) $this->argument('args')));
+        if ($args === []) {
+            throw new Invalid('stack exec needs a command: `kanban stack <id> exec -- <command>`');
+        }
+        $this->requireWorktree($path);
+        $entry = $this->worktrees->registry()->find($path) ?? throw new NotFound("no stack registered for {$path}");
+        $stack = $this->worktrees->stack($path, $entry['project']);
+        $output = $this->output->getOutput();
+        $errors = $output instanceof ConsoleOutputInterface ? $output->getErrorOutput() : $output;
+        $result = $stack->compose(['exec', '-T', $stack->service(), ...$args], null,
+            fn (string $type, string $chunk) => ($type === Process::ERR ? $errors : $output)->write($chunk, false, OutputInterface::OUTPUT_RAW));
+
+        return $result['code'];
+    }
+
+    /** @param  array<string, mixed>  $entry */
+    private function ready(array $entry): int
+    {
         $port = $entry['ports']['WEB_PORT'] ?? throw new StackFailed('no WEB_PORT in stack.ports');
         $url = 'http://127.0.0.1:'.$port.$this->setting('stack.health_path', '/up');
         $deadline = microtime(true) + (float) $this->setting('stack.wait_timeout', 110);
@@ -251,6 +316,7 @@ class StackCommand extends Command
             }
             $down = Stack::downProject($entry['project'], ['-v', '--remove-orphans', '--rmi', 'local']);
             if ($down['code'] === 0) {
+                $this->worktrees->forget($entry['worktree'], is_string($entry['repo'] ?? null) ? $entry['repo'] : null);
                 $registry->release($entry['worktree']);
                 $this->say("gc {$entry['project']}: worktree gone, stack down, slot {$entry['slot']} released");
             } else {

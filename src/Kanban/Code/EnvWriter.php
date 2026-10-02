@@ -8,7 +8,9 @@ use PetarSpasic\LaravelHouse\Kanban\Support\Json;
 
 /**
  * The worktree `.env`: main's `.env` minus the managed keys, plus the `stack.env` block with its
- * placeholders resolved ({project}, {name}, {app}, {scheme}, {host} and every `stack.ports` key).
+ * placeholders resolved ({project}, {name}, {app}, {scheme}, {host} and every `stack.ports` key), and the
+ * card stack's own keys: KANBAN_WORKTREE_PATH (the compose file also mounts the worktree there, so an agent's shell
+ * runs in the container at the path it sees) and an empty KANBAN_GIT_SSH_COMMAND (only main's stack syncs the board).
  */
 final class EnvWriter
 {
@@ -50,7 +52,8 @@ final class EnvWriter
     /** @param  array<string, int>  $ports */
     public function write(string $worktree, array $ports): void
     {
-        $managed = array_merge(array_keys($ports), array_keys((array) ($this->config['stack']['env'] ?? [])));
+        $own = ['KANBAN_WORKTREE_PATH' => realpath($worktree) ?: $worktree, 'KANBAN_GIT_SSH_COMMAND' => ''];
+        $managed = array_merge(array_keys($ports), array_keys((array) ($this->config['stack']['env'] ?? [])), array_keys($own));
         $lines = [];
         $source = is_file($this->main.'/.env') ? (string) file_get_contents($this->main.'/.env') : '';
         foreach (preg_split('/\R/', $source) as $line) {
@@ -70,6 +73,9 @@ final class EnvWriter
         }
         foreach ((array) ($this->config['stack']['env'] ?? []) as $key => $template) {
             $block[] = $key.'='.self::quote($this->resolve((string) $template, $values));
+        }
+        foreach ($own as $key => $value) {
+            $block[] = $key.'='.self::quote($value);
         }
 
         Json::write($worktree.'/.env', ($lines === [] ? '' : implode("\n", $lines)."\n\n").implode("\n", $block)."\n");

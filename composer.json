@@ -25,7 +25,7 @@
     "autoload-dev": {
         "psr-4": { "PetarSpasic\\LaravelHouse\\Tests\\": "tests/" }
     },
-    "bin": ["bin/kanban"],
+    "bin": ["bin/kanban", "bin/kanban-exec"],
     "extra": {
         "laravel": {
             "providers": [

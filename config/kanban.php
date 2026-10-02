@@ -19,10 +19,13 @@ return [
         'git_author' => env('KANBAN_GIT_AUTHOR'),
     ],
 
-    // Written into the frontmatter of .claude/agents/kanban-{worker,evaluator}.md by kanban:install / doctor --fix.
     'agents' => [
+        // Written into the frontmatter of .claude/agents/kanban-{worker,evaluator}.md by kanban:install / doctor --fix.
         'worker' => ['model' => 'sonnet', 'effort' => 'high'],
         'evaluator' => ['model' => 'opus', 'effort' => 'medium'],
+        // container: a worker's or evaluator's Bash and Monitor commands run in its card stack's `stack.service`
+        // container (vendor/bin/kanban-exec), except `git` and `vendor/bin/kanban`. host: they run on this machine.
+        'shell' => env('KANBAN_AGENT_SHELL', 'container'),
     ],
 
     'main_branch' => env('KANBAN_MAIN_BRANCH', 'main'),
@@ -52,6 +55,8 @@ return [
         // null disables per-worktree Docker stacks.
         'compose_file' => 'docker-compose.local.yml',
         'project' => '{app}-wt-{name}',
+        // The service agents' shells and `stack exec` run in.
+        'service' => 'app',
         'pool' => ['base' => 21000, 'block' => 10, 'first' => 1, 'last' => 99],
         // Env key => offset inside the slot's block of ports.
         'ports' => ['WEB_PORT' => 0, 'DB_HOST_PORT' => 1, 'REDIS_HOST_PORT' => 2],

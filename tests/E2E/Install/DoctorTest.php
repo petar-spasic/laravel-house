@@ -198,3 +198,12 @@ it('accepts a host port published from a stack.env variable that is built from a
         ->and($process->getOutput())->toContain("ok docker-compose.local.yml is worktree-safe\n")
         ->not->toContain('host port variable');
 });
+
+it('warns when the local compose file mounts no worktree at its host path, unless agents\' shells stay on the host', function () {
+    $sandbox = doctorSandbox();
+    file_put_contents($sandbox->root.'/docker-compose.local.yml', str_replace('      - .:${KANBAN_WORKTREE_PATH:-/app}'."\n", '', file_get_contents($sandbox->root.'/docker-compose.local.yml')));
+    $warning = 'warn docker-compose.local.yml mounts no worktree at ${KANBAN_WORKTREE_PATH}';
+
+    expect(doctor($sandbox)->getOutput())->toContain($warning)
+        ->and(doctor($sandbox, env: ['KANBAN_AGENT_SHELL' => 'host'])->getOutput())->not->toContain($warning);
+});

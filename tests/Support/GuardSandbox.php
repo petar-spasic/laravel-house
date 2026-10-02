@@ -42,7 +42,7 @@ final class GuardSandbox
      * Runs a table case: $actor is main | worker | evaluator | other, or `worker:<agent id>` for another worker.
      *
      * @param  array<string, mixed>  $input
-     * @return array{decision: ?string, reason: ?string, out: string, ms: float}
+     * @return array{decision: ?string, reason: ?string, out: string, ms: float, input: ?array}
      */
     public function case(string $actor, string $tool, array $input, ?string $cwd = null): array
     {
@@ -86,6 +86,19 @@ final class GuardSandbox
         file_put_contents($this->wt(self::DOING).'/.env', "DB_PORT=21011\n");
         file_put_contents($this->wt(self::REVIEW).'/.env', "DB_PORT=5435\n");
         mkdir($this->main.'/.git/laravel-house/agents', 0777, true);
+        mkdir($this->main.'/vendor/bin', 0777, true);
+        symlink(dirname(__DIR__, 2).'/bin/kanban-exec', $this->main.'/vendor/bin/kanban-exec');
+    }
+
+    /** The stack record `stack up` writes for the card's worktree. */
+    public function stack(string $card, string $shell = 'container'): string
+    {
+        $container = 'acme-wt-'.strtolower($card).'-app-1';
+        $this->json('.git/laravel-house/stacks/'.strtolower($card).'.json', [
+            'worktree' => $this->wt($card), 'project' => 'acme-wt-'.strtolower($card), 'container' => $container, 'shell' => $shell, 'hash' => 'x',
+        ]);
+
+        return $container;
     }
 
     public function __destruct()
@@ -137,7 +150,7 @@ final class GuardSandbox
      * Runs the guard. $actor: main | worker | evaluator | other (general-purpose).
      *
      * @param  array<string, mixed>  $input
-     * @return array{decision: ?string, reason: ?string, out: string, ms: float}
+     * @return array{decision: ?string, reason: ?string, out: string, ms: float, input: ?array}
      */
     public function guard(string $actor, string $tool, array $input, ?string $cwd = null, ?string $agentId = null): array
     {
@@ -165,7 +178,7 @@ final class GuardSandbox
     }
 
     /**
-     * @return array{decision: ?string, reason: ?string, out: string, ms: float}
+     * @return array{decision: ?string, reason: ?string, out: string, ms: float, input: ?array}
      */
     public function raw(string $stdin): array
     {
@@ -187,6 +200,7 @@ final class GuardSandbox
             'reason' => $json['hookSpecificOutput']['permissionDecisionReason'] ?? null,
             'out' => $out,
             'ms' => $ms,
+            'input' => $json['hookSpecificOutput']['updatedInput'] ?? null,
         ];
     }
 

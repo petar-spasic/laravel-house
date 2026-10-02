@@ -4,6 +4,7 @@ namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
 use PetarSpasic\LaravelHouse\Kanban\Code\PortRegistry;
 use PetarSpasic\LaravelHouse\Kanban\Code\Stack;
+use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
 use PetarSpasic\LaravelHouse\Kanban\Console\Install\Migrate;
 use PetarSpasic\LaravelHouse\Kanban\Console\Install\NextSteps;
 use PetarSpasic\LaravelHouse\Kanban\Console\Install\Steps;
@@ -226,12 +227,16 @@ class DoctorCommand extends Command
 
             return;
         }
-        $problems = self::composeProblems((string) file_get_contents($main.'/'.$compose), self::portVariables($stack));
+        $yaml = (string) file_get_contents($main.'/'.$compose);
+        $problems = self::composeProblems($yaml, self::portVariables($stack));
         foreach ($problems as $problem) {
             $this->add('fail', "{$compose}: {$problem}");
         }
         if ($problems === []) {
             $this->add('ok', "{$compose} is worktree-safe");
+        }
+        if (($this->setting('agents.shell') ?? 'container') !== 'host' && ! str_contains($yaml, Worktrees::MOUNT)) {
+            $this->add('warn', "{$compose} mounts no worktree at \${".Worktrees::MOUNT.'}, so card agents\' shells run on this machine, not in their stack (add `- ./:${'.Worktrees::MOUNT.':-/app}` to the app service\'s volumes)');
         }
         $overlays = array_diff(array_map('realpath', [...glob($main.'/docker-compose*.y*ml') ?: [], ...glob($main.'/compose*.y*ml') ?: []]), [realpath($main.'/'.$compose)]);
         foreach ($overlays as $overlay) {

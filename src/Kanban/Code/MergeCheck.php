@@ -7,8 +7,8 @@ use PetarSpasic\LaravelHouse\Kanban\Support\Git;
 /** Read-only checks before a card branch is merged into main. */
 final class MergeCheck
 {
-    /** Files whose change means the main stack must be rebuilt. */
-    private const REBUILD = ['composer.lock', 'package-lock.json', 'Dockerfile.local', 'docker/'];
+    /** Files whose change means a stack must be rebuilt and recreated. */
+    public const REBUILD = ['composer.lock', 'package-lock.json', 'Dockerfile.local', 'docker/'];
 
     public function __construct(private readonly Git $git, private readonly string $main) {}
 

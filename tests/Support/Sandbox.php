@@ -173,7 +173,7 @@ final class Sandbox
         $this->git('config', 'commit.gpgsign', 'false');
     }
 
-    /** `vendor/bin/kanban` like composer's proxy: sets the autoload path, then runs the package binary. */
+    /** `vendor/bin/kanban` like composer's proxy: sets the autoload path, then runs the package binary; `kanban-exec` linked. */
     public function vendorBin(): void
     {
         @mkdir($this->root.'/vendor/bin', 0775, true);
@@ -185,6 +185,7 @@ final class Sandbox
             eval('?>'.preg_replace('/^#!.*\\n/', '', file_get_contents('{$package}/bin/kanban')));
             PHP);
         chmod($this->root.'/vendor/bin/kanban', 0755);
+        @symlink($package.'/bin/kanban-exec', $this->root.'/vendor/bin/kanban-exec');
     }
 
     /**

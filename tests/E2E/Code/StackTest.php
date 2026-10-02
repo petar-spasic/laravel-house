@@ -97,3 +97,112 @@ it("hides the host's port and compose variables from docker", function () {
     expect($seen)->not->toBe([])
         ->and(array_merge(...array_column($seen, 'env')))->toBe([]);
 });
+
+/** The stack record `stack up` writes for Guard and `stack wait`. */
+function stackRecord(CodeSandbox $code, string $wt): ?array
+{
+    $file = $code->root().'/.git/laravel-house/stacks/'.basename($wt).'.json';
+
+    return is_file($file) ? json_decode((string) file_get_contents($file), true) : null;
+}
+
+it('gives a card stack its host-path mount and no ssh command, and records its container for the agents\' shells', function (array $config, string $compose, string $shell) {
+    $code = $this->code;
+    $code->configure($config);
+    file_put_contents($code->root().'/docker-compose.local.yml', $compose);
+    $code->sandbox->git('commit', '-q', '--allow-empty', '-am', 'compose');
+    $id = $code->started('Record me');
+    $wt = $code->worktree($id);
+    $lc = basename($wt);
+
+    expect(file_get_contents($wt.'/.env'))->toContain("\nKANBAN_WORKTREE_PATH={$wt}\nKANBAN_GIT_SSH_COMMAND=\n")
+        ->and(stackRecord($code, $wt))->toMatchArray([
+            'worktree' => $wt, 'project' => "acme-wt-{$lc}", 'container' => "acme-wt-{$lc}-app-1", 'shell' => $shell,
+        ])
+        ->and(str_contains($code->ok(['context', $id], cwd: $wt), "\nshell in container acme-wt-{$lc}-app-1; git and vendor/bin/kanban run on this machine\n"))
+        ->toBe($shell === 'container');
+
+    $code->ok(['stack', $id, 'down']);
+
+    expect(stackRecord($code, $wt))->toBeNull();
+})->with([
+    'mounted' => [[], "name: \"\${COMPOSE_PROJECT_NAME:?unset}\"\nservices:\n  app:\n    volumes: ['./:\${KANBAN_WORKTREE_PATH:-/app}']\n", 'container'],
+    'not mounted' => [[], "name: \"\${COMPOSE_PROJECT_NAME:?unset}\"\nservices: {}\n", 'host'],
+    'agents.shell host' => [['agents' => ['shell' => 'host']], "name: \"\${COMPOSE_PROJECT_NAME:?unset}\"\nservices:\n  app:\n    volumes: ['./:\${KANBAN_WORKTREE_PATH:-/app}']\n", 'host'],
+]);
+
+it('recreates a running stack on wait once its docker files changed, and only then', function () {
+    $code = $this->code;
+    $id = $code->started('Edit the Caddyfile');
+    $wt = $code->worktree($id);
+    $lc = basename($wt);
+    $web = $code->base + 10;
+    $code->ok(['stack', 'down'], cwd: $wt);
+    $code->ok(['stack', 'wait'], ['FAKE_DOCKER_SERVE' => '1'], $wt);
+    $recreates = fn () => count(array_filter($code->calls(), fn ($call) => str_contains($call, 'up -d --build --force-recreate')));
+
+    expect($code->ok(['stack', 'wait'], cwd: $wt))->toBe("ready http://127.0.0.1:{$web}/up\n")
+        ->and($recreates())->toBe(0);
+
+    @mkdir($wt.'/docker', 0775, true);
+    file_put_contents($wt.'/docker/Caddyfile.local', ":8080 {\n}\n");
+
+    expect($code->ok(['stack', 'wait'], cwd: $wt))->toBe("reloaded acme-wt-{$lc}: docker files changed\nready http://127.0.0.1:{$web}/up\n")
+        ->and($recreates())->toBe(1)
+        ->and($code->ok(['stack', 'wait'], cwd: $wt))->toBe("ready http://127.0.0.1:{$web}/up\n")
+        ->and($recreates())->toBe(1);
+});
+
+it('reloads its own stack from a worktree and any card stack from main', function () {
+    $code = $this->code;
+    $id = $code->started('Reload me');
+    $other = $code->started('Not yours');
+    $wt = $code->worktree($id);
+    $lc = basename($wt);
+    $web = $code->base + 10;
+
+    $own = $code->kanban(['stack', 'reload'], ['FAKE_DOCKER_SERVE' => '1'], $wt);
+    $foreign = $code->kanban(['stack', $other, 'reload'], cwd: $wt);
+    $main = $code->kanban(['stack', 'reload', $other]);
+
+    expect($own->getOutput())->toBe("reloaded acme-wt-{$lc}\nready http://127.0.0.1:{$web}/up\n")
+        ->and($code->calls())->toContain("compose --project-directory {$wt} -f {$wt}/docker-compose.local.yml -p acme-wt-{$lc} up -d --build --force-recreate")
+        ->and($foreign->getExitCode())->toBe(3)
+        ->and($foreign->getErrorOutput())->toContain("from a worktree, `stack reload` acts only on that worktree's own stack")
+        ->and($main->getOutput())->toStartWith('reloaded acme-wt-'.basename($code->worktree($other))."\n");
+    $code->ok(['stack', $id, 'down']);
+});
+
+it('runs a command in a card stack for main, with the host environment stripped', function () {
+    $code = $this->code;
+    $id = $code->started('Exec for main');
+    $other = $code->started('Another');
+    $wt = $code->worktree($id);
+    $lc = basename($wt);
+
+    $run = $code->kanban(['stack', 'exec', $id, '--', 'sh', '-c', 'pwd; echo err >&2; exit 3'], ['WEB_PORT' => '8011', 'COMPOSE_PROJECT_NAME' => 'acme-local']);
+    $foreign = $code->kanban(['stack', $other, 'exec', '--', 'true'], cwd: $wt);
+    $empty = $code->kanban(['stack', $id, 'exec']);
+
+    $exec = collect($code->composeEnv())->first(fn ($call) => str_contains($call['args'], ' exec -T '));
+    expect($run->getExitCode())->toBe(3)
+        ->and($run->getOutput())->toBe("{$wt}\n")
+        ->and($run->getErrorOutput())->toBe("err\n")
+        ->and($exec['args'])->toBe("compose --project-directory {$wt} -f {$wt}/docker-compose.local.yml -p acme-wt-{$lc} exec -T app sh -c pwd; echo err >&2; exit 3")
+        ->and($exec['env'])->toBe([])
+        ->and($foreign->getExitCode())->toBe(3)
+        ->and($empty->getExitCode())->toBe(2)
+        ->and($empty->getErrorOutput())->toContain('stack exec needs a command');
+});
+
+it('forgets the stack record of a worktree that vanished on gc', function () {
+    $code = $this->code;
+    $id = $code->started('Gone');
+    $wt = $code->worktree($id);
+    expect(stackRecord($code, $wt))->not->toBeNull();
+    exec('rm -rf '.escapeshellarg($wt));
+
+    $code->ok(['stack', 'gc']);
+
+    expect(stackRecord($code, $wt))->toBeNull();
+});
