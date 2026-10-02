@@ -3,6 +3,7 @@
 namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
 use PetarSpasic\LaravelHouse\Kanban\Policy\Creation;
+use PetarSpasic\LaravelHouse\Kanban\Policy\Shape;
 use PetarSpasic\LaravelHouse\Kanban\Store\BoardRef;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\NotFound;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -43,6 +44,11 @@ class NewCommand extends Command
 
         $card = $store->create($ref, $fields, $this->actor());
         $this->say("created {$card->id()} {$card->board} {$card->stage()}");
+        if ($card->areas() !== [] || $card->dependsOn() !== []) {
+            foreach (Shape::hints($store->snapshot(), $card, $card->areas(), $card->dependsOn()) as $hint) {
+                $this->say($hint);
+            }
+        }
         $this->reportPending();
 
         return self::SUCCESS;

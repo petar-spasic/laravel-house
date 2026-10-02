@@ -3,6 +3,7 @@
 namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
 use PetarSpasic\LaravelHouse\Kanban\Policy\Edits;
+use PetarSpasic\LaravelHouse\Kanban\Policy\Shape;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Invalid;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\NotFound;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
@@ -57,6 +58,13 @@ class SetCommand extends Command
             return self::SUCCESS;
         }
         $this->say("{$updated->id()} updated");
+        $areas = array_values(array_diff($updated->areas(), $card->areas()));
+        $depends = array_values(array_diff($updated->dependsOn(), $card->dependsOn()));
+        if ($areas !== [] || $depends !== []) {
+            foreach (Shape::hints($store->snapshot(), $updated, $areas, $depends) as $hint) {
+                $this->say($hint);
+            }
+        }
         $this->reportPending();
 
         return self::SUCCESS;

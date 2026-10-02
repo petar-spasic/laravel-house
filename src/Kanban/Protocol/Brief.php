@@ -3,6 +3,7 @@
 namespace PetarSpasic\LaravelHouse\Kanban\Protocol;
 
 use PetarSpasic\LaravelHouse\Kanban\Policy\PullPolicy;
+use PetarSpasic\LaravelHouse\Kanban\Policy\Shape;
 use PetarSpasic\LaravelHouse\Kanban\Store\Card;
 use PetarSpasic\LaravelHouse\Kanban\Store\Git\Bootstrap;
 use PetarSpasic\LaravelHouse\Kanban\Store\Git\GitStore;
@@ -69,6 +70,9 @@ final class Brief
         }
         if (count($blocked) > 10) {
             $lines[] = 'blocked: '.(count($blocked) - 10).' more (`kanban list`)';
+        }
+        if (($hubs = Shape::hubs($snapshot)) !== []) {
+            $lines[] = 'hubs: '.implode(', ', array_map(fn (string $id) => "{$id} blocks ".count($hubs[$id]), array_keys($hubs)));
         }
         $lines[] = 'next: '.($next['cards'] === []
             ? 'none: '.$next['reason']
