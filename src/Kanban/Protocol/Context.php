@@ -171,6 +171,9 @@ final class Context
         foreach ($gates as $gate) {
             $lines[] = '  '.$gate;
         }
+        if (is_string($migrate = $this->config['migrate'] ?? null) && $migrate !== '') {
+            $lines[] = "migrate: {$migrate}";
+        }
         if ($evaluate) {
             $criteria = implode(' ', array_map(fn (array $c) => "--check={$c['id']}:pass|fail:\"evidence\"", $card->acceptance()));
             $lines[] = "protocol: read-only; verify each criterion, then `vendor/bin/kanban verdict {$card->id()} approve|reject {$criteria} [--issue=\"…\"] [--discovered=\"bug: Title — body\"]`";

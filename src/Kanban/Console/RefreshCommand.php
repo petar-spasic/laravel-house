@@ -68,6 +68,8 @@ class RefreshCommand extends Command
         $git = $worktrees->git($path);
         $before = $worktrees->head('HEAD', $path);
         $merge = $git->attempt(['merge', '--no-edit', $main]);
+        $migrations = array_values(array_filter(explode("\n", trim($git->attempt(['diff', '--name-only', '--diff-filter=A', "{$before}...refs/heads/{$main}", '--', 'database/migrations/'])->out))));
+        $arrived = $migrations === [] ? null : count($migrations)." migration(s) arrived from {$main}: the card's agent runs the `migrate:` command `kanban context` prints";
         $conflicted = array_values(array_filter(explode("\n", trim($git->attempt(['diff', '--name-only', '--diff-filter=U'])->out))));
 
         if ($conflicted !== []) {
@@ -79,6 +81,9 @@ class RefreshCommand extends Command
             $this->say("{$id} → doing");
             if (is_string($project = $card->work()['stack']['project'] ?? null)) {
                 $this->say("stack {$project} serves the conflicted tree until the worker concludes the merge; run no checks against it");
+            }
+            if ($arrived !== null) {
+                $this->say($arrived);
             }
             $this->say('SendMessage: '.$this->message($id, $main, $conflicted));
 
@@ -97,6 +102,9 @@ class RefreshCommand extends Command
         }
         $this->round($card, ['from' => $before, 'head' => $after]);
         $this->say("refreshed {$id}: merged {$main} (".substr($before, 0, 7).'..'.substr($after, 0, 7).')'.($card->stage() === 'review' ? '; re-verify before finish' : ''));
+        if ($arrived !== null) {
+            $this->say($arrived);
+        }
 
         return self::SUCCESS;
     }
@@ -139,7 +147,7 @@ class RefreshCommand extends Command
     {
         return "Card {$id}: {$main} moved; a merge of {$main} into your branch is in progress in your worktree, with conflicts in "
             .implode(', ', $files).'. Resolve each conflict by keeping both sides\' content and adding nothing neither side had, '
-            .'then `git add` the files and `git commit --no-edit` to conclude the merge. After it, run the migrations, every gate '
-            ."`vendor/bin/kanban context` lists and the whole test suite, then report with `vendor/bin/kanban report {$id} --status=review`.";
+            .'then `git add` the files and `git commit --no-edit` to conclude the merge. After it, run the `migrate:` command and every gate '
+            ."`vendor/bin/kanban context` lists, and the whole test suite, then report with `vendor/bin/kanban report {$id} --status=review`.";
     }
 }

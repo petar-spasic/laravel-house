@@ -46,6 +46,7 @@ it('merges an approved card, marks it done and tears down its stack, worktree an
 
 it('prints a rebuild hint when the merge touches lockfiles, docker files or the stack compose file', function () {
     $code = $this->code;
+    $code->configure(['finish' => ['install' => []]]);
     $id = $code->started('Bump deps');
     $code->commit($id, 'composer.lock', "{}\n");
     $code->approve($id);
@@ -147,6 +148,16 @@ it('logs a refresh of a card in doing that has no approval', function () {
         ->and($code->sandbox->read($id)['stage'])->toBe('doing');
 });
 
+it('says when a refresh brings migrations from main', function () {
+    $code = $this->code;
+    $id = $code->started('Tagged notes');
+    $code->commit($id, 'feature.txt', "feature\n");
+    @mkdir($code->root().'/database/migrations', 0775, true);
+    $code->commitMain('database/migrations/2026_01_10_093015_create_notes_table.php', "<?php\n");
+
+    expect($code->ok(['refresh', $id]))->toContain("1 migration(s) arrived from main: the card's agent runs the `migrate:` command `kanban context` prints\n");
+});
+
 it('refuses to refresh a card whose agent is still running, and skips it under --all', function () {
     $code = $this->code;
     $id = $code->started('Busy');
@@ -190,7 +201,7 @@ it('leaves a conflicting refresh in progress, sends the card back to doing and d
             ."stack {$project} serves the conflicted tree until the worker concludes the merge; run no checks against it\n"
             ."SendMessage: Card {$id}: main moved; a merge of main into your branch is in progress in your worktree, with conflicts in app.php. "
             ."Resolve each conflict by keeping both sides' content and adding nothing neither side had, then `git add` the files and "
-            .'`git commit --no-edit` to conclude the merge. After it, run the migrations, every gate `vendor/bin/kanban context` lists '
+            .'`git commit --no-edit` to conclude the merge. After it, run the `migrate:` command and every gate `vendor/bin/kanban context` lists, '
             ."and the whole test suite, then report with `vendor/bin/kanban report {$id} --status=review`.\n")
         ->and($staged)->not->toBeFile()
         ->and($code->sandbox->read($id)['stage'])->toBe('doing')

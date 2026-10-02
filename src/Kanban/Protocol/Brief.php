@@ -2,6 +2,7 @@
 
 namespace PetarSpasic\LaravelHouse\Kanban\Protocol;
 
+use PetarSpasic\LaravelHouse\Kanban\Code\MainCheck;
 use PetarSpasic\LaravelHouse\Kanban\Policy\PullPolicy;
 use PetarSpasic\LaravelHouse\Kanban\Policy\Shape;
 use PetarSpasic\LaravelHouse\Kanban\Store\Card;
@@ -57,6 +58,10 @@ final class Brief
         $lines[] = "WIP doing {$capacity['here']}/{$capacity['max_parallel']}".($elsewhere > 0 ? " (+{$elsewhere} elsewhere)" : '').", review {$capacity['review']}/{$capacity['review_limit']}"
             .' · ready '.($counts['ready'] ?? 0).' · backlog '.($counts['backlog'] ?? 0).' · blocked '.count($blocked)
             .' · questions '.count(array_filter($blocked, fn (Card $c) => $c->asks()));
+        if (($red = (new MainCheck($this->paths))->red()) !== null) {
+            $lines[] = 'main red since '.substr((string) $red['sha'], 0, 7)." ({$red['after']} merged): `{$red['command']}` fails; finish waits for it ("
+                .($red['card'] ?? 'no card').')';
+        }
         foreach ($work('doing') as $card) {
             $lines[] = 'doing  '.$this->short($card).': '.implode(', ', [...$this->flight($card, $runtime, 'kanban-worker'), ...$this->trouble($card, $runtime)]);
         }

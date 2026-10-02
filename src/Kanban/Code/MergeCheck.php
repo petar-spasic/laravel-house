@@ -99,6 +99,14 @@ final class MergeCheck
         return array_values(array_intersect($branchFiles, $dirty));
     }
 
+    /** @return list<string> untracked, not ignored files of the main checkout */
+    public function untracked(): array
+    {
+        $lines = explode("\n", $this->git->attempt(['status', '--porcelain', '--untracked-files=normal'])->out);
+
+        return array_values(array_map(fn (string $l) => trim(substr($l, 3), '"'), array_filter($lines, fn (string $l) => str_starts_with($l, '?? '))));
+    }
+
     /**
      * @param  list<string>  $files
      * @return list<string> the files among them that require a rebuild of the main stack

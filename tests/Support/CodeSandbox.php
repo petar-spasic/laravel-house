@@ -77,6 +77,7 @@ final class CodeSandbox
             'stack' => ['pool' => ['base' => $this->base, 'block' => 10, 'first' => 1, 'last' => 20], 'max_stacks' => 6,
                 'min_mem_available_gib' => 0, 'min_disk_free_gib' => 0, 'max_load_ratio' => 0, 'wait_timeout' => 3],
             'worktrees' => ['host' => null],
+            'migrate' => null,
             'finish' => ['after' => []],
         ]);
         file_put_contents($this->sandbox->root.'/config/kanban.php', "<?php\n\nreturn ".var_export(self::merge($config, $overrides), true).";\n");

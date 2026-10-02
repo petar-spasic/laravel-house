@@ -86,13 +86,24 @@ return [
         'max_load_ratio' => 0.75,
     ],
 
-    // Run in the main checkout after `finish` merges, when the project has a stack; a `--class=X` seeder
-    // command is skipped while database/seeders/X.php does not exist.
+    // The one migrate command: `finish` runs it on main, and `kanban context` prints it for the card's agents.
+    'migrate' => 'php artisan migrate --force',
+
+    // What `finish` runs in the main checkout after the merge, read from the merged config/kanban.php. Each key a project's
+    // `finish` leaves out keeps the default below.
     'finish' => [
+        // A changed lockfile (by name, at any depth) => the command run in its directory first; a failure skips the rest.
+        'install' => [
+            'composer.lock' => 'composer install --no-interaction',
+            'package-lock.json' => 'npm ci',
+        ],
+        // After `migrate`, when the project has a stack; a `--class=X` seeder is skipped while database/seeders/X.php does not exist.
         'after' => [
-            'php artisan migrate --force',
             'php artisan db:seed --class=ReferenceDataSeeder --force',
         ],
+        // The suite on main after the merge. A failure marks main red and files one bug card; the next `finish` runs it
+        // again first and merges only once it passes (or the card it filed, or --force).
+        'check' => [],
     ],
 
     // Commands a worker's branch must pass before its report is applied ({main_branch} is replaced);

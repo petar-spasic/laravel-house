@@ -85,12 +85,12 @@ it('prints the card context with the configured gates from its worktree, with --
         ->toContain("commits not on main: 1\n")->toContain("{$id}: clauses")
         ->toMatch('/notes from the owner and main:\n  \S+ (owner|main)( \([^)\n]*\))?: The image builds: checked by main\n/')
         ->toContain("dirty: notes.txt\n")
-        ->toContain("gates:\n  vendor/bin/pint --test --diff=main\n  npm run check\nprotocol: work and commit only in this worktree;");
+        ->toContain("gates:\n  vendor/bin/pint --test --diff=main\n  npm run check\nmigrate: php artisan migrate --force\nprotocol: work and commit only in this worktree;");
 
     unlink($wt.'/notes.txt');
     $p->in($wt, ['report', $id, '--status=review', '--tick=1', '--summary=Built it', '--verified=pest → ok'])->mustRun();
-    $p->config(['gates' => ['report' => []]]);
-    expect($p->in($wt, ['context'])->getOutput())->toContain("gates: none\n");
+    $p->config(['gates' => ['report' => []], 'migrate' => null]);
+    expect($p->in($wt, ['context'])->getOutput())->toContain("gates: none\nprotocol:");
     $p->hook('subagent-stop', $p->payload('subagent-stop', ['cwd' => $wt]));
     $p->config($gates);
 

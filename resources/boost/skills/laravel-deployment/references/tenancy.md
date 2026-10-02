@@ -28,6 +28,8 @@ Who is who: the root `CLAUDE.md`, Hosting (its tenancy part).
   `DB_OWNER_PASSWORD`.
 - Every `migrate*` takes `--database=pgsql_owner`: both entrypoints and `docker/e2e.sh`. The database wait and the
   seed stay on the default connection. The local `users`-empty check still holds, because `users` is global.
+- The board's migrate command is one of them: publish `config/kanban.php` and set
+  `'migrate' => 'php artisan migrate --force --database=pgsql_owner'` (`finish` and the card agents run it).
 - Snippets to merge: `env.dotenv` (the host `.env` and `.env.example`; a worktree's generated `.env` needs the same
   three `DB_*` lines for host-side `artisan` and tests), `config-database.php` (`pgsql_owner`, no `url`: the Hosting
   text says why) and `TestCase-artisan.php`. Without the last, `RefreshDatabase` migrates as the app role, which cannot
