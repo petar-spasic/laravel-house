@@ -37,7 +37,9 @@ class ApplyCommand extends Command
             }
             $type = $item['kind'] === 'report' ? SubagentStop::WORKER : SubagentStop::EVALUATOR;
             if (($agent = $runtime->agentFor($item['card'], $type)) !== null && $runtime->state($agent) === 'live') {
-                $this->say("{$item['card']}: {$item['kind']} waits for live agent {$agent['agent_id']} (applied when it stops)");
+                $refused = $runtime->refusal($item['card'], $item['kind']);
+                $this->say("{$item['card']}: {$item['kind']} waits for live agent {$agent['agent_id']} (applied when it stops)"
+                    .($refused === null ? '' : '; last refused: '.rtrim((string) strtok($refused['reason'], "\n"), ':')));
 
                 continue;
             }

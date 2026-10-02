@@ -97,7 +97,7 @@ it('prints the card context with the configured gates from its worktree, with --
     $evaluate = $p->sandbox->ok(['context', $id, '--evaluate']);
     expect($evaluate)->toContain("{$id} review ")
         ->toContain("  [x] 1. It renders\n  [ ] 2. It is tested\n")
-        ->toContain('worker report: review ')->toContain(" ticks 1\n  Built it\n  verified: pest → ok\n")
+        ->toMatch("/report 1\\/1 review \\S+ @\\w{7} ticks 1\n  Built it\n  verified: pest → ok\n/")
         ->toContain("this card's changes, diff --stat main...HEAD:\n  app.php | 1 +\n")
         ->toContain("gates:\n  vendor/bin/pint --test --diff=main\n  npm run check\n")
         ->toContain("protocol: read-only; verify each criterion, then `vendor/bin/kanban verdict {$id} approve|reject --check=1:pass|fail:\"evidence\" --check=2:pass|fail:\"evidence\" [--issue=\"…\"] [--discovered=\"bug: Title — body\"]`");

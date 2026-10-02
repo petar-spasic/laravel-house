@@ -43,17 +43,43 @@ it('validates a report against the card', function (array $args, string $error) 
     'bad discovered type' => [['--status=review', '--summary=x', '--discovered=idea: Something'], 'type must be one of feature, bug, chore, spike'],
 ]);
 
-it('refuses a report for a card that is not in doing', function () {
+it('takes a follow-up report on a card in review from its worktree, which clears the approval and supersedes a verdict in flight', function () {
     $this->p->commit($this->wt, 'app.php');
-    $this->p->in($this->wt, ['report', $this->id, '--status=review', '--summary=Done'])->mustRun();
+    $this->p->in($this->wt, ['report', $this->id, '--status=review', '--tick=1', '--summary=Done'])->mustRun();
     $this->p->hook('subagent-stop', $this->p->payload('subagent-stop', ['cwd' => $this->wt]));
-    expect($this->p->card($this->id)['stage'])->toBe('review');
+    $this->p->hook('subagent-start', $this->p->payload('subagent-start', ['agent' => 'e1', 'type' => 'kanban-evaluator']));
+    $this->p->enter($this->wt, 'e1', 'kanban-evaluator');
+    $this->p->in($this->wt, ['verdict', $this->id, 'approve', '--check=1:pass:ok', '--check=2:pass:ok'])->mustRun();
 
-    $again = $this->p->in($this->wt, ['report', $this->id, '--status=blocked', '--reason=too late']);
+    $this->p->hook('subagent-start', $this->p->payload('subagent-start'));
+    $head = $this->p->commit($this->wt, 'tests/AppTest.php', "<?php\n");
+    $again = $this->p->in($this->wt, ['report', $this->id, '--status=review', '--tick=2', '--summary=Tested too']);
+    expect($again->getExitCode())->toBe(0)
+        ->and($again->getOutput())->toContain("staged report for {$this->id}: review, head ".substr($head, 0, 7));
+    $this->p->hook('subagent-stop', $this->p->payload('subagent-stop', ['cwd' => $this->wt]));
 
-    expect($again->getExitCode())->toBe(3)
-        ->and($again->getErrorOutput())->toContain("{$this->id} is review, not doing")
-        ->and($this->p->runtime('staged/'.$this->id.'.report.json'))->not->toBeFile();
+    $card = $this->p->card($this->id);
+    expect($card)->toMatchArray(['stage' => 'review'])
+        ->and($card['work']['head'])->toBe($head)
+        ->and($card['work']['approved'])->toBeNull()
+        ->and(array_column($card['acceptance'], 'done'))->toBe([true, true]);
+
+    $stop = $this->p->hook('subagent-stop', $this->p->payload('subagent-stop', ['cwd' => $this->wt, 'agent' => 'e1', 'type' => 'kanban-evaluator']));
+    $card = $this->p->card($this->id);
+    expect($stop->getOutput())->toBe('')
+        ->and($stop->getErrorOutput())->toContain("{$this->id}: verdict superseded: a report at ")
+        ->and($card['work']['approved'])->toBeNull()
+        ->and(array_values(array_filter($card['log'], fn ($e) => $e['event'] === 'verdict_superseded'))[0] ?? null)->toMatchArray(['decision' => 'approve', 'by' => 'evaluator'])
+        ->and($this->p->agent('e1')['stopped_at'])->not->toBeNull();
+});
+
+it('refuses a report for a card that is not in doing or review', function () {
+    $this->p->sandbox->ok(['stop', $this->id, '--to=ready', '--reason=Later']);
+
+    $late = $this->p->in($this->p->main, ['report', $this->id, '--status=blocked', '--reason=too late']);
+
+    expect($late->getExitCode())->toBe(3)
+        ->and($late->getErrorOutput())->toContain("{$this->id} is ready: only a card in doing or review takes a report");
 });
 
 it('stages a verdict only with every criterion covered and a consistent decision', function () {

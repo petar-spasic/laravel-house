@@ -16,6 +16,13 @@ final class Context
     /** Claude Code keeps only a 2 KB preview of hook output over 10,000 characters: the gates and protocol lines come after the body. */
     private const BODY_LIMIT = 6000;
 
+    /** The reports of the attempt an evaluator sees, and the characters they may take together. */
+    private const REPORTS = 5;
+
+    private const REPORTS_LIMIT = 2500;
+
+    private const REFUSAL_LIMIT = 1200;
+
     /** @param  array<string, mixed>  $config  the `kanban` config */
     public function __construct(
         private readonly Paths $paths,
@@ -135,22 +142,27 @@ final class Context
         }
 
         if ($evaluate) {
-            $report = $this->last($card, 'report');
-            if ($report !== null) {
-                $lines[] = 'worker report: '.$report['status'].' '.substr((string) ($report['at'] ?? ''), 0, 16)
-                    .(($report['ticks'] ?? []) === [] ? '' : ' ticks '.implode(',', $report['ticks']));
-                foreach (explode("\n", (string) ($report['summary'] ?? '')) as $line) {
-                    $lines[] = '  '.$line;
-                }
-                foreach ($report['verified'] ?? [] as $verified) {
-                    $lines[] = '  verified: '.$verified;
-                }
-            }
+            $lines = [...$lines, ...$this->reports($card, (string) ($work['started'] ?? ''))];
             if ($git !== null) {
                 $lines[] = 'this card\'s changes, diff --stat main...HEAD:';
                 foreach (array_filter(explode("\n", rtrim($git->attempt(['diff', '--stat', $main.'...HEAD'])->out))) as $line) {
                     $lines[] = '  '.trim($line);
                 }
+                $resolved = $this->resolutions($git, $main);
+                if ($resolved !== []) {
+                    $lines[] = 'merge resolutions (lines neither parent had; read each with `git show <sha>`):';
+                    foreach ($resolved as $merge) {
+                        $lines[] = '  '.$merge;
+                    }
+                }
+            }
+        }
+        $refused = (new Runtime($this->paths))->refusal($card->id(), $evaluate ? 'verdict' : 'report');
+        if ($refused !== null) {
+            $reason = $refused['reason'];
+            $lines[] = 'your staged '.($evaluate ? 'verdict' : 'report').' was not applied ('.substr($refused['at'], 0, 16).'):';
+            foreach (explode("\n", mb_strlen($reason) > self::REFUSAL_LIMIT ? '…'.mb_substr($reason, -self::REFUSAL_LIMIT) : $reason) as $line) {
+                $lines[] = '  '.$line;
             }
         }
         $gates = (new Gates($this->config))->commands();
@@ -210,7 +222,59 @@ final class Context
     }
 
     /**
-     * Latest `report` or `verdict` log entry of the card.
+     * The worker's reports since the card was last started, newest first: the newest summary whole up to a cut, older ones
+     * shorter, every `verified` line; at most REPORTS of them within REPORTS_LIMIT characters.
+     *
+     * @return list<string>
+     */
+    private function reports(Card $card, string $since): array
+    {
+        $reports = array_values(array_filter($card->log(), fn (array $e) => ($e['event'] ?? null) === 'report' && (string) ($e['at'] ?? '') >= $since));
+        $total = count($reports);
+        $lines = [];
+        $used = 0;
+        $shown = 0;
+        foreach (array_reverse($reports) as $i => $report) {
+            $block = ['report '.($total - $i).'/'.$total.' '.$report['status'].' '.substr((string) ($report['at'] ?? ''), 0, 16)
+                .(isset($report['head']) ? ' @'.substr((string) $report['head'], 0, 7) : '')
+                .(($report['ticks'] ?? []) === [] ? '' : ' ticks '.implode(',', $report['ticks']))];
+            $summary = (string) ($report['summary'] ?? '');
+            $max = $i === 0 ? 1200 : 600;
+            foreach (explode("\n", mb_strlen($summary) > $max ? mb_substr($summary, 0, $max - 1).'…' : $summary) as $line) {
+                $block[] = '  '.$line;
+            }
+            foreach ($report['verified'] ?? [] as $verified) {
+                $block[] = '  verified: '.mb_strimwidth((string) $verified, 0, 300, '…');
+            }
+            $size = mb_strlen(implode("\n", $block));
+            if ($i > 0 && ($i >= self::REPORTS || $used + $size > self::REPORTS_LIMIT)) {
+                break;
+            }
+            $lines = [...$lines, ...$block];
+            $used += $size;
+            $shown++;
+        }
+        if ($shown < $total) {
+            $lines[] = '… '.($total - $shown)." earlier: `vendor/bin/kanban show {$card->id()} --log=50`";
+        }
+
+        return $lines;
+    }
+
+    /**
+     * Merges into the branch whose combined diff is not empty: a conflict resolution wrote lines that neither parent had.
+     *
+     * @return list<string> `<sha> <subject>`
+     */
+    private function resolutions(Git $git, string $main): array
+    {
+        $merges = array_values(array_filter(explode("\n", $git->attempt(['log', '--merges', '--format=%h %s', '-n', '10', $main.'..HEAD'])->out)));
+
+        return array_values(array_filter($merges, fn (string $merge) => trim($git->attempt(['show', '--format=', '--cc', explode(' ', $merge, 2)[0]])->out) !== ''));
+    }
+
+    /**
+     * Latest log entry of the card with this event.
      *
      * @return array<string, mixed>|null
      */

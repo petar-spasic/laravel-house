@@ -55,7 +55,7 @@ final class Staged
      * @param  list<string>  $checks  `N:pass|fail:evidence`
      * @param  list<string>  $issues
      * @param  list<string>  $discovered  `type: Title — body`; outside the card, so they never decide the verdict
-     * @param  array{head: string, base: ?string, worktree: string, session: ?string}  $at
+     * @param  array{head: string, base: ?string, worktree: string, session: ?string, since: ?string}  $at  since: when its evaluator started or resumed
      * @param  list<array{title: string, body: string}>  $upstream
      * @return array<string, mixed>
      */

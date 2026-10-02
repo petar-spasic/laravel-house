@@ -3,10 +3,14 @@
 namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
 use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
+use PetarSpasic\LaravelHouse\Kanban\Policy\Transitions;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Lease;
+use PetarSpasic\LaravelHouse\Kanban\Protocol\Runtime;
 use PetarSpasic\LaravelHouse\Kanban\Store\Card;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Invalid;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\NotFound;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
+use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
 use PetarSpasic\LaravelHouse\Kanban\Store\Stage;
 use Symfony\Component\Console\Attribute\AsCommand;
 
@@ -24,8 +28,9 @@ class RefreshCommand extends Command
         $this->requireMainOrOwner('refresh');
         $worktrees = new Worktrees($this->paths(), $this->config());
         (new Lease($this->paths()))->acquire($this->actor());
+        $snapshot = $this->store()->snapshot();
         if ($this->option('all')) {
-            $cards = $this->store()->snapshot()->cards(fn (Card $c) => Stage::isActive($c->stage()) && isset($c->work()['worktree'])
+            $cards = $snapshot->cards(fn (Card $c) => Stage::isActive($c->stage()) && isset($c->work()['worktree'])
                 && is_dir($this->paths()->main.'/'.$c->work()['worktree']));
         } elseif ($this->argument('id') !== null) {
             $cards = [$this->store()->card($this->argument('id'))];
@@ -35,6 +40,14 @@ class RefreshCommand extends Command
 
         $exit = self::SUCCESS;
         foreach ($cards as $card) {
+            if (($live = $this->live($card, $snapshot)) !== null) {
+                if (! $this->option('all')) {
+                    throw new PolicyRefused("{$card->id()}: its {$live} is still running (what it stages applies when it stops); wait for its notification");
+                }
+                $this->say("skipped {$card->id()}: {$live} live");
+
+                continue;
+            }
             $exit = max($exit, $this->refresh($card, $worktrees));
         }
 
@@ -56,17 +69,15 @@ class RefreshCommand extends Command
         $conflicted = array_values(array_filter(explode("\n", trim($git->attempt(['diff', '--name-only', '--diff-filter=U'])->out))));
 
         if ($conflicted !== []) {
-            $note = 'merge of '.$main.' conflicts in '.implode(', ', $conflicted);
-            if ($card->stage() === 'review') {
-                $this->transitions()->sendBack($id, 'refresh', $this->actor(), $note);
-            } else {
-                $this->clearApproval($id);
-            }
+            $this->round($card, ['from' => $before, 'conflicts' => $conflicted], 'merge of '.$main.' conflicts in '.implode(', ', $conflicted));
             $this->say("conflict {$id}: merge of {$main} left in progress in {$path}");
             foreach ($conflicted as $file) {
                 $this->say("conflicted {$file}");
             }
             $this->say("{$id} → doing");
+            if (is_string($project = $card->work()['stack']['project'] ?? null)) {
+                $this->say("stack {$project} serves the conflicted tree until the worker concludes the merge; run no checks against it");
+            }
             $this->say('SendMessage: '.$this->message($id, $main, $conflicted));
 
             return 5;
@@ -82,29 +93,51 @@ class RefreshCommand extends Command
 
             return self::SUCCESS;
         }
-        if (($card->work()['approved'] ?? null) !== null) {
-            $this->clearApproval($id);
-        }
+        $this->round($card, ['from' => $before, 'head' => $after]);
         $this->say("refreshed {$id}: merged {$main} (".substr($before, 0, 7).'..'.substr($after, 0, 7).')'.($card->stage() === 'review' ? '; re-verify before finish' : ''));
 
         return self::SUCCESS;
     }
 
-    private function clearApproval(string $id): void
+    /** An agent of the card that has not stopped (`worker`, `evaluator`), or null. */
+    private function live(Card $card, Snapshot $snapshot): ?string
     {
-        $this->store()->update($id, function (array $data) {
-            $data['work']['approved'] = null;
+        $runtime = new Runtime($this->paths(), $snapshot->staleMinutes());
+        foreach (['kanban-worker', 'kanban-evaluator'] as $type) {
+            if (($agent = $runtime->agentFor($card->id(), $type)) !== null && $runtime->state($agent) === 'live') {
+                return str_replace('kanban-', '', $type);
+            }
+        }
 
-            return $data;
+        return null;
+    }
+
+    /**
+     * Records the round boundary in one write: a `refresh` log entry, the approval cleared, and on a conflict the card back
+     * in doing. A report staged for the old head is discarded.
+     *
+     * @param  array<string, mixed>  $entry
+     */
+    private function round(Card $card, array $entry, ?string $conflict = null): void
+    {
+        $this->store()->update($card->id(), function (array $data) use ($entry, $conflict) {
+            $data['work']['approved'] = null;
+            $data['log'][] = ['event' => 'refresh', ...$entry];
+
+            return $conflict !== null && $data['stage'] === 'review' ? Transitions::stage($data, 'doing', 'refresh', $conflict) : $data;
         }, $this->actor());
+        $staged = (new Runtime($this->paths()))->stagedFile($card->id(), 'report');
+        if (is_file($staged) && @unlink($staged)) {
+            $this->say("discarded the report staged for {$card->id()} before the merge");
+        }
     }
 
     /** @param  list<string>  $files */
     private function message(string $id, string $main, array $files): string
     {
-        return "Card {$id}: {$main} moved and `git merge {$main}` in your worktree stopped on conflicts in "
-            .implode(', ', $files).'. The merge is still in progress: resolve every conflict keeping the intent of both sides, '
-            .'run the checks that cover those files, then `git add` them and `git commit --no-edit` to conclude the merge. '
-            ."When the branch is green again, report with `vendor/bin/kanban report {$id} --status=review`.";
+        return "Card {$id}: {$main} moved; a merge of {$main} into your branch is in progress in your worktree, with conflicts in "
+            .implode(', ', $files).'. Resolve each conflict by keeping both sides\' content and adding nothing neither side had, '
+            .'then `git add` the files and `git commit --no-edit` to conclude the merge. After it, run the migrations, every gate '
+            ."`vendor/bin/kanban context` lists and the whole test suite, then report with `vendor/bin/kanban report {$id} --status=review`.";
     }
 }

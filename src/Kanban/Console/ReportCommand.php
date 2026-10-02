@@ -31,8 +31,8 @@ class ReportCommand extends Command
     protected function perform(): int
     {
         $card = $this->store()->card($this->argument('id'));
-        if ($card->stage() !== 'doing') {
-            throw new PolicyRefused("{$card->id()} is {$card->stage()}, not doing: only a card in doing takes a report");
+        if (! in_array($card->stage(), ['doing', 'review'], true)) {
+            throw new PolicyRefused("{$card->id()} is {$card->stage()}: only a card in doing or review takes a report");
         }
         $worktree = (new Context($this->paths(), $this->config()))->requireInside($card, $this->paths()->cwd, 'report');
         $summary = $this->option('summary-file') !== null ? $this->readFile((string) $this->option('summary-file')) : $this->option('summary');

@@ -63,11 +63,18 @@ class HookCommand extends Command
         }
 
         [$inbox, $lock] = (new Runtime($paths))->inbox($event, $raw);
+        $handler = null;
         try {
             $handler = new $class($paths, $this->config(), $this->laravel->make(Store::class));
             $result = $class === SessionStart::class ? $handler->handle($payload, $inbox) : $handler->handle($payload);
         } catch (Throwable $e) {
             $lock?->release();
+            if ($handler instanceof SubagentStop) {
+                try {
+                    $handler->failed($payload, $e->getMessage());
+                } catch (Throwable) {
+                }
+            }
             $this->fault("kanban hook {$event} failed: ".$e->getMessage().' (payload kept in '.$paths->relative($inbox).'; `vendor/bin/kanban apply` retries it)');
 
             return 1;

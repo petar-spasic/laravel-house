@@ -93,18 +93,19 @@ final class Applier
                 if (($stale = $this->stale($card)) !== null) {
                     return "{$cardId}: report stays staged: {$stale}";
                 }
-                // written for an earlier start of the card: another attempt is not this one's work
-                if (($started = (string) ($card->work()['started'] ?? '')) !== '' && (string) ($item['staged_at'] ?? '') !== '' && $item['staged_at'] < $started) {
+                if (($predates = self::predates($card, $item)) !== null) {
                     @unlink($this->runtime->stagedFile($cardId, $kind));
 
-                    return "{$cardId}: report predates the last start of the card and was discarded";
+                    return "{$cardId}: report {$predates} and was discarded";
                 }
             }
             if ($kind === 'report' && $item['status'] === 'review' && ($refusal = $this->refusal($this->store->card($cardId))) !== null) {
+                $this->runtime->noteRefusal($cardId, $kind, $refusal);
+
                 return "{$cardId}: report stays staged: ".strtok($refusal, "\n");
             }
 
-            return $kind === 'report' ? $this->report($item) : $this->verdict($item);
+            return $kind === 'report' ? $this->report($item) : $this->verdict($item, false);
         } catch (KanbanException $e) {
             return "{$cardId}: {$kind} not applied: ".$e->getMessage();
         }
@@ -131,6 +132,11 @@ final class Applier
             if (($stale = $this->stale($card)) !== null) {
                 throw new StaleReport($stale);
             }
+            if (($predates = self::predates($card, $report)) !== null) {
+                @unlink($this->runtime->stagedFile($id, 'report'));
+
+                return "{$id}: report {$predates} and was discarded";
+            }
             $worktree = $this->worktree($card);
             $head = ($worktree !== null && is_dir($worktree) ? (new Git($worktree))->line(['rev-parse', 'HEAD']) : null) ?? $report['head'] ?? null;
             $created = $this->discover($card, $report['discovered'] ?? [], $by, 'working on');
@@ -142,6 +148,10 @@ final class Applier
                     $data['work']['head'] = $head;
                 }
                 $data['blocked'] = $status === 'blocked' ? mb_substr((string) $report['reason'], 0, 500) : null;
+                // a report on a card in review is a new round: whatever an evaluator approved is no longer what it reports
+                if ($data['stage'] === 'review') {
+                    $data['work']['approved'] = null;
+                }
                 $data['log'][] = array_filter([
                     'event' => 'report', 'status' => $status, 'hash' => $report['hash'], 'head' => $head,
                     'ticks' => $report['ticks'] ?? [], 'summary' => self::cut($report['summary'] ?? null, 2000),
@@ -160,16 +170,18 @@ final class Applier
     }
 
     /**
-     * Applies a staged evaluator verdict: approve → work.approved; reject → back to doing, failed criteria unticked.
+     * Applies a staged evaluator verdict: approve → work.approved; reject → back to doing, failed criteria unticked. A
+     * verdict on an earlier round of the card is superseded: logged, its discovered items filed, the card left alone.
+     * $answerable: its evaluator is still there to re-verify an approval of a head the branch has left.
      *
      * @param  array<string, mixed>  $verdict
      */
-    public function verdict(array $verdict): string
+    public function verdict(array $verdict, bool $answerable = true): string
     {
         $id = (string) $verdict['card'];
         $hash = (string) $verdict['hash'];
 
-        return $this->locked(function () use ($verdict, $id, $hash) {
+        return $this->locked(function () use ($verdict, $id, $hash, $answerable) {
             if (is_file($this->runtime->appliedFile($id, 'verdict', $hash))) {
                 $this->runtime->markApplied($id, 'verdict', $hash);
 
@@ -178,6 +190,19 @@ final class Applier
             $by = new Actor('evaluator');
             $card = $this->store->card($id);
             $approve = $verdict['decision'] === 'approve';
+            if (($superseded = $this->superseded($card, $verdict, $approve && $answerable)) !== null) {
+                $created = $this->discover($card, $verdict['discovered'] ?? [], $by, 'evaluating');
+                $this->store->update($id, function (array $data) use ($verdict, $hash, $superseded) {
+                    $data['log'] = [...$data['log'], array_filter([
+                        'event' => 'verdict_superseded', 'decision' => $verdict['decision'], 'hash' => $hash, 'head' => $verdict['head'] ?? null, 'reason' => $superseded,
+                    ], fn ($v) => $v !== null), ...self::upstream($verdict)];
+
+                    return $data;
+                }, $by);
+                $this->runtime->markApplied($id, 'verdict', $hash);
+
+                return "{$id}: verdict superseded: {$superseded}".self::found($created, $verdict);
+            }
             if ($approve) {
                 if ($card->stage() !== 'review') {
                     throw new PolicyRefused("{$id} is {$card->stage()}, not review: the approval does not apply");
@@ -227,6 +252,71 @@ final class Applier
 
             return "{$id}: rejected, stage ".$this->store->card($id)->stage().self::found($created, $verdict);
         });
+    }
+
+    /**
+     * Why a verdict no longer speaks for the card, or null: its evaluator was bound before the card's current round began
+     * (a refresh, a return to doing, a later report), or the branch left the head it judged. An approval whose evaluator
+     * can still re-verify is refused instead (verdict()).
+     *
+     * @param  array<string, mixed>  $verdict
+     */
+    private function superseded(Card $card, array $verdict, bool $refuseMoved): ?string
+    {
+        $round = self::roundStart($card, 'verdict');
+        $since = (string) ($verdict['since'] ?? $verdict['staged_at'] ?? '');
+        if ($round !== null && $since !== '' && $since < $round['at']) {
+            return "{$round['what']} at ".substr($round['at'], 0, 16).' came after its evaluator started';
+        }
+        $head = $this->branchHead($card);
+        if (! $refuseMoved && in_array($card->stage(), ['doing', 'review'], true) && $head !== null && $head !== ($verdict['head'] ?? null)) {
+            return 'it judged '.substr((string) ($verdict['head'] ?? '-'), 0, 7).' but the branch is at '.substr($head, 0, 7);
+        }
+
+        return null;
+    }
+
+    /**
+     * The latest log entry that began the card's current round: a refresh, a return to doing, and for a verdict also a
+     * report.
+     *
+     * @return array{at: string, what: string}|null
+     */
+    private static function roundStart(Card $card, string $kind): ?array
+    {
+        foreach (array_reverse($card->log()) as $entry) {
+            $event = $entry['event'] ?? null;
+            $what = match (true) {
+                $event === 'refresh' => 'a refresh',
+                $event === 'stage' && ($entry['to'] ?? null) === 'doing' => 'a return to doing',
+                $event === 'report' && $kind === 'verdict' => 'a report',
+                default => null,
+            };
+            if ($what !== null) {
+                return ['at' => (string) ($entry['at'] ?? ''), 'what' => $what];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Why a staged report belongs to an earlier attempt or round of the card, or null.
+     *
+     * @param  array<string, mixed>  $report
+     */
+    private static function predates(Card $card, array $report): ?string
+    {
+        $at = (string) ($report['staged_at'] ?? '');
+        if ($at === '') {
+            return null;
+        }
+        if (($started = (string) ($card->work()['started'] ?? '')) !== '' && $at < $started) {
+            return 'predates the last start of the card';
+        }
+        $round = self::roundStart($card, 'report');
+
+        return $round !== null && $at < $round['at'] ? "predates {$round['what']} of the card" : null;
     }
 
     /**

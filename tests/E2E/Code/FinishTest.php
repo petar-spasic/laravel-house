@@ -109,39 +109,99 @@ it('refuses to finish', function (Closure $arrange, int $exit, string $message, 
     }, 3, "on 'other', not main", 'review'],
 ]);
 
-it('merges main into the branch on refresh and clears the approval', function () {
+it('merges main into the branch on refresh, clears the approval and logs the round', function () {
     $code = $this->code;
     $id = $code->started('Refresh me');
-    $code->commit($id, 'feature.txt', "feature\n");
+    $before = $code->commit($id, 'feature.txt', "feature\n");
     $code->approve($id);
     $code->commitMain('other.txt', "other\n");
 
     $output = $code->ok(['refresh', $id]);
 
     $card = $code->sandbox->read($id);
+    $after = trim($code->gitIn($code->worktree($id), 'rev-parse', 'HEAD'));
     expect($output)->toMatch("/^refreshed {$id}: merged main \\(\\w{7}\\.\\.\\w{7}\\); re-verify before finish\n$/")
         ->and($card['stage'])->toBe('review')
         ->and($card['work']['approved'])->toBeNull()
+        ->and(array_values(array_filter($card['log'], fn ($e) => $e['event'] === 'refresh')))->sequence(
+            fn ($e) => $e->toMatchArray(['by' => 'owner', 'from' => $before, 'head' => $after]),
+        )
         ->and(is_file($code->worktree($id).'/other.txt'))->toBeTrue()
-        ->and($code->ok(['refresh', $id]))->toBe("up to date {$id}\n");
+        ->and($code->ok(['refresh', $id]))->toBe("up to date {$id}\n")
+        ->and($code->sandbox->read($id)['log'])->toHaveCount(count($card['log']));
 });
 
-it('leaves a conflicting refresh in progress and sends the card back to doing', function () {
+it('logs a refresh of a card in doing that has no approval', function () {
+    $code = $this->code;
+    $id = $code->started('Still working');
+    $code->commit($id, 'feature.txt', "feature\n");
+    $code->commitMain('other.txt', "other\n");
+
+    $code->ok(['refresh', $id]);
+
+    expect(array_column($code->sandbox->read($id)['log'], 'event'))->toContain('refresh')
+        ->and($code->sandbox->read($id)['stage'])->toBe('doing');
+});
+
+it('refuses to refresh a card whose agent is still running, and skips it under --all', function () {
+    $code = $this->code;
+    $id = $code->started('Busy');
+    $code->commit($id, 'feature.txt', "feature\n");
+    $code->commitMain('other.txt', "other\n");
+    $agent = $code->root().'/.git/laravel-house/agents/a4d2c0ffee.json';
+    @mkdir(dirname($agent), 0775, true);
+    file_put_contents($agent, json_encode(['agent_id' => 'a4d2c0ffee', 'agent_type' => 'kanban-worker', 'card' => $id, 'stopped_at' => null]));
+    $head = trim($code->gitIn($code->worktree($id), 'rev-parse', 'HEAD'));
+
+    $refused = $code->kanban(['refresh', $id]);
+    $all = $code->kanban(['refresh', '--all']);
+
+    expect($refused->getExitCode())->toBe(3)
+        ->and($refused->getErrorOutput())->toContain("{$id}: its worker is still running (what it stages applies when it stops); wait for its notification")
+        ->and($all->getExitCode())->toBe(0)
+        ->and($all->getOutput())->toBe("skipped {$id}: worker live\n")
+        ->and(trim($code->gitIn($code->worktree($id), 'rev-parse', 'HEAD')))->toBe($head);
+
+    file_put_contents($agent, json_encode(['agent_id' => 'a4d2c0ffee', 'agent_type' => 'kanban-worker', 'card' => $id, 'stopped_at' => '2026-01-01T00:00:00.000+00:00']));
+    expect($code->ok(['refresh', $id]))->toStartWith("refreshed {$id}");
+});
+
+it('leaves a conflicting refresh in progress, sends the card back to doing and drops the report staged before it', function () {
     $code = $this->code;
     $id = $code->started('Conflict');
-    $code->commit($id, 'app.php', "<?php\n\nreturn 'branch';\n");
+    $before = $code->commit($id, 'app.php', "<?php\n\nreturn 'branch';\n");
     $code->approve($id);
     $code->commitMain('app.php', "<?php\n\nreturn 'main';\n");
+    $staged = $code->root().'/.git/laravel-house/staged/'.$id.'.report.json';
+    @mkdir(dirname($staged), 0775, true);
+    file_put_contents($staged, json_encode(['card' => $id, 'status' => 'review', 'hash' => 'abc', 'staged_at' => '2026-01-01T00:00:00.000+00:00']));
 
     $run = $code->kanban(['refresh', $id]);
 
     $wt = $code->worktree($id);
+    $project = $code->sandbox->read($id)['work']['stack']['project'];
     expect($run->getExitCode())->toBe(5)
-        ->and($run->getOutput())->toContain("conflict {$id}: merge of main left in progress in {$wt}\nconflicted app.php\n{$id} → doing\nSendMessage: Card {$id}: main moved")
-        ->and($run->getOutput())->toContain("vendor/bin/kanban report {$id} --status=review")
+        ->and($run->getOutput())->toContain("discarded the report staged for {$id} before the merge\n"
+            ."conflict {$id}: merge of main left in progress in {$wt}\nconflicted app.php\n{$id} → doing\n"
+            ."stack {$project} serves the conflicted tree until the worker concludes the merge; run no checks against it\n"
+            ."SendMessage: Card {$id}: main moved; a merge of main into your branch is in progress in your worktree, with conflicts in app.php. "
+            ."Resolve each conflict by keeping both sides' content and adding nothing neither side had, then `git add` the files and "
+            .'`git commit --no-edit` to conclude the merge. After it, run the migrations, every gate `vendor/bin/kanban context` lists '
+            ."and the whole test suite, then report with `vendor/bin/kanban report {$id} --status=review`.\n")
+        ->and($staged)->not->toBeFile()
         ->and($code->sandbox->read($id)['stage'])->toBe('doing')
         ->and($code->sandbox->read($id)['work']['approved'])->toBeNull()
-        ->and(trim($code->gitIn($wt, 'rev-parse', '-q', '--verify', 'MERGE_HEAD')))->not->toBe('');
+        ->and(array_values(array_filter($code->sandbox->read($id)['log'], fn ($e) => $e['event'] === 'refresh'))[0])->toMatchArray(['from' => $before, 'conflicts' => ['app.php']])
+        ->and(array_values(array_filter($code->sandbox->read($id)['log'], fn ($e) => $e['event'] === 'stage' && ($e['via'] ?? null) === 'refresh')))->sequence(
+            fn ($e) => $e->toMatchArray(['from' => 'review', 'to' => 'doing']),
+        )
+        ->and(trim($code->gitIn($wt, 'rev-parse', '-q', '--verify', 'MERGE_HEAD')))->not->toBe('')
+        ->and($code->ok(['status']))->toMatch("/^doing  {$id} .*, merge in progress$/m");
+
+    $code->gitIn($wt, 'checkout', '--theirs', 'app.php');
+    $code->gitIn($wt, 'add', 'app.php');
+    $code->gitIn($wt, 'commit', '-q', '--no-edit');
+    expect($code->ok(['status']))->not->toContain('merge in progress');
 });
 
 it('clears the approval when the card is sent back to doing', function () {

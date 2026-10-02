@@ -174,6 +174,33 @@ final class Runtime
         return self::readJson($this->stagedFile($cardId, $kind));
     }
 
+    /** Keeps why the staged item was last refused (a gate's tail cut at Gates::TAIL_CHARS) inside the staged file. */
+    public function noteRefusal(string $cardId, string $kind, string $reason): void
+    {
+        $item = $this->staged($cardId, $kind);
+        if ($item === null) {
+            return;
+        }
+        $reason = trim($reason);
+        if (strlen($reason) > Gates::TAIL_CHARS + 500) {
+            $reason = mb_strcut($reason, 0, Gates::TAIL_CHARS + 500).'…';
+        }
+        $item['refused'] = ['at' => Clock::now(), 'reason' => $reason];
+        self::writeJson($this->stagedFile($cardId, $kind), $item);
+    }
+
+    /**
+     * Why the staged item was last refused, or null when nothing is staged or nothing refused it.
+     *
+     * @return array{at: string, reason: string}|null
+     */
+    public function refusal(string $cardId, string $kind): ?array
+    {
+        $refused = $this->staged($cardId, $kind)['refused'] ?? null;
+
+        return is_array($refused) && is_string($refused['reason'] ?? null) ? ['at' => (string) ($refused['at'] ?? ''), 'reason' => $refused['reason']] : null;
+    }
+
     /** @return list<array{card: string, kind: string, file: string}> */
     public function stagedAll(): array
     {

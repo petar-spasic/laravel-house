@@ -58,12 +58,12 @@ final class Brief
             .' · ready '.($counts['ready'] ?? 0).' · backlog '.($counts['backlog'] ?? 0).' · blocked '.count($blocked)
             .' · questions '.count(array_filter($blocked, fn (Card $c) => $c->asks()));
         foreach ($work('doing') as $card) {
-            $lines[] = 'doing  '.$this->short($card).': '.implode(', ', $this->flight($card, $runtime, 'kanban-worker'));
+            $lines[] = 'doing  '.$this->short($card).': '.implode(', ', [...$this->flight($card, $runtime, 'kanban-worker'), ...$this->trouble($card, $runtime)]);
         }
         foreach ($work('review') as $card) {
             $approved = $card->work()['approved']['head'] ?? null;
             $parts = [$approved ? 'approved '.substr($approved, 0, 7).', not merged' : 'awaiting verdict'];
-            $parts = array_merge($parts, array_slice($this->flight($card, $runtime, 'kanban-evaluator'), 0, 1));
+            $parts = array_merge($parts, array_slice($this->flight($card, $runtime, 'kanban-evaluator'), 0, 1), $this->trouble($card, $runtime));
             $lines[] = 'review '.$this->short($card).': '.implode(', ', array_filter($parts, fn ($p) => $p !== 'no agent'));
         }
         foreach (array_slice($blocked, 0, 10) as $card) {
@@ -118,6 +118,38 @@ final class Brief
         }
 
         return $parts;
+    }
+
+    /**
+     * A merge left in progress in the card's worktree, and staged items a hook or `apply` refused, with the first line of why.
+     *
+     * @return list<string>
+     */
+    private function trouble(Card $card, Runtime $runtime): array
+    {
+        $parts = [];
+        if (is_string($worktree = $card->work()['worktree'] ?? null) && self::merging(str_starts_with($worktree, '/') ? $worktree : $this->paths->main.'/'.$worktree)) {
+            $parts[] = 'merge in progress';
+        }
+        foreach (['report', 'verdict'] as $kind) {
+            if (($refused = $runtime->refusal($card->id(), $kind)) !== null) {
+                $parts[] = "{$kind} staged, not applied: ".mb_strimwidth(rtrim((string) strtok($refused['reason'], "\n"), ':'), 0, 200, '…');
+            }
+        }
+
+        return $parts;
+    }
+
+    /** A linked worktree's MERGE_HEAD, found through its `.git` file without running git. */
+    private static function merging(string $worktree): bool
+    {
+        $link = @file_get_contents($worktree.'/.git');
+        if (! is_string($link) || preg_match('/^gitdir: (.+)$/m', $link, $m) !== 1) {
+            return false;
+        }
+        $gitdir = trim($m[1]);
+
+        return is_file(($gitdir[0] === '/' ? $gitdir : $worktree.'/'.$gitdir).'/MERGE_HEAD');
     }
 
     /** @return list<string> */

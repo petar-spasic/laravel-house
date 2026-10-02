@@ -87,6 +87,8 @@ final class SubagentStop
             return self::done("kanban: report for {$cardId} stays staged: {$stale}");
         }
         if ($worker && $staged['status'] === 'review' && ($refusal = $applier->refusal($snapshot->resolve($cardId))) !== null) {
+            $runtime->noteRefusal($cardId, $kind, $refusal);
+
             return $this->block($runtime, $agent, $cardId, "Report for {$cardId} not applied. {$refusal}\nFix it, commit, then finish again (the staged report stays; run `vendor/bin/kanban report` again if ticks or summary change).");
         }
         try {
@@ -96,6 +98,8 @@ final class SubagentStop
 
             return self::done("kanban: report for {$cardId} stays staged: ".$e->getMessage().'; `vendor/bin/kanban apply '.$cardId.'` applies it once the card is this machine\'s again');
         } catch (PolicyRefused $e) {
+            $runtime->noteRefusal($cardId, $kind, $e->getMessage());
+
             return $this->block($runtime, $agent, $cardId, "Verdict for {$cardId} not applied: ".$e->getMessage());
         }
         $this->unbind($runtime, $agent, $cardId);
@@ -152,6 +156,25 @@ final class SubagentStop
         $this->unbind($runtime, $agent, $cardId);
 
         return $line === null ? [] : ["kanban: {$line}"];
+    }
+
+    /**
+     * Keeps a failure of this hook beside what the agent staged, so `status` and `apply` can say why it was not applied.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    public function failed(array $payload, string $message): void
+    {
+        $type = $payload['agent_type'] ?? null;
+        $agentId = (string) ($payload['agent_id'] ?? '');
+        if (! in_array($type, [self::WORKER, self::EVALUATOR], true) || ! Runtime::validAgentId($agentId)) {
+            return;
+        }
+        $runtime = new Runtime($this->paths);
+        $card = $runtime->agent($agentId)['card'] ?? null;
+        if (is_string($card) && $card !== '') {
+            $runtime->noteRefusal($card, $type === self::WORKER ? 'report' : 'verdict', "hook failed: {$message}");
+        }
     }
 
     /**
