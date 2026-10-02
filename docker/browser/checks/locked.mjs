@@ -1,8 +1,8 @@
-// Cards in doing, review and done (and superseded decisions) are locked: the panel shows them as they are, and only a note, a block and ticks change them.
+// Cards in doing, review and done are locked: the panel shows them as they are, and only a note, a block and ticks change them.
 export const seed = 'rich';
 
 export default async (t) => {
-    const { w1, r1, a, old } = t.seed.ids;
+    const { w1, r1, a } = t.seed.ids;
     const page = await t.open({ w: 1440, h: 900 });
     const panel = '.panel.is-top';
     const open = async (id) => {
@@ -42,10 +42,6 @@ export default async (t) => {
     // a card in review: the board has no move out of it either (the command line sends it back)
     await open(r1);
     t.ok('a card in review is locked, and says so', (await page.locator(`${panel} .lock-note:visible`).innerText()).toLowerCase().includes('review') && (await page.locator(`${panel} button[data-field=stage]:disabled`).count()) === 1);
-
-    // a superseded decision is closed too
-    await open(old);
-    t.ok('a superseded decision is locked', (await page.locator(`${panel} .lock-note:visible`).count()) === 1 && await page.evaluate(() => document.querySelector('.panel.is-top .d-title').readOnly));
 
     // a card that has not been picked up is not
     await open(a);

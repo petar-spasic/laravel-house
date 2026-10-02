@@ -140,7 +140,7 @@ export function nameSweep() {
 }
 
 export default async (t) => {
-    const { w1, blocked } = t.seed.ids;
+    const { w1, blocked, question } = t.seed.ids;
     for (const scheme of ['light', 'dark']) {
         for (const [name, width, height] of [['desktop', 1440, 900], ['phone', 390, 844]]) {
             const touch = name === 'phone';
@@ -149,10 +149,10 @@ export default async (t) => {
                 // two quick boards in the bar, so that they are measured too
                 await page.goto(t.url + '/project/work', { waitUntil: 'networkidle' });
                 await page.keyboard.press('Shift+1');
-                await page.goto(t.url + '/project/decisions', { waitUntil: 'networkidle' });
+                await page.goto(t.url + '/platform/infra', { waitUntil: 'networkidle' });
                 await page.keyboard.press('Shift+2');
             }
-            for (const [view, path] of [['index', ''], ['work board', '/project/work'], ['drawer', `/cards/${w1}`], ['drawer with links', `/cards/${blocked}`]]) {
+            for (const [view, path] of [['index', ''], ['work board', '/project/work'], ['drawer', `/cards/${w1}`], ['drawer with links', `/cards/${blocked}`], ['question drawer', `/cards/${question}`]]) {
                 await page.goto(t.url + path, { waitUntil: 'networkidle' });
                 await page.evaluate(() => document.fonts.ready);
                 await page.waitForTimeout(300);

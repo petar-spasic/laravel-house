@@ -2,7 +2,7 @@
 export const seed = 'rich';
 
 export default async (t) => {
-    const { nightly, job, schema, old, new: fresh } = t.seed.ids;
+    const { nightly, job, schema } = t.seed.ids;
     const page = await t.open({ w: 1440, h: 900 });
     const panels = () => page.locator('.panel').count();
     const top = () => page.locator('.panel.is-top');
@@ -10,26 +10,26 @@ export default async (t) => {
     const settle = () => page.waitForTimeout(500);
 
     // a card that has just opened has the focus on itself: Esc closes it without first having to leave a field
-    await page.goto(t.url + `/cards/${old}`, { waitUntil: 'networkidle' });
+    await page.goto(t.url + `/cards/${schema}`, { waitUntil: 'networkidle' });
     await page.waitForFunction(() => document.activeElement === document.querySelector('.panel.is-top .d-body'));
     await page.keyboard.press('Escape');
     await settle();
     t.ok('Esc closes a card that has just opened', (await panels()) === 0 || (await page.locator('.drawer[hidden]').count()) === 1);
 
-    // a decision that was replaced links to the one that replaced it, like a dependency links to its card
-    await page.goto(t.url + `/cards/${old}`, { waitUntil: 'networkidle' });
+    // a dependency is a link to its card
+    await page.goto(t.url + `/cards/${job}`, { waitUntil: 'networkidle' });
     await page.waitForSelector('.panel.is-top .d-title');
-    t.ok('a replaced decision shows the one that replaced it as a link', (await top().locator('.prop:has-text("Superseded by") .chip a').innerText()) === fresh);
-    t.ok('and that is not hidden away in the details', (await top().locator('.facts dt:has-text("Superseded")').count()) === 0);
-    await top().locator('.prop:has-text("Superseded by") .chip a').click();
+    t.ok('a dependency shows as a link to its card', (await top().locator('.prop:has-text("Depends on") .chip a').innerText()) === schema);
+    await top().locator('.prop:has-text("Depends on") .chip a').click();
     await settle();
-    t.ok('following it opens the new decision on top of the old one', (await panels()) === 2 && url().pathname.endsWith('/cards/' + fresh) && url().searchParams.get('from') === old);
-    t.ok('the new one shows what it replaced', (await top().locator('.prop:has-text("Supersedes") .chip a').innerText()) === old);
-    await top().locator('.prop:has-text("Supersedes") .chip a').click();
+    t.ok('following it opens that card on top of this one', (await panels()) === 2 && url().pathname.endsWith('/cards/' + schema) && url().searchParams.get('from') === job);
+    await page.goto(t.url + `/cards/${job}?from=${schema}`, { waitUntil: 'networkidle' });
+    await page.waitForSelector('.panel.is-top .d-title');
+    await top().locator('.prop:has-text("Depends on") .chip a').click();
     await settle();
-    t.ok('a card that is already open is returned to, not opened twice', (await panels()) === 1 && url().pathname.endsWith('/cards/' + old));
+    t.ok('a card that is already open is returned to, not opened twice', (await panels()) === 1 && url().pathname.endsWith('/cards/' + schema));
 
-    // three deep, nothing replaced
+    // three deep
     await page.goto(t.url + `/cards/${nightly}`, { waitUntil: 'networkidle' });
     await page.waitForSelector('.panel.is-top .d-title');
     await top().locator('.prop:has-text("Depends on") .chip a').click();

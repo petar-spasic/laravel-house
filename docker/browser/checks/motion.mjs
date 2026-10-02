@@ -48,9 +48,9 @@ export default async (t) => {
     t.ok('with reduced motion the same card takes its new place without sliding', moved !== null && moved.slides === 0);
 
     // opening a lane that was folded away does not fly its cards in from the corner
-    await lively.goto(t.url + '/project/decisions', { waitUntil: 'networkidle' });
-    t.ok('the superseded lane starts folded and holds a card', (await lively.locator('.col[data-stage=superseded].is-collapsed').count()) === 1 && (await lively.locator('.col[data-stage=superseded] .card').count()) > 0);
-    await lively.click('.col[data-stage=superseded] .col-h');
-    const flown = await lively.evaluate(() => document.getAnimations().filter((a) => a.effect && a.effect.target && a.effect.target.closest && a.effect.target.closest('.col[data-stage=superseded] .card') && a.effect.getKeyframes().some((k) => k.transform && k.transform !== 'none')).length);
+    await lively.goto(t.url + '/project/work', { waitUntil: 'networkidle' });
+    t.ok('the dropped lane starts folded and holds a card', (await lively.locator('.col[data-stage=dropped].is-collapsed').count()) === 1 && (await lively.locator('.col[data-stage=dropped] .card').count()) > 0);
+    await lively.click('.col[data-stage=dropped] .col-h');
+    const flown = await lively.evaluate(() => document.getAnimations().filter((a) => a.effect && a.effect.target && a.effect.target.closest && a.effect.target.closest('.col[data-stage=dropped] .card') && a.effect.getKeyframes().some((k) => k.transform && k.transform !== 'none')).length);
     t.ok('opening it moves no card', flown === 0);
 };

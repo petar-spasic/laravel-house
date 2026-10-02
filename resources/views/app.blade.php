@@ -13,7 +13,7 @@
 <link rel="stylesheet" href="{{ route('kanban.asset', ['asset' => 'kanban.css', 'v' => \PetarSpasic\LaravelHouse\Kanban\Http\Ui::version('kanban.css')]) }}">
 <script src="{{ route('kanban.asset', ['asset' => 'kanban.js', 'v' => \PetarSpasic\LaravelHouse\Kanban\Http\Ui::version('kanban.js')]) }}" defer></script>
 </head>
-<body data-base="{{ $base }}" data-poll-ms="{{ $pollMs }}">
+<body data-base="{{ $base }}" data-poll-ms="{{ $pollMs }}" data-max-criteria="{{ $maxCriteria }}" data-max-criterion="{{ $maxCriterion }}">
 <div id="app"></div>
 <noscript><p class="boot">The Kanban board needs JavaScript.</p></noscript>
 </body>

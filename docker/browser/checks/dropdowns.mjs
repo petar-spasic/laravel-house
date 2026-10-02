@@ -25,7 +25,7 @@ export default async (t) => {
     const all = await page.locator('.menu [role=option]').count();
     await page.keyboard.type('bill');
     const left = await page.locator('.menu [role=option]:not([hidden])').allTextContents();
-    t.ok('typing narrows the list', all > 5 && left.length === 1 && left[0].trim() === 'billing');
+    t.ok('typing narrows the list', all > 5 && left.length === 1 && left[0].trim() === 'area:billing');
     await page.keyboard.press('Enter');
     await page.waitForTimeout(200);
     t.ok('Enter picks the highlighted match', (await page.locator('.tgl[data-filter=label]').innerText()).includes('billing') && (await page.locator('.card:visible').count()) === 1);
@@ -37,33 +37,23 @@ export default async (t) => {
 
     // the board switcher searches once there are more than five boards
     await openSwitcher(page);
-    t.ok('three boards need no search', (await page.locator('.menu .menu-search-input').count()) === 0);
+    t.ok('two boards need no search', (await page.locator('.menu .menu-search-input').count()) === 0);
     t.ok('the switcher is 280px wide at least', (await page.locator('.menu').evaluate((el) => el.offsetWidth)) >= 280);
-    const kinds = await page.locator('.menu [role=menuitem]').evaluateAll((rows) => Object.fromEntries(rows.map((row) => [row.querySelector('.grow').firstChild.textContent.trim(), row.querySelector('.sub')?.textContent.trim() ?? null])));
-    t.ok('a board is followed by its kind only when the title does not say it', kinds.Infra === 'Work' && kinds.Work === null && kinds.Decisions === null);
     const numbered = await page.locator('.menu [role=menuitem]').evaluateAll((rows) => rows.map((row) => [row.querySelector('.grow').firstChild.textContent.trim(), row.querySelector('kbd.num:not([hidden])')?.textContent ?? null]));
     t.ok('the boards are numbered in the order shown, and the row for all boards has its own key instead', numbered.slice(0, -1).every(([, number], i) => number === String(i + 1)) && numbered.at(-1)[1] === null);
     t.ok('the row for all boards shows its key', (await page.locator('.menu-item:has-text("All boards") kbd').innerText()).trim() === 'B');
     await page.keyboard.press('b');
     await page.waitForTimeout(500);
-    t.ok('and b, pressed in the open switcher, goes there', new URL(page.url()).pathname === '/kanban' && (await page.locator('.board-tile').count()) === 3);
+    t.ok('and b, pressed in the open switcher, goes there', new URL(page.url()).pathname === '/kanban' && (await page.locator('.board-tile').count()) === 2);
     await page.goto(t.url + '/project/work', { waitUntil: 'networkidle' });
     await openSwitcher(page);
-    await page.keyboard.press(numbered.find(([name]) => name === 'Decisions')[1]);
+    await page.keyboard.press(numbered.find(([name]) => name === 'Infra')[1]);
     await page.waitForTimeout(500);
-    t.ok('the digit of a board goes to it', page.url().endsWith('/project/decisions'));
-    await page.goto(t.url, { waitUntil: 'networkidle' });
-    t.ok('a board of decisions has a check in a circle on its tile', ((await page.locator('.board-tile:has(h3:text-is("Decisions")) .tile-i path').getAttribute('d')) || '').startsWith('M8 13.5a5.5'));
-    await page.goto(t.url + '/project/work', { waitUntil: 'networkidle' });
-    await openSwitcher(page);
-    await page.keyboard.press('Escape');
-    await page.goto(t.url, { waitUntil: 'networkidle' });
-    const tiles = await page.locator('.board-tile').evaluateAll((all) => Object.fromEntries(all.map((tile) => [tile.querySelector('h3').textContent, tile.querySelector('.kind')?.textContent ?? null])));
-    t.ok('and so is its tile on the index', tiles.Infra === 'Work' && tiles.Work === null && tiles.Decisions === null);
+    t.ok('the digit of a board goes to it', page.url().endsWith('/platform/infra'));
     await page.goto(t.url + '/project/work', { waitUntil: 'networkidle' });
     for (const name of ['one', 'two', 'three', 'four']) t.cli(['board', `project/${name}`, `Extra ${name}`]);
     await openSwitcher(page);
-    t.ok('seven boards do', (await page.locator('.menu .menu-search-input').count()) === 1);
+    t.ok('six boards do', (await page.locator('.menu .menu-search-input').count()) === 1);
     t.ok('and then the letters are for the search: the row shows no key', (await page.locator('.menu-item:has-text("All boards") kbd').count()) === 0);
     const seventh = await page.locator('.menu [role=menuitem]').evaluateAll((rows) => rows.map((row) => [row.querySelector('.grow').firstChild.textContent.trim(), row.querySelector('kbd.num:not([hidden])')?.textContent ?? null]));
     t.ok('the boards are numbered here too, and the row for all boards is not', seventh.slice(0, -1).every(([, number], i) => number === String(i + 1)) && seventh.at(-1)[1] === null);

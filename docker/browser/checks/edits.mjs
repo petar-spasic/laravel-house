@@ -3,10 +3,12 @@ import { openSwitcher, pick, switchTo } from '../lib.mjs';
 
 export default async (t) => {
     const { a, b } = t.seed.ids;
+    t.cli(['board', 'platform/infra', 'Infra']);
+    t.cli(['new', 'platform/infra', 'Move the queue to Redis']);
     const page = await t.open();
     await page.goto(t.url + '/project/work', { waitUntil: 'networkidle' });
     t.ok('no card animates on first paint', (await page.locator('.card.is-new').count()) === 0);
-    await switchTo(page, 'Decisions');
+    await switchTo(page, 'Infra');
     t.ok('nor after a board switch', (await page.locator('.card.is-new').count()) === 0);
 
     await page.goto(t.url + '/cards/' + a, { waitUntil: 'networkidle' });
