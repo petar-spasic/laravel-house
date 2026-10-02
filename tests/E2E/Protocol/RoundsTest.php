@@ -127,14 +127,14 @@ it('keeps at most five reports in the evaluator context and points to the rest',
 
 it('names the gate that refused a staged report in status, context and apply', function () {
     $this->p->commit($this->wt, 'app.php', "<?php\n", "{$this->id}: clauses");
-    $this->p->config(['gates' => ['report' => ['php -r \'echo "3 tests failed\n"; exit(2);\'']]]);
+    $this->p->config(['gates' => ['report' => ['php -r \'for ($i = 1; $i <= 60; $i++) { echo "test $i of the suite failed with a long message\n"; } echo "3 tests failed\n"; exit(2);\'']]]);
     $this->p->in($this->wt, ['report', $this->id, '--status=review', '--tick=1', '--summary=Done'])->mustRun();
 
     expect(stopAgent($this->p, $this->wt)['json']['decision'])->toBe('block');
-    $gate = "report staged, not applied: Gate failed: `php -r 'echo \"3 tests failed\\n\"; exit(2);'` (exit 2)";
+    $gate = 'report staged, not applied: Gate failed: `php -r \'for ($i = 1; $i <= 60; $i++) {';
 
-    expect($this->p->sandbox->ok(['status']))->toMatch('/^doing  '.$this->id.' .*'.preg_quote($gate, '/').'$/m')
-        ->and($this->p->in($this->wt, ['context'])->getOutput())->toMatch("/your staged report was not applied \\(\\S+\\):\n  Gate failed: .*\\(exit 2\\):\n  3 tests failed\n/")
+    expect($this->p->sandbox->ok(['status']))->toMatch('/^doing  '.$this->id.' .*'.preg_quote($gate, '/').'.*\(exit 2\)$/m')
+        ->and($this->p->in($this->wt, ['context'])->getOutput())->toMatch("/your staged report was not applied \\(\\S+\\):\n  Gate failed: `php -r .*\\(exit 2\\):\n  ….*\n(  test \\d+ of the suite failed with a long message\n)+  3 tests failed\n/")
         ->and($this->p->sandbox->ok(['apply']))->toContain("{$this->id}: report waits for live agent a4d2c0ffee (applied when it stops); last refused: Gate failed: ");
 });
 
@@ -149,5 +149,6 @@ it('keeps why the stop hook failed beside the staged report', function () {
     file_put_contents($file, $card);
 
     expect($stop->getExitCode())->toBe(1)
-        ->and($this->p->sandbox->ok(['status']))->toMatch('/^doing  '.$this->id.' .*, report staged, not applied: hook failed: /m');
+        ->and($this->p->sandbox->ok(['status']))->toMatch('/^doing  '.$this->id.' .*, report staged, not applied: hook failed: /m')
+        ->and($this->p->sandbox->kanban(['refresh', $this->id])->getErrorOutput())->toContain('its stop hook failed, so `vendor/bin/kanban apply` settles it');
 });

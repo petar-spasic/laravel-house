@@ -159,9 +159,10 @@ final class Context
         }
         $refused = (new Runtime($this->paths))->refusal($card->id(), $evaluate ? 'verdict' : 'report');
         if ($refused !== null) {
-            $reason = $refused['reason'];
+            [$first, $rest] = explode("\n", $refused['reason'], 2) + [1 => ''];
             $lines[] = 'your staged '.($evaluate ? 'verdict' : 'report').' was not applied ('.substr($refused['at'], 0, 16).'):';
-            foreach (explode("\n", mb_strlen($reason) > self::REFUSAL_LIMIT ? '…'.mb_substr($reason, -self::REFUSAL_LIMIT) : $reason) as $line) {
+            $lines[] = '  '.$first;
+            foreach ($rest === '' ? [] : explode("\n", mb_strlen($rest) > self::REFUSAL_LIMIT ? '…'.mb_substr($rest, -self::REFUSAL_LIMIT) : $rest) as $line) {
                 $lines[] = '  '.$line;
             }
         }
