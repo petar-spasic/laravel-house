@@ -27,6 +27,3 @@
 
 - Tests are E2E only (top of this file). An E2E test seeds its world with the factories and drives the real entry point.
 @endscoped
-
-## Vite Error
-- If you receive an "Illuminate\Foundation\ViteException: Unable to locate file in Vite manifest" error, you can run `{{ $assist->nodePackageManagerCommand('run build') }}` or check that the local Docker stack's Vite dev server is up (root `CLAUDE.md`, Hosting).
