@@ -14,6 +14,7 @@ use PetarSpasic\LaravelHouse\Kanban\Store\Git\Bootstrap;
 use PetarSpasic\LaravelHouse\Kanban\Store\Git\DeployKey;
 use PetarSpasic\LaravelHouse\Kanban\Store\Git\SyncStatus;
 use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
+use PetarSpasic\LaravelHouse\Kanban\Support\DiskCheck;
 use PetarSpasic\LaravelHouse\Kanban\Support\DotEnv;
 use PetarSpasic\LaravelHouse\Kanban\Support\Git;
 use PetarSpasic\LaravelHouse\Kanban\Support\Sync;
@@ -55,6 +56,7 @@ class DoctorCommand extends Command
             array_push($this->results, ...$step->check());
         }
         $this->checkRuntime();
+        $this->checkDisks();
         if ($bootstrap->attached()) {
             $this->checkSync();
             if (($snapshot = $this->checkBoard()) !== null) {
@@ -607,6 +609,16 @@ class DoctorCommand extends Command
         }
 
         return array_values(array_filter([...$parts, $current], fn (string $part) => trim($part) !== ''));
+    }
+
+    private function checkDisks(): void
+    {
+        $minFree = (float) ($this->setting('stack.min_free_ratio') ?? 0.10);
+        $low = DiskCheck::low(['tmp' => sys_get_temp_dir(), 'checkout' => $this->paths()->main], $minFree);
+        foreach ($low as $text) {
+            $this->add('warn', "{$text}: agents' scratch copies fill it; free some, or raise the tmpfs size or nr_inodes");
+        }
+        $low === [] && $this->add('ok', 'disk space and inodes');
     }
 
     private function checkUpstream(): void

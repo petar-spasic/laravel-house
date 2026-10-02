@@ -207,3 +207,15 @@ it('warns when the local compose file mounts no worktree at its host path, unles
     expect(doctor($sandbox)->getOutput())->toContain($warning)
         ->and(doctor($sandbox, env: ['KANBAN_AGENT_SHELL' => 'host'])->getOutput())->not->toContain($warning);
 });
+
+it('warns when tmp or the checkout runs low on inodes while space looks fine', function () {
+    $sandbox = doctorSandbox();
+    $fixtures = __DIR__.'/fixtures';
+
+    $low = doctor($sandbox, env: ['PATH' => "{$fixtures}/lowdisk:{$fixtures}:".getenv('PATH')]);
+    $fine = doctor($sandbox);
+
+    expect($low->getOutput())->toMatch('/^warn tmp \(.+\) inodes 4% free: /m')
+        ->and($low->getOutput())->not->toContain('space 92%')
+        ->and($fine->getOutput())->toContain('ok disk space and inodes');
+});

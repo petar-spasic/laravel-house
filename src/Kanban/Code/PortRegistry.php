@@ -3,6 +3,7 @@
 namespace PetarSpasic\LaravelHouse\Kanban\Code;
 
 use PetarSpasic\LaravelHouse\Kanban\Support\Clock;
+use PetarSpasic\LaravelHouse\Kanban\Support\DiskCheck;
 use PetarSpasic\LaravelHouse\Kanban\Support\Json;
 use PetarSpasic\LaravelHouse\Kanban\Support\Lock;
 
@@ -160,6 +161,12 @@ final class PortRegistry
         $disk = @disk_free_space('/');
         if ($minDisk > 0 && $disk !== false && $disk / 1024 ** 3 < $minDisk) {
             $refusals[] = sprintf('root filesystem free %.1f GiB < %s GiB (stack.min_disk_free_gib)', $disk / 1024 ** 3, $minDisk);
+        }
+        $minFree = (float) ($this->stack['min_free_ratio'] ?? 0.10);
+        if ($minFree > 0) {
+            foreach (DiskCheck::low(['tmp' => sys_get_temp_dir()], $minFree) as $low) {
+                $refusals[] = "{$low} (stack.min_free_ratio)";
+            }
         }
         $ratio = (float) ($this->stack['max_load_ratio'] ?? 0.75);
         $load = function_exists('sys_getloadavg') ? (sys_getloadavg() ?: null) : null;

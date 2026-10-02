@@ -309,9 +309,11 @@ class StackCommand extends Command
         $registry = $this->worktrees->registry();
         $exit = self::SUCCESS;
         $known = [];
+        $main = $this->paths()->main;
         foreach ($registry->all() as $entry) {
             $known[] = $entry['project'];
-            if (is_dir($entry['worktree'])) {
+            // The registry is machine-wide: another repository's stacks are its own gc's business.
+            if (($entry['repo'] ?? null) !== $main || is_dir($entry['worktree'])) {
                 continue;
             }
             $down = Stack::downProject($entry['project'], ['-v', '--remove-orphans', '--rmi', 'local']);
@@ -324,8 +326,9 @@ class StackCommand extends Command
                 $exit = 7;
             }
         }
+        $ours = $this->worktrees->env()->app().'-wt-';
         foreach (Stack::projects() as $project) {
-            if (! str_contains($project, '-wt-') || in_array($project, $known, true)) {
+            if (! str_starts_with($project, $ours) || in_array($project, $known, true)) {
                 continue;
             }
             if (! $this->option('force')) {

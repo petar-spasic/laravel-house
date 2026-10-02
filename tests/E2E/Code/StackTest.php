@@ -69,11 +69,11 @@ it('garbage-collects stacks whose worktree vanished and reports unregistered one
     $lc = basename($code->worktree($id));
     $board = $code->sandbox->boardGit('rev-parse', 'HEAD');
 
-    $output = $code->ok(['stack', 'gc'], ['FAKE_DOCKER_PROJECTS' => 'other-wt-x,unrelated']);
+    $output = $code->ok(['stack', 'gc'], ['FAKE_DOCKER_PROJECTS' => 'acme-wt-stray,other-wt-x,unrelated']);
 
     expect($output)->toBe(implode("\n", [
         "gc acme-wt-{$lc}: worktree gone, stack down, slot 1 released",
-        'unregistered other-wt-x (remove with `kanban stack gc --force`)',
+        'unregistered acme-wt-stray (remove with `kanban stack gc --force`)',
         'pruned worktrees',
     ])."\n")
         ->and(array_column($code->stacks(), 'card'))->toBe([$keep])
@@ -82,7 +82,24 @@ it('garbage-collects stacks whose worktree vanished and reports unregistered one
         ->and(trim($code->sandbox->git('worktree', 'list')))->toContain('docs/kanban')
         ->and($code->sandbox->boardGit('rev-parse', 'HEAD'))->toBe($board);
 
-    expect($code->ok(['stack', 'gc', '--force'], ['FAKE_DOCKER_PROJECTS' => 'other-wt-x']))->toContain('removed other-wt-x');
+    expect($code->ok(['stack', 'gc', '--force'], ['FAKE_DOCKER_PROJECTS' => 'acme-wt-stray,other-wt-x']))
+        ->toContain('removed acme-wt-stray')->not->toContain('other-wt-x');
+});
+
+it("leaves another repository's stacks to that repository's gc", function () {
+    $code = $this->code;
+    $code->started('Mine');
+    $file = $code->state.'/stacks.json';
+    $data = json_decode((string) file_get_contents($file), true);
+    $data['stacks']['9'] = ['slot' => 9, 'worktree' => '/nonexistent/other/.claude/worktrees/x', 'project' => 'other-wt-x',
+        'repo' => '/nonexistent/other', 'ports' => [], 'card' => 'OTHER-1', 'branch' => 'card/other-1'];
+    file_put_contents($file, json_encode($data));
+
+    $output = $code->ok(['stack', 'gc']);
+
+    expect($output)->not->toContain('other-wt-x')
+        ->and(array_column($code->stacks(), 'project'))->toContain('other-wt-x')
+        ->and(implode("\n", $code->calls()))->not->toContain('other-wt-x');
 });
 
 it("hides the host's port and compose variables from docker", function () {

@@ -83,6 +83,8 @@ return [
         'max_stacks' => env('KANBAN_MAX_STACKS', 6),
         'min_mem_available_gib' => 8,
         'min_disk_free_gib' => 20,
+        // Refuse `up`, and warn in doctor, while tmp has less than this share of its space or inodes free.
+        'min_free_ratio' => 0.10,
         // Refuse `up` while the 1-minute load is at or above this share of the CPUs.
         'max_load_ratio' => 0.75,
     ],
