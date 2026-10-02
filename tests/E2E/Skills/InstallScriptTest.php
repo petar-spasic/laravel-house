@@ -172,3 +172,21 @@ it('keeps the spa e2e site on localhost, on the CSRF token path and behind one s
         ->and(file_get_contents("{$out}/.env.prod.example"))->toMatch('/^TRUSTED_PROXIES=$/m')
         ->and(file_get_contents(deployment('htmx').'/docker/docker-entrypoint.sh'))->toContain("\nphp artisan view:cache\n")->not->toContain('APP_E2E');
 });
+
+it('has a packages.md row for every npm package the spa frontend rules install', function () {
+    $out = Sandbox::tmp();
+
+    $process = installScript(['--modules=spa,reverb', '--set', 'app=acme', '--set', 'laravel_version=13',
+        '--set', 'php_version=8.5', '--set', 'pest_version=5', "--render-to={$out}"]);
+    preg_match_all('/`npm install -D ([^`]+)`/', (string) @file_get_contents("{$out}/frontend/CLAUDE.md"), $commands);
+    $packages = array_values(array_filter(
+        array_map(fn (string $word) => preg_replace('/(?<=.)@.*$/', '', $word), preg_split('/\s+/', implode(' ', $commands[1]))),
+        // First-party packages need no row.
+        fn (string $name) => ! str_starts_with($name, '-') && ! str_starts_with($name, '@laravel/') && $name !== 'laravel-echo',
+    ));
+    $rows = file_get_contents(Sandbox::package().'/resources/boost/skills/laravel-project-setup/references/packages.md');
+
+    expect($process->getExitCode())->toBe(0, $process->getErrorOutput())
+        ->and($packages)->toContain('zod', 'cn', 'svelte-sonner', 'pusher-js')
+        ->and(array_values(array_filter($packages, fn (string $name) => ! str_contains($rows, "| `{$name}`"))))->toBe([]);
+});

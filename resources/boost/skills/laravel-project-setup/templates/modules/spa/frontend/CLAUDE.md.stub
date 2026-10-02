@@ -16,7 +16,8 @@ whose).
 2. In `frontend/`:
    - `npm install`
    - `npm install -D --save-exact zod shadcn-svelte @playwright/test`
-   - `npm install -D sveltekit-superforms formsnap bits-ui tailwind-variants clsx tailwind-merge tw-animate-css @lucide/svelte @laravel/passkeys`
+   - `npm install -D sveltekit-superforms bits-ui tailwind-variants cn@^0.3 tw-animate-css @lucide/svelte svelte-sonner @laravel/passkeys`
+     `cn` takes the range the pinned registry's `utils` item declares (`^0.3` at shadcn-svelte 1.7.0).
 <!-- if:reverb -->
    - `npm install -D laravel-echo pusher-js`
 <!-- endif -->
@@ -40,7 +41,7 @@ whose).
 
 The packages in step 2, plus what the shadcn-svelte components declare (Components, Add), and nothing else without
 the owner's approval (convention 6): SvelteKit 2 with Svelte 5 runes, adapter-node, TypeScript, Tailwind 4,
-shadcn-svelte, superforms + formsnap on `zod` 4, Playwright. HTTP is SvelteKit's `fetch` only. Icons come from
+shadcn-svelte, superforms on `zod` 4, Playwright. HTTP is SvelteKit's `fetch` only. Icons come from
 `@lucide/svelte` only, never emoji.
 
 - The house runs the maintenance check of this set on each pin bump (laravel-project-setup `references/packages.md`).
@@ -86,8 +87,8 @@ shadcn-svelte, superforms + formsnap on `zod` 4, Playwright. HTTP is SvelteKit's
     `$lib/components/ui` and `$lib/hooks`, and `registry` =
     `https://raw.githubusercontent.com/huntabyte/shadcn-svelte/shadcn-svelte@<version>/docs/static/registry`, where
     `<version>` is the exact `shadcn-svelte` devDependency;
-  - `src/lib/utils.ts`: `cn()` built on `clsx` + `tailwind-merge`, plus the types `WithElementRef`, `WithoutChild`,
-    `WithoutChildren` and `WithoutChildrenOrChild`; an `add` that rewrites it is reverted to this;
+  - `src/lib/utils.ts`: the registry's `utils` item as the pinned CLI writes it (`cn` re-exported from the `cn`
+    package, plus the types `WithElementRef`, `WithoutChild`, `WithoutChildren` and `WithoutChildrenOrChild`);
   - `scripts/check-ui.mjs` and its `check:ui` script (the gate, below).
 - **CSS**: `src/routes/layout.css` is the one Tailwind entry, imported by the root layout. It imports, in this order,
   `tailwindcss`, `tw-animate-css`, `shadcn-svelte/tailwind.css`, `./shadcn.css` and `./theme.css`, then holds the
@@ -98,15 +99,17 @@ shadcn-svelte, superforms + formsnap on `zod` 4, Playwright. HTTP is SvelteKit's
     and it comes last, so an `add` rewriting `shadcn.css` changes nothing visible. House tokens never use shadcn's
     names (no `--color-primary`, `--color-background`, …).
 - **Add** from `frontend/` with the pinned local CLI (`npx shadcn-svelte add <name> --no-deps-install`), only what a
-  screen imports; remove a component nothing uses. Then `git diff package.json`:
-  - a new entry is a package the component declares (`svelte-sonner` and `mode-watcher` for `sonner`,
-    `@internationalized/date` for the date pickers, …): choosing shadcn-svelte approved it, so `npm install` it;
+  screen imports; remove a component nothing uses. Never `form` or `sonner`: they declare packages outside the set
+  (Forms; toasts in SEO, UX and accessibility). Then `git diff package.json`:
+  - a new entry is a package the component declares (`@internationalized/date` for the date pickers, …): choosing
+    shadcn-svelte approved it, so `npm install` it;
   - a changed range on an existing entry goes back to the project's (the registry can name an older major);
   - review the rest of its diff as code.
 - The project's UI layer lives in `src/lib/components/<area>/`, never in `ui/`: looks through the `class` prop (`cn`
   merges it last), variants through `tv({ extend: buttonVariants, … })`, behaviour through a wrapper component.
-- **Update**: bump the pin and the registry tag together, rerun `add <every installed component> --yes --overwrite`,
-  commit `ui/`. Generated code failing `npm run check` means another pin (ask the owner), never an edit.
+- **Update**: bump the pin, the registry tag and `cn`'s range (the new `utils` item's) together, rerun
+  `add <every installed component> --yes --overwrite`, commit `ui/`. Generated code failing `npm run check` means
+  another pin (ask the owner), never an edit.
 - **The gate is `npm run check:ui`.** It fails unless `components.json` names the pinned tag and sets `style`. Then,
   in a temp dir, it runs `npx shadcn-svelte@<version> add <every directory in ui/> --yes --overwrite --no-deps-install`
   and fails on any diff in `ui/`, printing it. The temp dir holds:
@@ -120,8 +123,8 @@ shadcn-svelte, superforms + formsnap on `zod` 4, Playwright. HTTP is SvelteKit's
 
 ## Forms
 
-Laravel validates; the browser copy only gives fast feedback. Every form is shadcn's `form` (formsnap) on
-sveltekit-superforms.
+Laravel validates; the browser copy only gives fast feedback. Every form is sveltekit-superforms with shadcn's
+`field` components.
 
 - **Schemas come only from the export** (`app/Requests/CLAUDE.md`), committed and never edited:
   `import * as register from '$lib/validation/generated/register'`.
@@ -152,11 +155,20 @@ sveltekit-superforms.
 - Server-only rules (unique, exists, …) are listed at the top of each generated file and reach their field through
   the 422.
 - Numeric fields are `<input type="number">`. Never spread `$constraints` onto inputs (a `pattern` loses its flags).
-  formsnap's `Control` props carry the name, id and aria attributes.
+- **One field wrapper**, `src/lib/components/form/form-field.svelte`, takes the superform and a field `name` and
+  wires the field:
+  - `Field.Field` with `data-invalid` while the field has errors, `Field.Label for={id}`, and `Field.Description` and
+    `Field.Error` with their own ids (`Field.Error` takes `{ message }[]`:
+    `errors={msgs.map((message) => ({ message }))}`);
+  - its `children` snippet gets the control's props: `id`, `name`, `aria-invalid` and `aria-describedby` (the
+    description id, and the error id while an error shows). A native input, `Checkbox` and `Switch` spread them all.
+    `Select` takes `name` on `Select.Root` and the rest on `Select.Trigger`. A `RadioGroup` is a `Field.Set` with a
+    `Field.Legend` in place of the label: `name` and the aria props go on `RadioGroup.Root`, and each
+    `RadioGroup.Item` has its own id and `Field.Label`.
 - **A custom input** (formatted number, date, `EntityPicker`, anything without a native control) posts through
   `<input type="hidden" name={…} value={raw}>` holding the raw value, never the formatted text. A field the page shows
-  but does not post is a bug: an update then clears it. Its wrapper in `src/lib/components/<area>/` carries the hidden
-  input, the label, `aria-invalid`/`aria-describedby` and the field error.
+  but does not post is a bug: an update then clears it. Its wrapper in `src/lib/components/<area>/` sits inside the
+  field wrapper and carries the hidden input.
 
 ## API client
 
@@ -339,8 +351,11 @@ csp: {
   `GET {resource}/search` and `GET {resource}/autocomplete` (`term`, `limit`, optional id filters). A closed
   vocabulary uses a Select, never free text.
 - **Shared building blocks**: one data table (server-side sort, filter, pagination, selection; bulk actions via
-  `{resource}/bulk-action`), one confirm dialog before anything destructive, toasts (shadcn's `sonner`, one
-  `<Toaster>` in the root layout) for results that are not on the page, one wizard for multi-step flows.
+  `{resource}/bulk-action`), one confirm dialog before anything destructive, toasts for results that are not on the
+  page, one wizard for multi-step flows.
+- **Toasts** are `svelte-sonner`'s `Toaster`, once in the root layout, through `src/lib/components/app/toaster.svelte`:
+  its `--normal-bg`, `--normal-text` and `--normal-border` from the popover and border tokens, `@lucide/svelte`
+  icons, and `theme` matching the page's colour scheme (`light` while the app has no dark mode).
 - **Never a blank pane.** SSR delivers the first data (realtime only updates it); client-side waits show skeletons
   of the final size. A failed load renders an error state: what failed, the server's message (a 429 says when to
   retry) and a retry action. Never nothing, never a silently empty list: every client-side fetch and `{#await}` has
