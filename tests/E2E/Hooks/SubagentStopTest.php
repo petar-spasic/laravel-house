@@ -301,3 +301,18 @@ it('shows an applied report as the worker, with the person whose machine applied
 
     expect($shown)->toContain(' worker (Test User) ')->and($shown)->toContain(' owner (Test User) ');
 });
+
+it('lets an evaluator with nothing staged stop once its card has left review', function () {
+    $this->p->commit($this->wt, 'app.php', "<?php\n", "{$this->id}: clauses");
+    $this->p->in($this->wt, ['report', $this->id, '--status=review', '--tick=1', '--summary=Done'])->mustRun();
+    stop($this->p, $this->wt);
+    $this->p->hook('subagent-start', $this->p->payload('subagent-start', ['agent' => 'e1', 'type' => 'kanban-evaluator']));
+    $this->p->enter($this->wt, 'e1', 'kanban-evaluator');
+
+    $this->p->sandbox->ok(['set', $this->id, 'accept[1]=It renders on mobile', '--reason=the owner asked'], ['KANBAN_SESSION' => 's1']);
+    $stop = stop($this->p, $this->wt, 'e1', 'kanban-evaluator');
+
+    expect($stop['out'])->toBe('')
+        ->and($stop['err'])->toContain("kanban: {$this->id}: no verdict needed: the card is doing")
+        ->and($this->p->agent('e1')['stopped_at'])->not->toBeNull();
+});

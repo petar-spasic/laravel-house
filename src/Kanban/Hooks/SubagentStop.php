@@ -75,6 +75,13 @@ final class SubagentStop
                 return self::done("kanban: {$cardId}: no report applied: {$stale}");
             }
 
+            // an evaluator whose card left review (finished on another approval, sent back, stopped) has nothing to judge
+            if (! $worker && ($stage = $snapshot->resolve($cardId)->stage()) !== 'review') {
+                $this->unbind($runtime, $agent, $cardId);
+
+                return self::done("kanban: {$cardId}: no verdict needed: the card is {$stage}");
+            }
+
             return $this->block($runtime, $agent, $cardId, $worker
                 ? "No report staged for {$cardId}. Run: vendor/bin/kanban report {$cardId} --status=review|blocked [--tick=N …] --summary-file=- <<'EOF' … EOF (blocked needs --reason=\"…\")"
                 : "No verdict staged for {$cardId}. Run: vendor/bin/kanban verdict {$cardId} approve|reject --check=N:pass|fail:\"evidence\" … (one --check per criterion)");
