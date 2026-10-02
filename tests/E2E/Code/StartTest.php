@@ -209,3 +209,58 @@ it('runs the main checkout\'s vendor/bin/kanban when called from a code worktree
     expect($run->getOutput())->toBe("main copy: context --evaluate\n")
         ->and($run->getExitCode())->toBe(3);
 });
+
+it('prints the spawn line again in show and refresh: the worker in doing, an evaluator in review', function () {
+    $code = $this->code;
+    $id = $code->sandbox->readyCard('Spawn me again');
+    $started = $code->ok(['start', $id]);
+    preg_match('/^(Agent\(.+\))$/m', $started, $line);
+    $path = $code->worktree($id);
+
+    expect($line[1])->toBe("Agent(subagent_type=\"kanban-worker\", description=\"{$id} Spawn me again\", isolation=\"worktree\", prompt=\"Card {$id}. Worktree {$path}\")")
+        ->and($code->ok(['show', $id]))->toContain("spawn: {$line[1]}\n");
+
+    $code->approve($id);
+    $evaluator = "spawn: Agent(subagent_type=\"kanban-evaluator\", description=\"{$id} review Spawn me again\", isolation=\"worktree\", prompt=\"Card {$id}. Worktree {$path}\")\n";
+    expect($code->ok(['show', $id]))->toContain($evaluator)
+        ->and($code->ok(['refresh', $id]))->toBe("up to date {$id}\n{$evaluator}");
+});
+
+it('resumes a start whose worktree went missing, and the brief points at it', function () {
+    $code = $this->code;
+    $id = $code->started('Lost worktree');
+    $before = $code->sandbox->read($id)['work'];
+    $code->sandbox->git('worktree', 'remove', '--force', $code->worktree($id));
+
+    expect($code->ok(['status']))->toContain("worktree missing (`kanban start {$id}` resumes the start)");
+
+    $again = $code->ok(['start', $id]);
+    $work = $code->sandbox->read($id)['work'];
+    expect($again)->toContain("resumed {$id}\n")
+        ->and(is_dir($code->worktree($id).'/.git') || is_file($code->worktree($id).'/.git'))->toBeTrue()
+        ->and($work)->toMatchArray(['branch' => $before['branch'], 'worktree' => $before['worktree'], 'attempt' => 1, 'started' => $before['started']])
+        ->and($work['stack'])->not->toBeNull()
+        ->and($code->ok(['status']))->not->toContain('worktree missing');
+});
+
+it('records where the work goes with the claim, so a start killed before its stack is up is finished by running it again', function () {
+    $code = $this->code;
+    $id = $code->sandbox->readyCard('Killed start');
+    $start = $code->sandbox->start(['start', $id], $code->env(['FAKE_DOCKER_DELAY' => '30']));
+    $deadline = microtime(true) + 60;
+    while (! is_file($code->worktree($id).'/.env') && microtime(true) < $deadline) {
+        usleep(100000);
+    }
+    $start->signal(SIGKILL);
+    $start->wait();
+
+    $card = $code->sandbox->read($id);
+    expect($card['stage'])->toBe('doing')
+        ->and($card['work'])->toMatchArray(['worktree' => '.claude/worktrees/'.basename($code->worktree($id)), 'stack' => null])
+        ->and($card['blocked'])->toBeNull();
+
+    $again = $code->kanban(['start', $id]);
+    expect($again->getExitCode())->toBe(0)
+        ->and($again->getOutput())->toContain("resumed {$id}\n")
+        ->and($code->sandbox->read($id)['work']['stack'])->not->toBeNull();
+});

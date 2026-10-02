@@ -125,6 +125,15 @@ it('records a spawn for a kanban agent that names exactly one card in the right 
         ->and(json_decode(file_get_contents($spawns.'/ACME-A1B2C3.json'), true)['agent_type'])->toBe('kanban-evaluator');
 });
 
+it('records the spawn for the card a spawn line starts with, though the prompt names another in flight', function () {
+    $sandbox = new GuardSandbox;
+    $sandbox->card('ACME-ZZZZ00', 'doing', '.claude/worktrees/acme-zzzz00');
+
+    $sandbox->case('main', 'Agent', ['subagent_type' => 'kanban-worker', 'prompt' => 'Card ACME-7K2M9Q. Worktree {wt}. ACME-ZZZZ00 touches the same files']);
+
+    expect(array_map('basename', glob($sandbox->main.'/.git/laravel-house/spawns/*.json') ?: []))->toBe(['ACME-7K2M9Q.json']);
+});
+
 it('records no spawn for anything else', function (array $input) {
     $sandbox = new GuardSandbox;
     $sandbox->card('ACME-ZZZZ00', 'doing', '.claude/worktrees/acme-zzzz00');

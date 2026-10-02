@@ -135,14 +135,18 @@ final class Brief
     }
 
     /**
-     * A merge left in progress in the card's worktree, and staged items a hook or `apply` refused, with the first line of why.
+     * A worktree a start cut short never made, a merge left in progress in the card's worktree, and staged items a hook or `apply` refused, with the first line of why.
      *
      * @return list<string>
      */
     private function trouble(Card $card, Runtime $runtime): array
     {
         $parts = [];
-        if (is_string($worktree = $card->work()['worktree'] ?? null) && self::merging(str_starts_with($worktree, '/') ? $worktree : $this->paths->main.'/'.$worktree)) {
+        $worktree = $card->work()['worktree'] ?? null;
+        if (is_string($worktree) && $card->stage() === 'doing' && $card->host() === gethostname() && ! is_dir($this->paths->main.'/'.$worktree)) {
+            $parts[] = "worktree missing (`kanban start {$card->id()}` resumes the start)";
+        }
+        if (is_string($worktree) && self::merging(str_starts_with($worktree, '/') ? $worktree : $this->paths->main.'/'.$worktree)) {
             $parts[] = 'merge in progress';
         }
         foreach (['report', 'verdict'] as $kind) {

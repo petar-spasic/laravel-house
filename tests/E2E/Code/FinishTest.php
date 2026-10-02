@@ -132,14 +132,14 @@ it('merges main into the branch on refresh, clears the approval and logs the rou
 
     $card = $code->sandbox->read($id);
     $after = trim($code->gitIn($code->worktree($id), 'rev-parse', 'HEAD'));
-    expect($output)->toMatch("/^refreshed {$id}: merged main \\(\\w{7}\\.\\.\\w{7}\\); re-verify before finish\n$/")
+    expect($output)->toMatch("/^refreshed {$id}: merged main \\(\\w{7}\\.\\.\\w{7}\\); re-verify before finish\nspawn: Agent\\(subagent_type=\"kanban-evaluator\", .+\\)\n$/")
         ->and($card['stage'])->toBe('review')
         ->and($card['work']['approved'])->toBeNull()
         ->and(array_values(array_filter($card['log'], fn ($e) => $e['event'] === 'refresh')))->sequence(
             fn ($e) => $e->toMatchArray(['by' => 'owner', 'from' => $before, 'head' => $after]),
         )
         ->and(is_file($code->worktree($id).'/other.txt'))->toBeTrue()
-        ->and($code->ok(['refresh', $id]))->toBe("up to date {$id}\n")
+        ->and($code->ok(['refresh', $id]))->toStartWith("up to date {$id}\nspawn: Agent(subagent_type=\"kanban-evaluator\"")
         ->and($code->sandbox->read($id)['log'])->toHaveCount(count($card['log']));
 });
 

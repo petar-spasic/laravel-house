@@ -193,7 +193,14 @@ final class Guard
         $stage = $type === self::WORKER ? 'doing' : 'review';
         $cards = self::cards($main);
         $named = [];
-        preg_match_all('/\b[A-Z][A-Z0-9]{1,9}-[0-9A-Z]{4,12}\b/i', (string) ($input['prompt'] ?? ''), $m);
+        $prompt = (string) ($input['prompt'] ?? '');
+        // the spawn line starts `Card <ID>.`; otherwise any one id the prompt names
+        preg_match('/^Card ([A-Z][A-Z0-9]{1,9}-[0-9A-Z]{4,12})\./i', $prompt, $lead);
+        preg_match_all('/\b[A-Z][A-Z0-9]{1,9}-[0-9A-Z]{4,12}\b/i', $prompt, $m);
+        $leading = strtoupper($lead[1] ?? '');
+        if (($cards[$leading]['stage'] ?? null) === $stage && ! empty($cards[$leading]['work']['worktree'])) {
+            $m[0] = [$leading];
+        }
         foreach (array_unique(array_map('strtoupper', $m[0])) as $id) {
             if (($cards[$id]['stage'] ?? null) === $stage && ! empty($cards[$id]['work']['worktree'])) {
                 $named[] = $cards[$id];

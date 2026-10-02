@@ -5,6 +5,7 @@ namespace PetarSpasic\LaravelHouse\Kanban\Console;
 use PetarSpasic\LaravelHouse\Kanban\Code\Dependencies;
 use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Lease;
+use PetarSpasic\LaravelHouse\Kanban\Store\Card;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
 use PetarSpasic\LaravelHouse\Kanban\Support\Clock;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -17,7 +18,7 @@ class StartCommand extends Command
         {id : Card id or unique prefix}
         {--force : Skip the capacity and policy checks (main session only; logged)}';
 
-    protected $description = 'Claim a ready card, create its worktree, .env and port slot, and start its Docker stack';
+    protected $description = 'Claim a ready card, create its worktree, .env and port slot, and start its Docker stack; run again, it finishes a start cut short';
 
     protected function perform(): int
     {
@@ -28,27 +29,41 @@ class StartCommand extends Command
 
         $card = $this->store()->card($this->argument('id'));
         $id = $card->id();
-        $path = $this->paths()->worktree($id, $card->title());
-        if (file_exists($path)) {
-            throw new PolicyRefused("{$this->paths()->relative($path)} already exists; remove it or run `kanban stack gc` first");
-        }
-        $parked = $card->work()['parked_branch'] ?? null;
-        $branch = is_string($parked) && $worktrees->branchExists($parked) ? $parked : $worktrees->branchFor($id, $card->title());
-        $attempt = 1 + count(array_filter($card->log(), fn (array $e) => ($e['event'] ?? null) === 'stage' && ($e['to'] ?? null) === 'doing' && ($e['via'] ?? null) === 'start'));
+        $resumed = $this->resumable($card, $worktrees);
+        if ($resumed) {
+            $work = $card->work();
+            $path = $this->paths()->main.'/'.$work['worktree'];
+            $branch = (string) $work['branch'];
+            $parked = null;
+            if (! $worktrees->isWorktree($path) && file_exists($path)) {
+                throw new PolicyRefused("{$work['worktree']} exists but is not a worktree; remove it, then run `kanban start {$id}` again");
+            }
+        } else {
+            $path = $this->paths()->worktree($id, $card->title());
+            if (file_exists($path)) {
+                throw new PolicyRefused("{$this->paths()->relative($path)} already exists; remove it or run `kanban stack gc` first");
+            }
+            $parked = $card->work()['parked_branch'] ?? null;
+            $branch = is_string($parked) && $worktrees->branchExists($parked) ? $parked : $worktrees->branchFor($id, $card->title());
+            $attempt = 1 + count(array_filter($card->log(), fn (array $e) => ($e['event'] ?? null) === 'stage' && ($e['to'] ?? null) === 'doing' && ($e['via'] ?? null) === 'start'));
 
-        if ($worktrees->stackEnabled() && $worktrees->registry()->find($path) === null && ($full = $worktrees->registry()->full()) !== null) {
-            throw new PolicyRefused("refused {$id}: {$full}");
+            if ($worktrees->stackEnabled() && $worktrees->registry()->find($path) === null && ($full = $worktrees->registry()->full()) !== null) {
+                throw new PolicyRefused("refused {$id}: {$full}");
+            }
+            // where the work goes is on the card from the claim on, so a start cut short is resumed by running it again
+            $work = [
+                'branch' => $branch, 'base' => $worktrees->head('refs/heads/'.$worktrees->mainBranch()), 'worktree' => $this->paths()->relative($path),
+                'host' => gethostname() ?: null, 'stack' => null, 'attempt' => $attempt, 'head' => null, 'approved' => null, 'merge' => null,
+                'started' => Clock::now(), 'finished' => null,
+            ];
+            $this->transitions()->start($id, $this->actor(), work: $work, force: (bool) $this->option('force'));
         }
-        $this->transitions()->start($id, $this->actor(), force: (bool) $this->option('force'));
 
-        $work = [
-            'branch' => $branch, 'base' => null, 'worktree' => $this->paths()->relative($path), 'host' => gethostname() ?: null,
-            'stack' => null, 'attempt' => $attempt, 'head' => null, 'approved' => null, 'merge' => null,
-            'started' => Clock::now(), 'finished' => null,
-        ];
         try {
-            $work['base'] = $worktrees->head('refs/heads/'.$worktrees->mainBranch());
-            $worktrees->add($path, $branch);
+            if (! $worktrees->isWorktree($path)) {
+                $worktrees->prune();
+                $worktrees->add($path, $branch);
+            }
             $worktrees->copyDependencies($path);
             if ($worktrees->prepare($path, $branch, $id) !== null) {
                 $entry = $worktrees->up($path, $branch, $id);
@@ -63,17 +78,20 @@ class StartCommand extends Command
                 return $data;
             }, $this->actor());
             $this->fault("{$id} stays in doing, blocked: {$reason}");
-            $this->fault("clean up with `kanban stop {$id} --to=ready --force`");
+            $this->fault("run `kanban start {$id}` again once that is fixed, or clean up with `kanban stop {$id} --to=ready --force`");
             throw $e;
         }
 
         $this->store()->update($id, function (array $data) use ($work) {
             $data['work'] = $work;
+            if (str_starts_with((string) ($data['blocked'] ?? ''), 'start failed:')) {
+                $data['blocked'] = null;
+            }
 
             return $data;
         }, $this->actor());
 
-        $this->say("started {$id}");
+        $this->say(($resumed ? 'resumed' : 'started')." {$id}");
         $this->say("worktree {$path}");
         $this->say("branch {$branch}".($branch === $parked ? ' (parked branch reused)' : ''));
         if ($work['stack'] !== null) {
@@ -87,9 +105,24 @@ class StartCommand extends Command
         foreach (Dependencies::problems($this->paths()->main, (array) ($this->setting('worktrees.copy') ?? [])) as $problem) {
             $this->say("warning: {$problem}");
         }
-        $this->say("Agent(subagent_type=\"kanban-worker\", description=\"{$id} ".Worktrees::label($card->title())."\", isolation=\"worktree\", prompt=\"Card {$id}. Worktree {$path}\")");
+        $this->say(Worktrees::spawnLine($card, 'kanban-worker', $path));
         $this->reportPending();
 
         return self::SUCCESS;
+    }
+
+    /**
+     * A card in doing on this machine whose start was cut short (killed, or failed and fixed since): its worktree or
+     * stack is missing, or a failed start blocks it.
+     */
+    private function resumable(Card $card, Worktrees $worktrees): bool
+    {
+        $work = $card->work() ?? [];
+        if ($card->stage() !== 'doing' || ! is_string($work['worktree'] ?? null) || ! is_string($work['branch'] ?? null) || ($work['host'] ?? null) !== gethostname()) {
+            return false;
+        }
+
+        return str_starts_with((string) $card->blocked(), 'start failed:') || ! $worktrees->isWorktree($this->paths()->main.'/'.$work['worktree'])
+            || ($worktrees->stackEnabled() && ($work['stack'] ?? null) === null);
     }
 }

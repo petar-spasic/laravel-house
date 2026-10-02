@@ -2,6 +2,7 @@
 
 namespace PetarSpasic\LaravelHouse\Kanban\Code;
 
+use PetarSpasic\LaravelHouse\Kanban\Store\Card;
 use FilesystemIterator;
 use Illuminate\Support\Str;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\GitFailed;
@@ -81,6 +82,14 @@ final class Worktrees
         $end = mb_strrpos($cut, ' ');
 
         return rtrim($end === false || $end === 0 ? mb_substr($title, 0, $max) : mb_substr($cut, 0, $end), ' ,.;:-');
+    }
+
+    /** The Agent call that spawns $agent (kanban-worker, kanban-evaluator) on the card's worktree at $path. */
+    public static function spawnLine(Card $card, string $agent, string $path): string
+    {
+        $description = $card->id().($agent === 'kanban-evaluator' ? ' review ' : ' ').self::label($card->title());
+
+        return "Agent(subagent_type=\"{$agent}\", description=\"{$description}\", isolation=\"worktree\", prompt=\"Card {$card->id()}. Worktree {$path}\")";
     }
 
     public function branchExists(string $branch): bool

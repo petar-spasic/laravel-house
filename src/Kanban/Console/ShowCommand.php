@@ -2,6 +2,7 @@
 
 namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
+use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Context;
 use PetarSpasic\LaravelHouse\Kanban\Support\Clock;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -50,6 +51,9 @@ class ShowCommand extends Command
         }
         if (($agent = $this->agent($card->id(), $snapshot)) !== null) {
             $this->say("agent: {$agent}");
+        }
+        if (in_array($card->stage(), ['doing', 'review'], true) && is_string($worktree = $card->work()['worktree'] ?? null)) {
+            $this->say('spawn: '.Worktrees::spawnLine($card, $card->stage() === 'doing' ? 'kanban-worker' : 'kanban-evaluator', $this->paths()->main.'/'.$worktree));
         }
         foreach ($card->acceptance() as $item) {
             $this->say(($item['done'] ? '[x] ' : '[ ] ').$item['id'].' '.$item['text']);

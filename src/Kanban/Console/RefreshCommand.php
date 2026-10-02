@@ -86,6 +86,7 @@ class RefreshCommand extends Command
                 $this->say($arrived);
             }
             $this->say('SendMessage: '.$this->message($id, $main, $conflicted));
+            $this->say('spawn (when its worker has stopped): '.Worktrees::spawnLine($card, 'kanban-worker', $path));
 
             return 5;
         }
@@ -97,6 +98,7 @@ class RefreshCommand extends Command
         $after = $worktrees->head('HEAD', $path);
         if ($after === $before) {
             $this->say("up to date {$id}");
+            $this->spawn($card, $path);
 
             return self::SUCCESS;
         }
@@ -105,8 +107,15 @@ class RefreshCommand extends Command
         if ($arrived !== null) {
             $this->say($arrived);
         }
+        $this->spawn($card, $path);
 
         return self::SUCCESS;
+    }
+
+    /** The agent the card in its stage takes next: its worker in doing, an evaluator in review. */
+    private function spawn(Card $card, string $path): void
+    {
+        $this->say('spawn: '.Worktrees::spawnLine($card, $card->stage() === 'review' ? 'kanban-evaluator' : 'kanban-worker', $path));
     }
 
     /** An agent of the card that has not stopped (`worker`, `evaluator`), or null. */
