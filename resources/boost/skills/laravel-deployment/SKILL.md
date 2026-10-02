@@ -4,12 +4,13 @@ description: >-
   House hosting for a Laravel app in Docker, Caddy in front in both tiers: a local image (Caddy + php-fpm + Xdebug +
   the Vite or SvelteKit dev server, bind-mounted source) and a production image (FrankenPHP + Octane, non-root), each
   running the web server, the scheduler and Horizon under supervisor next to Postgres and Redis. Ships the
-  Dockerfiles, entrypoints, compose files, healthcheck, Caddyfiles and supervisor and Xdebug configs as templates,
-  plus the boot order, the queue timeout chain, worktree stacks from one compose, forced phpunit env and the traps
-  behind a container that boots but serves nothing. Module references: Reverb, spa (SvelteKit on Node, browser
-  tests), tenancy database roles. Use when dockerizing a Laravel project, writing or debugging its Docker, compose or
-  Caddy files, or filling the Hosting section of its CLAUDE.md. Triggers — Laravel Docker, docker-compose Laravel,
-  Caddy Laravel, FrankenPHP, Octane deploy, Reverb deploy, adapter-node deploy, supervisord Laravel.
+  Dockerfiles, entrypoints, compose files, healthcheck, Caddyfiles and supervisor and Xdebug configs as templates
+  rendered per module, plus the boot order, the queue timeout chain, worktree stacks from one compose, forced phpunit
+  env and the traps behind a container that boots but serves nothing. Module references: Reverb, spa (SvelteKit on
+  Node, browser tests), tenancy database roles. Use when dockerizing a Laravel project, writing or debugging its
+  Docker, compose or Caddy files, or filling the Hosting section of its CLAUDE.md. Triggers — Laravel Docker,
+  docker-compose Laravel, Caddy Laravel, FrankenPHP, Octane deploy, Reverb deploy, adapter-node deploy, supervisord
+  Laravel.
 ---
 
 # Laravel deployment
@@ -30,7 +31,10 @@ first request breaks). Local bind-mounts the source. Prod keeps workers warm; TL
 
 ## Templates
 
-`${CLAUDE_SKILL_DIR}/templates/` mirrors the project root. A row marked with a module belongs to that module only.
+`${CLAUDE_SKILL_DIR}/templates/core` mirrors the project root, `templates/modules/<module>` holds a module's own
+files, and `templates/snippets` the merges into files the skeleton already has. A module's changes to shared files
+are `# if:<module>` … `# endif` blocks (`<!-- if:… -->` in Markdown) that laravel-project-setup's `install.php`
+resolves. A row marked with a module belongs to that module only.
 
 | Template | Carries |
 |---|---|
@@ -47,32 +51,48 @@ first request breaks). Local bind-mounts the source. Prod keeps workers warm; TL
 | `docker/postgres/roles.sql` (tenancy) | the app's database role `{{app}}_app` and its grants |
 | `tests/bootstrap.php` | forced phpunit `<env>` mirrored into `$_SERVER` |
 | `.dockerignore`, `.env.prod.example` | the build context (never `public/hot`, `vendor/` or the FrankenPHP binary); the production env |
+| `snippets/` | `vite.config.js`, `phpunit.xml`, `bootstrap/app.php`, `.env`, the tenancy project files and the Hosting section (`references/project-files.md`) |
 
-Placeholders: `{{app}}` the slug · `{{app_name}}` its `APP_NAME` · `{{php_version}}` the one PHP minor of host, lock and
-images · `{{web_port}}`, `{{db_port}}`, `{{redis_port}}` main's host ports · `{{ws_port}}` Reverb's host port (reverb
-without spa) · `{{domain}}` the prod host name. laravel-project-setup picks the PHP minor and the ports.
+Placeholders, each a `--set`: `app` the slug · `app_name` its `APP_NAME` · `php_version` the one PHP minor of host,
+lock and images · `web_port`, `db_port`, `redis_port` main's host ports · `ws_port` Reverb's host port (reverb without
+spa) · `domain` the prod host name. laravel-project-setup picks the PHP minor and the ports.
 
 ## Procedure
 
-1. **Copy or merge each template.** Copy a module's row only when the project has that module. A file the project
-   lacks: copy it and fill the placeholders. A file it has: diff it against the template and merge, keeping what is
-   project-specific. Show the owner either way. With the owner's OK, remove any `docker/` file that no template or
-   module reference ships and nothing references: no Dockerfile, compose file, entrypoint or Caddyfile `import`.
-2. `chmod +x docker/*.sh`; `grep -rn '{{' Dockerfile* docker-compose*.yml docker .dockerignore .env.prod.example` is empty.
-3. Merge `references/project-files.md` into `vite.config.js`, `phpunit.xml`, `bootstrap/app.php` and the `.env` files.
-4. Apply each module the project has (Modules, below). Each reference is a merge; base templates carry none of it.
-5. Fill `{{hosting}}` in the root `CLAUDE.md` from `references/hosting-section.md`, adjusted to what was built.
-6. Run Verify (below).
+The modules are the project's, as laravel-project-setup chose them: `htmx`, `islands`, `spa`, `reverb`, `tenancy`.
+
+1. **Render.** One script renders the templates: it resolves the module blocks, fills the placeholders, writes the
+   scripts executable and never overwrites a file. Run it with `--dry-run` first, then without:
+
+   ```shell
+   php "${CLAUDE_SKILL_DIR}/../laravel-project-setup/scripts/install.php" . --templates="${CLAUDE_SKILL_DIR}/templates" \
+     --modules=htmx,reverb --set app=acme --set app_name=Acme --set php_version=8.5 --set web_port=<port> \
+     --set db_port=<port> --set redis_port=<port> --set ws_port=<port> --set domain=<host> --dry-run
+   ```
+
+   - A `placeholders left in` line means a missing `--set`: rerun with it.
+   - The files it lists as skipped already exist. Leave them for step 2.
+2. **Merge.** Run the same command with `--render-to="$(mktemp -d)"` in place of `--dry-run`. It writes nothing into the
+   repo, and its first output line names `<dir>`. Diff each skipped file against `<dir>`'s copy and merge, keeping what
+   is project-specific. Show the owner. With the owner's OK, remove any `docker/` file that no template ships and
+   nothing references: no Dockerfile, compose file, entrypoint or Caddyfile `import`.
+3. **Snippets.** Merge `<dir>/snippets/` as `references/project-files.md` lists. Never copy a raw template or snippet:
+   their blocks and placeholders are unresolved.
+4. **Hosting.** Fill `{{hosting}}` in the root `CLAUDE.md` from `<dir>/snippets/hosting-section.md`, adjusted to what
+   was built. Then delete `<dir>`.
+5. Run Verify (below).
 
 ## Modules
 
-| Module | Apply | What changes |
+Each module's blocks carry its changes. Its reference holds the why, the traps and its Verify steps.
+
+| Module | Reference | What its blocks change |
 |---|---|---|
-| `htmx`, `islands` | nothing | the base templates as shipped |
+| `htmx`, `islands` | none | the root Vite as the `vite` program; the `vite.config.js` snippet |
 | `reverb` | `references/reverb.md` | a `reverb` program on 8081, its env and its browser address |
 | `spa` | `references/spa.md` | SvelteKit on Node behind Caddy: the path split, the `ssr` program, browser tests |
 | `tenancy` | `references/tenancy.md` | the app connects as `{{app}}_app`; migrations run as the owner |
-| API-only | two edits | delete the local entrypoint's `elif` branch (the root Vite) with its comment; commit the root `package-lock.json` (`npm install` on the host), since both images run `npm ci` and the local boot stops without it |
+| API-only | none | no dev server. Commit the root `package-lock.json` (`npm install` on the host): both images run `npm ci`, and the local boot stops without it |
 
 ## Boot order
 
@@ -91,7 +111,8 @@ Both entrypoints run these steps in order, so healthy means migrated and seeded.
 7. **Build caches** (prod): `config:cache`, `route:cache`, `event:cache`, `view:cache`.
 8. **Start supervisor.** The entrypoint writes one supervisor `[program]` block per process (name, command, optional
    `stopwaitsecs` and directory under `/app`), then runs `exec supervisord -n`. Local: php-fpm, caddy,
-   `rm -f public/hot`, then at most one dev server, `vite` on 127.0.0.1:5173 (`frontend/`'s, else the root Vite). Prod:
+   `rm -f public/hot`, then at most one dev server, `vite` on 127.0.0.1:5173 (htmx: the root Vite; spa: `frontend/`'s once
+   it exists; API-only: none). Prod:
    web, plus `ssr` with spa. Both: scheduler, and horizon with `stopwaitsecs` 70. Prod groups every program as `app`
    (`app:web`, …); local stays ungrouped, so `supervisorctl restart caddy` works.
 

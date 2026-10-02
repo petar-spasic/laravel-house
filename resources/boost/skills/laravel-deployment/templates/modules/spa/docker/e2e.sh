@@ -33,7 +33,13 @@ have_pw=$(cat /ms-playwright/.version 2>/dev/null || true)
 [ -n "$want_pw" ] && [ "$want_pw" = "$have_pw" ] || { echo "@playwright/test ${want_pw:-missing} in frontend/package-lock.json, ${have_pw:-none} in the image: docker compose -f docker-compose.local.yml up -d --build"; exit 1; }
 
 # Pest's seed (TestCase #[Seeder]); each Playwright test makes its own data.
+# unless:tenancy
 test_env php artisan migrate:fresh --seeder=ReferenceDataSeeder --force
+# endif
+# if:tenancy
+# As the tables' owner; the database guard above asks the default connection, which reads the same DB_DATABASE.
+test_env php artisan migrate:fresh --database=pgsql_owner --seeder=ReferenceDataSeeder --force
+# endif
 test_env php artisan cache:clear
 
 cd frontend

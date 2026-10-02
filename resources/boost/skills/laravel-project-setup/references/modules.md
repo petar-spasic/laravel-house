@@ -57,7 +57,7 @@ table.
   - with spa: `php artisan install:broadcasting --reverb --without-node`. Then delete the `VITE_*` lines it appended
     to `.env`: the SvelteKit app reads the key at runtime.
 - Its stock `REVERB_*` values and `BROADCAST_CONNECTION` are wrong for the container. laravel-deployment's
-  `references/reverb.md` sets them (step 9).
+  reverb blocks set them (step 9; why: its `references/reverb.md`).
 - With spa, the frontend installs `laravel-echo` and `pusher-js` in its first change (`frontend/CLAUDE.md`).
 - With spa, `bootstrap/app.php` takes the rendered snippet's `withBroadcasting(…)` call and drops the `channels:`
   argument `install:broadcasting` adds to `withRouting`.

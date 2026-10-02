@@ -3,8 +3,13 @@
 
 	admin {$CADDY_SERVER_ADMIN_HOST}:{$CADDY_SERVER_ADMIN_PORT}
 
-	# TLS terminates at the reverse proxy in front of this container. Caddy's trust only decides {client_ip} (logs,
-	# X-Real-IP to Node with spa): php_server passes X-Forwarded-* to PHP untouched, so Laravel's TRUSTED_PROXIES
+	# TLS terminates at the reverse proxy in front of this container. Caddy's trust only decides {client_ip}
+	# unless:spa
+	# (logs): php_server passes X-Forwarded-* to PHP untouched, so Laravel's TRUSTED_PROXIES
+	# endif
+	# if:spa
+	# (logs, X-Real-IP to Node): php_server passes X-Forwarded-* to PHP untouched, so Laravel's TRUSTED_PROXIES
+	# endif
 	# (bootstrap/app.php) alone decides what Laravel sees. Strict: X-Forwarded-For is read right to left, never the
 	# client-controlled left-most entry.
 	servers {
@@ -36,6 +41,7 @@
 		}
 	}
 
+	# unless:spa
 	route {
 		root * "{$APP_PUBLIC_PATH}"
 		encode zstd br gzip
@@ -79,4 +85,40 @@
 			}
 		}
 	}
+	# endif
+	# if:spa
+	route {
+		encode zstd br gzip
+
+		{$CADDY_SERVER_EXTRA_DIRECTIVES}
+
+		@healthz path /healthz /healthz/*
+		respond @healthz 404
+
+		# Laravel's paths; everything else is SvelteKit's (docker/Caddyfile.frontend). The same list as
+		# docker/Caddyfile.local's @backend, without the board.
+		@backend path /api/* /sanctum/* /horizon /horizon/* /up /storage/*
+		handle @backend {
+			root * "{$APP_PUBLIC_PATH}"
+			# php_server's try_files {path} would serve a dotfile and run an uploaded .php under /storage, also by a
+			# PATH_INFO URL (/storage/x.php/y). Inside a handle, Caddy's standard order runs respond first.
+			@hidden path */.* *.php *.php/*
+			respond @hidden 404
+			php_server {
+				index frankenphp-worker.php
+				try_files {path} frankenphp-worker.php
+			}
+		}
+
+		# if:reverb
+		# Echo's WebSocket on the page's own origin.
+		@reverb path /app/*
+		handle @reverb {
+			reverse_proxy 127.0.0.1:8081
+		}
+
+		# endif
+		import /app/docker/Caddyfile.frontend
+	}
+	# endif
 }

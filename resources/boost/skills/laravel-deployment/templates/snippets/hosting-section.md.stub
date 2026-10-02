@@ -35,18 +35,52 @@ cp .env.prod.example .env.prod && docker compose --env-file .env.prod up -d --bu
   `http://localhost:<the stack's web port>` (`LOCAL_APP_URL` unset or set to that) and the browser is on exactly that
   origin: not `127.0.0.1`, a LAN address or a `.test` name. WebAuthn needs a secure context and a domain, and over http
   only `localhost` is both. Worktree stacks take the host of main's `LOCAL_APP_URL` unless `KANBAN_HOST` is set.
-- **Social sign-in** (when built): register `https://{{domain}}/auth/{provider}/callback` with each provider
-  (`/api/auth/{provider}/callback` with spa). Locally it is the same path on `http://localhost:{{web_port}}`, under the
-  same condition as passkeys.
+<!-- unless:spa -->
+- **Social sign-in** (when built): register `https://{{domain}}/auth/{provider}/callback` with each provider. Locally it
+  is the same path on `http://localhost:{{web_port}}`, under the same condition as passkeys.
 - **Local routing** (`docker/Caddyfile.local`, whose comments own the details): Vite's dev paths and `/__vite_hmr` go
   to Vite, everything else to php-fpm. No route lives under `/@…`, `/resources/` or `/node_modules/`. Apply an edit
   with `docker compose -f docker-compose.local.yml exec app supervisorctl restart caddy`.
+<!-- endif -->
+<!-- if:spa -->
+- **Social sign-in** (when built): register `https://{{domain}}/api/auth/{provider}/callback` with each provider.
+  Locally it is the same path on `http://localhost:{{web_port}}`, under the same condition as passkeys.
+- **Two apps behind one Caddy port.** Laravel answers `/api`, `/sanctum`, `/horizon`, `/up` and `/storage` (plus
+  `/kanban` locally); SvelteKit answers everything else. A Laravel path outside those prefixes is an edit to
+  `docker/Caddyfile` and `docker/Caddyfile.local`, and `php artisan route:list` stays covered (laravel-deployment,
+  `references/spa.md`). Apply a local edit with
+  `docker compose -f docker-compose.local.yml exec app supervisorctl restart caddy`.
+- **Processes.** Local: Caddy → php-fpm (Xdebug) and SvelteKit's `vite dev` on 127.0.0.1:5173 (program `vite`), HMR
+  through the web port. Prod: FrankenPHP's Caddy → Octane, and `node build` on 127.0.0.1:3000 (program `ssr`). In
+  prod and on the e2e site, Caddy serves `frontend/build`'s files itself, with their cache headers and
+  `frame-ancestors` (`docker/Caddyfile.frontend`).
+<!-- if:reverb -->
+  Echo reaches Reverb at `/app/*` on the same port; no WebSocket port is published.
+<!-- endif -->
+- **Server-side calls** from SvelteKit go to `API_INTERNAL_URL` (Caddy on 127.0.0.1:8080), never the public origin.
+  So the web port is never 8080.
+- **Env.** `SANCTUM_STATEFUL_DOMAINS` lists every origin the app is browsed at: `.env.prod` in prod; locally
+  compose's `localhost` and `127.0.0.1` at the web port plus `LOCAL_APP_URL`'s host. `PUBLIC_APP_URL` equals
+  `APP_URL`: compose sets it locally, and the prod image is built per URL (a build arg). The prod image installs only
+  `frontend/`'s `dependencies`.
+- **Browser tests:** `docker compose -f docker-compose.local.yml exec app docker/e2e.sh`. They run on `{{app}}_test`
+  through loopback-only e2e sites, never the dev data, and `php artisan test` refuses while they run. The e2e site's
+  Laravel env is the `(e2e_php)` snippet in `docker/Caddyfile.local`. The local image holds Chromium for the exact
+  `@playwright/test` pin.
+- Until `frontend/package.json` exists, the local stack runs without a dev server and the prod image does not build.
+<!-- endif -->
 - **The board page (`/kanban`)** syncs from the app container with the clone's deploy key (`GIT_SSH_COMMAND`). Check
   it with `docker compose -f docker-compose.local.yml exec app vendor/bin/kanban sync`, never as `-u root`.
   `KANBAN_USER` names who edits from the page. `KANBAN_UI_TOKEN` gates it; it has no login otherwise.
-- **Binds**: the web port (with the reverb module and no spa, the WebSocket port too) publishes on `WEB_BIND`,
-  default `0.0.0.0`, so the stack is LAN-visible; `127.0.0.1` keeps it on this machine. Postgres and Redis publish on `SIDECAR_BIND`,
-  default `127.0.0.1`. Override either in `.env`. The web bind stays an explicit IPv4 address: the Horizon gate reads a
+<!-- if:reverb -->
+<!-- unless:spa -->
+- **Reverb** listens on 8081 in the container. Locally Echo reaches it on `WS_PORT` (main {{ws_port}}); in prod the
+  reverse proxy sends the public WebSocket host to `127.0.0.1:${WS_PORT}`, and `REVERB_PUBLIC_*` in `.env.prod` give
+  the browser its address.
+<!-- endif -->
+<!-- endif -->
+- **Binds**: the web port publishes on `WEB_BIND`, default `0.0.0.0`, so the stack is LAN-visible; `127.0.0.1` keeps
+  it on this machine. Postgres and Redis publish on `SIDECAR_BIND`, default `127.0.0.1`. Override either in `.env`. The web bind stays an explicit IPv4 address: the Horizon gate reads a
   bare publish's IPv6 clients as the host.
 - **PHP {{php_version}} everywhere**: the host (tests, artisan), the lock and both images.
 - **Boot** (`docker/docker-entrypoint*.sh`): dependencies (local); rebuild the package manifest (only `storage/` is a
@@ -58,35 +92,20 @@ cp .env.prod.example .env.prod && docker compose --env-file .env.prod up -d --bu
   SIGTERM lets an in-flight job finish.
 - **Health**: `docker/healthcheck.sh` checks `/up` and every process: the web server (Octane in prod; Caddy, php-fpm
   and Vite when it runs locally), the scheduler, Horizon and supervisord.
+<!-- if:spa -->
+  In prod also `127.0.0.1:3000/healthz` inside the container; `/healthz` answers 404 from outside.
+<!-- endif -->
+<!-- if:reverb -->
+  It checks Reverb's process too.
+<!-- endif -->
 - **Prod** publishes `127.0.0.1:${WEB_PORT}` only. TLS ends at a reverse proxy on the host. Laravel trusts that proxy
   through `TRUSTED_PROXIES` (`bootstrap/app.php`): its address as its requests arrive in the container. The entrypoint
   refuses an empty value. `OCTANE_WORKERS` × `PHP_MEMORY_LIMIT` fits the box's RAM.
 - **Xdebug** starts on trigger (`xdebug.start_with_request=trigger`): set the `XDEBUG_TRIGGER` cookie or query param,
   and map `/app` to the repo root in the IDE (`PHP_IDE_CONFIG=serverName={{app}}`). `XDEBUG_MODE` and
   `XDEBUG_SERVER_NAME` in `.env` override it. CLI processes in the container use the same mapping.
-- **With the spa module**, these replace the Vite parts of Local routing and Opened from another machine:
-  - **Two apps behind one Caddy port.** Laravel answers `/api`, `/sanctum`, `/horizon`, `/up` and `/storage` (plus
-    `/kanban` locally); SvelteKit answers everything else. A Laravel path outside those prefixes is an edit to
-    `docker/Caddyfile` and `docker/Caddyfile.local`, and `php artisan route:list` stays covered (laravel-deployment,
-    `references/spa.md`).
-  - **Processes.** Local: Caddy → php-fpm (Xdebug) and SvelteKit's `vite dev` on 127.0.0.1:5173 (program `vite`), HMR
-    through the web port. Prod: FrankenPHP's Caddy → Octane, and `node build` on 127.0.0.1:3000 (program `ssr`). In
-    prod and on the e2e site, Caddy serves `frontend/build`'s files itself, with their cache headers and
-    `frame-ancestors` (`docker/Caddyfile.frontend`). With reverb, Echo reaches Reverb at `/app/*` on the same port; no
-    WebSocket port is published.
-  - **Server-side calls** from SvelteKit go to `API_INTERNAL_URL` (Caddy on 127.0.0.1:8080), never the public origin.
-    So the web port is never 8080.
-  - **Env.** `SANCTUM_STATEFUL_DOMAINS` lists every origin the app is browsed at: `.env.prod` in prod; locally
-    compose's `localhost` and `127.0.0.1` at the web port plus `LOCAL_APP_URL`'s host. `PUBLIC_APP_URL` equals
-    `APP_URL`: compose sets it locally, and the prod image is built per URL (a build arg). The prod image installs only
-    `frontend/`'s `dependencies`.
-  - **Health:** `/up`, plus `127.0.0.1:3000/healthz` inside the container. `/healthz` answers 404 from outside.
-  - **Browser tests:** `docker compose -f docker-compose.local.yml exec app docker/e2e.sh`. They run on `{{app}}_test`
-    through loopback-only e2e sites, never the dev data, and `php artisan test` refuses while they run. The e2e site's
-    Laravel env is the `(e2e_php)` snippet in `docker/Caddyfile.local`. The local image holds Chromium for the exact
-    `@playwright/test` pin.
-  - Until `frontend/package.json` exists, the local stack runs without a dev server and the prod image does not build.
-- **With the tenancy module**:
+<!-- if:tenancy -->
+- **Tenancy's database roles**:
   - **Two database roles.** The app connects as `{{app}}_app` (`DB_USERNAME`): not superuser, no BYPASSRLS, owns
     nothing. So row-level security binds the web, Horizon, the scheduler, `db:seed` and the tests. `{{app}}`
     (`POSTGRES_USER`, a superuser) owns the databases and tables, and only migrates.
@@ -101,3 +120,4 @@ cp .env.prod.example .env.prod && docker compose --env-file .env.prod up -d --bu
   - **`docker/postgres/roles.sql`** creates the app role and its grants in `{{app}}` and `{{app}}_test`; initdb runs
     it on a fresh volume. An existing volume (each worktree stack has its own) or a `DB_PASSWORD` change takes the
     steps in laravel-deployment's `references/tenancy.md`, Existing volumes.
+<!-- endif -->

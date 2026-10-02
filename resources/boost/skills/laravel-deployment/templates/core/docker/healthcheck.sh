@@ -7,15 +7,25 @@ curl -fs -o /dev/null http://127.0.0.1:8080/up || { echo "✗ /up"; FAILED=1; }
 if [ "${APP_ENV:-production}" = "local" ]; then
     pgrep -x caddy >/dev/null || { echo "✗ caddy"; FAILED=1; }
     pgrep -f "php-fpm: master" >/dev/null || { echo "✗ php-fpm"; FAILED=1; }
-    # Only when the entrypoint wrote a dev server: none in API-only, or in spa before frontend/ exists.
+    # unless:spa
+    # Only when the entrypoint wrote a dev server: none in API-only.
+    # endif
+    # if:spa
+    # Only when the entrypoint wrote a dev server: none before the SvelteKit app exists.
+    # endif
     # Vite core answers the ping with 204.
     [ ! -f /etc/supervisor/conf.d/vite.conf ] || curl -fs -o /dev/null -H 'Accept: text/x-vite-ping' http://127.0.0.1:5173/ || { echo "✗ vite"; FAILED=1; }
 else
     pgrep -f "artisan octane:frankenphp" >/dev/null || { echo "✗ octane"; FAILED=1; }
-    # spa's SvelteKit server (references/spa.md).
-    [ ! -f /etc/supervisor/conf.d/ssr.conf ] || curl -fs -o /dev/null http://127.0.0.1:3000/healthz || { echo "✗ ssr"; FAILED=1; }
+    # if:spa
+    # SvelteKit's server: /healthz answers on loopback only; Caddy answers it 404.
+    curl -fs -o /dev/null http://127.0.0.1:3000/healthz || { echo "✗ ssr"; FAILED=1; }
+    # endif
 fi
 pgrep -f "artisan schedule:work" >/dev/null || { echo "✗ scheduler"; FAILED=1; }
 pgrep -f "artisan horizon" >/dev/null || { echo "✗ horizon"; FAILED=1; }
+# if:reverb
+pgrep -f "artisan reverb:start" >/dev/null || { echo "✗ reverb"; FAILED=1; }
+# endif
 pgrep -x supervisord >/dev/null || { echo "✗ supervisord"; FAILED=1; }
 exit $FAILED

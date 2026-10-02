@@ -2,12 +2,12 @@
 
 Without the module, the app connects as the compose superuser `{{app}}`, and row-level security (RLS) never binds it.
 The tenancy rules (tables, middleware, jobs, proofs) live in the generated `CLAUDE.md` files (laravel-project-setup,
-`if:tenancy`); this file is the database side. Merge all of it with the module. A stack that already has a database
-volume then follows Existing volumes. `{{app}}` as in SKILL.md.
+`if:tenancy`); this file is the database side's why, traps and checks. The templates' `tenancy` blocks and snippets
+carry the changes (SKILL.md, Procedure). A stack that already has a database volume then follows Existing volumes.
 
 ## Roles
 
-Who is who: `references/hosting-section.md`, With the tenancy module.
+Who is who: the root `CLAUDE.md`, Hosting (its tenancy part).
 
 - Both role names are fixed. Only the passwords are env: `DB_OWNER_PASSWORD` and `DB_PASSWORD`.
 - Every `migrate*` runs as `{{app}}`: `ALTER DEFAULT PRIVILEGES FOR ROLE {{app}}` grants only on tables that exactly
@@ -19,73 +19,21 @@ Who is who: `references/hosting-section.md`, With the tenancy module.
 - Default privileges are per database: `roles.sql` covers `{{app}}` and, where it exists, `{{app}}_test`.
 - No role but the owner skips RLS. A platform admin is a decided card (`app/Http/Middleware/CLAUDE.md`).
 
-## Template changes
+## In the templates
 
-Both Dockerfiles copy the entrypoint into the image. On a running stack, apply the changes with `up -d --build`, never
-a bare `up -d`.
-
-- `docker/postgres/roles.sql` (tenancy row): the app role and its grants; idempotent.
-- `docker-compose.local.yml`:
-  - app `environment`: `DB_USERNAME: {{app}}_app`, `DB_PASSWORD: {{app}}_app`, `DB_OWNER_PASSWORD: {{app}}`;
-  - postgres `environment`: `{ POSTGRES_DB: {{app}}, POSTGRES_USER: {{app}}, POSTGRES_PASSWORD: {{app}}, DB_PASSWORD: {{app}}_app }`;
-  - postgres `volumes`: `- ./docker/postgres/roles.sql:/docker-entrypoint-initdb.d/roles.sql:ro` (it sorts after
-    `init-test-db.sql`, so the test database exists when it runs).
-- `docker-compose.yml`, postgres:
-  - `environment`: `POSTGRES_USER: {{app}}`, `POSTGRES_PASSWORD: ${DB_OWNER_PASSWORD:?DB_OWNER_PASSWORD is required in .env.prod}`,
-    `DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required in .env.prod}`; `POSTGRES_DB` stays;
-  - the same `roles.sql` mount;
-  - healthcheck `pg_isready -U {{app}} -d ${DB_DATABASE:-{{app}}}`;
-  - the header's required list gains `DB_OWNER_PASSWORD` after `DB_PASSWORD`.
-- `.env.prod.example`, in place of `DB_USERNAME={{app}}`:
-
-  ```dotenv
-  # Fixed: the app's role, created by docker/postgres/roles.sql; owns nothing, so row-level security applies.
-  DB_USERNAME={{app}}_app
-  DB_PASSWORD=
-  # {{app}}, Postgres's superuser and the tables' owner: migrations only (pgsql_owner).
-  DB_OWNER_PASSWORD=
-  ```
-- Both entrypoints: `php artisan migrate --force --database=pgsql_owner`. The database wait and the seed stay on the
-  default connection. The local `users`-empty check still holds, because `users` is global.
-- `docker/e2e.sh` (spa): `test_env php artisan migrate:fresh --database=pgsql_owner --seeder=ReferenceDataSeeder --force`.
-  The database guard above it asks the default connection, which reads the same `DB_DATABASE`.
-- The host `.env` and `.env.example`: `DB_USERNAME={{app}}_app`, `DB_PASSWORD={{app}}_app`, `DB_OWNER_PASSWORD={{app}}`.
-  A worktree's generated `.env` needs the same three lines for host-side `artisan` and tests.
-
-## Project files
-
-`config/database.php`, beside `pgsql`: the same keys and `DB_*` variables, the owner's credentials, and no `url` (why:
-the Hosting text).
-
-```php
-'pgsql_owner' => [
-    'driver' => 'pgsql',
-    'host' => env('DB_HOST', '127.0.0.1'),
-    'port' => env('DB_PORT', '5432'),
-    'database' => env('DB_DATABASE', 'laravel'),
-    'username' => '{{app}}',
-    'password' => env('DB_OWNER_PASSWORD', ''),
-    'charset' => env('DB_CHARSET', 'utf8'),
-    'prefix' => '',
-    'prefix_indexes' => true,
-    'search_path' => 'public',
-    'sslmode' => env('DB_SSLMODE', 'prefer'),
-],
-```
-
-`tests/TestCase.php` (why: `tests/CLAUDE.md`, Tenancy). Without this, `RefreshDatabase` migrates as the app role,
-which cannot drop or create tables, and the shipped tests fail.
-
-```php
-public function artisan($command, $parameters = [])
-{
-    if (str_starts_with($command, 'migrate')) {
-        $parameters += ['--database' => 'pgsql_owner'];
-    }
-
-    return parent::artisan($command, $parameters);
-}
-```
+- `docker/postgres/roles.sql`: the app role and its grants; idempotent. Both compose files mount it into initdb, after
+  `init-test-db.sql`, so the test database exists when it runs. The postgres service carries `DB_PASSWORD`, the app
+  role's password.
+- The app connects as `{{app}}_app`; the prod compose's `POSTGRES_USER` is the fixed `{{app}}`, with
+  `DB_OWNER_PASSWORD`.
+- Every `migrate*` takes `--database=pgsql_owner`: both entrypoints and `docker/e2e.sh`. The database wait and the
+  seed stay on the default connection. The local `users`-empty check still holds, because `users` is global.
+- Snippets to merge: `env.dotenv` (the host `.env` and `.env.example`; a worktree's generated `.env` needs the same
+  three `DB_*` lines for host-side `artisan` and tests), `config-database.php` (`pgsql_owner`, no `url`: the Hosting
+  text says why) and `TestCase-artisan.php`. Without the last, `RefreshDatabase` migrates as the app role, which cannot
+  drop or create tables, and the shipped tests fail.
+- Both Dockerfiles copy the entrypoint into the image: on a running stack, apply the change with `up -d --build`,
+  never a bare `up -d`.
 
 The Octane reset of `app.tenant_id` (`config/octane.php`) comes with its listener class, in the tenancy foundation
 card (`app/CLAUDE.md`, Octane). Never add it before the class exists.

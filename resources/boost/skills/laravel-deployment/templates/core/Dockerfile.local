@@ -2,6 +2,15 @@
 # unreliable with warm workers), Node for Vite HMR, supervisor for the
 # scheduler + Horizon. Source is bind-mounted; deps install on start.
 # The PHP extension list mirrors the prod Dockerfile (+ zip for composer, xdebug).
+# if:spa
+# The @playwright/test version frontend/package-lock.json pins, empty until frontend/ exists; the browser layer
+# rebuilds only when it changes. composer.json always exists, so the lockfile may match nothing; the directory is a
+# pattern too, because BuildKit fails on a missing parent directory.
+FROM node:24-bookworm-slim AS playwright-version
+COPY composer.json fronten[d]/package-lock.jso[n] /tmp/ctx/
+RUN if [ -f /tmp/ctx/package-lock.json ]; then node -p "require('/tmp/ctx/package-lock.json').packages['node_modules/@playwright/test']?.version ?? ''"; fi > /tmp/playwright-version
+
+# endif
 FROM php:{{php_version}}-fpm-bookworm
 WORKDIR /app
 
@@ -19,6 +28,16 @@ RUN chmod +x /usr/local/bin/install-php-extensions && install-php-extensions pcn
 RUN printf 'memory_limit = 512M\n' > /usr/local/etc/php/conf.d/zz-{{app}}.ini
 # The image's zz-docker.conf listens on *:9000, open to every container on the compose network; Caddy is in this one.
 RUN printf '[www]\nlisten = 127.0.0.1:9000\n' > /usr/local/etc/php-fpm.d/zz-listen.conf
+# if:spa
+# Headless Chromium, its libraries and fonts, installed as root (they need apt). Outside the bind mount, so npm ci
+# never touches it; read-only at runtime. Playwright launches it with --no-sandbox: no seccomp profile or capability.
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+COPY --from=playwright-version /tmp/playwright-version /tmp/playwright-version
+RUN v=$(cat /tmp/playwright-version) && mkdir -p /ms-playwright \
+    && if [ -n "$v" ]; then npx -y "playwright@$v" install --with-deps --only-shell chromium; fi \
+    && echo "$v" > /ms-playwright/.version && chmod -R a+rX /ms-playwright \
+    && rm -rf /var/lib/apt/lists/* /root/.npm /tmp/playwright-version
+# endif
 
 COPY docker/xdebug.ini /usr/local/etc/php/conf.d/zz-xdebug.ini
 COPY docker/supervisord.conf /etc/supervisor/supervisord.conf
@@ -39,5 +58,10 @@ ENV COMPOSER_CACHE_DIR=/cache/composer npm_config_cache=/cache/npm
 # Caddy's data and config dirs, in www-data's home.
 ENV XDG_DATA_HOME=/var/www/.local/share XDG_CONFIG_HOME=/var/www/.config
 EXPOSE 8080
+# if:reverb
+# unless:spa
+EXPOSE 8081
+# endif
+# endif
 HEALTHCHECK --interval=30s --timeout=15s --retries=3 --start-period=180s --start-interval=2s CMD /usr/local/bin/healthcheck.sh
 ENTRYPOINT ["docker-entrypoint-local.sh"]
