@@ -1,14 +1,15 @@
 #!/bin/bash
-# spa: Playwright against the test database through the e2e site (127.0.0.1:8090, docker/Caddyfile.local), never the
-# dev data. The only way to run the browser flows (references/spa.md):
+# spa: Playwright against the test database through the e2e site (http://localhost:8090, docker/Caddyfile.local),
+# never the dev data. The only way to run the browser flows (references/spa.md):
 #   docker compose -f docker-compose.local.yml exec app docker/e2e.sh [playwright test args]
-# Holds storage/framework/testing/db.lock alone: `php artisan test` (tests/bootstrap.php) and a second run refuse meanwhile.
+# Holds storage/framework/testing/db.lock, the one test run at a time: `php artisan test` (tests/bootstrap.php) and a
+# second e2e run wait meanwhile, and so does this one.
 set -e
 cd /app
 mkdir -p storage/framework/testing
 # fd 9 is inherited through exec: the lock lives exactly as long as Playwright.
 exec 9>storage/framework/testing/db.lock
-flock -n 9 || { echo "the test database is in use (php artisan test or another e2e run): rerun when it ends"; exit 1; }
+flock -n 9 || { echo "waiting for the test database (another test or e2e run holds it)"; flock 9; }
 
 # The test env is the (e2e_php) snippet of docker/Caddyfile.local, the one list the e2e sites use too.
 mapfile -t pairs < <(sed -n '/^(e2e_php)/,/^}/s/^[[:space:]]*env \([A-Z_][A-Z0-9_]*\) \(.*\)$/\1=\2/p' docker/Caddyfile.local)

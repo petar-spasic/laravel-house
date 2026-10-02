@@ -97,17 +97,20 @@
 # getenv(); a cached config ignores them. REDIS_DB and REDIS_CACHE_DB keep e2e sessions, cache, rate limits and locks
 # apart from dev, so the reset's cache:clear flushes only DB 3. QUEUE_CONNECTION=sync: the dev Horizon never runs a
 # test job against the dev database. APP_URL points mailed links at the e2e site; SANCTUM_STATEFUL_DOMAINS matches
-# Chromium's Origin there. A test-only switch, such as a faked outside system, is one more env line.
+# Chromium's Origin there. The origin is localhost, never 127.0.0.1: WebAuthn refuses an IP as its relying party.
+# APP_E2E (config('app.e2e')) is the one test switch: every named rate limiter answers Limit::none() under it, and a
+# test-only behaviour, such as a faked outside system, reads it in the app. This list never grows per feature.
 (e2e_php) {
 	php_fastcgi 127.0.0.1:9000 {
-		env APP_URL http://127.0.0.1:8090
+		env APP_E2E true
+		env APP_URL http://localhost:8090
 		env DB_DATABASE {{app}}_test
 		env REDIS_DB 2
 		env REDIS_CACHE_DB 3
 		env QUEUE_CONNECTION sync
 		env MAIL_MAILER log
 		env BROADCAST_CONNECTION null
-		env SANCTUM_STATEFUL_DOMAINS 127.0.0.1:8090
+		env SANCTUM_STATEFUL_DOMAINS localhost:8090
 		read_timeout 30m
 	}
 }
@@ -149,8 +152,8 @@
 	}
 }
 
-# The browser's origin in browser tests: Laravel's paths on the test env, the rest from the production build of
-# frontend/. Loopback only, never published.
+# The browser's origin in browser tests, http://localhost:8090: Laravel's paths on the test env, the rest from the
+# production build of frontend/. Loopback only, never published; Chromium falls back from ::1 to 127.0.0.1.
 :8090 {
 	bind 127.0.0.1
 	route {
@@ -160,6 +163,10 @@
 
 		@backend path /api/* /sanctum/* /up /storage/*
 		handle @backend {
+			# Laravel 13 passes a write with Sec-Fetch-Site: same-origin without its CSRF token, and browsers send that
+			# header only to https, localhost and loopback origins. Stripped here, every browser write takes the token
+			# path that a LAN http origin takes.
+			request_header -Sec-Fetch-Site
 			import laravel_root
 			import e2e_php
 			file_server

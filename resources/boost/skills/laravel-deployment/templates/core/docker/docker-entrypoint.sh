@@ -1,5 +1,5 @@
 #!/bin/bash
-# {{app}} prod entrypoint: manifest rebuild, database wait, migrate, gated seed,
+# {{app}} prod entrypoint: manifest rebuild, database wait, migrate, reference data, gated account seed,
 # cache, then Octane + scheduler + Horizon under supervisor.
 set -e
 cd /app
@@ -25,6 +25,8 @@ esac
 # SvelteKit's server-side calls come from 127.0.0.1, browsers through the reverse proxy: Laravel trusts both.
 case ",${TRUSTED_PROXIES// /}," in *,127.0.0.1,*) ;; *) echo "TRUSTED_PROXIES must include 127.0.0.1 (SvelteKit's server-side calls)"; exit 1 ;; esac
 [ "$(echo "${TRUSTED_PROXIES// /}" | tr ',' '\n' | grep -cvxE '127\.0\.0\.1|')" -gt 0 ] || { echo "TRUSTED_PROXIES also needs the reverse proxy's address as its requests arrive in the container"; exit 1; }
+# The e2e site's switch: it lifts every rate limiter.
+case "${APP_E2E:-false}" in false|0|'') ;; *) echo "APP_E2E is for the local e2e site only, got '${APP_E2E}'"; exit 1 ;; esac
 # endif
 
 mkdir -p storage/app/private storage/app/public storage/framework/cache/data storage/framework/sessions storage/framework/views storage/logs bootstrap/cache
@@ -52,8 +54,10 @@ php artisan migrate --force
 # As the tables' owner; the app's role cannot create them.
 php artisan migrate --force --database=pgsql_owner
 # endif
-# ProductionSeeder only: the prod image has no faker, so DatabaseSeeder's factories
-# would crash-loop the container (database/CLAUDE.md).
+# Reference data on every boot: a release's new rows must exist before the app serves them. Idempotent, no faker.
+php artisan db:seed --class=ReferenceDataSeeder --force
+# The accounts: ProductionSeeder, never DatabaseSeeder, whose factories need faker, which the prod image lacks
+# (database/CLAUDE.md).
 case "${DATABASE_SEED:-false}" in
     true) php artisan db:seed --class=ProductionSeeder --force ;;
     false) ;;
@@ -63,7 +67,13 @@ esac
 php artisan config:cache
 php artisan route:cache
 php artisan event:cache
+# unless:spa
 php artisan view:cache
+# endif
+# if:spa
+# resources/views may not exist (git keeps no empty directory), and view:cache fails on a missing view path.
+[ ! -d resources/views ] || php artisan view:cache
+# endif
 
 # exec: the program itself is supervisor's child and gets SIGTERM, so stopwaitsecs is honoured;
 # a `cmd | sed` wrapper would die first and the kernel would SIGKILL the real process.
