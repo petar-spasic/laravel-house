@@ -136,7 +136,7 @@ it('gives a card stack its host-path mount and no ssh command, and records its c
         ->and(stackRecord($code, $wt))->toMatchArray([
             'worktree' => $wt, 'project' => "acme-wt-{$lc}", 'container' => "acme-wt-{$lc}-app-1", 'shell' => $shell,
         ])
-        ->and(str_contains($code->ok(['context', $id], cwd: $wt), "\nshell in container acme-wt-{$lc}-app-1; git and vendor/bin/kanban run on this machine\n"))
+        ->and(str_contains($code->ok(['context', $id], cwd: $wt), "\nshell in container acme-wt-{$lc}-app-1, git included; a plain vendor/bin/kanban command runs on this machine\n"))
         ->toBe($shell === 'container');
 
     $code->ok(['stack', $id, 'down']);

@@ -180,3 +180,20 @@ it('runs a gate with `when` only where its path exists', function () {
         ->and($with->getExitCode())->toBe(1)
         ->and($with->getOutput())->toContain('fail false (exit 1)');
 });
+
+it("lists the diff's new packages and its added TODOs, skipped tests and private addresses in context", function () {
+    $this->p->commit($this->wt, 'composer.json', json_encode(['require' => ['php' => '^8.3']])."\n", "{$this->id}: composer");
+    $this->p->commit($this->wt, 'composer.json', json_encode(['require' => ['php' => '^8.3', 'acme/widgets' => '^1.0']])."\n", "{$this->id}: a package");
+    @mkdir($this->wt.'/frontend');
+    $this->p->commit($this->wt, 'frontend/package.json', json_encode(['devDependencies' => ['left-pad' => '1.3.0']])."\n", "{$this->id}: npm");
+    $this->p->commit($this->wt, 'tests/NotesTest.php', "<?php\nit('lists notes')->skip(); // TODO: write it\n\$host = '10.1.2.3';\n", "{$this->id}: test");
+    $this->p->commit($this->wt, 'docs.md', "Example host 192.0.2.10\n", "{$this->id}: docs");
+
+    $context = $this->p->in($this->wt, ['context'])->getOutput();
+
+    expect($context)->toContain("new packages: acme/widgets (composer.json require), left-pad (frontend/package.json devDependencies)\n")
+        ->toContain("added lines with TODO or FIXME: tests/NotesTest.php\n")
+        ->toContain("added lines with a skipped test: tests/NotesTest.php\n")
+        ->toContain("added lines with a private IPv4 address: tests/NotesTest.php\n")
+        ->not->toContain('docs.md');
+});

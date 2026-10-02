@@ -190,3 +190,16 @@ it('has a packages.md row for every npm package the spa frontend rules install',
         ->and($packages)->toContain('zod', 'cn', 'svelte-sonner', 'pusher-js')
         ->and(array_values(array_filter($packages, fn (string $name) => ! str_contains($rows, "| `{$name}`"))))->toBe([]);
 });
+
+it("names every placeholder a skill's templates hold in that skill's SKILL.md", function (string $skill) {
+    $root = Sandbox::package().'/resources/boost/skills/'.$skill;
+    $used = [];
+    $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root.'/templates', FilesystemIterator::SKIP_DOTS));
+    foreach ($files as $file) {
+        preg_match_all('/\{\{([a-z_]+)\}\}/', (string) file_get_contents((string) $file), $m);
+        $used = [...$used, ...$m[1]];
+    }
+    $doc = (string) file_get_contents($root.'/SKILL.md');
+
+    expect(array_values(array_filter(array_unique($used), fn (string $key) => ! str_contains($doc, "{{{$key}}}") && ! str_contains($doc, "`{$key}`") && ! str_contains($doc, "--set {$key}="))))->toBe([]);
+})->with(['laravel-project-setup', 'laravel-deployment']);

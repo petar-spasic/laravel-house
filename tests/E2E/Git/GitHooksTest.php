@@ -67,3 +67,29 @@ it('ships both hooks executable', function () {
     expect(is_executable($hooks.'/commit-msg'))->toBeTrue()
         ->and(is_executable($hooks.'/pre-push'))->toBeTrue();
 });
+
+it("puts the card's id in front of a commit message on a card branch, once, and leaves merges and other branches alone", function () {
+    [$main, $worktree, $git, $root] = kanbanHookRepo();
+    $git('checkout -q -b card/acme-e58pby-add-login-page', $worktree);
+    $subject = fn (string $dir) => trim($git('log -1 --format=%s', $dir)->getOutput());
+
+    file_put_contents($worktree.'/b.txt', "b\n");
+    $git('add b.txt', $worktree);
+    $git('commit -q -m "login form"', $worktree);
+    $plain = $subject($worktree);
+    file_put_contents($worktree.'/c.txt', "c\n");
+    $git('add c.txt', $worktree);
+    $git('commit -q -m "ACME-E58PBY: already named"', $worktree);
+    $named = $subject($worktree);
+    file_put_contents($main.'/m.txt', "m\n");
+    $git('add m.txt', $main);
+    $git('commit -q -m "main work"', $main);
+    $git('merge -q --no-edit main', $worktree);
+
+    expect($plain)->toBe('ACME-E58PBY: login form')
+        ->and($named)->toBe('ACME-E58PBY: already named')
+        ->and($subject($main))->toBe('main work')
+        ->and($subject($worktree))->toStartWith('Merge branch');
+
+    (new Process(['rm', '-rf', $root]))->run();
+});

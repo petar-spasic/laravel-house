@@ -54,6 +54,10 @@ class ShowCommand extends Command
         }
         if (in_array($card->stage(), ['doing', 'review'], true) && is_string($worktree = $card->work()['worktree'] ?? null)) {
             $this->say('spawn: '.Worktrees::spawnLine($card, $card->stage() === 'doing' ? 'kanban-worker' : 'kanban-evaluator', $this->paths()->main.'/'.$worktree));
+            $last = array_values(array_filter($card->log(), fn (array $e) => in_array($e['event'] ?? null, ['verdict', 'report', 'refresh'], true)));
+            if ($card->stage() === 'doing' && ($last[count($last) - 1]['event'] ?? null) === 'verdict' && ($last[count($last) - 1]['decision'] ?? null) === 'reject') {
+                $this->say("SendMessage (its worker, or a fresh one): Evaluator rejected {$card->id()}; run `vendor/bin/kanban context` for the failed checks, fix them, then report again.");
+            }
         }
         foreach ($card->acceptance() as $item) {
             $this->say(($item['done'] ? '[x] ' : '[ ] ').$item['id'].' '.$item['text']);

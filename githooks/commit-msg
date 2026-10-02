@@ -1,7 +1,16 @@
 #!/bin/sh
 # Rejects Co-Authored-By trailers unless githooks.reject_co_authored is off (attach sets kanban.rejectCoAuthored).
-[ "$(git config --bool kanban.rejectCoAuthored)" = "false" ] && exit 0
-if grep -qi '^co-authored-by:' "$1"; then
+# On a card branch (card/<id>-…) a commit message gets the card's id in front unless it starts with it.
+if [ "$(git config --bool kanban.rejectCoAuthored)" != "false" ] && grep -qi '^co-authored-by:' "$1"; then
     echo "commit rejected: remove the Co-Authored-By line from the message and commit again." >&2
     exit 1
 fi
+id=$(git symbolic-ref --short -q HEAD | sed -nE 's#^card/([a-z][a-z0-9]{1,9}-[0-9a-z]{4,12})(-.*)?$#\1#p' | tr '[:lower:]' '[:upper:]')
+if [ -n "$id" ] && [ ! -f "$(git rev-parse --git-path MERGE_HEAD)" ]; then
+    first=$(head -n 1 "$1")
+    case "$first" in
+        "$id:"* | "$id "*) ;;
+        *) { printf '%s: ' "$id"; cat "$1"; } > "$1.kanban" && mv "$1.kanban" "$1" ;;
+    esac
+fi
+exit 0

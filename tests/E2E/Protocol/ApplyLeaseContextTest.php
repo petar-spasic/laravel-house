@@ -87,7 +87,7 @@ it('prints the card context with the configured gates from its worktree, with --
         ->toContain("dirty: notes.txt\n")
         ->toContain("gates (main's config/kanban.php; `vendor/bin/kanban gates` runs them in this worktree, and `report` before it stages, up to 240 s):\n"
             ."  vendor/bin/pint --test --diff=main\n  npm run check\nprotocol: work and commit only in this worktree;")
-        ->not->toContain('database');
+        ->toContain("database: main's (no stack of its own): never migrate:fresh")->not->toContain('database (run after');
 
     unlink($wt.'/notes.txt');
     $p->config(['gates' => ['report' => []], 'migrate' => null]);

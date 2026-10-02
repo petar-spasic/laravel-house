@@ -121,7 +121,8 @@ it('applies an evaluator approval for the branch HEAD and a rejection back to do
         ->and(array_column($card['acceptance'], 'done'))->toBe([true, false])
         ->and(end($card['log']))->toMatchArray(['event' => 'stage', 'from' => 'review', 'to' => 'doing', 'via' => 'reject', 'by' => 'evaluator'])
         ->and($verdict['failed'])->toBe(['2: "no test for the empty state"'])
-        ->and($verdict['issues'])->toBe(['TODO left in app.php']);
+        ->and($verdict['issues'])->toBe(['TODO left in app.php'])
+        ->and($this->p->sandbox->ok(['show', $this->id]))->toContain("SendMessage (its worker, or a fresh one): Evaluator rejected {$this->id}; run `vendor/bin/kanban context`");
 
     $head = $this->p->commit($this->wt, 'tests/EmptyStateTest.php', "<?php\n", "{$this->id}: test");
     $this->p->hook('subagent-start', $this->p->payload('subagent-start'));

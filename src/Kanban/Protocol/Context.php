@@ -92,7 +92,7 @@ final class Context
             $lines[] = 'stack '.($stack['url'] ?? '-').($ports === [] ? '' : ' ports '.implode(' ', array_map(fn ($k, $v) => "{$k}={$v}", array_keys($ports), $ports)));
             $record = $worktree === null ? null : (new Worktrees($this->paths, $this->config))->stackRecord($worktree);
             if (($record['shell'] ?? null) === 'container') {
-                $lines[] = "shell in container {$record['container']}; git and vendor/bin/kanban run on this machine";
+                $lines[] = "shell in container {$record['container']}, git included; a plain vendor/bin/kanban command runs on this machine";
             }
         }
         $lines[] = 'acceptance:';
@@ -154,6 +154,12 @@ final class Context
             }
         }
 
+        if ($git !== null) {
+            $lines = [...$lines, ...self::findings($git, $main)];
+        }
+        if (! is_array($stack) && $worktree !== null) {
+            $lines[] = "database: main's (no stack of its own): never migrate:fresh, db:wipe or a test run that resets it";
+        }
         if ($evaluate) {
             $lines = [...$lines, ...$this->reports($card, (string) ($work['started'] ?? ''))];
             if ($git !== null) {
@@ -207,6 +213,66 @@ final class Context
         }
         if (Findings::enabled($this->config)) {
             $lines[] = 'a problem in the house package itself (not this app): add --upstream="Title — body" in generic terms, without project, host, path or card names';
+        }
+
+        return $lines;
+    }
+
+    /**
+     * What the branch's own diff shows without judgement: new composer or npm packages, and added lines holding a
+     * TODO or FIXME, a skipped test, or a private IPv4 address. The worker reports a package outside the approved set
+     * as blocked; the evaluator weighs each line.
+     *
+     * @return list<string>
+     */
+    public static function findings(Git $git, string $main): array
+    {
+        $lines = [];
+        $packages = [];
+        foreach (array_filter(explode("\n", $git->attempt(['diff', '--name-only', $main.'...HEAD'])->out)) as $file) {
+            $name = basename($file);
+            $keys = match ($name) {
+                'composer.json' => ['require', 'require-dev'],
+                'package.json' => ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'],
+                default => null,
+            };
+            if ($keys === null) {
+                continue;
+            }
+            $read = fn (string $rev) => json_decode((string) $git->attempt(['show', "{$rev}:{$file}"])->out, true) ?: [];
+            [$before, $after] = [$read($main), $read('HEAD')];
+            foreach ($keys as $key) {
+                foreach (array_diff(array_keys((array) ($after[$key] ?? [])), array_keys((array) ($before[$key] ?? []))) as $package) {
+                    if ($package === 'php' || str_starts_with($package, 'ext-')) {
+                        continue;
+                    }
+                    $packages[] = "{$package} ({$file} {$key})";
+                }
+            }
+        }
+        if ($packages !== []) {
+            $lines[] = 'new packages: '.implode(', ', $packages);
+        }
+        $patterns = [
+            'TODO or FIXME' => '/\b(TODO|FIXME)\b/',
+            'a skipped test' => '/->(skip|todo)\(|markTest(Skipped|Incomplete)|\b(test|it|describe)\.(skip|only|fixme)\(/',
+            'a private IPv4 address' => '/\b(10\.\d{1,3}|172\.(1[6-9]|2\d|3[01])|192\.168)\.\d{1,3}\.\d{1,3}\b/',
+        ];
+        $found = [];
+        $file = '';
+        foreach (explode("\n", $git->attempt(['diff', '--no-ext-diff', '--no-textconv', '-U0', $main.'...HEAD'])->out) as $line) {
+            if (str_starts_with($line, '+++ ')) {
+                $file = substr($line, 6);
+            } elseif (str_starts_with($line, '+') && ! str_starts_with($line, '+++')) {
+                foreach ($patterns as $what => $pattern) {
+                    if (preg_match($pattern, $line) === 1) {
+                        $found[$what][$file] = true;
+                    }
+                }
+            }
+        }
+        foreach ($found as $what => $files) {
+            $lines[] = "added lines with {$what}: ".implode(', ', array_slice(array_keys($files), 0, 10)).(count($files) > 10 ? ' …' : '');
         }
 
         return $lines;
