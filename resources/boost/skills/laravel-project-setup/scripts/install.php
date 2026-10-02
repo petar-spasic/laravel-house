@@ -3,15 +3,18 @@
 declare(strict_types=1);
 
 /*
- * Copies templates/core and the chosen templates/modules/<m> into a Laravel repo.
- * Resolves `<!-- if:m -->` / `<!-- unless:m -->` … `<!-- endif -->` blocks (own lines, nestable) and
- * `{{key}}` placeholders given with --set. Never overwrites an existing file without --force.
- * A `.stub` suffix is dropped on write: Boost renders any `*.blade.php` inside a skill it copies.
- * --render-to=<dir> writes the resolved templates, plus templates/snippets/ under <dir>/snippets/, into <dir>
+ * Copies <templates>/core and the chosen <templates>/modules/<m> into a Laravel repo. <templates> is this skill's
+ * templates/ unless --templates names another tree of the same shape (laravel-deployment's).
+ * Resolves `<!-- if:m -->` / `<!-- unless:m -->` … `<!-- endif -->` and `# if:m` / `# unless:m` … `# endif` blocks
+ * (own lines, nestable, either style in any file) and `{{key}}` placeholders given with --set.
+ * Never overwrites an existing file without --force. A file that resolves to nothing is not written; `*.sh` files are
+ * written executable. A `.stub` suffix is dropped on write: Boost renders any `*.blade.php` inside a skill it copies.
+ * --render-to=<dir> writes the resolved templates, plus <templates>/snippets/ under <dir>/snippets/, into <dir>
  * instead of the repo: for merging snippets and for diffing an existing project against the templates.
+ * Each placeholder no --set filled is reported as `placeholders left in <file>: <keys>`.
  *
  * php install.php <repo> --modules=htmx,islands,tenancy --set app=acme [--set key=value …] [--force] [--dry-run]
- *   [--render-to=<dir>]
+ *   [--render-to=<dir>] [--templates=<dir>]
  */
 
 const MODULES = ['htmx', 'islands', 'spa', 'reverb', 'tenancy'];
@@ -22,6 +25,7 @@ $vars = [];
 $force = false;
 $dryRun = false;
 $renderTo = null;
+$templates = dirname(__DIR__).'/templates';
 $args = array_slice($argv, 1);
 
 for ($i = 0; $i < count($args); $i++) {
@@ -37,6 +41,8 @@ for ($i = 0; $i < count($args); $i++) {
         $dryRun = true;
     } elseif (str_starts_with($arg, '--render-to=')) {
         $renderTo = rtrim(substr($arg, 12), '/') ?: fail('--render-to needs a directory');
+    } elseif (str_starts_with($arg, '--templates=')) {
+        $templates = rtrim(substr($arg, 12), '/');
     } else {
         $repo = $arg;
     }
@@ -50,6 +56,9 @@ function fail(string $message): never
 
 if ($repo === null || ! is_file("{$repo}/artisan")) {
     fail('first argument must be a Laravel repo (no artisan found)');
+}
+if (! is_dir("{$templates}/core")) {
+    fail("no core/ in the templates directory {$templates}");
 }
 if ($unknown = array_diff($modules, MODULES)) {
     fail('unknown module(s): '.implode(', ', $unknown).' — known: '.implode(', ', MODULES));
@@ -69,18 +78,19 @@ function resolve(string $text, array $modules, string $file): string
     $kept = [];
     $stack = [];
     foreach (explode("\n", $text) as $n => $line) {
-        if (preg_match('/^\s*<!-- (if|unless):([a-z]+) -->\s*$/', $line, $m)) {
-            in_array($m[2], MODULES, true) || fail("{$file}:".($n + 1)." unknown module {$m[2]}");
-            $stack[] = ($m[1] === 'if') === in_array($m[2], $modules, true);
+        if (preg_match('/^\s*(?:<!-- (if|unless):([a-z]+) -->|# (if|unless):([a-z]+))\s*$/', $line, $m)) {
+            [$kind, $module] = $m[1] !== '' ? [$m[1], $m[2]] : [$m[3], $m[4]];
+            in_array($module, MODULES, true) || fail("{$file}:".($n + 1)." unknown module {$module}");
+            $stack[] = ($kind === 'if') === in_array($module, $modules, true);
 
             continue;
         }
-        if (preg_match('/^\s*<!-- endif -->\s*$/', $line)) {
+        if (preg_match('/^\s*(?:<!-- endif -->|# endif)\s*$/', $line)) {
             array_pop($stack) ?? fail("{$file}:".($n + 1).' stray endif');
 
             continue;
         }
-        if (str_contains($line, '<!-- if:') || str_contains($line, '<!-- unless:') || str_contains($line, '<!-- endif')) {
+        if (preg_match('/<!-- (?:if:|unless:|endif)|^\s*# (?:if:|unless:|endif\b)/', $line)) {
             fail("{$file}:".($n + 1).' a block marker must be alone on its line');
         }
         if (! in_array(false, $stack, true)) {
@@ -92,10 +102,9 @@ function resolve(string $text, array $modules, string $file): string
     return preg_replace("/\n{3,}/", "\n\n", implode("\n", $kept));
 }
 
-$skill = dirname(__DIR__);
-$sources = array_merge(["{$skill}/templates/core" => ''], ...array_map(fn ($m) => ["{$skill}/templates/modules/{$m}" => ''], $modules));
+$sources = array_merge(["{$templates}/core" => ''], ...array_map(fn ($m) => ["{$templates}/modules/{$m}" => ''], $modules));
 if ($renderTo !== null) {
-    $sources["{$skill}/templates/snippets"] = 'snippets/';
+    $sources["{$templates}/snippets"] = 'snippets/';
 }
 $base = $renderTo ?? $repo;
 $written = $skipped = $left = [];
@@ -108,7 +117,11 @@ foreach ($sources as $source => $prefix) {
     foreach ($files as $file) {
         $relative = $prefix.preg_replace('/\.stub$/', '', substr($file->getPathname(), strlen($source) + 1));
         $target = "{$base}/{$relative}";
-        $text = resolve(file_get_contents($file->getPathname()), $modules, $relative);
+        $raw = file_get_contents($file->getPathname());
+        $text = resolve($raw, $modules, $relative);
+        if (trim($text) === '' && trim($raw) !== '') {
+            continue;
+        }
         $text = preg_replace_callback('/\{\{([a-z_]+)\}\}/', fn ($m) => $vars[$m[1]] ?? $m[0], $text);
 
         if (preg_match_all('/\{\{([a-z_]+)\}\}/', $text, $m)) {
@@ -122,6 +135,7 @@ foreach ($sources as $source => $prefix) {
         if (! $dryRun) {
             is_dir(dirname($target)) || mkdir(dirname($target), 0775, true) || is_dir(dirname($target)) || fail("cannot create ".dirname($target));
             file_put_contents($target, $text) === false && fail("cannot write {$target}");
+            str_ends_with($target, '.sh') && chmod($target, 0755);
         }
         $written[] = $relative;
     }
