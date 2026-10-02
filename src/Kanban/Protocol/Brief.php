@@ -65,7 +65,11 @@ final class Brief
         foreach ($work('doing') as $card) {
             $lines[] = 'doing  '.$this->short($card).': '.implode(', ', [...$this->flight($card, $runtime, 'kanban-worker'), ...$this->trouble($card, $runtime)]);
         }
-        foreach ($work('review') as $card) {
+        // Approved cards first, oldest approval first: the order main finishes them in.
+        $review = $work('review');
+        $approved = array_values(array_filter($review, fn (Card $c) => is_string($c->work()['approved']['at'] ?? null)));
+        usort($approved, fn (Card $a, Card $b) => strcmp($a->work()['approved']['at'], $b->work()['approved']['at']));
+        foreach ([...$approved, ...array_filter($review, fn (Card $c) => ! in_array($c, $approved, true))] as $card) {
             $approved = $card->work()['approved']['head'] ?? null;
             $parts = [$approved ? 'approved '.substr($approved, 0, 7).', not merged' : 'awaiting verdict'];
             $parts = array_merge($parts, array_slice($this->flight($card, $runtime, 'kanban-evaluator'), 0, 1), $this->trouble($card, $runtime));

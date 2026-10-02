@@ -58,7 +58,7 @@ class FinishCommand extends Command
 
         $check = new MergeCheck($worktrees->git(), $main);
         $base = (string) ($approved['base'] ?? $work['base'] ?? '');
-        if ($base !== '' && ($overlap = $check->movedOverlap($base, $branch)) !== []) {
+        if ($base !== '' && ($overlap = $check->movedOverlap($base, $branch, array_map('strval', (array) $this->merged()['finish']['overlap_ignore']))) !== []) {
             throw new Conflict("{$id}: {$main} moved since approval and changed files the branch changes; `kanban refresh {$id}` and re-verify", $overlap);
         }
         if (($conflicts = $check->conflicts($branch)) !== null) {

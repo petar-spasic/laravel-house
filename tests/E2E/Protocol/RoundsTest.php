@@ -152,3 +152,22 @@ it('keeps why the stop hook failed beside the staged report', function () {
         ->and($this->p->sandbox->ok(['status']))->toMatch('/^doing  '.$this->id.' .*, report staged, not applied: hook failed: /m')
         ->and($this->p->sandbox->kanban(['refresh', $this->id])->getErrorOutput())->toContain('its stop hook failed, so `vendor/bin/kanban apply` settles it');
 });
+
+it('asks only for a re-verify when nothing but a clean merge of main followed the approval', function () {
+    $this->p->commit($this->wt, 'app.php', "<?php\n", "{$this->id}: clauses");
+    $this->p->in($this->wt, ['report', $this->id, '--status=review', '--tick=1,2', '--summary=Done'])->mustRun();
+    stopAgent($this->p, $this->wt);
+    $this->p->hook('subagent-start', $this->p->payload('subagent-start', ['agent' => 'e1', 'type' => 'kanban-evaluator']));
+    $this->p->enter($this->wt, 'e1', 'kanban-evaluator');
+    $this->p->in($this->wt, ['verdict', $this->id, 'approve', '--check=1:pass:ok', '--check=2:pass:ok'])->mustRun();
+    stopAgent($this->p, $this->wt, 'e1', 'kanban-evaluator');
+    $approved = $this->p->card($this->id)['work']['approved']['head'];
+    commitMain($this->p, 'app.php.md', "Acme Notes\n");
+    $this->p->sandbox->ok(['refresh', $this->id]);
+
+    expect($this->p->sandbox->ok(['context', $this->id, '--evaluate']))
+        ->toContain('re-verify: approved @'.substr($approved, 0, 7).'; since then only clean merges of main. Run every gate and the tests covering those files; a full review is not needed.');
+
+    $this->p->commit($this->wt, 'more.php');
+    expect($this->p->sandbox->ok(['context', $this->id, '--evaluate']))->not->toContain('re-verify');
+});

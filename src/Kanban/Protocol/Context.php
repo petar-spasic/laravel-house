@@ -148,6 +148,9 @@ final class Context
                 foreach (array_filter(explode("\n", rtrim($git->attempt(['diff', '--stat', $main.'...HEAD'])->out))) as $line) {
                     $lines[] = '  '.trim($line);
                 }
+                if (($reverify = $this->reverify($card, $git, $main)) !== null) {
+                    $lines[] = $reverify;
+                }
                 $resolved = $this->resolutions($git, $main);
                 if ($resolved !== []) {
                     $lines[] = 'merge resolutions (lines neither parent had; read each with `git show <sha>`):';
@@ -266,13 +269,34 @@ final class Context
     }
 
     /**
-     * Merges into the branch whose combined diff is not empty: a conflict resolution wrote lines that neither parent had.
+     * The re-verify line when the card's last approval still holds but for clean merges of main since: no commit of the
+     * card's own and no merge resolution after the approved head.
+     */
+    private function reverify(Card $card, Git $git, string $main): ?string
+    {
+        $verdict = $this->last($card, 'verdict');
+        $head = $verdict['head'] ?? null;
+        if (($verdict['decision'] ?? null) !== 'approve' || ! is_string($head) || (string) ($verdict['at'] ?? '') < (string) ($card->work()['started'] ?? '')
+            || $git->line(['rev-parse', 'HEAD']) === $head || ! $git->attempt(['merge-base', '--is-ancestor', $head, 'HEAD'])->ok()
+            || (int) $git->line(['rev-list', '--no-merges', '--count', $head.'..HEAD', '^'.$main]) > 0 || $this->resolutions($git, $head) !== []) {
+            return null;
+        }
+        $names = fn (array $args) => array_filter(explode("\n", trim($git->attempt($args)->out)));
+        $touched = array_values(array_intersect($names(['diff', '--name-only', $head, 'HEAD']), $names(['diff', '--name-only', $main.'...HEAD'])));
+
+        return 're-verify: approved @'.substr($head, 0, 7).'; since then only clean merges of main'
+            .($touched === [] ? '' : ', touching '.implode(', ', array_slice($touched, 0, 10)).(count($touched) > 10 ? ' …' : ''))
+            .'. Run every gate and the tests covering those files; a full review is not needed.';
+    }
+
+    /**
+     * Merges since $from whose combined diff is not empty: a conflict resolution wrote lines that neither parent had.
      *
      * @return list<string> `<sha> <subject>`
      */
-    private function resolutions(Git $git, string $main): array
+    private function resolutions(Git $git, string $from): array
     {
-        $merges = array_values(array_filter(explode("\n", $git->attempt(['log', '--merges', '--format=%h %s', '-n', '10', $main.'..HEAD'])->out)));
+        $merges = array_values(array_filter(explode("\n", $git->attempt(['log', '--merges', '--format=%h %s', '-n', '10', $from.'..HEAD'])->out)));
 
         return array_values(array_filter($merges, fn (string $merge) => trim($git->attempt(['show', '--format=', '--cc', explode(' ', $merge, 2)[0]])->out) !== ''));
     }

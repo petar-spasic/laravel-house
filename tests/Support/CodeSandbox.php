@@ -199,14 +199,14 @@ final class CodeSandbox
     }
 
     /** Puts the card in review with an approval of the branch head (what report + verdict do), committed on the board. */
-    public function approve(string $id, ?string $head = null, ?string $base = null): void
+    public function approve(string $id, ?string $head = null, ?string $base = null, ?string $at = null): void
     {
         $card = $this->sandbox->read($id);
         $branch = $card['work']['branch'];
         $head ??= trim($this->sandbox->git('rev-parse', 'refs/heads/'.$branch));
         $card['stage'] = 'review';
         $card['work']['head'] = $head;
-        $card['work']['approved'] = ['head' => $head, 'base' => $base ?? trim($this->sandbox->git('rev-parse', 'refs/heads/main')), 'at' => $card['updated']];
+        $card['work']['approved'] = ['head' => $head, 'base' => $base ?? trim($this->sandbox->git('rev-parse', 'refs/heads/main')), 'at' => $at ?? $card['updated']];
         $files = glob($this->root().'/docs/kanban/*/*/'.$id.'.json');
         Json::write($files[0], Json::encode($card, 'card'));
         $this->sandbox->boardGit('commit', '-q', '-am', "{$id} approved (test)");

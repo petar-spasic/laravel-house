@@ -19,18 +19,29 @@ final class MergeCheck
     }
 
     /**
-     * Files main changed since $base that the branch also changed (empty when main has not moved).
+     * Files main changed since $base that the branch also changed, except those matching an $ignore glob (empty when main
+     * has not moved).
      *
+     * @param  list<string>  $ignore
      * @return list<string>
      */
-    public function movedOverlap(string $base, string $branch): array
+    public function movedOverlap(string $base, string $branch, array $ignore = []): array
     {
         $head = $this->git->line(['rev-parse', 'refs/heads/'.$this->main]);
         if ($head === $base) {
             return [];
         }
+        $overlap = array_intersect($this->names(['diff', '--name-only', $base, 'refs/heads/'.$this->main]), $this->branchFiles($branch));
 
-        return array_values(array_intersect($this->names(['diff', '--name-only', $base, 'refs/heads/'.$this->main]), $this->branchFiles($branch)));
+        return array_values(array_filter($overlap, function (string $file) use ($ignore) {
+            foreach ($ignore as $glob) {
+                if (fnmatch((string) $glob, $file)) {
+                    return false;
+                }
+            }
+
+            return true;
+        }));
     }
 
     /**

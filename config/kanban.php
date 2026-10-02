@@ -92,6 +92,9 @@ return [
     // What `finish` runs in the main checkout after the merge, read from the merged config/kanban.php. Each key a project's
     // `finish` leaves out keeps the default below.
     'finish' => [
+        // Files main may change since the approval, alongside the branch, and keep the approval (fnmatch globs; `*` spans
+        // directories). The merge must still be clean.
+        'overlap_ignore' => ['*.md', 'docs/*'],
         // A changed lockfile (by name, at any depth) => the command run in its directory first; a failure skips the rest.
         'install' => [
             'composer.lock' => 'composer install --no-interaction',

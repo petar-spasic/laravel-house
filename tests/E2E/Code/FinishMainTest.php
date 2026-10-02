@@ -165,3 +165,38 @@ it('pushes main once publish.every merges are not on the remote, and leaves a fa
         ->toContain('; run `kanban publish`')
         ->and($code->sandbox->read($fourth)['stage'])->toBe('done');
 });
+
+it('keeps the approval when main changed only files overlap_ignore lists alongside the branch', function () {
+    $code = $this->code;
+    @mkdir($code->root().'/docs', 0775, true);
+    $code->commitMain('docs/guide.md', "# Guide\n\none\n\ntwo\n\nthree\n");
+    $id = $code->started('Document tags');
+    $code->commit($id, 'docs/guide.md', "# Guide\n\none, with tags\n\ntwo\n\nthree\n");
+    $code->commit($id, 'tags.php', "<?php\n");
+    $code->approve($id);
+    $code->commitMain('docs/guide.md', "# Guide\n\none\n\ntwo\n\nthree, archived\n");
+
+    $code->ok(['finish', $id], $this->env);
+
+    expect($code->sandbox->read($id)['stage'])->toBe('done')
+        ->and(file_get_contents($code->root().'/docs/guide.md'))->toBe("# Guide\n\none, with tags\n\ntwo\n\nthree, archived\n");
+});
+
+it('lists review cards that hold an approval first, oldest approval first', function () {
+    $code = $this->code;
+    $first = $code->started('Tag notes');
+    $second = $code->started('Archive notes');
+    $third = $code->started('Share notes');
+    foreach ([$first, $second, $third] as $id) {
+        $code->commit($id, strtolower($id).'.php', "<?php\n");
+    }
+    $code->approve($first, at: '2026-05-02T10:00:00.000+00:00');
+    $code->approve($second, at: '2026-05-01T10:00:00.000+00:00');
+    $code->approve($third);
+    $code->commitMain('other.txt', "other\n");
+    $code->ok(['refresh', $third]);
+
+    preg_match_all('/^review (\S+)/m', $code->ok(['status']), $m);
+
+    expect($m[1])->toBe([$second, $first, $third]);
+});
