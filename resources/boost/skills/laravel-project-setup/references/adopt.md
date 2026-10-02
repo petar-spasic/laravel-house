@@ -48,9 +48,10 @@ php "${CLAUDE_SKILL_DIR}/scripts/install.php" . --modules=htmx,islands --set app
 
 - It writes nothing into the project, and its first output line names the render directory.
 - It renders every template, including those the project already has.
-- Diff each rendered `CLAUDE.md` and `tests/E2E/*` file against the project's copy. Merge by hand, keeping the
-  project's own text.
+- Every rendered file counts, `.ai/guidelines/*` and `config/boost.php` included. Copy what the project lacks. Diff
+  what it has against the project's copy and merge by hand, keeping the project's own text.
 - Merge the rendered snippets the same way (`core-auth.md`).
+- After merging `.ai/guidelines/*`, run `php artisan boost:update`.
 - Never run the installer with `--force` on a live project: it would erase project-specific rules.
 - Delete the render directory when done.
 
@@ -94,11 +95,10 @@ Moves a house project from one module set to another, such as htmx to spa. Tenan
 2). Ask before each batch.
 
 1. The owner names the new module set. The SKILL.md Modules table must accept it.
-2. Render the templates with the new `--modules` through `--render-to` (step 4). Diff every `CLAUDE.md`,
-   `tests/E2E/*` file and snippet against the project's copy. Merge by hand: the leaving module's text goes, the
-   arriving module's text comes in, the project's own text stays.
+2. Render the templates with the new `--modules` and merge every rendered file as in step 4: the leaving module's
+   text goes, the arriving module's text comes in, the project's own text stays.
 3. Undo the leaving module's row in `modules.md` (its Writes, Packages and Wiring), then apply the arriving module's
-   row (its Packages, Deletes and Wiring).
+   row: its Writes come from the render, then its Packages, Deletes and Wiring.
    - htmx or islands to spa deletes the root Node toolchain and `resources/js`.
    - spa to htmx restores them. `frontend/` goes only after the owner agrees.
 4. Apply `core-auth.md` for the arriving module: the Fortify prefix (`/api/auth` with spa), `statefulApi()` on or off,
