@@ -123,7 +123,7 @@ final class ProtocolSandbox
 
     public function runtime(string $relative = ''): string
     {
-        return $this->main.'/.git/laravel-kanban'.($relative === '' ? '' : '/'.$relative);
+        return $this->main.'/.git/laravel-house'.($relative === '' ? '' : '/'.$relative);
     }
 
     /** @return array<string, mixed> */

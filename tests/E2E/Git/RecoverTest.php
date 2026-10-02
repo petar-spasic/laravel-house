@@ -19,7 +19,7 @@ function boardMidRebase(): array
 
 function rebaseMarker(Sandbox $sandbox, int $pid, ?int $at = null): void
 {
-    $dir = $sandbox->root.'/.git/laravel-kanban';
+    $dir = $sandbox->root.'/.git/laravel-house';
     @mkdir($dir, 0775, true);
     file_put_contents($dir.'/rebase.marker', json_encode(['pid' => $pid, 'at' => $at ?? time()]));
 }
@@ -36,7 +36,7 @@ it('reattaches a board left mid-rebase by a killed kanban sync before the next w
         ->and(trim($sandbox->boardGit('rev-parse', '--abbrev-ref', 'HEAD')))->toBe('kanban')
         ->and($sandbox->read($id)['priority'])->toBe('high')
         ->and($gitdir.'/index.lock')->not->toBeFile()
-        ->and($sandbox->root.'/.git/laravel-kanban/rebase.marker')->not->toBeFile();
+        ->and($sandbox->root.'/.git/laravel-house/rebase.marker')->not->toBeFile();
 });
 
 it('leaves a rebase the owner is resolving by hand alone and refuses the write', function () {

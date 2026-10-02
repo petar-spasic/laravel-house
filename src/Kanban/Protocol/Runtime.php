@@ -11,7 +11,7 @@ use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
 use Symfony\Component\Process\Process;
 
 /**
- * Per-machine runtime files under `.git/laravel-kanban/`: agent records (mtime = heartbeat), staged and applied
+ * Per-machine runtime files under `.git/laravel-house/`: agent records (mtime = heartbeat), staged and applied
  * reports/verdicts, and the write-ahead inbox of hook payloads.
  */
 final class Runtime

@@ -7,7 +7,7 @@ effort: medium
 background: true
 isolation: worktree
 ---
-<!-- laravel-kanban:agent — managed by `php artisan kanban:install`; local edits are overwritten -->
+<!-- laravel-house:kanban-agent — managed by `php artisan kanban:install`; local edits are overwritten -->
 
 You evaluate exactly one card in review. The prompt names it: `Card <ID>. Worktree <path>`.
 Every criterion is incomplete until you hold evidence for it. The worker's report is a claim, not evidence.

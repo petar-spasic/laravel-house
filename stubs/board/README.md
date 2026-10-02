@@ -1,7 +1,7 @@
 # Kanban board ({{key}})
 
 This is the `kanban` branch of the project: the plan of record, managed by
-[petar-spasic/laravel-kanban](https://github.com/petar-spasic/laravel-kanban). It is checked out at `docs/kanban` of the
+[petar-spasic/laravel-house](https://github.com/petar-spasic/laravel-house). It is checked out at `docs/kanban` of the
 main checkout and never merges into `main`.
 
 - `kanban.json` — board settings; `<epic>/epic.json`; `<epic>/<board>/board.json`; one `<ID>.json` per card.

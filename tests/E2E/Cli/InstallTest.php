@@ -21,8 +21,8 @@ it('creates the board on an orphan kanban branch at docs/kanban', function () {
         ->and(file_get_contents($sandbox->root.'/.gitignore'))->toBe("/vendor/\n/docs/kanban/\n/.claude/worktrees\n")
         ->and(trim($sandbox->git('status', '--porcelain')))->toBe("M .gitignore\n?? .claude/\n?? CLAUDE.md")
         ->and(trim($sandbox->git('config', 'merge.kanban.driver')))->toBe("php '{$sandbox->root}/vendor/bin/kanban' merge-driver %O %A %B %P")
-        ->and(trim($sandbox->git('config', 'core.hooksPath')))->toBe('vendor/petar-spasic/laravel-kanban/githooks')
-        ->and(is_dir($sandbox->root.'/.git/laravel-kanban'))->toBeTrue();
+        ->and(trim($sandbox->git('config', 'core.hooksPath')))->toBe('vendor/petar-spasic/laravel-house/githooks')
+        ->and(is_dir($sandbox->root.'/.git/laravel-house'))->toBeTrue();
 
     $unrelated = new Process(['git', 'merge-base', 'main', 'kanban'], $sandbox->root);
     expect($unrelated->run())->toBe(1);

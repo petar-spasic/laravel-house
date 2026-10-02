@@ -17,7 +17,7 @@ final class ClaudeSettings extends Step
 
     public const PERMISSION = 'Bash(vendor/bin/kanban *)';
 
-    public const GUARD = 'vendor/petar-spasic/laravel-kanban/bin/kanban-guard';
+    public const GUARD = 'vendor/petar-spasic/laravel-house/bin/kanban-guard';
 
     public function run(bool $dryRun = false, bool $force = false): array
     {
@@ -169,6 +169,6 @@ final class ClaudeSettings extends Step
         $text = (is_string($handler->command ?? null) ? $handler->command : '').' '
             .implode(' ', array_filter((array) ($handler->args ?? []), 'is_string'));
 
-        return str_contains($text, 'vendor/bin/kanban') || str_contains($text, 'laravel-kanban/bin/kanban-guard');
+        return str_contains($text, 'vendor/bin/kanban') || str_contains($text, '/bin/kanban-guard');
     }
 }

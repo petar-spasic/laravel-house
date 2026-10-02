@@ -10,7 +10,7 @@ final class ClaudeAgents extends Step
 {
     public const AGENTS = ['kanban-worker', 'kanban-evaluator'];
 
-    public const MARKER = '<!-- laravel-kanban:agent';
+    public const MARKER = '<!-- laravel-house:kanban-agent';
 
     public function run(bool $dryRun = false, bool $force = false): array
     {
@@ -22,7 +22,7 @@ final class ClaudeAgents extends Step
             if ($current === $stub) {
                 $lines[] = "{$file} ok";
             } elseif ($current !== null && ! str_contains($current, self::MARKER)) {
-                $lines[] = "kept {$file}: not ours (no laravel-kanban marker); move it away to install ours";
+                $lines[] = "kept {$file}: not ours (no laravel-house kanban marker); move it away to install ours";
             } elseif ($dryRun) {
                 $lines[] = "would write {$file}";
             } else {
@@ -42,7 +42,7 @@ final class ClaudeAgents extends Step
             $current = $this->read($file);
             $results[] = match (true) {
                 $current === null => ['fail', "{$file} missing (run `vendor/bin/kanban doctor --fix`)"],
-                ! str_contains($current, self::MARKER) => ['warn', "{$file} is not laravel-kanban's (no marker)"],
+                ! str_contains($current, self::MARKER) => ['warn', "{$file} is not the house kanban agent (no marker)"],
                 $current !== $this->expected($agent) => ['warn', "{$file} outdated (run `vendor/bin/kanban doctor --fix`)"],
                 default => ['ok', $file],
             };

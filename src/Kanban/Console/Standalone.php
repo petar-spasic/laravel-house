@@ -57,7 +57,7 @@ final class Standalone
         $container->instance(Paths::class, $paths);
         KanbanServiceProvider::bindStore($container);
 
-        $application = new Application($container, new Dispatcher($container), 'laravel-kanban');
+        $application = new Application($container, new Dispatcher($container), 'kanban');
         $application->setName('kanban');
         $application->setAutoExit(false);
         $application->setCatchExceptions(true);

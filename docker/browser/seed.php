@@ -94,8 +94,8 @@ if ($perf) {
 
 if ($rich) {
     $agent = function (string $name, string $card, int $boundAgo, int $beatAgo = 0, bool $stopped = false) use ($s): void {
-        @mkdir($s->root.'/.git/laravel-kanban/agents', 0775, true);
-        $file = $s->root."/.git/laravel-kanban/agents/{$name}.json";
+        @mkdir($s->root.'/.git/laravel-house/agents', 0775, true);
+        $file = $s->root."/.git/laravel-house/agents/{$name}.json";
         file_put_contents($file, json_encode(['agent_id' => $name, 'agent_type' => 'kanban-worker', 'card' => $card, 'worktree' => null,
             'bound_at' => gmdate('Y-m-d\TH:i:s.000+00:00', time() - $boundAgo), 'stopped_at' => $stopped ? gmdate('Y-m-d\TH:i:s.000+00:00') : null, 'stop_blocks' => 0]));
         touch($file, time() - $beatAgo);

@@ -23,8 +23,8 @@ function stackUrl(int $port): string
 /** Binds an agent record to a card, as the binder does. */
 function agent(Sandbox $s, string $name, string $card, array $extra = []): string
 {
-    @mkdir($s->root.'/.git/laravel-kanban/agents', 0775, true);
-    $file = $s->root."/.git/laravel-kanban/agents/{$name}.json";
+    @mkdir($s->root.'/.git/laravel-house/agents', 0775, true);
+    $file = $s->root."/.git/laravel-house/agents/{$name}.json";
     file_put_contents($file, json_encode($extra + ['agent_id' => $name, 'agent_type' => 'kanban-worker', 'card' => $card, 'worktree' => null,
         'bound_at' => gmdate('Y-m-d\TH:i:s.000+00:00', time() - 300), 'stopped_at' => null, 'stop_blocks' => 0]));
 

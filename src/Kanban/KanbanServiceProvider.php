@@ -10,7 +10,7 @@ use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
 
 class KanbanServiceProvider extends ServiceProvider
 {
-    /** Commands that need the booted app (artisan only); every other `src/Console/*Command.php` also runs standalone. */
+    /** Commands that need the booted app (artisan only); every other `src/Kanban/Console/*Command.php` also runs standalone. */
     public const ARTISAN_COMMANDS = [
         Console\InstallCommand::class,
     ];

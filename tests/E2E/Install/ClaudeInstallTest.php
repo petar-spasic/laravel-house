@@ -36,7 +36,7 @@ it('merges settings, writes agents, .gitignore and the CLAUDE.md block, and is i
         ->toContain('updated .claude/settings.json: hooks.SessionStart, hooks.SubagentStart, hooks.SubagentStop, hooks.PreToolUse, hooks.WorktreeCreate, hooks.WorktreeRemove, permissions.allow Bash(vendor/bin/kanban *), attribution off')
         ->toContain('wrote .claude/agents/kanban-worker.md')
         ->toContain('wrote .claude/agents/kanban-evaluator.md')
-        ->toContain('added the kanban block to CLAUDE.md (no boost.json)')
+        ->toContain('added the kanban block to CLAUDE.md')
         ->toContain('.gitignore += /.claude/worktrees')
         ->toContain('next: commit on main: .gitignore .claude/agents/ .claude/settings.json CLAUDE.md')
         ->toEndWith("next: restart Claude Code (agents and hooks load at session start); then `vendor/bin/kanban lease --takeover` if an old session holds the lease\n");
@@ -51,7 +51,7 @@ it('merges settings, writes agents, .gitignore and the CLAUDE.md block, and is i
         ->and($settings['hooks']['PreToolUse'])->toBe([
             ['matcher' => 'Bash', 'hooks' => [['type' => 'command', 'command' => 'echo foreign-guard']]],
             ['matcher' => 'Bash|Monitor|Edit|Write|NotebookEdit|EnterWorktree|Agent', 'hooks' => [
-                ['type' => 'command', 'command' => 'php', 'args' => ['-d', 'display_errors=0', '-d', 'display_startup_errors=0', '${CLAUDE_PROJECT_DIR}/vendor/petar-spasic/laravel-kanban/bin/kanban-guard'], 'timeout' => 10],
+                ['type' => 'command', 'command' => 'php', 'args' => ['-d', 'display_errors=0', '-d', 'display_startup_errors=0', '${CLAUDE_PROJECT_DIR}/vendor/petar-spasic/laravel-house/bin/kanban-guard'], 'timeout' => 10],
             ]],
         ])
         ->and($settings['hooks']['SubagentStop'])->toBe([['matcher' => 'kanban-worker|kanban-evaluator', 'hooks' => [$kanban('subagent-stop') + ['timeout' => 300]]]])
@@ -61,15 +61,15 @@ it('merges settings, writes agents, .gitignore and the CLAUDE.md block, and is i
 
     $worker = file_get_contents($sandbox->root.'/.claude/agents/kanban-worker.md');
     expect($worker)->toStartWith("---\nname: kanban-worker\n")
-        ->toContain('<!-- laravel-kanban:agent')
+        ->toContain('<!-- laravel-house:kanban-agent')
         ->toContain('EnterWorktree(path:')
         ->and(file_get_contents($sandbox->root.'/.claude/agents/kanban-evaluator.md'))->toContain("tools: Read, Grep, Glob, LSP, Bash, TodoWrite, EnterWorktree, Monitor, WebFetch, mcp__laravel-boost__search-docs\n")
         ->and(file_get_contents($sandbox->root.'/.claude/agents/reviewer.md'))->toBe("---\nname: reviewer\n---\nmine\n")
         ->and(file_get_contents($sandbox->root.'/.gitignore'))->toBe("/vendor/\n/docs/kanban/\n/.claude/worktrees\n");
 
     $claude = file_get_contents($sandbox->root.'/CLAUDE.md');
-    expect($claude)->toStartWith("# App\n\nHouse rules.\n\n<!-- laravel-kanban:start -->\n## Kanban (petar-spasic/laravel-kanban)\n")
-        ->toContain("<!-- laravel-kanban:end -->\n\n<laravel-boost-guidelines>\n");
+    expect($claude)->toStartWith("# App\n\nHouse rules.\n\n<!-- laravel-house:kanban:start -->\n## Kanban\n")
+        ->toContain("<!-- laravel-house:kanban:end -->\n\n<laravel-boost-guidelines>\n");
 
     $before = array_map(fn (string $f) => file_get_contents($sandbox->root.'/'.$f), ['.claude/settings.json', 'CLAUDE.md', '.gitignore', '.claude/agents/kanban-worker.md']);
     $again = $sandbox->install('ACME');
@@ -83,37 +83,43 @@ it('merges settings, writes agents, .gitignore and the CLAUDE.md block, and is i
 
 it('replaces an outdated CLAUDE.md block in place, never twice', function () {
     $sandbox = Sandbox::create();
-    file_put_contents($sandbox->root.'/CLAUDE.md', "# App\n\n<!-- laravel-kanban:start -->\nold protocol\n<!-- laravel-kanban:end -->\n\n## Later section\n");
+    file_put_contents($sandbox->root.'/CLAUDE.md', "# App\n\n<!-- laravel-house:kanban:start -->\nold protocol\n<!-- laravel-house:kanban:end -->\n\n## Later section\n");
 
-    expect($sandbox->install('ACME'))->toContain('updated the kanban block in CLAUDE.md (no boost.json)');
+    expect($sandbox->install('ACME'))->toContain('updated the kanban block in CLAUDE.md');
 
     $claude = file_get_contents($sandbox->root.'/CLAUDE.md');
-    expect(substr_count($claude, '<!-- laravel-kanban:start -->'))->toBe(1)
+    expect(substr_count($claude, '<!-- laravel-house:kanban:start -->'))->toBe(1)
         ->and($claude)->not->toContain('old protocol')
-        ->toStartWith("# App\n\n<!-- laravel-kanban:start -->\n## Kanban (petar-spasic/laravel-kanban)\n")
-        ->toEndWith("<!-- laravel-kanban:end -->\n\n## Later section\n");
+        ->toStartWith("# App\n\n<!-- laravel-house:kanban:start -->\n## Kanban\n")
+        ->toEndWith("<!-- laravel-house:kanban:end -->\n\n## Later section\n");
 });
 
 it('creates CLAUDE.md when the project has none', function () {
     $sandbox = Sandbox::create();
 
-    expect($sandbox->install('ACME'))->toContain('created CLAUDE.md with the kanban block (no boost.json)')
-        ->and(file_get_contents($sandbox->root.'/CLAUDE.md'))->toStartWith("<!-- laravel-kanban:start -->\n## Kanban")
+    expect($sandbox->install('ACME'))->toContain('created CLAUDE.md with the kanban block')
+        ->and(file_get_contents($sandbox->root.'/CLAUDE.md'))->toStartWith("<!-- laravel-house:kanban:start -->\n## Kanban")
         ->and(file_get_contents($sandbox->root.'/.claude/settings.json'))->toStartWith("{\n  \"hooks\": {\n    \"SessionStart\": [");
 });
 
-it('hands the guideline to Boost when boost.json exists', function () {
+it('keeps the block with Boost and lists the house in boost.json packages for the kanban skill', function () {
     $sandbox = Sandbox::create();
     file_put_contents($sandbox->root.'/boost.json', "{\n    \"agents\": [\n        \"claude_code\"\n    ],\n    \"guidelines\": true\n}\n");
-    file_put_contents($sandbox->root.'/CLAUDE.md', "# App\n\n<!-- laravel-kanban:start -->\nold\n<!-- laravel-kanban:end -->\n");
+    file_put_contents($sandbox->root.'/CLAUDE.md', "# App\n\n<!-- laravel-house:kanban:start -->\nold\n<!-- laravel-house:kanban:end -->\n\n<laravel-boost-guidelines>\nboost\n</laravel-boost-guidelines>\n");
 
     $output = $sandbox->install('ACME');
 
-    expect($output)->toContain('boost.json packages += petar-spasic/laravel-kanban')
-        ->toContain('removed the CLAUDE.md kanban block (Boost renders the guideline)')
+    expect($output)->toContain('updated the kanban block in CLAUDE.md')
+        ->toContain('boost.json packages += petar-spasic/laravel-house')
         ->toContain('run `php artisan boost:update` in the project (no artisan here)')
-        ->and(file_get_contents($sandbox->root.'/boost.json'))->toBe("{\n    \"agents\": [\n        \"claude_code\"\n    ],\n    \"guidelines\": true,\n    \"packages\": [\n        \"petar-spasic/laravel-kanban\"\n    ]\n}\n")
-        ->and(file_get_contents($sandbox->root.'/CLAUDE.md'))->not->toContain('laravel-kanban:start');
+        ->and(file_get_contents($sandbox->root.'/boost.json'))->toBe("{\n    \"agents\": [\n        \"claude_code\"\n    ],\n    \"guidelines\": true,\n    \"packages\": [\n        \"petar-spasic/laravel-house\"\n    ]\n}\n")
+        ->and(file_get_contents($sandbox->root.'/CLAUDE.md'))->toStartWith("# App\n\n<!-- laravel-house:kanban:start -->\n## Kanban\n")
+        ->toEndWith("<!-- laravel-house:kanban:end -->\n\n<laravel-boost-guidelines>\nboost\n</laravel-boost-guidelines>\n")
+        ->and($sandbox->kanban(['doctor'])->getOutput())->toContain("ok CLAUDE.md kanban block\n")
+        ->toContain("warn kanban skill not in .claude/skills yet (run `php artisan boost:update`)\n");
+
+    expect($sandbox->install('ACME'))->toContain('boost.json ok')
+        ->not->toContain('boost:update');
 });
 
 it('never overwrites an agent file that is not ours', function () {
@@ -121,7 +127,7 @@ it('never overwrites an agent file that is not ours', function () {
     mkdir($sandbox->root.'/.claude/agents', 0775, true);
     file_put_contents($sandbox->root.'/.claude/agents/kanban-worker.md', "---\nname: kanban-worker\n---\nhand written\n");
 
-    expect($sandbox->install('ACME'))->toContain('kept .claude/agents/kanban-worker.md: not ours (no laravel-kanban marker)')
+    expect($sandbox->install('ACME'))->toContain('kept .claude/agents/kanban-worker.md: not ours (no laravel-house kanban marker)')
         ->and(file_get_contents($sandbox->root.'/.claude/agents/kanban-worker.md'))->toBe("---\nname: kanban-worker\n---\nhand written\n");
 });
 
@@ -132,7 +138,7 @@ it('prints what would change on a dry run and writes nothing', function () {
 
     expect($output)->toContain('would update .claude/settings.json: hooks.SessionStart')
         ->toContain('would write .claude/agents/kanban-worker.md')
-        ->toContain('would create CLAUDE.md with the kanban block (no boost.json)')
+        ->toContain('would create CLAUDE.md with the kanban block')
         ->toContain('would add to .gitignore: /docs/kanban/ /.claude/worktrees')
         ->not->toContain('restart Claude Code')
         ->and(is_dir($sandbox->root.'/.claude'))->toBeFalse()

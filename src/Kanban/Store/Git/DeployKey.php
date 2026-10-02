@@ -9,7 +9,7 @@ use Symfony\Component\Process\Process;
 use Throwable;
 
 /**
- * The key the project's local container syncs the board with: `.git/laravel-kanban/deploy_key`, made here, never
+ * The key the project's local container syncs the board with: `.git/laravel-house/deploy_key`, made here, never
  * committed, and inside the `./:/app` mount the container already has. Only the container is pointed at it
  * (`GIT_SSH_COMMAND` in its compose file); this machine's git keeps using whatever key it uses today.
  */
@@ -53,7 +53,7 @@ final class DeployKey
             return [];
         }
         $this->paths->ensureRuntime();
-        $comment = 'laravel-kanban '.basename($this->paths->main).'@'.gethostname();
+        $comment = 'laravel-house kanban '.basename($this->paths->main).'@'.gethostname();
         try {
             $made = (new Process(['ssh-keygen', '-q', '-t', 'ed25519', '-N', '', '-C', $comment, '-f', $this->path()]))->setTimeout(30);
             $made->run();

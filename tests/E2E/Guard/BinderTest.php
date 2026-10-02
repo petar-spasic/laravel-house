@@ -15,7 +15,7 @@ function guardPayload(GuardSandbox $sandbox, string $name): string
 
 function agentRecord(GuardSandbox $sandbox, string $agentId): ?array
 {
-    $file = $sandbox->main.'/.git/laravel-kanban/agents/'.$agentId.'.json';
+    $file = $sandbox->main.'/.git/laravel-house/agents/'.$agentId.'.json';
 
     return is_file($file) ? json_decode(file_get_contents($file), true) : null;
 }
@@ -113,7 +113,7 @@ it('touches the bound agent heartbeat on every call', function () {
 
 it('records a spawn for a kanban agent that names exactly one card in the right stage', function () {
     $sandbox = new GuardSandbox;
-    $spawns = $sandbox->main.'/.git/laravel-kanban/spawns';
+    $spawns = $sandbox->main.'/.git/laravel-house/spawns';
 
     $worker = $sandbox->case('main', 'Agent', ['subagent_type' => 'kanban-worker', 'isolation' => 'worktree', 'prompt' => 'Card ACME-7K2M9Q. Worktree {wt}']);
     $evaluator = $sandbox->case('main', 'Agent', ['subagent_type' => 'kanban-evaluator', 'prompt' => 'Evaluate acme-a1b2c3']);
@@ -131,7 +131,7 @@ it('records no spawn for anything else', function (array $input) {
 
     $sandbox->case('main', 'Agent', $input);
 
-    expect(glob($sandbox->main.'/.git/laravel-kanban/spawns/*.json') ?: [])->toBe([]);
+    expect(glob($sandbox->main.'/.git/laravel-house/spawns/*.json') ?: [])->toBe([]);
 })->with([
     'no card' => [['subagent_type' => 'kanban-worker', 'prompt' => 'Fix things']],
     'a ready card' => [['subagent_type' => 'kanban-worker', 'prompt' => 'Work on ACME-K9M2P1']],

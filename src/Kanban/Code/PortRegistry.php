@@ -27,7 +27,7 @@ final class PortRegistry
         $xdg = getenv('XDG_STATE_HOME');
         $base = is_string($xdg) && $xdg !== '' ? $xdg : (getenv('HOME') ?: sys_get_temp_dir()).'/.local/state';
 
-        return $base.'/laravel-kanban';
+        return $base.'/laravel-house';
     }
 
     /** @return array<string, int> pool parameters: stored in the file once, else the config */

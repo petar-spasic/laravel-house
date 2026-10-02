@@ -20,7 +20,7 @@ function keyedProject(string $url = 'git@github.com:acme/notes.git', bool $compo
 
 function keyFile(Sandbox $sandbox, string $name = 'deploy_key'): string
 {
-    return $sandbox->root.'/.git/laravel-kanban/'.$name;
+    return $sandbox->root.'/.git/laravel-house/'.$name;
 }
 
 it('creates a deploy key for the container on attach, says how to add it, and keeps it on this machine', function () {
@@ -32,7 +32,7 @@ it('creates a deploy key for the container on attach, says how to add it, and ke
         ->and(fileperms(keyFile($sandbox)) & 0777)->toBe(0600)
         ->and($out)->toContain('deploy key for the container')->toContain('ssh-ed25519 ')
         ->toContain('https://github.com/acme/notes/settings/keys/new')->toContain('Allow write access')
-        ->toContain('gh repo deploy-key add .git/laravel-kanban/deploy_key.pub --allow-write');
+        ->toContain('gh repo deploy-key add .git/laravel-house/deploy_key.pub --allow-write');
 });
 
 it('keeps the key it made: a second attach neither replaces nor repeats it', function () {
@@ -76,7 +76,7 @@ it('lets doctor report whether the key is there', function () {
     $present = $sandbox->kanban('doctor')->getOutput();
 
     expect($missing)->toContain('warn no deploy key for the container sync')
-        ->and($present)->toContain('ok deploy key .git/laravel-kanban/deploy_key');
+        ->and($present)->toContain('ok deploy key .git/laravel-house/deploy_key');
 });
 
 it('hands GIT_SSH_COMMAND to the git that syncs, which is how the container picks up its key', function () {

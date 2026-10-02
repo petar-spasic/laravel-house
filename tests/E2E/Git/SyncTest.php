@@ -298,7 +298,7 @@ it('pushes in the background after each write when sync is on', function () {
         usleep(100000);
     }
     expect($origin->log('kanban')[0])->toBe("{$id} created [owner]");
-    while (is_file($a->root.'/.git/laravel-kanban/sync.lock') && ! flock(fopen($a->root.'/.git/laravel-kanban/sync.lock', 'r'), LOCK_EX | LOCK_NB) && microtime(true) < $deadline) {
+    while (is_file($a->root.'/.git/laravel-house/sync.lock') && ! flock(fopen($a->root.'/.git/laravel-house/sync.lock', 'r'), LOCK_EX | LOCK_NB) && microtime(true) < $deadline) {
         usleep(50000);
     }
 });
@@ -592,14 +592,14 @@ it('keeps its separate local board commits when a sync that had to undo a move f
 /** What the last sync of a clone recorded. */
 function syncRecord(Sandbox $s): array
 {
-    return json_decode((string) @file_get_contents($s->root.'/.git/laravel-kanban/sync.status.json'), true) ?: [];
+    return json_decode((string) @file_get_contents($s->root.'/.git/laravel-house/sync.status.json'), true) ?: [];
 }
 
 /** Waits until no detached sync runner holds the clone's sync lock. */
 function drainSync(Sandbox $s): void
 {
     $deadline = microtime(true) + 15;
-    $file = $s->root.'/.git/laravel-kanban/sync.lock';
+    $file = $s->root.'/.git/laravel-house/sync.lock';
     while (is_file($file) && ! flock($handle = fopen($file, 'r'), LOCK_EX | LOCK_NB) && microtime(true) < $deadline) {
         usleep(50000);
     }
@@ -726,7 +726,7 @@ it('keeps the previous sync record when the board lock is busy', function () {
     rename($origin->path, $origin->path.'.away');
     $a->kanban('sync');
     rename($origin->path.'.away', $origin->path);
-    $held = fopen($a->root.'/.git/laravel-kanban/lock', 'c');
+    $held = fopen($a->root.'/.git/laravel-house/lock', 'c');
     flock($held, LOCK_EX);
 
     $busy = $a->kanban('sync');
@@ -746,7 +746,7 @@ function teamUi(Sandbox $clone, int $every = 5): void
 function elapse(Sandbox $clone): void
 {
     foreach (['sync.tick', 'sync.requested'] as $file) {
-        @unlink($clone->root.'/.git/laravel-kanban/'.$file);
+        @unlink($clone->root.'/.git/laravel-house/'.$file);
     }
 }
 
@@ -784,7 +784,7 @@ it('pulls what a teammate pushed while the board stays open, without a write of 
 it('asks for a sync at most once per interval, however often the board is polled', function () {
     [$origin, $a] = published();
     teamUi($a);
-    $runtime = $a->root.'/.git/laravel-kanban';
+    $runtime = $a->root.'/.git/laravel-house';
 
     $this->getJson('/kanban/_api/boards')->assertOk();
     drainSync($a);
@@ -802,7 +802,7 @@ it('asks for a sync at most once per interval, however often the board is polled
 it('treats a stamp from the future as due', function () {
     [$origin, $a] = published();
     teamUi($a);
-    $runtime = $a->root.'/.git/laravel-kanban';
+    $runtime = $a->root.'/.git/laravel-house';
     $this->getJson('/kanban/_api/boards')->assertOk();
     drainSync($a);
     touch("{$runtime}/sync.tick", time() + 3600);
@@ -818,7 +818,7 @@ it('never starts a sync for a clone that has no remote, and stamps the interval 
     $solo = Sandbox::create('solo');
     $solo->install('ACME');
     teamUi($solo);
-    $runtime = $solo->root.'/.git/laravel-kanban';
+    $runtime = $solo->root.'/.git/laravel-house';
 
     foreach (range(1, 4) as $poll) {
         $this->getJson('/kanban/_api/boards')->assertOk();
@@ -871,7 +871,7 @@ it('converges a headless clone through status and next, with no UI open', functi
 
 it('does not wait for the write lock when there is nothing to pull or push', function () {
     [$origin, $a] = published();
-    $held = fopen($a->root.'/.git/laravel-kanban/lock', 'c');
+    $held = fopen($a->root.'/.git/laravel-house/lock', 'c');
     flock($held, LOCK_EX);
     $started = microtime(true);
 
@@ -904,7 +904,7 @@ it('keeps an installed board local when there is no origin, and says nothing abo
 
     expect($out)->not->toContain('sync is on')
         ->and($s->ok('status', ['KANBAN_SYNC' => 'auto']))->toContain(', sync off, ')
-        ->and(is_file($s->root.'/.git/laravel-kanban/sync.requested'))->toBeFalse();
+        ->and(is_file($s->root.'/.git/laravel-house/sync.requested'))->toBeFalse();
 });
 
 it('pushes each write by itself with the default setting when an origin exists', function () {

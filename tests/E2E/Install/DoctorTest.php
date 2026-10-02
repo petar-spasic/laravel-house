@@ -6,30 +6,6 @@ use Symfony\Component\Process\Process;
 
 beforeEach(fn () => Steps::register(app()));
 
-/** An installed sandbox with the package in vendor (as composer would put it) and a compose fixture. */
-function doctorSandbox(string $compose = 'compose-good.yml', string $env = "COMPOSE_PROJECT_NAME=app-local\n", ?string $name = null): Sandbox
-{
-    $sandbox = Sandbox::create($name ?? 'main');
-    @mkdir($sandbox->root.'/vendor/petar-spasic', 0775, true);
-    symlink(Sandbox::package(), $sandbox->root.'/vendor/petar-spasic/laravel-kanban');
-    copy(__DIR__.'/fixtures/'.$compose, $sandbox->root.'/docker-compose.local.yml');
-    file_put_contents($sandbox->root.'/.env', $env);
-    $sandbox->install('ACME');
-
-    return $sandbox;
-}
-
-/** @param  array<string, string>  $env */
-function doctor(Sandbox $sandbox, array $args = [], array $env = []): Process
-{
-    return $sandbox->kanban(['doctor', ...$args], $env + [
-        'PATH' => __DIR__.'/fixtures:'.getenv('PATH'),
-        'KANBAN_STATE_DIR' => Sandbox::tmp(),
-        'FAKE_POOLS' => '[{"Base":"198.18.0.0/16","Size":24}]',
-        'FAKE_SUBNETS' => '198.18.0.0/24 198.18.1.0/24',
-    ]);
-}
-
 it('passes on a correctly wired project', function () {
     $sandbox = doctorSandbox();
 
@@ -39,13 +15,13 @@ it('passes on a correctly wired project', function () {
         ->and($process->getOutput())
         ->toContain("ok board attached at docs/kanban\n")
         ->toContain("ok merge driver {$sandbox->root}/vendor/bin/kanban\n")
-        ->toContain("ok core.hooksPath vendor/petar-spasic/laravel-kanban/githooks\n")
+        ->toContain("ok core.hooksPath vendor/petar-spasic/laravel-house/githooks\n")
         ->toContain("ok .claude/settings.json hooks\n")
-        ->toContain("ok vendor/petar-spasic/laravel-kanban/bin/kanban-guard executable\n")
+        ->toContain("ok vendor/petar-spasic/laravel-house/bin/kanban-guard executable\n")
         ->toContain("ok .claude/agents/kanban-worker.md\n")
         ->toContain("ok CLAUDE.md kanban block\n")
         ->toContain("ok .gitignore /docs/kanban/ /.claude/worktrees\n")
-        ->toContain("ok runtime .git/laravel-kanban writable\n")
+        ->toContain("ok runtime .git/laravel-house writable\n")
         ->toContain("ok no orphan worktrees or stack slots\n")
         ->toContain("ok docker-compose.local.yml is worktree-safe\n")
         ->toContain("ok COMPOSE_PROJECT_NAME=app-local in .env\n")

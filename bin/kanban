@@ -8,6 +8,11 @@ foreach ([$GLOBALS['_composer_autoload_path'] ?? null, __DIR__.'/../vendor/autol
     }
 }
 
+if (! class_exists(PetarSpasic\LaravelHouse\Kanban\Console\Standalone::class)) {
+    fwrite(STDERR, "kanban: run vendor/bin/kanban in a project that requires petar-spasic/laravel-house\n");
+    exit(1);
+}
+
 if (($main = PetarSpasic\LaravelHouse\Kanban\Console\Standalone::mainCheckoutBinary((string) ($_SERVER['SCRIPT_FILENAME'] ?? ''))) !== null) {
     passthru(implode(' ', array_map('escapeshellarg', [PHP_BINARY, $main, ...array_slice($_SERVER['argv'], 1)])), $exit);
     exit($exit);

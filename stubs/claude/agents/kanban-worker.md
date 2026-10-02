@@ -7,7 +7,7 @@ effort: high
 background: true
 isolation: worktree
 ---
-<!-- laravel-kanban:agent — managed by `php artisan kanban:install`; local edits are overwritten -->
+<!-- laravel-house:kanban-agent — managed by `php artisan kanban:install`; local edits are overwritten -->
 
 You implement exactly one card. The prompt names it: `Card <ID>. Worktree <path>`.
 

@@ -33,7 +33,7 @@ it('commits through --git-dir/--work-tree when the worktree link points nowhere'
     expect(array_slice($s->boardLog(), 0, 2))->toBe(["{$id} set priority [owner]", "{$id} created [owner]"])
         ->and(trim($s->git('log', '-1', '--format=%an <%ae>', 'kanban')))->toBe('Kanban UI <kanban-ui@localhost>')
         ->and($s->kanban('status')->getOutput())->toContain('journal 0')
-        ->and(file_exists($s->root.'/.git/laravel-kanban/journal.jsonl'))->toBeFalse();
+        ->and(file_exists($s->root.'/.git/laravel-house/journal.jsonl'))->toBeFalse();
 });
 
 it('uses the configured UI author in the container', function () {
@@ -56,7 +56,7 @@ it('journals writes when git is unusable and commits them on the next host write
     $id = $m[1];
     $s->ok(['set', $id, 'priority=high'], $noGit);
 
-    $journal = array_map(fn ($l) => json_decode($l, true), array_filter(explode("\n", file_get_contents($s->root.'/.git/laravel-kanban/journal.jsonl'))));
+    $journal = array_map(fn ($l) => json_decode($l, true), array_filter(explode("\n", file_get_contents($s->root.'/.git/laravel-house/journal.jsonl'))));
     expect($journal)->toHaveCount(2)
         ->and($journal[1])->toMatchArray(['by' => 'owner', 'message' => "{$id} set priority [owner]", 'paths' => ["project/work/{$id}.json"]])
         ->and($s->boardLog())->toBe(['Kanban: initialize'])
@@ -65,7 +65,7 @@ it('journals writes when git is unusable and commits them on the next host write
     expect($s->ok('sweep'))->toContain('journal: committed 2 of 2 write(s)');
     expect($s->boardLog()[0])->toBe('Owner via UI: 2 changes')
         ->and(trim($s->boardGit('status', '--porcelain')))->toBe('')
-        ->and(file_exists($s->root.'/.git/laravel-kanban/journal.jsonl'))->toBeFalse();
+        ->and(file_exists($s->root.'/.git/laravel-house/journal.jsonl'))->toBeFalse();
 });
 
 it('flushes the journal before the next write', function () {

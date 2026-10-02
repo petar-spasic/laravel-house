@@ -4,6 +4,7 @@ namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
 use PetarSpasic\LaravelHouse\Kanban\Code\PortRegistry;
 use PetarSpasic\LaravelHouse\Kanban\Code\Stack;
+use PetarSpasic\LaravelHouse\Kanban\Console\Install\Migrate;
 use PetarSpasic\LaravelHouse\Kanban\Console\Install\NextSteps;
 use PetarSpasic\LaravelHouse\Kanban\Console\Install\Steps;
 use PetarSpasic\LaravelHouse\Kanban\Store\Git\Bootstrap;
@@ -41,6 +42,7 @@ class DoctorCommand extends Command
             $this->requireMainOrOwner('doctor --fix');
             $this->fix();
         }
+        array_push($this->results, ...(new Migrate($this->paths(), $this->config()))->check());
         $this->checkGit();
         $bootstrap = new Bootstrap($this->paths(), $this->config());
         foreach (Steps::make($this->paths(), $this->config()) as $step) {
@@ -65,6 +67,9 @@ class DoctorCommand extends Command
 
     private function fix(): void
     {
+        foreach ((new Migrate($this->paths(), $this->config()))->run() as $line) {
+            $this->say("fix: {$line}");
+        }
         try {
             foreach ((new Bootstrap($this->paths(), $this->config()))->attach() as $line) {
                 $this->say("fix: {$line}");
@@ -108,7 +113,7 @@ class DoctorCommand extends Command
         $unexecutable = array_filter(['commit-msg', 'pre-push'], fn (string $hook) => ! is_executable($paths->main.'/'.Bootstrap::HOOKS_PATH.'/'.$hook));
         $this->add(...match (true) {
             $hooksPath === '' => ['fail', 'core.hooksPath unset: commit-msg and pre-push do not run (run `vendor/bin/kanban attach`)'],
-            $hooksPath !== Bootstrap::HOOKS_PATH => ['warn', "core.hooksPath is {$hooksPath}: laravel-kanban's commit-msg and pre-push do not run (`vendor/bin/kanban attach --force` switches)"],
+            $hooksPath !== Bootstrap::HOOKS_PATH => ['warn', "core.hooksPath is {$hooksPath}: the kanban commit-msg and pre-push do not run (`vendor/bin/kanban attach --force` switches)"],
             $unexecutable !== [] => ['fail', 'git hooks missing or not executable: '.implode(', ', $unexecutable).' in '.Bootstrap::HOOKS_PATH],
             default => ['ok', 'core.hooksPath '.Bootstrap::HOOKS_PATH],
         });

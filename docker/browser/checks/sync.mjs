@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 export default async (t) => {
-    const file = path.join(t.seed.root, '.git/laravel-kanban/sync.status.json');
+    const file = path.join(t.seed.root, '.git/laravel-house/sync.status.json');
     fs.mkdirSync(path.dirname(file), { recursive: true });
     const record = (state, extra = {}) => fs.writeFileSync(file, JSON.stringify({ state, kind: state === 'ok' ? null : 'remote', attempt_at: '2026-09-30T10:00:00.000+00:00', ok_at: null, error: state === 'ok' ? null : 'RemoteFailed: fetch failed', ahead: 0, behind: 0, failures: 0, ...extra }));
     const page = await t.open({ w: 1440, h: 900 });

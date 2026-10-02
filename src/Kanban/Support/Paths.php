@@ -8,7 +8,7 @@ final class Paths
 {
     public const BOARD = 'docs/kanban';
 
-    public const RUNTIME = '.git/laravel-kanban';
+    public const RUNTIME = '.git/laravel-house';
 
     public const WORKTREES = '.claude/worktrees';
 

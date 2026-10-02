@@ -85,24 +85,24 @@ it('hands the card worktree to the isolated agent the main session spawned, once
         ->and($isolated->getOutput())->toBe($code->worktree($id)."\n")
         ->and($isolated->getErrorOutput())->toContain("kanban-worker spawned for {$id}")
         ->and($next->getOutput())->toBe($code->root()."/.claude/worktrees/agent-0dd5\n")
-        ->and(glob($code->root().'/.git/laravel-kanban/spawns/*'))->toBe([]);
+        ->and(glob($code->root().'/.git/laravel-house/spawns/*'))->toBe([]);
 });
 
 it('ignores a spawn record older than two minutes', function () {
     $code = $this->code;
     $id = $code->started('Late spawn');
-    @mkdir($code->root().'/.git/laravel-kanban/spawns', 0775, true);
-    file_put_contents($code->root()."/.git/laravel-kanban/spawns/{$id}.json", json_encode(['card' => $id, 'agent_type' => 'kanban-worker', 'at' => microtime(true) - 300]));
+    @mkdir($code->root().'/.git/laravel-house/spawns', 0775, true);
+    file_put_contents($code->root()."/.git/laravel-house/spawns/{$id}.json", json_encode(['card' => $id, 'agent_type' => 'kanban-worker', 'at' => microtime(true) - 300]));
 
     expect($code->hook('worktree-create', ['name' => 'agent-a1a7e000000000000'])->getOutput())->toBe($code->root()."/.claude/worktrees/agent-a1a7e000000000000\n")
-        ->and(glob($code->root().'/.git/laravel-kanban/spawns/*'))->toBe([]);
+        ->and(glob($code->root().'/.git/laravel-house/spawns/*'))->toBe([]);
 });
 
 it('keeps a spawn record for the isolated agent that claims it, not for any other worktree request', function () {
     $code = $this->code;
     $id = $code->started('Only the agent');
-    @mkdir($code->root().'/.git/laravel-kanban/spawns', 0775, true);
-    $record = $code->root()."/.git/laravel-kanban/spawns/{$id}.json";
+    @mkdir($code->root().'/.git/laravel-house/spawns', 0775, true);
+    $record = $code->root()."/.git/laravel-house/spawns/{$id}.json";
     file_put_contents($record, json_encode(['card' => $id, 'agent_type' => 'kanban-worker', 'at' => microtime(true)]));
 
     $other = $code->hook('worktree-create', ['name' => 'scratch-experiment']);
@@ -289,7 +289,7 @@ it('starts no background process at session start when no agent worktree is idle
     sleep(2);
 
     expect(count($code->calls()))->toBe($calls)
-        ->and(glob($code->root().'/.git/laravel-kanban/reclaim.lock'))->toBe([]);
+        ->and(glob($code->root().'/.git/laravel-house/reclaim.lock'))->toBe([]);
 });
 
 it('does not start another background reclaim within the hour of the last one', function () {
@@ -298,7 +298,7 @@ it('does not start another background reclaim within the hour of the last one', 
     $code->hook('worktree-create', ['name' => $name]);
     file_put_contents($code->root()."/.claude/worktrees/{$name}/unsaved.txt", "kept\n");
     ageWorktree($code, $name);
-    $stamp = $code->root().'/.git/laravel-kanban/reclaim.last';
+    $stamp = $code->root().'/.git/laravel-house/reclaim.last';
 
     $code->hook('session-start', []);
     waitUntil(fn () => is_file($stamp));

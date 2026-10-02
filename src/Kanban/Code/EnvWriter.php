@@ -12,7 +12,7 @@ use PetarSpasic\LaravelHouse\Kanban\Support\Json;
  */
 final class EnvWriter
 {
-    public const MARKER = '# laravel-kanban worktree stack (managed: rewritten by kanban, edit config/kanban.php stack.env instead)';
+    public const MARKER = '# laravel-house kanban worktree stack (managed: rewritten by kanban, edit config/kanban.php stack.env instead)';
 
     /** @param  array<string, mixed>  $config  the whole `kanban` config */
     public function __construct(private readonly string $main, private readonly array $config) {}

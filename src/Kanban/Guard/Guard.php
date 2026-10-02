@@ -57,7 +57,7 @@ final class Guard
             return;
         }
 
-        $file = $main.'/.git/laravel-kanban/agents/'.$agentId.'.json';
+        $file = $main.'/.git/laravel-house/agents/'.$agentId.'.json';
         $binding = is_file($file) ? json_decode((string) file_get_contents($file), true) : null;
         if (is_file($file)) {
             touch($file);
@@ -120,7 +120,7 @@ final class Guard
     {
         $stale = self::HELD_SECONDS;
 
-        foreach (glob($main.'/.git/laravel-kanban/agents/*.json') ?: [] as $file) {
+        foreach (glob($main.'/.git/laravel-house/agents/*.json') ?: [] as $file) {
             if (basename($file, '.json') === $agentId || (int) @filemtime($file) < time() - $stale) {
                 continue;
             }
@@ -156,7 +156,7 @@ final class Guard
             return;
         }
 
-        self::write($main.'/.git/laravel-kanban/spawns/'.$named[0]['id'].'.json', [
+        self::write($main.'/.git/laravel-house/spawns/'.$named[0]['id'].'.json', [
             'card' => $named[0]['id'],
             'agent_type' => $type,
             'worktree' => $named[0]['work']['worktree'],

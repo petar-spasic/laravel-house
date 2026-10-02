@@ -85,8 +85,8 @@ it('refuses to finish', function (Closure $arrange, int $exit, string $message, 
     }, 3, 'the worktree has uncommitted changes', 'review'],
     'live agent' => [function (CodeSandbox $c, string $id) {
         $c->approve($id);
-        @mkdir($c->root().'/.git/laravel-kanban/agents', 0775, true);
-        file_put_contents($c->root().'/.git/laravel-kanban/agents/a1.json', json_encode([
+        @mkdir($c->root().'/.git/laravel-house/agents', 0775, true);
+        file_put_contents($c->root().'/.git/laravel-house/agents/a1.json', json_encode([
             'agent_id' => 'a1', 'agent_type' => 'kanban-worker', 'card' => $id, 'worktree' => $c->worktree($id),
             'bound_at' => gmdate('Y-m-d\TH:i:s.000+00:00'), 'stopped_at' => null, 'stop_blocks' => 0,
         ]));

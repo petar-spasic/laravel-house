@@ -14,7 +14,7 @@ use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
 /** Creates the board (orphan branch + worktree) and attaches it on every machine. */
 final class Bootstrap
 {
-    public const HOOKS_PATH = 'vendor/petar-spasic/laravel-kanban/githooks';
+    public const HOOKS_PATH = 'vendor/petar-spasic/laravel-house/githooks';
 
     /** The git config githooks/commit-msg reads; unset rejects. */
     public const REJECT_CO_AUTHORED = 'kanban.rejectCoAuthored';
@@ -118,7 +118,7 @@ final class Bootstrap
     {
         $main = $this->main();
         $driver = 'php '.escapeshellarg($this->paths->main.'/vendor/bin/kanban').' merge-driver %O %A %B %P';
-        $main->run(['config', 'merge.kanban.name', 'laravel-kanban JSON merge']);
+        $main->run(['config', 'merge.kanban.name', 'laravel-house kanban JSON merge']);
         $main->run(['config', 'merge.kanban.driver', $driver]);
         $lines = ['merge driver: '.$driver];
         $hooks = $main->line(['config', '--get', 'core.hooksPath']);

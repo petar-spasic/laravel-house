@@ -255,7 +255,7 @@ final class BoardRepo
     {
         $driver = escapeshellarg(PHP_BINARY).' '.escapeshellarg(dirname(__DIR__, 4).'/bin/kanban').' merge-driver %O %A %B %P';
 
-        return ['-c', 'merge.kanban.name=laravel-kanban JSON merge', '-c', 'merge.kanban.driver='.$driver];
+        return ['-c', 'merge.kanban.name=laravel-house kanban JSON merge', '-c', 'merge.kanban.driver='.$driver];
     }
 
     /** 'ok' or 'rejected' (non-fast-forward); RemoteFailed for anything else. */

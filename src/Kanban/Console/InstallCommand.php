@@ -2,6 +2,7 @@
 
 namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
+use PetarSpasic\LaravelHouse\Kanban\Console\Install\Migrate;
 use PetarSpasic\LaravelHouse\Kanban\Console\Install\NextSteps;
 use PetarSpasic\LaravelHouse\Kanban\Store\Git\Bootstrap;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -22,7 +23,7 @@ class InstallCommand extends Command
         $key = strtoupper((string) ($this->option('key') ?? substr((string) preg_replace('/[^A-Za-z0-9]/', '', basename($paths->main)), 0, 3)));
         $dryRun = (bool) $this->option('dry-run');
         $force = (bool) $this->option('force');
-        foreach ((new Bootstrap($paths, $this->config()))->install($key, $dryRun, $force) as $line) {
+        foreach ([...(new Migrate($paths, $this->config()))->run($dryRun), ...(new Bootstrap($paths, $this->config()))->install($key, $dryRun, $force)] as $line) {
             $this->say($line);
         }
         foreach ($this->laravel->tagged(InstallStep::TAG) as $step) {

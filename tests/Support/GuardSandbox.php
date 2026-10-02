@@ -85,7 +85,7 @@ final class GuardSandbox
         $this->git('worktree add -q -b kanban/acme-a1b2c3-y .claude/worktrees/acme-a1b2c3');
         file_put_contents($this->wt(self::DOING).'/.env', "DB_PORT=21011\n");
         file_put_contents($this->wt(self::REVIEW).'/.env', "DB_PORT=5435\n");
-        mkdir($this->main.'/.git/laravel-kanban/agents', 0777, true);
+        mkdir($this->main.'/.git/laravel-house/agents', 0777, true);
     }
 
     public function __destruct()
@@ -122,7 +122,7 @@ final class GuardSandbox
 
     public function bind(string $agentId, string $type, ?string $card, int $ageMinutes = 0, ?string $stoppedAt = null): string
     {
-        $file = $this->main."/.git/laravel-kanban/agents/{$agentId}.json";
+        $file = $this->main."/.git/laravel-house/agents/{$agentId}.json";
         file_put_contents($file, json_encode([
             'agent_id' => $agentId, 'agent_type' => $type, 'card' => $card,
             'worktree' => $card === null ? null : '.claude/worktrees/'.strtolower($card),

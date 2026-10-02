@@ -296,7 +296,7 @@
         if (path === '') return { name: 'boards' };
         const parts = path.split('/');
         if (parts[0] === 'cards' && parts[1]) {
-            // php -S answers 400 to bad percent sequences, but nginx passes them on: a throw here would leave the page blank and unpolled
+            // php -S answers 400 to bad percent sequences, but a reverse proxy may pass them on: a throw here would leave the page blank and unpolled
             try { return { name: 'card', id: decodeURIComponent(parts[1]) }; } catch { return { name: 'missing' }; }
         }
         if (parts.length === 2) return { name: 'board', ref: path };
