@@ -161,8 +161,10 @@ Laravel validates; the browser copy only gives fast feedback. Every form is svel
     `Field.Error` with their own ids (`Field.Error` takes `{ message }[]`:
     `errors={msgs.map((message) => ({ message }))}`);
   - its `children` snippet gets the control's props: `id`, `name`, `aria-invalid` and `aria-describedby` (the
-    description and error ids). Every control spreads them: native inputs and the bits-ui controls (Select,
-    Checkbox, Switch, RadioGroup) alike.
+    description id, and the error id while an error shows). A native input, `Checkbox` and `Switch` spread them all.
+    `Select` takes `name` on `Select.Root` and the rest on `Select.Trigger`. A `RadioGroup` is a `Field.Set` with a
+    `Field.Legend` in place of the label: `name` and the aria props go on `RadioGroup.Root`, and each
+    `RadioGroup.Item` has its own id and `Field.Label`.
 - **A custom input** (formatted number, date, `EntityPicker`, anything without a native control) posts through
   `<input type="hidden" name={…} value={raw}>` holding the raw value, never the formatted text. A field the page shows
   but does not post is a bug: an update then clears it. Its wrapper in `src/lib/components/<area>/` sits inside the
