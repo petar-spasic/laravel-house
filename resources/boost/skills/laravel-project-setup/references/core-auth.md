@@ -22,9 +22,10 @@ Merge `bootstrap-app.php`. Every module gets:
 - `api: __DIR__.'/../routes/api.php'` and `apiPrefix: 'api/v1'` (with htmx, next to `then:`);
 - no event discovery;
 - `AcceptJson` ahead of `auth` in the middleware priority;
+- `cache.headers:private;no_store` appended to the `web` and `api` groups;
 - JSON errors for `api/*`.
 
-htmx adds its `public` group and `htmx` alias. spa adds `statefulApi()`, and with reverb the `withBroadcasting(…)`
+htmx adds its `public` group and `htmx` alias (every alias goes in that one `alias()` call). spa adds `statefulApi()`, and with reverb the `withBroadcasting(…)`
 call.
 
 Check: `php artisan route:list --path=api/v1` lists `api/v1/user`, the closure `install:api` wrote. Then delete that

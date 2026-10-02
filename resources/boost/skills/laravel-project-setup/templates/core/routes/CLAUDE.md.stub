@@ -67,6 +67,8 @@ security change. Extend the table as the project defines its surfaces:
 - **Named routes everywhere**, `route()`; no hand-typed paths.
 <!-- endif -->
 - **Authenticated routes scope to `$request->user()`.** The user never comes from a path or body parameter.
+- **A write route authorizes before it validates**: `->can('<ability>', '<model>')` on the route (the route-bound model,
+  or the class for a create) runs before the FormRequest resolves (`app/Http/Controllers/CLAUDE.md`).
 <!-- if:tenancy -->
 - Every authenticated group touching tenant data adds `tenant` after its auth middleware
   (`app/Http/Middleware/CLAUDE.md`). No route has a tenant parameter, subdomain or prefix.
@@ -186,8 +188,7 @@ redirect carries no stateful Referer or Origin.
   says so.
 - `->withoutOverlapping()` on every scheduled job; `->onOneServer()` once more than one container runs the scheduler.
 - Stagger anything that fans out against a rate-limited external system.
-- A new or changed scheduled command updates this file in the SAME commit. Scheduled now: `horizon:snapshot` (every
-  five minutes, for the Horizon metrics page).
+- `routes/console.php` is the list of what runs (`schedule:list`); this file holds only the rules.
 
 ## Access logging
 

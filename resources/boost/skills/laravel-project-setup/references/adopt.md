@@ -1,7 +1,8 @@
 # Adopting the current core
 
 Brings a house project set up on an earlier core onto the current one: core auth in every module, the API under
-`/api/v1`, and Caddy as the local web server. Work in order; ask before each batch.
+`/api/v1`, and Caddy as the local web server. Work in order; ask before each batch. Moving a project to another module
+set is Switching modules, below.
 
 ## 1. Update the package first
 
@@ -47,9 +48,10 @@ php "${CLAUDE_SKILL_DIR}/scripts/install.php" . --modules=htmx,islands --set app
 
 - It writes nothing into the project, and its first output line names the render directory.
 - It renders every template, including those the project already has.
-- Diff each rendered `CLAUDE.md` and `tests/E2E/*` file against the project's copy. Merge by hand, keeping the
-  project's own text.
+- Every rendered file counts, `.ai/guidelines/*` and `config/boost.php` included. Copy what the project lacks. Diff
+  what it has against the project's copy and merge by hand, keeping the project's own text.
 - Merge the rendered snippets the same way (`core-auth.md`).
+- After merging `.ai/guidelines/*`, run `php artisan boost:update`.
 - Never run the installer with `--force` on a live project: it would erase project-specific rules.
 - Delete the render directory when done.
 
@@ -61,7 +63,7 @@ htmx: never turn Fortify's views on before the project's auth pages exist.
 
 - Authenticated API routes live under `/api/v1` with `auth:sanctum`.
 - spa: leave the Fortify prefix, any `Route::fallback` and `frontend/` as they are. Moving an existing frontend to
-  adapter-node and `/api/auth` is a separate owner decision. Record it as a proposed card.
+  adapter-node and `/api/auth` is a module switch the owner decides (Switching modules).
 
 ## 6. Hand off to laravel-deployment
 
@@ -86,3 +88,21 @@ Rebuild with `docker compose … up -d --build`.
 - htmx: the page loads from the LAN URL with every asset answering 200.
 
 Commit only after the owner agrees (SKILL.md step 10).
+
+## Switching modules
+
+Moves a house project from one module set to another, such as htmx to spa. Tenancy is never switched this way (step
+2). Ask before each batch.
+
+1. The owner names the new module set. The SKILL.md Modules table must accept it.
+2. Render the templates with the new `--modules` and merge every rendered file as in step 4: the leaving module's
+   text goes, the arriving module's text comes in, the project's own text stays.
+3. Undo the leaving module's row in `modules.md` (its Writes, Packages and Wiring), then apply the arriving module's
+   row: its Writes come from the render, then its Packages, Deletes and Wiring.
+   - htmx or islands to spa deletes the root Node toolchain and `resources/js`.
+   - spa to htmx restores them. `frontend/` goes only after the owner agrees.
+4. Apply `core-auth.md` for the arriving module: the Fortify prefix (`/api/auth` with spa), `statefulApi()` on or off,
+   and Fortify's views.
+5. Run laravel-deployment's Procedure for the new module set (step 6): its module references, Caddyfiles, compose
+   files and the Hosting section.
+6. Verify as in step 7, plus the arriving module's checks in `modules.md`.

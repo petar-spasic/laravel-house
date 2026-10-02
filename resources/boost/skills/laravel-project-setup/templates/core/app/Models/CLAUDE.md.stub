@@ -8,8 +8,8 @@ Fat models and records that must not be rewritten: `app/CLAUDE.md`. Migrations: 
   `$fillable` allow-lists (never `$guarded`).
 - Observers are registered with `Model::observe()` in a service provider's `boot()`.
 - Primary keys are Stripe-style prefixed ids: `use HasPrefixedId;` + `public const ID_PREFIX = 'bd';` (2–3 lowercase
-  letters, unique across models). `User`, vendor-owned tables and the hot tables listed in `database/CLAUDE.md` are
-  the bigint exceptions.
+  letters, unique across models). `User`, vendor-owned tables and hot tables (`database/CLAUDE.md`) are the bigint
+  exceptions.
 - `User` is exempt from these conventions (Fortify skeleton: not `final`, `#[Fillable]` attributes). Leave it.
 
 **State discipline:** every status-bearing model ships as ONE unit:
@@ -26,11 +26,8 @@ services included, calls it; never re-inline a copy.
 
 ## Integrity rules
 
-**List the append-only models here as they are decided** (`app/CLAUDE.md`, "Records that must not be rewritten"):
-
-- _(none yet)_
-
-They all `use AppendOnly` (`Models/Concerns/AppendOnly.php`, created with the first): `updating` / `deleting` throw
+**Append-only models** (`app/CLAUDE.md`, "Records that must not be rewritten") say so in their class docblock, and
+they all `use AppendOnly` (`Models/Concerns/AppendOnly.php`, created with the first): `updating` / `deleting` throw
 `LogicException`, `getUpdatedAtColumn()` returns null, and a sanctioned write wraps itself in `permittedWrite()`.
 Corrections are new rows (`supersedes_id`); observation time is its own column, distinct from `created_at`.
 

@@ -47,7 +47,8 @@ table.
   - composer.json's `dev` script and the npm lines in its other scripts.
 - **Wiring:** Fortify under `/api/auth` and the session-cookie API (`references/core-auth.md`).
 - **Checks:** none until `frontend/` exists. Then `npm run check` in `frontend/`, which runs `validation:export --check`
-  first (`references/validation-export.md`).
+  first (`references/validation-export.md`). It defaults `PUBLIC_APP_URL`, so it also runs on the host: with the
+  board, `cd frontend && npm run check` is a `gates.report` entry in `config/kanban.php`.
 
 ## reverb
 

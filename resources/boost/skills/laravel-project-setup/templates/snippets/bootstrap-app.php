@@ -45,11 +45,16 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         // Fortify's group middleware (config/fortify.php); must run before `auth` decides JSON vs redirect.
         $middleware->prependToPriorityList(before: AuthenticatesRequests::class, prepend: AcceptJson::class);
+
+        // Every web and api response is private, no-store: no shared cache holds a personal one (app/Http/CLAUDE.md).
+        $middleware->appendToGroup('web', 'cache.headers:private;no_store');
+        $middleware->appendToGroup('api', 'cache.headers:private;no_store');
 <!-- if:htmx -->
 
         // The `public` group (routes/CLAUDE.md). Its limiter is defined in AppServiceProvider::boot(), which also
         // runs with cached routes. SubstituteBindings: a group outside `web` gets no route-model binding otherwise.
         $middleware->group('public', [CachePublicResponse::class, 'throttle:public', SubstituteBindings::class]);
+        // The one alias() call: a second call replaces this map (app/Http/CLAUDE.md).
         $middleware->alias(['htmx' => HtmxOnly::class]);
         $middleware->prependToPriorityList(before: SubstituteBindings::class, prepend: HtmxOnly::class);
 <!-- endif -->

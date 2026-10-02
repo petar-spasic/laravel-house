@@ -1,7 +1,7 @@
 # CLAUDE.md — app/Providers (the explicit-registration hub)
 
-Almost nothing is auto-discovered, and **a missing registration fails silently**. Every list here is an inventory;
-check it by running the flow end to end.
+Almost nothing is auto-discovered, and **a missing registration fails silently**. The providers' registrations are
+the inventory; check one by running its flow end to end.
 
 ## What gets registered here
 

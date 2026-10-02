@@ -104,7 +104,7 @@ This table owns the combination rules. `install.php` enforces them and refuses a
    - `octane:install` downloads a FrankenPHP binary. `git check-ignore frankenphp public/frankenphp-worker.php` must
      print both paths; add any it leaves out to `.gitignore`.
    - The module packages, commands and deletions in `references/modules.md`. Each npm package passes the maintenance
-     check first (root `CLAUDE.md`, convention 6). No component-test tooling.
+     check first (convention 6; the prescribed ones are `references/packages.md`). No component-test tooling.
    - `git init` and the `origin` remote, if missing. The board page syncs only when `origin` is an ssh URL
      (`git@host:owner/repo.git`). `gh repo create` uses https unless `gh config get git_protocol` says ssh. So run
      `git remote get-url origin` afterwards. If it is https, run
@@ -178,7 +178,7 @@ Use this for a house project set up on an earlier core.
 1. Check that the project's `.claude/skills/laravel-project-setup/references/adopt.md` exists. If it does not, the
    package is old. Run `composer require --dev petar-spasic/laravel-house` with no constraint, then
    `php artisan boost:update`, then restart Claude Code.
-2. Follow `references/adopt.md`.
+2. Follow `references/adopt.md`; moving to another module set is its Switching modules.
 
 Adopting never adds tenancy. Tenancy on an app with data is an owner decision and a data migration.
 
