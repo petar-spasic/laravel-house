@@ -1,6 +1,6 @@
 {
     "name": "laravel-house",
-    "description": "House skills for Laravel projects: project setup, Docker hosting behind Caddy, and laravel-kanban adoption.",
+    "description": "House skills for Laravel projects: project setup, Docker hosting behind Caddy, and the kanban board.",
     "owner": {
         "name": "Petar Spasic"
     },
@@ -8,7 +8,7 @@
         {
             "name": "laravel-house",
             "source": "./",
-            "description": "Start a Laravel project on the house rules (Blade + htmx with optional Svelte islands, a SvelteKit SSR app, or API-only; optional Reverb and multi-tenancy), run it in Docker behind Caddy, and bring it onto the laravel-kanban board."
+            "description": "Start a Laravel project on the house rules (Blade + htmx with optional Svelte islands, a SvelteKit SSR app, or API-only; optional Reverb and multi-tenancy), run it in Docker behind Caddy, and drive its work from the house kanban board."
         }
     ]
 }

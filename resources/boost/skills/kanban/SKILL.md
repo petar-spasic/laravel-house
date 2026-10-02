@@ -1,7 +1,8 @@
 ---
 name: kanban
 description: >-
-  Orchestrate a laravel-kanban board from the main session: pull Ready cards,
+  For a project on the kanban board (docs/kanban present, kanban:install run).
+  Orchestrate the board from the main session: pull Ready cards,
   start each in its own worktree and Docker stack, spawn background
   kanban-worker and kanban-evaluator agents, react to their reports and
   verdicts, merge approved work with `finish`, push once with `publish`, and
@@ -15,6 +16,8 @@ description: >-
 ---
 
 # Kanban orchestrator (main session)
+
+No `docs/kanban` in the project: the board is not adopted. Offer the owner `/implement-kanban`, and stop.
 
 You drive the board; agents do the card work. Exact flags, every exit code and the rarer failures are in
 `references/protocol.md`. All commands below are `vendor/bin/kanban <command>` run from the main checkout.

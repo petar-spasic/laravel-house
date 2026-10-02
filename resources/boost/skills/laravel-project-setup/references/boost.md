@@ -5,8 +5,7 @@ How setup configures Boost (SKILL.md step 7), and how the house overrides are ke
 ## Configure
 
 - `boost.json` holds only three keys before the first install (SKILL.md Gotchas): `"agents": ["claude_code"]`,
-  `"cloud": false`, and `"packages"` with `"petar-spasic/laravel-house"`. laravel-kanban adds itself at
-  `kanban:install`.
+  `"cloud": false`, and `"packages"` with `"petar-spasic/laravel-house"`.
 - `composer.json` `post-update-cmd` ends with `@php artisan boost:update --ansi`, so `composer update` refreshes the
   guidelines and skills.
 - Run `php artisan boost:install --no-interaction` yourself, never through `!` (SKILL.md Gotchas).

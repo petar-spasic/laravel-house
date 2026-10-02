@@ -33,7 +33,7 @@ the healthcheck into the image. On a running stack, apply these with `up -d --bu
 - `docker-compose.local.yml`: `BROADCAST_CONNECTION: reverb`, `REVERB_SERVER_HOST: 0.0.0.0`, `REVERB_SERVER_PORT: 8081`,
   `REVERB_HOST: 127.0.0.1`, `REVERB_PORT: 8081`, `REVERB_SCHEME: http` under `environment`;
   `- "${WEB_BIND:-0.0.0.0}:${WS_PORT:-{{ws_port}}}:8081"` under `ports`. `WS_PORT` is one more worktree port (a
-  `stack.ports` offset in `config/kanban.php`, laravel-kanban README).
+  `stack.ports` offset in `config/kanban.php`; house README, "Worktree Stacks", "Preparing Your Compose File").
 - `docker-compose.yml`: `- "127.0.0.1:${WS_PORT:-{{ws_port}}}:8081"`. The host's reverse proxy sends the public
   WebSocket host (or the `/app/*` and `/apps/*` paths) there.
 - `.env.prod.example`: `BROADCAST_CONNECTION=reverb`, `REVERB_SERVER_HOST=0.0.0.0`, `REVERB_SERVER_PORT=8081`,

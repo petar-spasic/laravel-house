@@ -1,6 +1,6 @@
 {
     "name": "laravel-house",
-    "description": "Start a Laravel project on the house rules (Blade + htmx with optional Svelte islands, a SvelteKit SSR app, or API-only; optional Reverb and multi-tenancy), run it in Docker behind Caddy, and bring it onto the laravel-kanban board.",
+    "description": "Start a Laravel project on the house rules (Blade + htmx with optional Svelte islands, a SvelteKit SSR app, or API-only; optional Reverb and multi-tenancy), run it in Docker behind Caddy, and drive its work from the house kanban board.",
     "author": {
         "name": "Petar Spasic"
     },

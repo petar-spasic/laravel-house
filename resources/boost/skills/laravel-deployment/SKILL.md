@@ -116,7 +116,7 @@ Both entrypoints run these steps in order, so healthy means migrated and seeded.
   `/horizon` trap). The sidecars bind `${SIDECAR_BIND:-127.0.0.1}`.
 - Tool caches are host bind mounts, because `down -v` deletes named volumes.
 - The dev server ignores `./.claude/worktrees`, `./docs` and `./vendor`. `phpunit.xml` never sets `DB_HOST`/`DB_PORT`.
-- The generated worktree `.env`, the port pool and Docker address pools: the laravel-kanban README, "Worktree stacks".
+- The generated worktree `.env`, the port pool and Docker address pools: the house README, "Worktree Stacks".
 
 ## Config and env
 

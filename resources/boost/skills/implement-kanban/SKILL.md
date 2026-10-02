@@ -1,30 +1,32 @@
 ---
 name: implement-kanban
 description: >-
-  Adoption checklist that brings a Laravel project onto petar-spasic/laravel-kanban:
-  prerequisites, the package install, decisions recorded as board cards, a
-  Claude Code restart with the lease takeover, the worktree-ready stack checked
-  by `kanban doctor`, a first real card through the agent loop and the first
-  publish. Three cases: an existing project whose decisions live in
-  docs/decisions.md, a new project fresh from laravel-project-setup, and an
-  installed project on an older package. Use when the owner types
-  /implement-kanban, to adopt the package or to upgrade it. Triggers — implement
-  kanban, adopt laravel-kanban, upgrade laravel-kanban, kanban:install,
-  import-house-docs, board migration.
+  Adoption checklist that puts a Laravel project on the kanban board shipped
+  with petar-spasic/laravel-house: prerequisites, `kanban:install`, decisions
+  recorded as board cards, a Claude Code restart with the lease takeover, the
+  worktree-ready stack checked by `kanban doctor`, a first real card through
+  the agent loop and the first publish. Four cases: an existing project whose
+  decisions live in docs/decisions.md, a new project fresh from
+  laravel-project-setup, a board on an older house version, and a board on the
+  separate kanban package. Use when the owner types /implement-kanban, to adopt
+  the board or to upgrade it. Triggers — implement kanban, adopt the kanban
+  board, upgrade the kanban board, kanban:install, import-house-docs, board
+  migration.
 disable-model-invocation: true
 ---
 
-# Implement laravel-kanban
+# Implement the kanban board
 
-This checklist brings a project onto petar-spasic/laravel-kanban, or upgrades it. The package owns the rest: its README
-(requirements, what `kanban:install` changes, worktree stacks, Docker address pools) and the `kanban` skill (run loop,
-exit codes, decisions, recovery). A surprise met on the way goes into its `references/gotchas.md` in the same session.
+This checklist puts a project on the kanban board that ships with petar-spasic/laravel-house, or upgrades it. The rest
+is owned elsewhere: the house README ("Adopting the Board" for what `kanban:install` changes, "Worktree Stacks",
+"Team Sync") and the `kanban` skill (run loop, exit codes, decisions, recovery). A surprise met on the way goes into
+the `kanban` skill's `references/gotchas.md` in the same session.
 
 ## Before you start
 
 - Run it from the main session in the main checkout, never in a worktree.
 - Ask the owner before anything that touches main's data, needs sudo, pushes, or commits. Commits carry no trailers.
-- The install and an upgrade can push the board with no push command. Steps 1 and 2 and "Upgrading" say when.
+- The install and an upgrade can push the board with no push command. Steps 1 and 2 and "Upgrading a board" say when.
 
 ## Choose the path
 
@@ -32,16 +34,19 @@ exit codes, decisions, recovery). A surprise met on the way goes into its `refer
 |---|---|---|
 | (a) An existing project | `docs/decisions.md` (and `docs/ideas.md`) hold its decisions | 1–9 |
 | (b) A new project | laravel-project-setup just ran; its choices live only in this chat and the files it wrote | 1–9 |
-| (c) An installed project | the package is installed at an older version | "Upgrading an installed project", then step 6 |
+| (c) A board on an older house version | `docs/kanban` exists, no separate kanban package; the house is behind | "Upgrading a board", (c) |
+| (d) A board on the separate kanban package | `composer.json` requires the board as a package of its own | "Upgrading a board", (d) |
 
 ## 1. Prerequisites: stop and report any that fail
 
+- **The house:** `petar-spasic/laravel-house` in `require-dev` and in `boost.json` `packages`. A project without it
+  comes onto the house with laravel-project-setup first.
 - **Tools:** Laravel 12 or 13, PHP ≥ 8.3, git ≥ 2.42, Docker Compose v2, Laravel Boost (`boost.json`). `ssh-keygen` on
   the host too, when `origin` is ssh and the compose file below exists.
-- **main:** `main` is clean. The require and the install change files on main. Step 7 commits them.
-- **origin and sync:** `origin` decides sync (package README, "Team sync"). Without one, the board stays on this
-  machine. With one, the install publishes the board branch (`kanban`, never `main`) with the host's git credentials and
-  pushes every later write. The owner confirms: the repository is private; the user running the install can write to it;
+- **main:** `main` is clean. The install changes files on main. Step 7 commits them.
+- **origin and sync:** `origin` decides sync (house README, "Team Sync"). Without one, the board stays on this
+  machine. With one, the install publishes the board branch (`kanban`, never `main`) with the host's git credentials
+  and pushes every later write. The owner confirms: the repository is private; the user running the install can write to it;
   others share the board, or it stays on this machine (then `KANBAN_SYNC=off` in `.env` before step 2).
   - An empty `origin` (`git ls-remote --heads origin` prints nothing): push `main` first (owner's OK), then install.
     Otherwise the orphan board is pushed first, becomes the forge's default branch, and a clone checks out no code.
@@ -56,7 +61,6 @@ exit codes, decisions, recovery). A surprise met on the way goes into its `refer
 ## 2. Install
 
 ```bash
-composer require --dev petar-spasic/laravel-kanban
 php artisan kanban:install --key=XYZ --dry-run    # read every line
 php artisan kanban:install --key=XYZ
 ```
@@ -65,9 +69,9 @@ php artisan kanban:install --key=XYZ
 - `--dry-run` does not show the publish to `origin` (step 1 says when `KANBAN_SYNC=off` must come first).
 - Read the output to the end. The `sync:` lines come just before the last line, `next: restart Claude Code`.
 - A failed publish prints `sync: … (the board stays on this machine until …)` there and still exits 0. Report it.
-- Every clone of a shared board runs the same package version: commit `composer.lock`.
+- Every clone of a shared board runs the same house version: commit `composer.lock`.
 - **Deploy key** (ssh `origin` and the local compose file): the install prints it once, when it makes it. It lives in
-  `.git/laravel-kanban/deploy_key`, never committed; `cat .git/laravel-kanban/deploy_key.pub` shows it again. Show the
+  `.git/laravel-house/deploy_key`, never committed; `cat .git/laravel-house/deploy_key.pub` shows it again. Show the
   owner the public half and the settings link (github.com origins only). A repository admin adds it with write access;
   run `gh repo deploy-key add …` only when the owner says so. It is a repository-wide write key the app container can
   read. With no compose file at install, no key is made: step 6 makes it once the file exists.
@@ -151,21 +155,42 @@ Report to the owner:
   sha;
 - the owner steps still open: address pools, old volumes, the deploy key to register;
 - on every other clone, before its first Claude Code session: `composer install && vendor/bin/kanban attach`. Read
-  what it prints. Each clone has its own key. If a session ran first, `cat .git/laravel-kanban/deploy_key.pub`.
+  what it prints. Each clone has its own key. If a session ran first, `cat .git/laravel-house/deploy_key.pub`.
 
-## Upgrading an installed project
+## Upgrading a board
 
-The recipe is the package README, Install (the "Upgrade:" paragraph). It leaves these steps to the house, in order:
+Both cases first:
 
 1. **Decide sync.** With an `origin` and no `KANBAN_SYNC` anywhere, the first `status` or session start after the
    upgrade pushes the board. Only `sync auto (on)` in the status line shows it. To keep the board local, set
    `KANBAN_SYNC=off` in `.env` first. A `config/kanban.php` published earlier pins
    `'sync' => env('KANBAN_SYNC', 'off')`; sync then stays off until that line is deleted or set to `'auto'`. The
    `sync off but this board is published` warning appears only once the board is on `origin`.
-2. **Require with no constraint:** `composer require --dev petar-spasic/laravel-kanban`. A `^0.1` pin stays on 0.1.x,
-   and `composer update` says nothing. All clones of a shared board upgrade to one version (commit `composer.lock`).
-3. **The board page** has no login. Ask whether the stack is visible beyond this machine (step 1, "The board page").
-4. **The container's half:** openssh-client in `Dockerfile.local`, `GIT_SSH_COMMAND` and the `user:` line in the local
-   compose, merged per laravel-deployment's Procedure, step 1. Then rebuild and recreate with
-   `docker compose -f docker-compose.local.yml up -d --build --wait`. Without `--build` the container has no ssh.
-5. **Finish:** `vendor/bin/kanban doctor --fix` (prints a deploy key once), step 6's container check, restart (step 4).
+2. **The board page** has no login. Ask whether the stack is visible beyond this machine (step 1, "The board page").
+
+**(c) On an older house version:** update the house as the README's "Updating" says (a `^0.x` caret never crosses a
+minor), then step 6, the commit (step 7) and a restart (step 4).
+
+**(d) On the separate package.** Every clone does this. Upgrade every project on a machine before starting new
+worktree stacks there: the port registry is machine-wide.
+
+1. **No live agents:** `vendor/bin/kanban status` shows none, or the migration refuses the rename partway.
+2. Run it in one shell call. Between the remove and `doctor --fix`, the hooks name files that are gone. The house is
+   required with no version, because a `^0.x` caret never crosses a minor:
+
+   ```bash
+   composer remove --dev petar-spasic/laravel-kanban && composer require --dev petar-spasic/laravel-house -W && vendor/bin/kanban doctor --fix && php artisan boost:update
+   ```
+
+   A clone that already pulled the commit from step 5 runs, in one call,
+   `composer install && vendor/bin/kanban doctor --fix && php artisan boost:update`.
+3. **Read every migration line.** `doctor --fix` renames `.git/laravel-kanban` to `.git/laravel-house`, moves the
+   port registry, rewrites the old markers (`CLAUDE.md`, the agents, worktree `.env` files), switches
+   `core.hooksPath`, drops the old package from `boost.json` and points the local compose file at `.git/laravel-house`.
+   It refuses the rename while agents are live: stop them and run `doctor --fix` again, until `doctor` shows no
+   migration warning.
+4. **The container's half:** openssh-client in `Dockerfile.local`, `GIT_SSH_COMMAND` (both paths under
+   `.git/laravel-house`) and the `user:` line in the local compose, merged per laravel-deployment's Procedure, step 1.
+   Then rebuild and recreate with `docker compose -f docker-compose.local.yml up -d --build --wait`. Without
+   `--build` the container has no ssh.
+5. **Finish:** step 6's container check, the commit (step 7), restart (step 4).

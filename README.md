@@ -29,8 +29,39 @@
     - [The Local Stack](#the-local-stack)
     - [The Production Image](#the-production-image)
     - [Running the Stack](#running-the-stack)
-- [The Kanban Board](#the-kanban-board)
 - [Exporting Validation Rules](#exporting-validation-rules)
+- [The Kanban Board](#the-kanban-board)
+    - [Adopting the Board](#adopting-the-board)
+    - [Joining an Existing Board](#joining-an-existing-board)
+- [Kanban Configuration](#kanban-configuration)
+    - [Agent Models](#agent-models)
+    - [Quality Gates](#quality-gates)
+    - [Commands After Merging](#commands-after-merging)
+- [The Board](#the-board)
+    - [Epics, Boards and Cards](#epics-boards-and-cards)
+    - [Stages](#stages)
+    - [Card IDs](#card-ids)
+    - [Ready Cards](#ready-cards)
+    - [Locked Stages](#locked-stages)
+- [The Board UI](#the-board-ui)
+    - [Opening the Board](#opening-the-board)
+    - [Editing Cards](#editing-cards)
+    - [Keyboard Shortcuts](#keyboard-shortcuts)
+- [Working With Claude](#working-with-claude)
+    - [Running the Board](#running-the-board)
+    - [Recording Decisions](#recording-decisions)
+    - [When Something Goes Wrong](#when-something-goes-wrong)
+- [Worktree Stacks](#worktree-stacks)
+    - [Preparing Your Compose File](#preparing-your-compose-file)
+    - [Ports](#ports)
+    - [Docker Address Pools](#docker-address-pools)
+- [Team Sync](#team-sync)
+    - [Sharing a Board](#sharing-a-board)
+    - [Keeping a Board Local](#keeping-a-board-local)
+    - [Syncing From a Container](#syncing-from-a-container)
+    - [When Two People Edit the Same Card](#when-two-people-edit-the-same-card)
+- [Kanban Commands](#kanban-commands)
+- [Kanban Troubleshooting](#kanban-troubleshooting)
 - [Updating](#updating)
     - [Updating the Plugin](#updating-the-plugin)
     - [Updating the Composer Package](#updating-the-composer-package)
@@ -48,13 +79,19 @@ You tell Claude what you are building. Claude asks a few questions and installs 
 `CLAUDE.md` rule file for the app and one for each layer directory, such as `app/Models`. Claude follows those rules
 in every later session.
 
-There are three skills:
+There are four skills:
 
 - `laravel-project-setup` starts a project, or brings an older house project up to date.
 - `laravel-deployment` runs the project in Docker, locally and in production.
-- `implement-kanban` puts the project on the [laravel-kanban](https://github.com/petar-spasic/laravel-kanban) board.
+- `implement-kanban` puts the project on the [kanban board](#the-kanban-board).
+- `kanban` runs the board, once the project is on it.
 
-The composer package also ships one Artisan command, [`validation:export`](#exporting-validation-rules).
+The composer package also ships two tools:
+
+- the [kanban board](#the-kanban-board): the `vendor/bin/kanban` command and a web page at `/kanban`;
+- the [`validation:export`](#exporting-validation-rules) Artisan command.
+
+The package is a dev dependency. Nothing it adds runs in production.
 
 The house ships rules, not frontend code. You get no login pages, no UI components and no SvelteKit files. Each rule
 file says what your project must build and how. Your project builds each piece when it needs it.
@@ -70,10 +107,18 @@ file says what your project must build and how. Your project builds each piece w
 You may install the skills in two ways. Both serve the same copy of each skill.
 
 - The **plugin** gives you the skills in every directory on your machine. Use it to start new projects.
-- The **composer package** pins the skills to one project, at the version in its `composer.lock`.
+- The **composer package** pins the skills to one project, at the version in its `composer.lock`. Only the package
+  brings the board and `validation:export`.
 
-You need Claude Code, PHP with Composer, Node with npm, git, and Docker with Compose v2. To let Claude create the
-GitHub repository, you also need the `gh` CLI.
+You need:
+
+- Claude Code;
+- PHP 8.3 or newer, with Composer;
+- Laravel 12 or 13, for the composer package;
+- Node with npm;
+- git 2.42 or newer;
+- Docker with Compose v2;
+- the `gh` CLI, if Claude should create the GitHub repository.
 
 <a name="installing-the-plugin"></a>
 ### Installing the Plugin
@@ -106,7 +151,8 @@ php artisan boost:update
 [Laravel Boost](https://github.com/laravel/boost) is Laravel's toolkit for AI agents. Its update copies each skill
 into the project's `.claude/skills/` directory. These copies have no prefix, for example `/implement-kanban`.
 
-Laravel registers the `validation:export` command on its own. There is nothing to configure.
+Laravel registers the package's commands and routes on its own. There is nothing to configure. The board waits until
+you [adopt it](#adopting-the-board).
 
 <a name="using-both"></a>
 ### Using Both
@@ -181,7 +227,7 @@ The installer then writes the rule files and the few files the house ships:
 After the install, the deployment skill puts the project in Docker. Claude then commits, with your OK.
 
 Claude ends with two lists: what was decided, and what is still open. Type `/implement-kanban` to record both on the
-board. If the command is not found, run `/reload-skills` first.
+[board](#the-kanban-board). If the command is not found, run `/reload-skills` first.
 
 <a name="modules"></a>
 ## Modules
@@ -385,7 +431,7 @@ The local stack is your dev environment. You do not run `php artisan serve` or `
 - To open the app from another machine, set `LOCAL_APP_URL` in `.env` to the URL that machine uses, such as
   `http://192.0.2.10:<web port>`. Then run `docker compose -f docker-compose.local.yml up -d` again.
 - The kanban board can run one stack per git worktree, from the same compose file. A worktree is an extra checkout of
-  the repository in its own directory.
+  the repository in its own directory. See [Worktree Stacks](#worktree-stacks).
 
 > [!WARNING]
 > The local stack listens on your LAN by default, and the board at `/kanban` has no login. Set `WEB_BIND=127.0.0.1`
@@ -437,25 +483,6 @@ When a container starts but serves nothing, check the Traps in the
 [deployment skill](resources/boost/skills/laravel-deployment/SKILL.md#traps). Each one names a symptom, its cause and the
 fix.
 
-<a name="the-kanban-board"></a>
-## The Kanban Board
-
-[laravel-kanban](https://github.com/petar-spasic/laravel-kanban) is a kanban board kept in your git repository and
-shared through `origin`. Claude agents take its cards and work on them. The `/implement-kanban` skill puts your project
-on it:
-
-- It installs the package.
-- It records every setup decision as a card, and every open question as a proposed card.
-- It prepares one Docker stack per worktree.
-- It runs a first card through the agent loop.
-
-It also upgrades a project that already has the board.
-
-> [!NOTE]
-> Only you can start this skill, by typing `/implement-kanban`. Claude never starts it on its own.
-
-The [laravel-kanban README](https://github.com/petar-spasic/laravel-kanban) covers the board itself.
-
 <a name="exporting-validation-rules"></a>
 ## Exporting Validation Rules
 
@@ -493,6 +520,576 @@ php artisan validation:export
 > The command ships in this dev package. In production the attribute does nothing, so an install without dev
 > dependencies validates as usual.
 
+<a name="the-kanban-board"></a>
+## The Kanban Board
+
+The kanban board lives inside your git repository, and Claude agents work through its cards. The board is a set of
+JSON files on its own branch. You manage it from the web page at `/kanban`, from `vendor/bin/kanban`, or by asking
+Claude. Every change is a git commit, so the board has a full history, and your team shares it like any other branch.
+
+Each card Claude works on gets its own git worktree, its own branch and its own Docker stack. So several cards are
+worked on at once without stepping on each other.
+
+Every card follows the same path:
+
+1. **You describe the work.** You add a card with a title, a description and a list of acceptance criteria. When the
+   card is ready to be picked up, you move it to the `ready` column.
+2. **Claude starts the card.** The main Claude Code session claims the card. It creates a worktree for it in
+   `.claude/worktrees` and brings up a Docker stack for it on its own ports.
+3. **A worker writes the code.** A background `kanban-worker` agent commits to the card's branch. When it is done, it
+   reports back, and the card moves to `review`.
+4. **An evaluator checks it.** A read-only `kanban-evaluator` agent checks every acceptance criterion and approves or
+   rejects the work. Rejected work goes back to the worker.
+5. **Approved work is merged.** `kanban finish` merges the branch into `main`, marks the card `done`, and removes the
+   worktree and its stack.
+6. **The run is published.** At the end of a run, `kanban publish` pushes the board and `main` to your remote.
+
+Requiring the package does not put a project on the board. The `/implement-kanban` skill does:
+
+- It runs the installer, below.
+- It records every setup decision as a card, and every open question as a proposed card.
+- It prepares one Docker stack per worktree.
+- It runs a first card through the agent loop.
+
+> [!NOTE]
+> Only you can start this skill, by typing `/implement-kanban`. Claude never starts it on its own.
+
+<a name="adopting-the-board"></a>
+### Adopting the Board
+
+The skill runs the `kanban:install` Artisan command from your project's main checkout. The `--key` option sets the
+prefix of your card IDs. For example, `--key=ACME` gives cards like `ACME-7K2QF9`:
+
+```shell
+php artisan kanban:install --key=ACME
+```
+
+To see what the installer will change before it changes anything, add `--dry-run`. Then check the wiring. The
+`doctor` command prints `ok`, `warn` or `fail` for each check:
+
+```shell
+vendor/bin/kanban doctor
+```
+
+The installer makes the following changes:
+
+- It creates the board on a branch named `kanban` and checks it out at `docs/kanban`. This branch shares no history
+  with your code.
+- It configures git on this machine: a merge driver for the board's files, and the package's git hooks. The hooks
+  reject `Co-Authored-By` trailers, and pushes from a card's worktree.
+- It adds hooks and a permission for `vendor/bin/kanban` to `.claude/settings.json`. Hooks that are already there are
+  kept. It also turns off Claude Code's commit and PR attribution, because the hooks would reject those trailers.
+- It writes the two agents to `.claude/agents/kanban-worker.md` and `.claude/agents/kanban-evaluator.md`.
+- It writes a marked `## Kanban` block into the root `CLAUDE.md`, before Boost's guidelines when they are there. The
+  block points Claude at the `kanban` skill.
+- With Boost, it makes sure `petar-spasic/laravel-house` is in the `packages` list in `boost.json`, so
+  `php artisan boost:update` copies the `kanban` skill into `.claude/skills/`. Without Boost, the block points at the
+  skill inside `vendor/petar-spasic/laravel-house`.
+- With an ssh `origin` and a local compose file, it creates a deploy key for this clone at
+  `.git/laravel-house/deploy_key`. See [Syncing From a Container](#syncing-from-a-container).
+- It adds `/docs/kanban/` and `/.claude/worktrees` to `.gitignore`.
+
+Review these changes and commit them to `main`. The settings in `.claude/settings.json` apply to everyone who clones
+the project.
+
+> [!NOTE]
+> Claude Code loads agents and hooks only when a session starts. Restart Claude Code after installing.
+
+> [!WARNING]
+> The package's git hooks work by pointing `core.hooksPath` at them, so hooks in `.git/hooks` stop running. If
+> `core.hooksPath` is already set, for example by Husky, it is kept and the package's hooks do not run.
+> `vendor/bin/kanban attach --force` replaces it. To keep `Co-Authored-By` trailers and Claude Code's attribution, set
+> `githooks.reject_co_authored` to `false` in `config/kanban.php`, then run `vendor/bin/kanban doctor --fix`.
+
+<a name="joining-an-existing-board"></a>
+### Joining an Existing Board
+
+Each other machine, and each fresh clone, needs the board checked out and git configured. Run the following after
+cloning:
+
+```shell
+composer install
+vendor/bin/kanban attach
+```
+
+A new Claude Code session also runs `attach` by itself when the board is missing.
+
+<a name="kanban-configuration"></a>
+## Kanban Configuration
+
+Most projects need no configuration. To change the defaults, publish the configuration file to `config/kanban.php`:
+
+```shell
+php artisan vendor:publish --tag=kanban-config
+```
+
+You may also set the most common settings in your `.env` file:
+
+```ini
+KANBAN_SYNC=auto          # auto, on or off. See "Team Sync".
+KANBAN_USER=Ana           # Your name in the board's history. Defaults to git's user.name.
+KANBAN_MAIN_BRANCH=main   # The branch cards are merged into.
+KANBAN_MAX_STACKS=6       # How many card stacks may run on this machine at once.
+KANBAN_PULL_SECONDS=30    # How often an idle board asks for other people's changes.
+KANBAN_UI=true            # Set to false to turn off the /kanban page.
+KANBAN_UI_TOKEN=          # Set to make the /kanban page ask for this token once per browser.
+```
+
+<a name="agent-models"></a>
+### Agent Models
+
+By default, the worker runs on Sonnet with high effort, and the evaluator runs on Opus with medium effort. You may
+change either one in the `agents` section of `config/kanban.php`:
+
+```php
+'agents' => [
+    'worker' => ['model' => 'sonnet', 'effort' => 'high'],
+    'evaluator' => ['model' => 'opus', 'effort' => 'medium'],
+],
+```
+
+These values are written into the agent files. After changing them, run `vendor/bin/kanban doctor --fix` and restart
+Claude Code.
+
+<a name="quality-gates"></a>
+### Quality Gates
+
+A worker cannot hand in its work until every command in `gates.report` passes on its branch. By default, the only gate
+is Pint. You may add your own, such as your test suite or a frontend check:
+
+```php
+'gates' => [
+    'report' => [
+        'vendor/bin/pint --test --diff={main_branch}',
+        'npm run check',
+    ],
+],
+```
+
+<a name="commands-after-merging"></a>
+### Commands After Merging
+
+After `finish` merges a card into `main`, it runs the commands in `finish.after` in your main checkout. They run only
+in projects with a [worktree stack](#worktree-stacks). By default, they run your migrations and seed reference data:
+
+```php
+'finish' => [
+    'after' => [
+        'php artisan migrate --force',
+        'php artisan db:seed --class=ReferenceDataSeeder --force',
+    ],
+],
+```
+
+A `db:seed --class=…` command is skipped while that seeder does not exist.
+
+<a name="the-board"></a>
+## The Board
+
+<a name="epics-boards-and-cards"></a>
+### Epics, Boards and Cards
+
+The board has three levels. An **epic** is a large goal. It holds one or more **boards**, and each board holds
+**cards**. On disk, each one is a JSON file under `docs/kanban`:
+
+```text
+docs/kanban/
+├── kanban.json                 # Board-wide settings: key, WIP limits, locked stages
+└── billing/                    # An epic
+    ├── epic.json
+    └── invoices/               # A board inside it
+        ├── board.json
+        └── ACME-7K2QF9.json    # A card
+```
+
+The installer creates one epic, `project`, with two boards: `project/work` for work and `project/decisions` for
+decisions.
+
+A card has a type (`feature`, `bug`, `chore`, `spike` or `decision`), a priority (`urgent`, `high`, `normal` or
+`low`), labels, a description in Markdown, acceptance criteria and, optionally, other cards it depends on.
+
+> [!WARNING]
+> Never edit the files in `docs/kanban` by hand. Use the UI, the `kanban` command or Claude. Each of them validates the
+> change and commits it.
+
+<a name="stages"></a>
+### Stages
+
+Work boards move cards through these stages:
+
+| Stage | Meaning |
+|---|---|
+| `backlog` | An idea, not yet ready to be worked on. |
+| `ready` | Fully described and waiting to be picked up. |
+| `doing` | A worker is on it, in its own worktree. |
+| `review` | The worker is done; the evaluator checks the work. |
+| `done` | Merged into `main`. |
+| `dropped` | Not going to happen. Dropping a card asks for a reason. |
+
+Decision boards record the decisions your project makes:
+
+| Stage | Meaning |
+|---|---|
+| `proposed` | An open question with its options. |
+| `decided` | Decided, with the date and the reason. Every card must follow it. |
+| `superseded` | Replaced by a newer decision. |
+| `dropped` | Not going to be decided. |
+
+You move cards between `backlog` and `ready`, and to `dropped`. The rest of the path belongs to the workflow: a card
+enters `doing` through `start`, `review` through the worker's report, and `done` through `finish`.
+
+<a name="card-ids"></a>
+### Card IDs
+
+A card ID is your key followed by six random characters, such as `ACME-7K2QF9`. Wherever a command asks for an ID,
+you may type just its start: at least three characters after the key, as long as they match only one card. Case does
+not matter, and you may leave the key out:
+
+```shell
+vendor/bin/kanban show 7k2
+```
+
+<a name="ready-cards"></a>
+### Ready Cards
+
+A card may move from `backlog` to `ready` only when it is complete enough for an agent to work from:
+
+- it is a work card with a title and a description;
+- it has between 1 and 12 acceptance criteria;
+- every card it depends on exists, and every decision it depends on is decided;
+- it is not blocked.
+
+Write each acceptance criterion as something the evaluator can check, such as "GET /invoices.csv lists the month's
+invoices". `kanban promote` tells you which rule a card misses.
+
+<a name="locked-stages"></a>
+### Locked Stages
+
+Once work starts, the worker and the evaluator rely on the card as they read it. So cards in `doing`, `review`, `done`
+and `superseded` are locked. You may still add a note, block or unblock the card, and tick or untick criteria. Nothing
+else about it can change, and it cannot move to another board.
+
+To edit a card in `doing` or `review`, put it back first:
+
+```shell
+vendor/bin/kanban stop ACME-7K2QF9 --to=ready
+```
+
+The list of locked stages is the `locked` setting in `docs/kanban/kanban.json`.
+
+<a name="the-board-ui"></a>
+## The Board UI
+
+<a name="opening-the-board"></a>
+### Opening the Board
+
+The board's web page is at `/kanban` in your app, for example `http://localhost:<web port>/kanban`. It is available
+only in the `local` environment and only from the main checkout. To keep it off your LAN, see
+[The Local Stack](#the-local-stack).
+
+The page shows one column per stage, with the cards in the order Claude will pick them up. It refreshes every few
+seconds, so changes made by Claude, the command line or a teammate appear on their own.
+
+- The page does not appear while your routes are cached. Run `php artisan route:clear` if it is missing.
+- It needs nothing from your app: no session, login, Vite or Tailwind.
+- It needs a browser from 2024 or later.
+- It is set in the Inter font, which ships with the package under the SIL Open Font License.
+
+<a name="editing-cards"></a>
+### Editing Cards
+
+Click a card to open it. Fields save on their own: the title and the criteria when you press `Enter` or leave them,
+checkboxes and dropdowns at once. Text such as the description opens an editor that saves with *Save* or
+`Ctrl+Enter`. *Saved* appears in the header. Cards it links to, such as its dependencies, open on top of it. Press
+`Esc` to close the top one.
+
+To move a card, drag it to another column, or press `m`. Press `n` to add a new card.
+
+If someone else edits the same text while you are typing, nothing is overwritten. Your text stays in the editor, the
+other version appears beside it, and you choose *Keep mine* or *Use theirs*.
+
+<a name="keyboard-shortcuts"></a>
+### Keyboard Shortcuts
+
+Press `?` on the page to see every shortcut. The most useful ones are:
+
+| Key | Action |
+|---|---|
+| `/` | Search |
+| `j` `k` | Next or previous card |
+| `h` `l` | Column to the left or right |
+| `Enter` | Open the card |
+| `n` | New card |
+| `m` | Move the card |
+| `p` | Change the priority |
+| `b` | Switch board |
+| `Shift+1`…`9` | Save this board to a number key |
+| `Alt+1`…`9` | Go to a saved board |
+| `Esc` | Close the card on top |
+| `t` | Switch between light and dark |
+
+<a name="working-with-claude"></a>
+## Working With Claude
+
+<a name="running-the-board"></a>
+### Running the Board
+
+Open Claude Code in your project's main checkout and ask it to run the board:
+
+```text
+Run the board.
+```
+
+The main session follows the `kanban` skill. It moves complete cards from `backlog` to `ready` and starts as many
+cards as the limits allow. For each card, it starts a worker in the background, sends finished work to the evaluator
+and merges what is approved. When the run is over, it publishes and sends you one summary covering:
+
+- what was merged;
+- what is still in progress;
+- which cards are blocked, with the questions it needs you to answer;
+- which decisions are waiting for you.
+
+You may also ask it to work on one card, such as "start ACME-7K2QF9".
+
+> [!NOTE]
+> Only one Claude Code session per machine may run the board at a time. If an old session still holds it, for example
+> after a restart, run `vendor/bin/kanban lease --takeover`.
+
+<a name="recording-decisions"></a>
+### Recording Decisions
+
+Decisions are yours to make, and Claude records them. When you tell Claude a decision, it adds a card to
+`project/decisions` in the `decided` stage, with your reason. When it meets an open question, it adds a `proposed`
+card and asks you. It never decides one by itself.
+
+You may also record a decision yourself:
+
+```shell
+vendor/bin/kanban new project/decisions "Money is stored in cents" \
+    --stage=decided --decided-on=2026-10-01 --why="Avoids rounding errors"
+```
+
+<a name="when-something-goes-wrong"></a>
+### When Something Goes Wrong
+
+Start with `status`. It shows the cards in progress with their agents, the blocked cards and anything that needs
+attention. `show` gives one card in full:
+
+```shell
+vendor/bin/kanban status
+vendor/bin/kanban show ACME-7K2QF9
+```
+
+If a check fails, run `vendor/bin/kanban doctor`. It names the problem, and `doctor --fix` repairs the wiring.
+
+To give up on a card, put it back. If its branch has commits, the branch is kept and reused the next time the card
+starts:
+
+```shell
+vendor/bin/kanban stop ACME-7K2QF9 --to=backlog --reason="Waiting on the payment provider"
+```
+
+<a name="worktree-stacks"></a>
+## Worktree Stacks
+
+Each card's worktree runs its own copy of your local Docker stack. It has its own ports, containers and database, so a
+worker can migrate, seed and test without touching your main stack.
+
+The stack is built from your project's `docker-compose.local.yml`. The `start` command writes a `.env` into the
+worktree with the stack's name and ports, then runs `docker compose up`. `finish` and `stop` take the stack down
+again.
+
+<a name="preparing-your-compose-file"></a>
+### Preparing Your Compose File
+
+Many copies of the stack run at once, so nothing in your compose file may use a fixed name or a fixed host port. The
+deployment skill's local compose file already follows these rules:
+
+- the top-level `name:` is `"${COMPOSE_PROJECT_NAME:?…}"`, so a stack never starts without a name;
+- no `container_name`, and no volume or network name that is not built from `${COMPOSE_PROJECT_NAME}`;
+- every published host port comes from a port variable: `WEB_PORT`, `DB_HOST_PORT` or `REDIS_HOST_PORT`, or
+  `DB_PORT` and `REDIS_PORT`, which follow them;
+- a service with `build:` does not also set `image:`.
+
+Your main `.env` also needs a project name of its own, such as `COMPOSE_PROJECT_NAME=acme-local`.
+
+If you publish more host ports, such as for a mail catcher, add a variable for each one to `stack.ports` in
+`config/kanban.php`, with its offset in the card's block of ports:
+
+```php
+'ports' => ['WEB_PORT' => 0, 'DB_HOST_PORT' => 1, 'REDIS_HOST_PORT' => 2, 'MAILPIT_PORT' => 3],
+```
+
+`vendor/bin/kanban doctor` checks these rules and names any line that breaks one. It also warns when `phpunit.xml`
+sets `DB_HOST` or `DB_PORT`, because tests in a worktree would then hit your main database.
+
+If you do not use Docker, set `stack.compose_file` to `null`. Cards then get a worktree without a stack.
+
+<a name="ports"></a>
+### Ports
+
+Card stacks take their ports from the range 21000–21999, in blocks of ten. The first card gets `WEB_PORT=21010`,
+`DB_HOST_PORT=21011` and `REDIS_HOST_PORT=21012`, the next one gets 21020 to 21022, and so on. The block is reserved
+across every project on the machine, so two projects never collide. Keep your main stack's ports outside that range.
+
+`vendor/bin/kanban stack ACME-7K2QF9 url` prints a card's address.
+
+Before it starts a stack, the package checks that the machine has room: at most `KANBAN_MAX_STACKS` stacks (6 by
+default), at least 8 GiB of free memory, at least 20 GiB of free disk, and a load below 75% of the CPUs.
+
+<a name="docker-address-pools"></a>
+### Docker Address Pools
+
+Each stack is its own Docker network. If your local network overlaps Docker's default address ranges, Docker runs out
+of networks after about six stacks, and compose fails. You may widen the ranges once, in `/etc/docker/daemon.json`:
+
+```json
+{
+    "bip": "172.17.0.1/16",
+    "default-address-pools": [
+        { "base": "10.210.0.0/16", "size": 24 },
+        { "base": "172.16.0.0/12", "size": 16 }
+    ]
+}
+```
+
+Then restart Docker, check the headroom, and bring your stacks back up:
+
+```shell
+sudo systemctl restart docker
+vendor/bin/kanban doctor
+```
+
+`doctor` shows how many networks are free, and warns below six.
+
+<a name="team-sync"></a>
+## Team Sync
+
+<a name="sharing-a-board"></a>
+### Sharing a Board
+
+If your project has an `origin` remote, the board is shared through it. The installer pushes the `kanban` branch
+once. After that, every change is pushed as soon as it is made. Changes from others are pulled at most every 30
+seconds: while the board page is open, when a Claude Code session starts, and when `status` or `next` runs.
+
+Teammates join with `vendor/bin/kanban attach`, as in [Joining an Existing Board](#joining-an-existing-board). When
+two machines try to start the same card, only one of them gets it.
+
+The board runs ahead of the code. `finish` marks a card `done` for everyone at once, but its code reaches your
+teammates only when `kanban publish` pushes `main`.
+
+<a name="keeping-a-board-local"></a>
+### Keeping a Board Local
+
+To keep the board on your machine, add the following to `.env` before installing:
+
+```ini
+KANBAN_SYNC=off
+```
+
+Board changes then stay local until you run `vendor/bin/kanban publish`.
+
+> [!NOTE]
+> A published `config/kanban.php` that reads `env('KANBAN_SYNC', 'off')` keeps sync off. Change the default to
+> `'auto'` to turn sync on.
+
+<a name="syncing-from-a-container"></a>
+### Syncing From a Container
+
+When your app runs in Docker, the board page syncs from inside the container. The container needs:
+
+- `php` and `git` on its `PATH`;
+- `exec()` allowed in PHP;
+- a user that can write the mounted `.git` directory;
+- permission to push to your remote.
+
+For an ssh remote, `kanban:install`, `attach` and `doctor --fix` create a deploy key for this clone at
+`.git/laravel-house/deploy_key` and print its public half. This happens when the project has a local compose file.
+Ask a repository admin to add the key with write access:
+
+```shell
+gh repo deploy-key add .git/laravel-house/deploy_key.pub --allow-write
+```
+
+The container's git must use that key. The key is already inside the container through the project's mount. The
+deployment skill's local compose file sets this for you. In another compose file with the project mounted at `/app`,
+add:
+
+```yaml
+services:
+  app:
+    environment:
+      GIT_SSH_COMMAND: "ssh -i /app/.git/laravel-house/deploy_key -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/app/.git/laravel-house/known_hosts"
+```
+
+Your own git on the host keeps using your own key. To see what goes wrong in the container, run
+`vendor/bin/kanban sync` inside it.
+
+<a name="when-two-people-edit-the-same-card"></a>
+### When Two People Edit the Same Card
+
+If two people change the same field of a card, the newer change wins. When the field is text, such as the title or the
+description, the card's history keeps the older version. Open the card or run `vendor/bin/kanban show` to see it.
+
+The history shows who made each change, such as *Ana* for what Ana did herself and *worker (Ana)* for her agents. The
+name comes from `KANBAN_USER`, or from git's `user.name` when it is not set.
+
+If a sync keeps failing, the board page shows a notice, and `status` and `doctor` print the reason.
+
+<a name="kanban-commands"></a>
+## Kanban Commands
+
+Every command runs as `vendor/bin/kanban <command>` without booting your app, or as `php artisan kanban:<command>`.
+The one exception is `kanban:install`, which runs through Artisan only. Add `--help` to any command for its options.
+The [protocol reference](resources/boost/skills/kanban/references/protocol.md) lists every flag and exit code.
+
+**Reading the board**
+
+| Command | Description |
+|---|---|
+| `status` | What is in progress, blocked and next, and any failing checks. |
+| `list` | Cards in `ready`, `doing` and `review`, plus blocked cards. |
+| `show ID` | One card with its criteria, dependencies and history. |
+| `next` | The card that would be started next. |
+| `doctor` | Checks the installation. `--fix` repairs it. |
+| `validate` | Checks every board file. `--fix` rewrites them. |
+
+**Changing the board**
+
+| Command | Description |
+|---|---|
+| `new EPIC/BOARD "Title"` | Adds a card. |
+| `set ID key=value` | Changes a card, such as `priority=high` or `note="…"`. |
+| `move ID STAGE` | Moves a card to another stage, or `--board=EPIC/BOARD` to another board. |
+| `promote ID` | Moves a card from `backlog` to `ready`. `--auto` fills `ready` with complete cards, up to 12 by default. |
+| `board EPIC/BOARD "Title"` | Adds or updates a board. |
+
+**Working on cards** (usually run by Claude)
+
+| Command | Description |
+|---|---|
+| `start ID` | Claims a card and creates its worktree and stack. |
+| `refresh ID` | Merges the latest `main` into the card's branch. |
+| `finish ID` | Merges an approved card into `main` and cleans up. |
+| `stop ID --to=STAGE` | Takes a card out of work and cleans up. |
+| `stack ID up\|down\|logs\|url` | Manages a card's stack. |
+| `sync` | Pulls and pushes the board. |
+| `publish` | Pushes the board and `main`. |
+| `attach` | Checks out the board on this machine. |
+
+<a name="kanban-troubleshooting"></a>
+## Kanban Troubleshooting
+
+The [gotchas](resources/boost/skills/kanban/references/gotchas.md) list problems met in real projects, each with its
+cause and its fix. The most common ones are:
+
+- **"Agent type not found", or the hooks do not run.** Restart Claude Code after installing or updating.
+- **`set` exits with "a locked stage".** The card is in a locked stage: `doing`, `review`, `done` or `superseded`.
+  See [Locked Stages](#locked-stages).
+- **Compose fails after about six stacks.** Widen the [Docker address pools](#docker-address-pools).
+- **Tests in a worktree hit your main database.** Remove `DB_HOST` and `DB_PORT` from `phpunit.xml`.
+- **The board page answers 403 for a host name.** Add that name to `ui.hosts` in `config/kanban.php`.
+
 <a name="updating"></a>
 ## Updating
 
@@ -513,18 +1110,24 @@ an update. You may turn on auto-update under `/plugin`, in Marketplaces.
 <a name="updating-the-composer-package"></a>
 ### Updating the Composer Package
 
-To move to the latest release, require the package with no version, then refresh the skills:
+To move to the latest release, require the package with no version. If the project is on the board, let
+`doctor --fix` rewrite the agents, the hooks, the `CLAUDE.md` block and the git config. Then refresh the skills:
 
 ```shell
 composer require --dev petar-spasic/laravel-house
+vendor/bin/kanban doctor --fix
 php artisan boost:update
 ```
 
-Then restart Claude Code. Releases are semver tags.
+Skip the `doctor` line in a project without the board. Then restart Claude Code. Releases are semver tags.
 
 > [!WARNING]
 > While the package is at 0.x, `^0.N` stays on `0.N.x`, so `composer update` alone never reaches a new minor
 > version.
+
+> [!WARNING]
+> Every clone that shares a board must run the same version of the package. Commit `composer.lock`. Each other clone
+> then runs `composer install` and `vendor/bin/kanban doctor --fix`.
 
 <a name="adopting-the-current-core"></a>
 ### Adopting the Current Core
@@ -532,8 +1135,8 @@ Then restart Claude Code. Releases are semver tags.
 The core is what [every project gets](#what-every-project-gets). When the core changes, a project set up earlier may
 adopt it without running setup again.
 
-1. Run `composer require --dev petar-spasic/laravel-house` and `php artisan boost:update`, then restart Claude Code.
-   The project uses its own copy of the skills, not the plugin, so this step comes first.
+1. [Update the composer package](#updating-the-composer-package), then restart Claude Code. The project uses its own
+   copy of the skills, not the plugin, so this step comes first.
 2. Ask Claude to adopt the current house core.
 
 The setup skill then installs Sanctum and Socialite if they are missing. It merges the current rule files, routes and

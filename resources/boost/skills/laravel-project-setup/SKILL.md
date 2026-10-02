@@ -39,7 +39,7 @@ The house ships rules, not frontend code. Frontends, social sign-in and tenancy 
 - Stripe-style prefixed ids.
 - Flat layers, each with its own `CLAUDE.md`.
 - The seeding standard: four seeders (`database/CLAUDE.md`).
-- The laravel-kanban board.
+- The kanban board ships with the house; the owner chooses whether to adopt it (`/implement-kanban`).
 
 ## Modules
 
@@ -90,12 +90,12 @@ This table owns the combination rules. `install.php` enforces them and refuses a
    - **Host ports** `{{web_port}}`, `{{db_port}}`, `{{redis_port}}`, plus `{{ws_port}}` with `reverb` but not `spa`
      (there Reverb shares the web port at `/app/*`). Each is free on this host: check `docker ps -a`, since a stopped
      container still owns its ports, and the other compose files on the machine. Each is outside 21000–21999
-     (laravel-kanban's worktree pool). With `spa`, the web port is never 8080 (laravel-deployment `references/spa.md`).
+     (the kanban worktree pool). With `spa`, the web port is never 8080 (laravel-deployment `references/spa.md`).
    - **LAN URL**: `http://<the host's LAN address>:{{web_port}}`, when the owner browses the stack from another
      machine.
 3. **One approval batch.** A single message the owner answers once. Install only what is approved.
    - Composer: `laravel/fortify`, `laravel/socialite`, `laravel/horizon`, `laravel/octane`; dev `laravel/boost`,
-     `petar-spasic/laravel-kanban`, `petar-spasic/laravel-house`.
+     `petar-spasic/laravel-house`.
    - Pest: keep the skeleton's major. A PHPUnit skeleton gets the current `pestphp/pest` and
      `pestphp/pest-plugin-laravel` in place of `phpunit/phpunit`.
    - Artisan: `install:api --without-migration-prompt`, `fortify:install`, `horizon:install`,

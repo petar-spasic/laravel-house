@@ -54,7 +54,7 @@ services:
       # The clone's own deploy key (php artisan kanban:install and vendor/bin/kanban attach|doctor --fix make it for an
       # ssh origin), in the mounted .git. Main stack only: a worktree's .git is a file and its board page is off.
       # The worker's exec() must stay enabled.
-      GIT_SSH_COMMAND: ssh -i /app/.git/laravel-kanban/deploy_key -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/app/.git/laravel-kanban/known_hosts
+      GIT_SSH_COMMAND: ssh -i /app/.git/laravel-house/deploy_key -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/app/.git/laravel-house/known_hosts
       DB_CONNECTION: pgsql
       DB_HOST: postgres
       DB_PORT: 5432

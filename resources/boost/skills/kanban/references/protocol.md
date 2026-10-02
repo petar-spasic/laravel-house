@@ -1,4 +1,4 @@
-# laravel-kanban protocol reference
+# Kanban protocol reference
 
 Every command runs as `vendor/bin/kanban <command>` (no app boot) or `php artisan kanban:<command>`. Output is plain
 text, one fact per line; errors go to stderr. Card ids accept a unique prefix of ≥ 3 characters, any case,

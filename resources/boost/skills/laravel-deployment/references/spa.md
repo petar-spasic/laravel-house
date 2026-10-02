@@ -25,7 +25,7 @@ browser → Caddy :8080 ─┬─ @backend                     → Laravel (php-
 
 - Split by path only, never by method: SvelteKit form actions POST to Node.
 - `@backend` is `/api/* /sanctum/* /horizon /horizon/* /up /storage/*`, plus `/kanban /kanban/*` locally
-  (laravel-kanban is a dev dependency, absent in prod). Never `/horizon*`: it also matches `/horizonX`.
+  (the house is a dev dependency, absent in prod). Never `/horizon*`: it also matches `/horizonX`.
 - Fortify (`/api/auth`), Socialite (`/api/auth/{provider}/…`), channel auth (`/api/broadcasting/auth`) and the
   resources (`/api/v1`) all sit under `/api`. `/storage/*` is always there: the local disk's `serve => true` registers
   `/storage/{path}`, and the public disk links there.

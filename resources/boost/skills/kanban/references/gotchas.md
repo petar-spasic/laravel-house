@@ -24,7 +24,7 @@ database only when `pwd` is their worktree and its `.env` `DB_PORT` differs from
 the current time, so mtime (`-nt`) sentinels in the entrypoint reinstall. → sha256 sentinels.
 
 **About 6 stacks machine-wide, then compose fails on networks.** → The host's LAN overlaps Docker's default address
-pools. → Widen them (README, "Docker address pools"); `doctor` shows the headroom.
+pools. → Widen them (house README, "Worktree Stacks", "Docker Address Pools"); `doctor` shows the headroom.
 
 **Tests in a worktree hit main's database.** → `phpunit.xml` sets `DB_HOST`/`DB_PORT`, which win over the worktree
 `.env`. → Remove them; `doctor` warns.
@@ -94,12 +94,12 @@ had since 2024 (Chrome 123, Firefox 120, Safari 17.5). Update the browser.
 **Sync is on, but the board in the container never picks up what others pushed, and there is no notice.** → The pull is a
 detached `php bin/kanban sync --background` started from the web request. It needs `php` and `git` on the container's PATH,
 `exec()` not listed in `disable_functions`, credentials for the remote, and a user that can write the mounted `.git` and
-`.git/laravel-kanban`. Missing credentials show as a *Not synced* notice; a disabled `exec()` shows nothing. → Run
+`.git/laravel-house`. Missing credentials show as a *Not synced* notice; a disabled `exec()` shows nothing. → Run
 `vendor/bin/kanban sync` inside the container to see the error. `KANBAN_PULL_SECONDS=0` switches the timed pull off.
 
 **In the container, `kanban sync` says `Permission denied (publickey)`.** → Over ssh the container uses the clone's deploy key
-(`.git/laravel-kanban/deploy_key`, made by `install`, `attach` or `doctor --fix` when the project has a local compose file), and
-the repository does not know its public half yet. → `cat .git/laravel-kanban/deploy_key.pub`, add it as a deploy key with
+(`.git/laravel-house/deploy_key`, made by `install`, `attach` or `doctor --fix` when the project has a local compose file), and
+the repository does not know its public half yet. → `cat .git/laravel-house/deploy_key.pub`, add it as a deploy key with
 write access (an admin of the repository can), then sync again. `ssh` also refuses the key when the container user cannot read
 it (`HOST_UID`/`HOST_GID` of the compose file must be yours), and an https `origin` never uses it.
 
@@ -116,7 +116,7 @@ together are not (A made X depend on Y while B made Y depend on X). The clone is
 **My edit of a card vanished after a sync.** → Someone changed the same field (title, description, why, resolution, a
 blocked reason, or the stage/claim) before your commit reached them; the merge keeps the newer `updated` and does not blend
 texts. → The replaced text is in the card's log: `kanban show ID` (line *merge kept the other version of …*) or the *Activity*
-list in the UI; copy it back with `kanban set`. Keep the package version the same on every clone, or an older clone merges
+list in the UI; copy it back with `kanban set`. Keep the house at one version on every clone, or an older clone merges
 without writing the record.
 
 **"report stays staged: … is now ready" (or "held on <host>") when a worker stops.** → The card moved on after the worker
