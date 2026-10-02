@@ -339,3 +339,18 @@ it('keeps unpushed edits of a folded clone: a moved card merged at its new path,
     $a->ok('sync');
     expect($a->read('ACME-FE0003')['body'])->toBe('Build Note list page, sorted by date.');
 });
+
+it('folds into a board it creates, and never into a decisions board', function () {
+    $s = oldBoard();
+
+    $refused = $s->kanban(['fold-boards', '--into=project/decisions']);
+    expect($refused->getExitCode())->toBe(2)
+        ->and($refused->getErrorOutput())->toContain('project/decisions is a decisions board; fold into a work board');
+
+    expect($s->ok(['fold-boards', '--into=core/main']))->toContain('folded into core/main: 7 moved')
+        ->and(boardFile($s, 'core/epic.json')['title'])->toBe('Core')
+        ->and(boardFile($s, 'core/main/board.json'))->toMatchArray(['title' => 'Main', 'wip' => []])
+        ->and(glob($s->root.'/docs/kanban/core/main/ACME-*.json'))->toHaveCount(7)
+        ->and(glob($s->root.'/docs/kanban/{project,app}/{*,*/*}.json', GLOB_BRACE))->toBe([])
+        ->and($s->ok('validate'))->toContain('ok: 7 cards on 1 boards');
+});
