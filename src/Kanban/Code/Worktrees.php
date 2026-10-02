@@ -216,14 +216,17 @@ final class Worktrees
     }
 
     /**
-     * Resource precheck (not for a recreate), project name check, `up -d --build` (no wait). "port is already
-     * allocated" → the next slot, `.env` rewritten, one retry. The stack record is written after a successful up.
+     * Resource precheck (not for a recreate), project name check, `up -d --build` (no wait), with `--force-recreate` too
+     * when the docker files changed since the recorded up. "port is already allocated" → the next slot, `.env`
+     * rewritten, one retry. The stack record is written after a successful up.
      *
      * @return array<string, mixed> the registry entry the stack runs on, plus `url`
      */
     public function up(string $path, ?string $branch, ?string $card, bool $recreate = false): array
     {
         $entry = $this->prepare($path, $branch, $card) ?? throw new StackFailed('stacks are disabled (stack.compose_file unset or missing)');
+        $hash = $this->stackRecord($path)['hash'] ?? null;
+        $recreate = $recreate || ($hash !== null && $hash !== $this->dockerHash($path));
         $refusals = $recreate ? [] : $this->registry()->resourceRefusals();
         if ($refusals !== []) {
             throw new StackFailed('not starting a stack: '.implode('; ', $refusals), $refusals);

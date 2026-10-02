@@ -206,3 +206,22 @@ it('forgets the stack record of a worktree that vanished on gc', function () {
 
     expect(stackRecord($code, $wt))->toBeNull();
 });
+
+it('recreates on up when the docker files changed since the stack came up', function () {
+    $code = $this->code;
+    $id = $code->started('Up again');
+    $wt = $code->worktree($id);
+    @mkdir($wt.'/docker', 0775, true);
+    file_put_contents($wt.'/docker/Caddyfile.local', ":8080 {\n}\n");
+
+    $code->ok(['stack', $id, 'up']);
+    $code->ok(['stack', $id, 'up']);
+
+    expect(array_values(array_filter($code->calls(), fn ($call) => str_contains($call, ' up -d --build'))))
+        ->toHaveCount(3)
+        ->sequence(
+            fn ($call) => $call->not->toContain('--force-recreate'),
+            fn ($call) => $call->toEndWith('up -d --build --force-recreate'),
+            fn ($call) => $call->not->toContain('--force-recreate'),
+        );
+});

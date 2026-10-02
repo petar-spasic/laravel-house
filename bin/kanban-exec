@@ -33,7 +33,7 @@ case "/$cwd/" in
 esac
 
 info=$(docker container inspect -f '{{.State.Running}}{{range .Mounts}}{{if eq .Type "bind"}}{{"\n"}}{{.Source}}{{end}}{{end}}' -- "$container" 2>&1) \
-    || refuse "$info"
+    || refuse "$info (vendor/bin/kanban stack wait starts the stack)"
 [ "${info%%$'\n'*}" = true ] || refuse "container $container is not running (vendor/bin/kanban stack wait starts it)"
 inside=
 if [[ $info == *$'\n'* ]]; then
