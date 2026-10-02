@@ -99,6 +99,12 @@ final class Context
         if ($card->dependsOn() !== []) {
             $lines[] = 'deps: '.implode(', ', array_map(fn (string $id) => $id.' '.($snapshot->card($id)?->stage() ?? 'missing'), $card->dependsOn()));
         }
+        $earlier = Applier::discoveredBy($card);
+        if ($earlier !== []) {
+            $lines[] = 'discovered earlier (on the board; never file them again): '.implode(', ', array_map(
+                fn (string $id) => $id.' '.mb_strimwidth($snapshot->card($id)?->title() ?? '?', 0, 60, '…').' ('.($snapshot->card($id)?->stage() ?? 'missing').')',
+                array_slice($earlier, -10))).(count($earlier) > 10 ? ' and '.(count($earlier) - 10).' older' : '');
+        }
         $notes = $this->notes($card, (string) ($work['started'] ?? ''));
         if ($notes !== []) {
             $lines[] = 'notes from the owner and main:';

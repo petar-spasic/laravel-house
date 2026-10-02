@@ -2,9 +2,9 @@
 
 namespace PetarSpasic\LaravelHouse\Kanban\Code;
 
-use PetarSpasic\LaravelHouse\Kanban\Store\Card;
 use FilesystemIterator;
 use Illuminate\Support\Str;
+use PetarSpasic\LaravelHouse\Kanban\Store\Card;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\GitFailed;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
 use PetarSpasic\LaravelHouse\Kanban\Support\Git;

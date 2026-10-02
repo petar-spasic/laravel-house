@@ -144,10 +144,10 @@ final class Applier
             }
             $worktree = $this->worktree($card);
             $head = ($worktree !== null && is_dir($worktree) ? (new Git($worktree))->line(['rev-parse', 'HEAD']) : null) ?? $report['head'] ?? null;
-            $created = $this->discover($card, $report['discovered'] ?? [], $by, 'working on');
+            $created = $this->discover($card, $report['discovered'] ?? [], $by, 'working on', $known);
 
             $status = (string) $report['status'];
-            $this->store->update($id, function (array $data) use ($report, $status, $head, $created) {
+            $this->store->update($id, function (array $data) use ($report, $status, $head, $created, $known) {
                 $data['acceptance'] = self::tick($data['acceptance'] ?? [], $report['ticks'] ?? [], true);
                 if (is_array($data['work'] ?? null)) {
                     $data['work']['head'] = $head;
@@ -160,7 +160,7 @@ final class Applier
                 $data['log'][] = array_filter([
                     'event' => 'report', 'status' => $status, 'hash' => $report['hash'], 'head' => $head,
                     'ticks' => $report['ticks'] ?? [], 'summary' => self::cut($report['summary'] ?? null, Staged::SUMMARY),
-                    'verified' => $report['verified'] ?? [], 'discovered' => $created,
+                    'verified' => $report['verified'] ?? [], 'discovered' => $created, 'known' => $known,
                     'reason' => $report['reason'] ?? null, 'note' => self::cut($report['note'] ?? null, 500),
                 ], fn ($v) => $v !== null && $v !== []);
                 $data['log'] = [...$data['log'], ...self::upstream($report)];
@@ -170,13 +170,14 @@ final class Applier
             $this->runtime->markApplied($id, 'report', $hash);
             $card = $this->store->card($id);
 
-            return "{$id}: report applied, stage {$card->stage()}".($status === 'blocked' ? ', blocked' : '').self::found($created, $report);
+            return "{$id}: report applied, stage {$card->stage()}".($status === 'blocked' ? ', blocked' : '').self::found($created, $report, $known);
         });
     }
 
     /**
      * Applies a staged evaluator verdict: approve → work.approved; reject → back to doing, failed criteria unticked. A
-     * verdict on an earlier round of the card is superseded: logged, its discovered items filed, the card left alone.
+     * verdict on an earlier round of the card is superseded, and one on a card that left doing and review (finished on an
+     * earlier approval, stopped) is moot: logged, its discovered items filed, the card left alone.
      * $answerable: its evaluator is still there to re-verify an approval of a head the branch has left.
      *
      * @param  array<string, mixed>  $verdict
@@ -195,18 +196,21 @@ final class Applier
             $by = new Actor('evaluator');
             $card = $this->store->card($id);
             $approve = $verdict['decision'] === 'approve';
-            if (($superseded = $this->superseded($card, $verdict, $approve && $answerable)) !== null) {
-                $created = $this->discover($card, $verdict['discovered'] ?? [], $by, 'evaluating');
-                $this->store->update($id, function (array $data) use ($verdict, $hash, $superseded) {
+            $moot = in_array($card->stage(), ['doing', 'review'], true) ? null : "the card is {$card->stage()}";
+            $superseded = null;
+            if ($moot !== null || ($superseded = $this->superseded($card, $verdict, $approve && $answerable)) !== null) {
+                $created = $this->discover($card, $verdict['discovered'] ?? [], $by, 'evaluating', $known);
+                $this->store->update($id, function (array $data) use ($verdict, $hash, $moot, $superseded, $created, $known) {
                     $data['log'] = [...$data['log'], array_filter([
-                        'event' => 'verdict_superseded', 'decision' => $verdict['decision'], 'hash' => $hash, 'head' => $verdict['head'] ?? null, 'reason' => $superseded,
-                    ], fn ($v) => $v !== null), ...self::upstream($verdict)];
+                        'event' => $moot !== null ? 'verdict_moot' : 'verdict_superseded', 'decision' => $verdict['decision'], 'hash' => $hash,
+                        'head' => $verdict['head'] ?? null, 'reason' => $moot ?? $superseded, 'discovered' => $created, 'known' => $known,
+                    ], fn ($v) => $v !== null && $v !== []), ...self::upstream($verdict)];
 
                     return $data;
                 }, $by);
                 $this->runtime->markApplied($id, 'verdict', $hash);
 
-                return "{$id}: verdict superseded: {$superseded}".self::found($created, $verdict);
+                return "{$id}: verdict ".($moot !== null ? "moot: {$moot}" : "superseded: {$superseded}").self::found($created, $verdict, $known);
             }
             if ($approve) {
                 if ($card->stage() !== 'review') {
@@ -218,14 +222,14 @@ final class Applier
                         .substr((string) $branchHead, 0, 7).': re-verify the current HEAD and run `vendor/bin/kanban verdict` again');
                 }
             }
-            $created = $this->discover($card, $verdict['discovered'] ?? [], $by, 'evaluating');
+            $created = $this->discover($card, $verdict['discovered'] ?? [], $by, 'evaluating', $known);
             $checks = (array) ($verdict['checks'] ?? []);
             $failed = array_map('intval', array_keys(array_filter($checks, fn (array $c) => $c['result'] === 'fail')));
             $entry = array_filter([
                 'event' => 'verdict', 'decision' => $verdict['decision'], 'hash' => $hash, 'head' => $verdict['head'] ?? null,
                 'failed' => array_map(fn (int $n) => $n.': '.self::cut($checks[(string) $n]['evidence'] ?? '', 300), $failed),
                 'issues' => array_map(fn (string $i) => self::cut($i, 300), $verdict['issues'] ?? []),
-                'discovered' => $created,
+                'discovered' => $created, 'known' => $known,
                 'note' => self::cut($verdict['note'] ?? null, 500),
             ], fn ($v) => $v !== null && $v !== []);
 
@@ -239,7 +243,7 @@ final class Applier
                 }, $by);
                 $this->runtime->markApplied($id, 'verdict', $hash);
 
-                return "{$id}: approved at ".substr((string) $verdict['head'], 0, 7).self::found($created, $verdict);
+                return "{$id}: approved at ".substr((string) $verdict['head'], 0, 7).self::found($created, $verdict, $known);
             }
 
             $this->store->update($id, function (array $data) use ($failed, $entry, $verdict) {
@@ -255,7 +259,7 @@ final class Applier
             }
             $this->runtime->markApplied($id, 'verdict', $hash);
 
-            return "{$id}: rejected, stage ".$this->store->card($id)->stage().self::found($created, $verdict);
+            return "{$id}: rejected, stage ".$this->store->card($id)->stage().self::found($created, $verdict, $known);
         });
     }
 
@@ -325,28 +329,80 @@ final class Applier
     }
 
     /**
-     * Files what an agent found outside its card as backlog cards on the card's board.
+     * Files what an agent found outside its card as backlog cards on the card's board, once: an item whose title matches
+     * (case, punctuation and spacing aside) an open card, or a card this card filed before, is not filed again.
      *
      * @param  list<array{type: string, title: string, body?: string}>  $items
+     * @param  list<string>|null  $known  set to the ids of the cards the skipped items matched
      * @return list<string> the new card ids
      */
-    private function discover(Card $card, array $items, Actor $by, string $while): array
+    private function discover(Card $card, array $items, Actor $by, string $while, ?array &$known = null): array
     {
-        return array_map(fn (array $found) => $this->store->create($card->board, [
-            'type' => $found['type'], 'title' => $found['title'], 'labels' => ['discovered'],
-            'body' => trim("Discovered by {$card->id()} ({$card->title()}) while {$while} it.\n\n".($found['body'] ?? '')),
-        ], $by)->id(), $items);
+        $known = [];
+        if ($items === []) {
+            return [];
+        }
+        $snapshot = $this->store->snapshot();
+        $titles = [];
+        foreach ($snapshot->cards(fn (Card $c) => ! in_array($c->stage(), ['done', 'dropped'], true)) as $open) {
+            $titles[self::normal($open->title())] ??= $open->id();
+        }
+        foreach (self::discoveredBy($card) as $id) {
+            if (($earlier = $snapshot->card($id)) !== null) {
+                $titles[self::normal($earlier->title())] ??= $id;
+            }
+        }
+        $created = [];
+        foreach ($items as $found) {
+            $title = self::normal($found['title']);
+            if (isset($titles[$title])) {
+                if (! in_array($titles[$title], $created, true)) {
+                    $known[] = $titles[$title];
+                }
+
+                continue;
+            }
+            $created[] = $titles[$title] = $this->store->create($card->board, [
+                'type' => $found['type'], 'title' => $found['title'], 'labels' => ['discovered'],
+                'body' => trim("Discovered by {$card->id()} ({$card->title()}) while {$while} it.\n\n".($found['body'] ?? '')),
+            ], $by)->id();
+        }
+        $known = array_values(array_unique($known));
+
+        return $created;
+    }
+
+    /**
+     * The cards the agents of $card filed or matched, oldest first.
+     *
+     * @return list<string>
+     */
+    public static function discoveredBy(Card $card): array
+    {
+        $ids = [];
+        foreach ($card->log() as $entry) {
+            array_push($ids, ...(array) ($entry['discovered'] ?? []), ...(array) ($entry['known'] ?? []));
+        }
+
+        return array_values(array_unique(array_filter($ids, 'is_string')));
+    }
+
+    private static function normal(string $title): string
+    {
+        return trim((string) preg_replace('/[^\p{L}\p{N}]+/u', ' ', mb_strtolower($title)));
     }
 
     /**
      * @param  list<string>  $created
      * @param  array<string, mixed>  $staged
+     * @param  list<string>  $known
      */
-    private static function found(array $created, array $staged): string
+    private static function found(array $created, array $staged, array $known = []): string
     {
         $upstream = count($staged['upstream'] ?? []);
 
-        return ($created === [] ? '' : ', discovered '.implode(', ', $created)).($upstream === 0 ? '' : ", {$upstream} upstream finding(s) for main");
+        return ($created === [] ? '' : ', discovered '.implode(', ', $created)).($known === [] ? '' : ', already on the board: '.implode(', ', $known))
+            .($upstream === 0 ? '' : ", {$upstream} upstream finding(s) for main");
     }
 
     /**

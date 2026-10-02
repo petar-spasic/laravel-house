@@ -1,5 +1,6 @@
 <?php
 
+use PetarSpasic\LaravelHouse\Tests\Support\CodeSandbox;
 use PetarSpasic\LaravelHouse\Tests\Support\Sandbox;
 
 beforeEach(function () {
@@ -226,7 +227,7 @@ it('fills the ready buffer with startable cards only, and names each backlog car
 });
 
 it('clears what blocked a card when it is stopped back to ready, and logs it', function () {
-    $code = \PetarSpasic\LaravelHouse\Tests\Support\CodeSandbox::create();
+    $code = CodeSandbox::create();
     $id = $code->started('Picked up');
     $code->ok(['set', $id, 'blocked=start failed: the stack would not build']);
     $code->ok(['stop', $id, '--to=ready']);
