@@ -63,7 +63,7 @@ it('merges settings, writes agents, .gitignore and the CLAUDE.md block, and is i
     expect($worker)->toStartWith("---\nname: kanban-worker\n")
         ->toContain('<!-- laravel-house:kanban-agent')
         ->toContain('EnterWorktree(path:')
-        ->and(file_get_contents($sandbox->root.'/.claude/agents/kanban-evaluator.md'))->toContain("tools: Read, Grep, Glob, LSP, Bash, TodoWrite, EnterWorktree, Monitor, WebFetch, mcp__laravel-boost__search-docs\n")
+        ->and(file_get_contents($sandbox->root.'/.claude/agents/kanban-evaluator.md'))->toContain("tools: Read, Grep, Glob, LSP, Bash, TodoWrite, EnterWorktree, Monitor, TaskStop, WebFetch, mcp__laravel-boost__search-docs\n")
         ->and(file_get_contents($sandbox->root.'/.claude/agents/reviewer.md'))->toBe("---\nname: reviewer\n---\nmine\n")
         ->and(file_get_contents($sandbox->root.'/.gitignore'))->toBe("/vendor/\n/docs/kanban/\n/.claude/worktrees\n");
 

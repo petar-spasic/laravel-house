@@ -6,8 +6,8 @@ The owner's house package for Laravel projects. Its skills are served two ways f
 
 The composer package also ships PHP to every project that requires it: the `validation:export` command, and the kanban
 board. The board is a git-backed board on an orphan `kanban` branch checked out at `docs/kanban`, the `vendor/bin/kanban`
-CLI, a local `/kanban` UI, Claude Code hooks and agents, and one Docker stack per git worktree. A project goes on the
-board only through `/implement-kanban` (`kanban:install`).
+CLI, a local `/kanban` UI, Claude Code hooks and agents, and one clone of main and one Docker stack per card. A project
+goes on the board only through `/implement-kanban` (`kanban:install`).
 
 Consumers read `README.md` and the skills. This file is for working **on** the package.
 
@@ -20,19 +20,21 @@ Consumers read `README.md` and the skills. This file is for working **on** the p
 | `.claude-plugin/plugin.json` | The plugin; `"skills": "./resources/boost/skills/"` makes the same directory its skills |
 | `src/LaravelHouseServiceProvider.php`, `src/Validation/*` | The `validation:export` command |
 | `src/Kanban/KanbanServiceProvider.php` | The board's provider: config, the `kanban:*` commands, the `/kanban` routes and views |
-| `src/Kanban/Store/**`, `src/Kanban/Schema/*`, `schema/*.json` | Store contract, git driver (writes, merge driver, sync and its status, claims), validation |
-| `src/Kanban/Policy/*` | Transitions, ready policy, pull order |
+| `src/Kanban/Store/**`, `src/Kanban/Schema/*`, `schema/*.json` | Store contract, git driver (writes, batches, merge driver, sync and its status, claims, the version 1 upgrade), validation |
+| `src/Kanban/Policy/*` | Transitions, ready policy, pull order, edits and creation, fold, shape (the card-cutting hints) |
 | `src/Kanban/Console/*`, `src/Kanban/Console/Install/*` | CLI commands; install steps (stored-name migration, settings hooks, agents, the `CLAUDE.md` block and Boost entry, `.gitignore`) |
-| `src/Kanban/Code/*` | Worktrees, worktree `.env`, machine-wide port registry, compose stacks, merge checks |
+| `src/Kanban/Code/*` | Card clones and worktrees, their `.env`, machine-wide port registry, compose stacks, merge checks, main check and push, dependency checks |
+| `src/Kanban/Upstream/*` | Package findings: scrubber, findings on cards, `gh` |
 | `src/Kanban/Protocol/*`, `src/Kanban/Hooks/*` | Runtime files, staged reports and verdicts, stop gates, lease, SessionStart brief, context, the 5 hook handlers |
-| `src/Kanban/Guard/Guard.php`, `bin/kanban-guard`, `githooks/*` | PreToolUse binder (binding, heartbeat, spawn record); commit-msg and pre-push hooks |
+| `src/Kanban/Guard/Guard.php`, `bin/kanban-guard`, `githooks/*` | PreToolUse binder (binding, heartbeat, spawn record, a card agent's shell routing and file fence); commit-msg and pre-push hooks |
+| `bin/kanban-exec` | The kill-safe wrapper a card agent's shell runs through into its container |
 | `src/Kanban/Http/*`, `routes/web.php`, `resources/views`, `resources/dist` | Local UI: shell page, JSON API, `Presenter`, `UiGuard`; `kanban.js`/`kanban.css` (no build step, vanilla JS, CSP-safe) |
 | `src/Kanban/Import/*` | House docs importer (`docs/decisions.md`, `docs/ideas.md`) |
 | `config/kanban.php` | The board's defaults (`kanban.*`); a project's own `config/kanban.php` merges over it |
 | `stubs/board`, `stubs/claude` | Board skeleton; hooks JSON, agent definitions and the `CLAUDE.md` block written by install |
 | `bin/kanban` | The standalone CLI, `vendor/bin/kanban` in a project |
 | `dev`, `docker/*` | The dev container: Dockerfile, `./dev`, the browser checks of the UI (`docker/browser`), and the build of the bundled font (`docker/fonts`) |
-| `tests/E2E/*`, `tests/Support/*` | E2E suites and sandboxes (`Sandbox`, `Origin`, `CodeSandbox`, `GuardSandbox`, `ProtocolSandbox`, `UiSandbox`) |
+| `tests/E2E/*`, `tests/Support/*` | E2E suites and sandboxes (`Sandbox`, `Origin`, `CodeSandbox`, `GuardSandbox`, `ProtocolSandbox`, `UiSandbox`, `ExportSandbox`), fakes (`FakeDocker`, `FakeGh`) |
 | `phpunit.xml.dist`, `pint.json` | Suite and code-style config |
 | `composer.json` | The package (rule 7). Autoloads `src/`, registers both providers, ships `bin/kanban` |
 | `README.md` | The one consumer doc (rule 10) |
@@ -53,8 +55,9 @@ would load here as live instructions. Never rename one back.
    redundant, stale, speculative or one-off whenever a skill is touched.
 5. **One owner per topic; point, never copy.**
    - The `kanban` skill: the kanban protocol and the gotchas consumers meet. `src/Kanban`: what `kanban:install` writes.
-   - `laravel-deployment`: the compose, entrypoint, Caddy, Vite and phpunit shapes; the Hosting section; the spa path
-     split (`references/spa.md`); tenancy's database roles (`references/tenancy.md`).
+   - `laravel-deployment`: the compose, entrypoint, Caddy, Vite and phpunit shapes, as templates and snippets that
+     setup's `scripts/install.php --templates` renders; the Hosting section; the spa path split (`references/spa.md`);
+     tenancy's database roles (`references/tenancy.md`).
    - `laravel-project-setup`: seeding, conventions, the PHP minor, ports, the Horizon gate; which modules combine (its
      SKILL.md Modules table and `install.php`); the core-auth and tenancy rules (the `CLAUDE.md` stubs); the spa
      frontend rules (`templates/modules/spa/frontend/CLAUDE.md.stub`).
@@ -73,9 +76,10 @@ would load here as live instructions. Never rename one back.
    - Commits carry no Co-Authored trailer. `githooks/commit-msg` rejects one, and this repo uses it
      (`git config core.hooksPath githooks`).
 8. **Tests are E2E only**, in the projects these skills set up and in this package.
-   - The package's tests run real entry points against temp git repos: `bin/kanban`, `bin/kanban-guard` and the git
-     hooks through Process, HTTP through testbench routes, and hook payloads on stdin. Fake only outside systems:
-     docker (`tests/Support/FakeDocker`) and remotes (a local bare repo).
+   - The package's tests run real entry points against temp git repos: `bin/kanban`, `bin/kanban-guard`,
+     `bin/kanban-exec` and the git hooks through Process, HTTP through testbench routes, and hook payloads on stdin.
+     Fake only outside systems: docker (`tests/Support/FakeDocker`), GitHub's CLI (`tests/Support/FakeGh`) and remotes
+     (a local bare repo).
    - Fixtures use invented names (key ACME, "Acme Notes"), never a real project's names, ports or text. Tests never
      hardcode machine addresses: hosts come from the environment (`CodeSandbox::lanHost()` reads `LOCAL_APP_URL`), and
      network ranges come from `198.18.0.0/15`, because doctor counts the host's own interfaces. Docs, the README
@@ -92,9 +96,13 @@ would load here as live instructions. Never rename one back.
      under `templates/` today: the backend files, the htmx and islands boot files, `config/boost.php` and the Boost
      overrides, the snippets, the E2E tests. They stay.
    - Every module's frontend, Socialite and tenancy ship as binding rules in the `CLAUDE.md` stubs.
-   - Module text sits in `<!-- if:m -->` blocks. A deployment module's additions sit in its reference file, so an app
-     without the module carries none of it.
+   - Module text sits in `<!-- if:m -->` blocks, or `# if:m` … `# endif` in files that are not Markdown. A deployment
+     module's additions sit in its template blocks, and its reference keeps the why, traps and Verify, so an app without
+     the module carries none of it.
    - New shipped code needs the owner's OK.
+   - A package enters a template's prescribed list only after the maintenance check: its row in
+     `laravel-project-setup/references/packages.md` records the date checked, the last release, the maintainers, the
+     majors it supports and the fallback. Re-check every row on each pin bump.
 10. **`README.md` follows the Laravel docs style.**
     - One H1, then the TOC: H2 entries at column 0, H3 entries indented four spaces.
     - `<a name="…"></a>` on the line directly above each H2 and H3.
@@ -102,12 +110,21 @@ would load here as live instructions. Never rename one back.
     - Every fence is tagged and introduced by a sentence ending in a colon.
     - Second person, short sentences, one idea each. Explain a term once, or leave it out.
     - A change to what a consumer sees updates it in the same commit.
+11. **Deterministic steps are code.** A step whose result is fixed by its inputs ships as a script, command or gate with
+    an E2E test: copying or rendering templates, filling placeholders, wiring hooks and settings, patching a known
+    line, checking a rule that can be checked. A skill keeps only what needs judgement (merging into a file the project
+    changed, choosing, wording) and calls the code. A rule that matters is a gate, not prose.
 
 ## Kanban: load-bearing constraints
 
 Class names below are relative to `PetarSpasic\LaravelHouse\Kanban` (`src/Kanban`).
 
-- **`bin/kanban-guard` + `src/Kanban/Guard/Guard.php` have zero dependencies.** They are loaded with `require_once` and use no Composer or Illuminate. The hook runs on tool calls, so p95 must stay under 50 ms; `tests/E2E/Guard` asserts this. It never allows or denies: it binds an agent to its card at EnterWorktree, refreshes the heartbeat and records kanban spawns. Any error prints nothing. Agents are steered by their instructions (`stubs/claude/agents`, the SubagentStart context), not fenced: do not add deny rules.
+- **`bin/kanban-guard` + `src/Kanban/Guard/Guard.php` have zero dependencies.** They are loaded with `require_once` and use no Composer or Illuminate. The hook runs on tool calls, so p95 must stay under 50 ms; `tests/E2E/Guard` asserts this. It binds an agent to its card at EnterWorktree, refreshes the heartbeat and records kanban spawns. For a bound worker or evaluator it does two more things, by string checks only:
+  - **Routing:** every Bash and Monitor command except a plain `vendor/bin/kanban` one (no shell operators) is rewritten through `updatedInput`, never with a decision, to `vendor/bin/kanban-exec <container> <cwd> '<cmd>'`. `ClaudeSettings` writes the matching allow rule.
+  - **The fence:** its file tools are denied outside the card's directory, and writes into the card's `.git` and `.claude`; reads may also reach Claude Code's temp directory and the skill directories. This is the only thing it denies.
+
+  Any error prints nothing. Everything else agents do is steered by their instructions (`stubs/claude/agents`, the SubagentStart context).
+- **A card's directory is a clone of main** (`Worktrees::add`, `kanban.main` names main; `Paths` and Guard follow it back). Its agents run git inside their container, where main's `.git` is never mounted; no card stack gets a deploy key. Host-side code reads a clone's state only through `Git::untrusted` (no hooks, fsmonitor, filters or other config of the clone runs on this machine), and moves branches with `Worktrees::sync`: main's branch into the clone, the card's branch into main. Gates run in the card's container. Other worktrees (`claude -w`, the board) stay git worktrees.
 - **`bin/kanban` never boots the host app.** It is Illuminate Console standalone: `.env` via Dotenv, the project's `config/kanban.php` merged over the package config. Hooks and workers depend on this when a branch breaks the app. The same command classes run under artisan (`kanban:*`); only `kanban:install` is artisan-only (`ARTISAN_COMMANDS` in `KanbanServiceProvider`).
 - **The UI needs nothing from the host app.** `/kanban` is one Blade shell (`resources/views/app.blade.php`; with `ui.token` set, `UiToken` serves `token.blade.php`, a plain GET form, until the browser holds the token) plus a JSON API under `/kanban/_api` (`_api` is not a slug, so no board can collide with it); `resources/dist/kanban.{js,css}` draw everything. Its routes run without the `web` group (`ui.middleware` defaults to `[]`): no session, cookie or CSRF token; `UiGuard` refuses cross-site requests, foreign Host names (DNS rebinding) and writes without `X-Kanban`; `UiHeaders` sends the CSP (`default-src 'self'`) that the Markdown of card text relies on. No build step, no libraries, no inline script or style, no `innerHTML` except the server-escaped Markdown (`view.innerHTML = html; /* md-sink */`). Every colour, radius and font size is a token in `:root` (`light-dark()` for the two themes; no colour literal outside it), and the coarse-pointer and forced-colours blocks are the last rules of `kanban.css`; icons are inline SVG built from the marked `ICONS` table, never glyphs or `data:` URIs (CSP). Cards open as layered panels (`S.stack`, URL `?from=`), each panel an instance from `buildPanel`; every dropdown is `openList`/`selectPill`. The script has no automated tests (tests are E2E only), so it is checked in a browser under a strict CSP; see Workflow. Reads go through `Http\Presenter`, writes through `Store`/`Transitions` with the card's rev; the shared edit rules live in `Policy\Edits` (including the lock on stages listed in `locked`) and `Policy\Creation` (the CLI uses them too).
 - **Board commands are discovered,** not listed: every `src/Kanban/Console/*Command.php` extending `Console\Command` (implement `perform(): int`). `validation:export` is registered by `LaravelHouseServiceProvider`.
@@ -125,6 +142,7 @@ Class names below are relative to `PetarSpasic\LaravelHouse\Kanban` (`src/Kanban
 
 ## Workflow
 
+- **Package findings** from consumers arrive as `agent-finding` issues on the repository (`kanban upstream file`).
 - **Container:** `./dev` (`docker/Dockerfile`) is the one environment for the package code: PHP 8.5 (`PHP_VERSION=8.3 ./dev build` for the oldest supported), git 2.47 (the board needs ≥ 2.42, so the base is Debian trixie), Composer, and headless Chromium with Playwright's library. `vendor` lives in a named volume, so the host's PHP never matters; files written into the checkout belong to you. Nothing else is needed on the host but Docker. `./dev` alone lists the commands. Node, Chromium and `playwright-core` exist only in the image: they are not package dependencies (rule 7).
 - **The font:** Inter ships as three subset files (`resources/dist/inter-<revision>-<weight>.woff2`, OFL text beside them), built by `./dev fonts` from the image. They are served `immutable` without a version query, so a changed file needs a new revision number: `revision=` in `docker/fonts/build.sh`, then the names in `kanban.css`, `Ui::ASSETS` and `app.blade.php` (the tests read the file names from the directory, so a missed one fails them).
 - **Check:** `./dev check` runs the suite in parallel (about 30 s; the tests use their own temp dirs and random port pools) and `pint --test`, inside the container above. While other agents share the checkout, run pint on your own paths: `pint` and `--dirty` format every untracked file.
@@ -167,11 +185,10 @@ grep -rnE 'ssr-dev|DB_OWNER_USERNAME|VITE_REVERB|(^|[^i])/broadcasting/auth([^/]
 grep -rnE 'descriptor|dist/validation|zodFromDescriptor|FormController' resources src README.md   # validation:export is the one bridge to the frontend
 grep -rn 'viewPrefix' resources/boost/skills/laravel-project-setup/templates/snippets   # htmx Fortify views stay off until the project's pages exist
 grep -rnE '\{\{(web_port|domain)\}\}' resources/boost/skills/laravel-project-setup/templates   # deployment's placeholders
-grep -rliE 'tenan(t|cy)|pgsql_owner|DB_OWNER_' resources/boost/skills/laravel-deployment/templates --exclude=roles.sql   # tenancy lives in references/tenancy.md
+grep -rnE 'formsnap|mode-watcher|clsx|tailwind-merge' resources README.md --exclude=packages.md   # dropped from the prescribed set
 
-# Templates
-for f in resources/boost/skills/laravel-deployment/templates/docker/*.sh; do bash -n "$f" || echo "✗ $f"; done
-c=$(mktemp -d); for f in resources/boost/skills/laravel-deployment/templates/docker/Caddyfile.local*; do sed -e 's/{{app}}/acme/g' -e 's/{{[a-z_]*}}/8000/g' "$f" > "$c/$(basename "$f")"; docker run --rm -v "$c:/c:ro" caddy:2 caddy adapt --config "/c/$(basename "$f")" --adapter caddyfile >/dev/null 2>&1 || echo "✗ $f"; done; rm -rf "$c"
+# Scripts
+bash -n bin/kanban-exec || echo "✗ bin/kanban-exec"
 
 # README
 grep -oE '\]\(#[a-z0-9-]+\)' README.md | sed -E 's/.*#(.*)\)/\1/' | sort -u | while read -r a; do grep -q "<a name=\"$a\"></a>" README.md || echo "✗ anchor $a"; done
@@ -182,7 +199,7 @@ awk 'prev ~ /^<a name=/ && !/^##+ / { print "✗ " prev } /^##+ / && prev !~ /^<
 After renaming a skill, a skill section, or a README section that skills cite, fix every hit of:
 
 ```bash
-grep -rn 'laravel-deployment\|laravel-project-setup\|references/\|Many stacks\|Procedure\|Verify\|kanban` skill\|skills/kanban\|Worktree Stacks\|Preparing Your Compose File\|Docker Address Pools\|Team Sync\|Kanban Troubleshooting\|Adopting the Board' resources/boost README.md
+grep -rn 'laravel-deployment\|laravel-project-setup\|references/\|Many stacks\|Procedure\|Verify\|kanban` skill\|skills/kanban\|Worktree Stacks\|Preparing Your Compose File\|Docker Address Pools\|Team Sync\|Kanban Troubleshooting\|Adopting the Board\|Planning cards\|Questions and rules\|Package findings\|Consolidating\|Judging decisions\|Where Agents Run' resources/boost README.md
 ```
 
 implement-kanban's citations wrap across lines: join them (`tr '\n' ' '`) before matching.
@@ -201,6 +218,7 @@ for fe in '' htmx htmx,islands spa; do for rv in '' reverb; do for tn in '' tena
   grep 'placeholders left' <<<"$out" | grep -vE ': (what_we_are_building, hosting|hosting, what_we_are_building)$' && echo "✗ placeholders [$m]"
   find "$d" -name '*.php' -exec php -l {} \; | grep -v '^No syntax errors' && echo "✗ lint [$m]"
   grep -rlE '<!-- (if|unless):|<!-- endif' "$d" && echo "✗ markers [$m]"
+  grep -rlE 'formsnap|mode-watcher|clsx|tailwind-merge' "$d" && echo "✗ dropped package [$m]"
   [ -f "$d/database/data/.gitkeep" ] && [ -f "$d/app/Http/Middleware/AcceptJson.php" ] || echo "✗ shipped files [$m]"
   if [ -n "$tn" ]; then grep -q '^## Tenancy' "$d/CLAUDE.md" || echo "✗ tenancy rules missing [$m]"
   else grep -rliE 'tenan(t|cy)' "$d" && echo "✗ tenancy text [$m]"; fi
@@ -219,7 +237,37 @@ for p in "$r"/snippets/*.php; do php -l "$p" >/dev/null 2>&1 || echo "✗ snippe
 grep -rlE '<!-- (if|unless):|<!-- endif' "$r" && echo "✗ render-to markers"; rm -rf "$r" "$t"
 ```
 
-A new placeholder joins `sets` here and setup's step 4.
+A new placeholder joins `sets` here and setup's step 4; `InstallScriptTest` fails on one its skill does not name.
+
+Then render laravel-deployment for every module combination, through the same script. Each render leaves no
+placeholder or marker, passes `bash -n`, `caddy adapt` (the prod Caddyfile in FrankenPHP's image) and
+`docker compose config`, and carries a module's text exactly when the module is on:
+
+```bash
+inst=resources/boost/skills/laravel-project-setup/scripts/install.php
+tpl=resources/boost/skills/laravel-deployment/templates
+dsets=(--set app=acme --set app_name=Acme --set php_version=8.5 --set web_port=8000 --set db_port=5433 --set redis_port=6380 --set ws_port=8001 --set domain=example.com)
+for fe in '' htmx htmx,islands spa; do for rv in '' reverb; do for tn in '' tenancy; do
+  m=$(IFS=,; a=($fe $rv $tn); echo "${a[*]}"); r=$(mktemp -d); t=$(mktemp -d); touch "$t/artisan"
+  out=$(php "$inst" "$t" --templates="$tpl" --modules="$m" "${dsets[@]}" --render-to="$r" 2>&1) || { echo "✗ exit [$m] $out"; rm -rf "$r" "$t"; continue; }
+  [ "$(ls -A "$t")" = artisan ] || echo "✗ render-to wrote into the target [$m]"
+  grep 'placeholders left' <<<"$out" && echo "✗ placeholders [$m]"
+  grep -rn '{{' "$r" && echo "✗ braces [$m]"
+  grep -rnE '<!-- (if|unless):|<!-- endif|^\s*# (if|unless):|^\s*# endif' "$r" && echo "✗ markers [$m]"
+  for f in "$r"/docker/*.sh; do bash -n "$f" || echo "✗ bash $f [$m]"; [ -x "$f" ] || echo "✗ not executable $f [$m]"; done
+  for f in "$r"/snippets/*.php "$r"/tests/*.php; do php -l "$f" >/dev/null 2>&1 || echo "✗ lint $f [$m]"; done
+  docker run --rm -v "$r:/app:ro" caddy:2 caddy adapt --config /app/docker/Caddyfile.local --adapter caddyfile >/dev/null 2>&1 || echo "✗ Caddyfile.local [$m]"
+  docker run --rm -v "$r:/app:ro" -e APP_PUBLIC_PATH=/app/public -e CADDY_SERVER_ADMIN_HOST=localhost -e CADDY_SERVER_ADMIN_PORT=2019 -e CADDY_SERVER_LOG_LEVEL=INFO -e CADDY_SERVER_LOGGER=json -e CADDY_SERVER_SERVER_NAME=:8080 dunglas/frankenphp frankenphp adapt --config /app/docker/Caddyfile --adapter caddyfile >/dev/null 2>&1 || echo "✗ Caddyfile [$m]"
+  printf 'COMPOSE_PROJECT_NAME=acme-local\nREVERB_APP_KEY=k\n' > "$r/.env"; printf 'APP_URL=https://example.com\nDB_PASSWORD=x\nDB_OWNER_PASSWORD=y\n' > "$r/.env.prod"
+  (cd "$r" && HOME=/nonexistent docker compose -f docker-compose.local.yml config -q) || echo "✗ local compose [$m]"
+  (cd "$r" && docker compose --env-file .env.prod -f docker-compose.yml config -q) || echo "✗ prod compose [$m]"
+  rm "$r/.env" "$r/.env.prod"
+  case ",$m," in *,tenancy,*) [ -f "$r/docker/postgres/roles.sql" ] || echo "✗ roles.sql [$m]" ;; *) grep -rliE 'tenan(t|cy)|acme_app|pgsql_owner|DB_OWNER|roles\.sql' "$r" && echo "✗ tenancy text [$m]" ;; esac
+  case ",$m," in *,reverb,*) grep -q 'reverb:start' "$r/docker/healthcheck.sh" || echo "✗ reverb missing [$m]" ;; *) grep -rli 'reverb' "$r" && echo "✗ reverb text [$m]" ;; esac
+  case ",$m," in *,spa,*) [ -f "$r/docker/e2e.sh" ] || echo "✗ e2e.sh [$m]" ;; *) grep -rliE 'sveltekit|adapter-node|\bssr\b|frontend/|playwright|APP_E2E|8090' "$r" && echo "✗ spa text [$m]" ;; esac
+  rm -rf "$r" "$t"
+done; done; done
+```
 
 ## Release
 
@@ -231,9 +279,10 @@ the next bump. Consumers update as the README's Updating section says.
 A release that changes the core is a new minor. A 0.x caret never crosses a minor, so consumers cross it with
 `composer require --dev petar-spasic/laravel-house` and no constraint (README, Updating).
 
-`src/Kanban/Console/Install/Migrate.php` moves projects off the old stored names. Delete it, its test, the README
-warning about `petar-spasic/laravel-kanban` and implement-kanban's cases (d) and (e) in the first minor after every
-project is upgraded.
+`src/Kanban/Console/Install/Migrate.php` moves projects off the old stored names, and `fold-boards`
+(`FoldBoardsCommand`, `Store/Git/Upgrade.php`, `Archive.php`) moves version 1 boards onto one work board. Delete them,
+their tests, the README warnings about `petar-spasic/laravel-kanban` and board version 1, and implement-kanban's cases
+(d) and (e) and "Consolidating", in the first minor after every project runs v0.6.0 or later.
 
 Before tagging a release that touches `src/`, `bin/` or `composer.json`, smoke-install it on the host into a scratch
 Laravel app outside the repo, with `house` set to this repository's path. Export `XDG_STATE_HOME` to a scratch

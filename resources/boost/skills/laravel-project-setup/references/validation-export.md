@@ -102,7 +102,7 @@ Presence:
 - `bail`: the field stops at its first failing rule.
 
 Types (with no type rule, a field that has value rules is a string):
-- `string`; `integer`/`int` (`Number.isInteger`); `numeric` (`Number.isFinite`); `boolean`/`bool`;
+- `string`; `integer`/`int` (`Number.isInteger`; `integer:strict` exports the same test); `numeric` (`Number.isFinite`); `boolean`/`bool`;
   `array`/`list`; dotted keys build nested objects, `*` builds arrays, and a field in `maps` is a
   `z.record(z.string(), …)`.
 - A backed `Rule::enum` with int values and no type rule gives a number field.

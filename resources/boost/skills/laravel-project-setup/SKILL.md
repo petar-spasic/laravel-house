@@ -63,8 +63,8 @@ This table owns the combination rules. `install.php` enforces them and refuses a
 
 - A rule that does not fit this project, a stack piece no module covers, or an answer that leaves something undefined:
   ask the owner. Never invent a rule.
-- Keep two lists: every decision made during setup, and every open question. With the board, `/implement-kanban`
-  turns them into decided and proposed cards (step 11).
+- Keep two lists: every decision made during setup, and every open question. The decisions become rules in the
+  `CLAUDE.md` files; with the board, `/implement-kanban` puts the open questions on cards (step 11).
 - When the owner changes a rule and says it applies everywhere, change the template here too.
 
 ## Procedure
@@ -165,8 +165,8 @@ This table owns the combination rules. `install.php` enforces them and refuses a
     approval. Otherwise the board branch is pushed first and becomes the default branch.
 11. **The board, if the owner wants it.** `/implement-kanban` runs only when the owner types it
     (`disable-model-invocation`), after `/reload-skills` if this session started before `.claude/skills/` existed. It
-    records the decisions as decided cards and the open questions as proposed cards; without the board they stay in
-    the root `CLAUDE.md`. End your report with both lists. The open list always has:
+    puts the open questions on cards; without the board they stay in the root `CLAUDE.md`. End your report with both
+    lists. The open list always has:
     - which social providers are on;
     - email verification on or off;
     - htmx: "Build the auth pages" (`resources/CLAUDE.md`, Auth pages);

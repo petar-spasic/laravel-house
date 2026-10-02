@@ -50,8 +50,8 @@ table.
   - `config/app.php` gets `'e2e' => (bool) env('APP_E2E', false)`, the e2e site's switch, and Fortify's published
     limiters return `Limit::none()` under it (`app/Providers/CLAUDE.md`).
 - **Checks:** none until `frontend/` exists. Then `npm run check` in `frontend/`, which runs `validation:export --check`
-  first (`references/validation-export.md`). It defaults `PUBLIC_APP_URL`, so it also runs on the host: with the
-  board, `cd frontend && npm run check` is a `gates.report` entry in `config/kanban.php`.
+  first (`references/validation-export.md`). It defaults `PUBLIC_APP_URL`, so it also runs on the host; with the
+  board it is a default gate wherever `frontend/package.json` exists.
 
 ## reverb
 

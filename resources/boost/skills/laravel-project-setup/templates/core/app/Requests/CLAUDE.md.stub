@@ -54,11 +54,14 @@ or `npm run check` fails. Upload fields stay server-only.
   reports both messages.
 - **Every input the backend reads** (e.g. `remember`) is declared with a type: the schema strips undeclared keys.
 - Every `*` field has a name in `attributes()`.
-- **Arrays are never nullable in the schema**: an empty one posts `[]`, so `min` and `size` still apply.
-- **Arrays of arrays** make the form's `dataType` `'json'` (`frontend/CLAUDE.md`, Forms).
+- **Arrays are never nullable in the schema**: an empty one posts `[]`. A list that needs items is
+  `required|array|min:N`; an optional one carries no lower bound (the export refuses one).
+- **Arrays of arrays**, and keyed maps (`maps:` on the attribute), make the form's `dataType` `'json'`
+  (`references/validation-export.md`).
 - **A `regex` with the `i` modifier also needs `u`. Never the `m` modifier.** The export refuses both.
 - A refusal is fixed in the rule, or the check moves into a rule object, which stays server-only. Never drop the
   attribute to silence it.
-- Each exported form has its parity proof (`tests/CLAUDE.md`). The command, the mapping and the gate:
+- Each exported form has its parity proof (`tests/CLAUDE.md`); `npm run check` fails without it. The command, the
+  mapping and the gate:
   `laravel-project-setup`'s `references/validation-export.md`.
 <!-- endif -->

@@ -93,8 +93,9 @@ stack. The e2e site runs Laravel's CSRF token path, as a LAN http origin does (l
 
 ### Validation parity
 
-One proof per exported form (`app/Requests/CLAUDE.md`): a Pest test and a Playwright test send the same invalid input
-and see the same set of messages per field (Pest's 422 body against the browser's field text; order may differ).
+One proof per exported form (`app/Requests/CLAUDE.md`): `frontend/e2e/parity/<name>.spec.ts` sends the same invalid
+input through the page and through Playwright's `request` fixture, and sees the same set of messages per field (the
+422 body against the browser's field text; order may differ). `validation:export --check` fails a form without it.
 - Stay clear of where Zod and Laravel differ: well-typed values, fewer than 10 array items, no `bail` field with two
   failures. Use an empty required field, a too-short ASCII string, an email with no `@`, a mismatched confirmation.
   Never numeric garbage (`12abc`, or `1.5` for an integer), a TLD-less email (`a@b`) or non-BMP characters in a length

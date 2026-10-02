@@ -22,10 +22,11 @@ build() {
     docker build -q -f docker/Dockerfile --build-arg "PHP_VERSION=${PHP_VERSION}" --build-arg "UID=$(id -u)" --build-arg "GID=$(id -g)" -t "$IMAGE" docker >/dev/null
 }
 
-# vendor lives in a volume: the host's vendor directory may belong to another PHP.
+# vendor lives in a volume: the host's vendor directory may belong to another PHP. Compiled views go to the run's own
+# /tmp, since every checkout shares the volume and testbench would compile into it.
 run() {
     local flags=(--rm --init -v "$PWD:/app" -v "laravel-house-vendor-php${PHP_VERSION}:/app/vendor" -v laravel-house-composer:/home/dev/.composer
-        --tmpfs /tmp:exec,mode=1777 -u "$(id -u):$(id -g)")
+        --tmpfs /tmp:exec,mode=1777 -e VIEW_COMPILED_PATH=/tmp/views -u "$(id -u):$(id -g)")
     [ -t 1 ] && flags+=(-t)
     docker run "${flags[@]}" "$@"
 }

@@ -17,7 +17,7 @@ Who is who: the root `CLAUDE.md`, Hosting (its tenancy part).
 - FORCE is still set on each tenant-owned table. It does nothing for a superuser, and it holds if the tables ever move
   to a non-superuser owner.
 - Default privileges are per database: `roles.sql` covers `{{app}}` and, where it exists, `{{app}}_test`.
-- No role but the owner skips RLS. A platform admin is a decided card (`app/Http/Middleware/CLAUDE.md`).
+- No role but the owner skips RLS. A platform admin is the owner's decision, a rule in `app/Http/Middleware/CLAUDE.md`.
 
 ## In the templates
 
