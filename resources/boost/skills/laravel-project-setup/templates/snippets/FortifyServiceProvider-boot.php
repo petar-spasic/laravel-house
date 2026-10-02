@@ -44,6 +44,15 @@ use Illuminate\Support\Facades\URL;
         // Fortify's own limiters (login, two-factor, passkeys; verification when on) are all it throttles; the other
         // guest POSTs get this one (config/fortify.php `middleware` applies it to every Fortify route, the closure
         // narrows it).
+<!-- unless:spa -->
         RateLimiter::for('auth-forms', fn (Request $request): Limit => $request->isMethod('POST') && $request->routeIs('register.store', 'password.email', 'password.update')
             ? Limit::perMinute(5)->by($request->route()->getName().'|'.$request->ip())
             : Limit::none());
+<!-- endif -->
+<!-- if:spa -->
+        // No limit on the e2e site (APP_E2E): its browser flows sign in back to back from one address. Fortify's
+        // published login, two-factor and passkeys closures start with the same check.
+        RateLimiter::for('auth-forms', fn (Request $request): Limit => ! config('app.e2e') && $request->isMethod('POST') && $request->routeIs('register.store', 'password.email', 'password.update')
+            ? Limit::perMinute(5)->by($request->route()->getName().'|'.$request->ip())
+            : Limit::none());
+<!-- endif -->

@@ -44,6 +44,11 @@ the inventory; check one by running its flow end to end.
   `auth-forms` next to `login`/`two-factor`/`passkeys` in `FortifyServiceProvider`, and `social` beside them once
   social sign-in is built. **Never in `bootstrap/app.php`**: its routing closures do not run under `route:cache`, and
   a route naming a missing limiter answers 500.
+<!-- if:spa -->
+  Every one, Fortify's published `login`, `two-factor` and `passkeys` closures included, returns `Limit::none()`
+  while `config('app.e2e')` is true: the e2e site sets `APP_E2E`, and the browser flows sign in back to back from one
+  address (Hosting). Pest keeps the limits, so a 429 stays testable there.
+<!-- endif -->
 - **`Model::shouldBeStrict()`** outside production, so N+1s and silent attribute misses fail loudly.
 <!-- if:tenancy -->
 - **Tenancy** (root `CLAUDE.md`, Tenancy), all in `AppServiceProvider`:

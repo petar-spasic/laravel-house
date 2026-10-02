@@ -170,6 +170,11 @@ class DoctorCommand extends Command
             $this->add($key->exists() ? 'ok' : 'warn', $key->exists()
                 ? 'deploy key '.$this->paths()->relative($key->path()).' (the container syncs with it once its public half is a write deploy key)'
                 : 'no deploy key for the container sync: `vendor/bin/kanban doctor --fix` makes one');
+        } elseif ($key->tokenWanted()) {
+            $token = (DotEnv::parse($this->paths()->main.'/.env')['KANBAN_GIT_TOKEN'] ?? '') !== '' || (string) getenv('KANBAN_GIT_TOKEN') !== '';
+            $this->add($token ? 'ok' : 'warn', $token
+                ? 'https origin: the container syncs with KANBAN_GIT_TOKEN'
+                : "https origin: set KANBAN_GIT_TOKEN in .env for the container sync (a fine-grained token with read and write on this repository's contents)");
         }
     }
 

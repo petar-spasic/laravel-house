@@ -1,6 +1,6 @@
 #!/bin/bash
 # {{app}} local entrypoint: deps on start (sha256-sentinel-guarded), never cache config,
-# database wait, migrate, gated seed, then php-fpm + caddy + vite + scheduler + horizon.
+# database wait, migrate, reference data and gated account seed, then php-fpm + caddy + vite + scheduler + horizon.
 set -e
 cd /app
 echo "=== {{app}} (local) ==="
@@ -57,7 +57,7 @@ php artisan migrate --force --database=pgsql_owner
 case "${DATABASE_SEED:-auto}" in
     auto) if php_app 'exit(App\Models\User::query()->exists() ? 0 : 1);'; then php artisan db:seed --class=ReferenceDataSeeder --force; else php artisan db:seed --force; fi ;;
     true) php artisan db:seed --force ;;
-    false) ;;
+    false) php artisan db:seed --class=ReferenceDataSeeder --force ;;
     *) echo "DATABASE_SEED must be auto, true or false, got '${DATABASE_SEED}'"; exit 1 ;;
 esac
 

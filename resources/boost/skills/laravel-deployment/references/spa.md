@@ -32,11 +32,10 @@ browser → Caddy :8080 ─┬─ @backend                     → Laravel (php-
 - `/healthz` answers 404 at Caddy wherever a browser arrives. SvelteKit answers it on 127.0.0.1:3000, for the prod
   healthcheck only.
 - Every route `php artisan route:list` shows must fall under these prefixes. A new one moves under `/api` or joins
-  `@backend` in both Caddyfiles. This check prints nothing when all are covered (`_boost/browser-logs` is Boost's
-  dev-only route and stays unrouted):
+  `@backend` in both Caddyfiles. This check prints nothing when all are covered:
 
 ```shell
-php artisan route:list --json | php -r 'foreach (json_decode(stream_get_contents(STDIN), true) as $r) if (! preg_match("#^(api/|sanctum/|horizon(/|$)|up$|storage/|kanban(/|$)|_boost/)#", $r["uri"])) echo $r["uri"], PHP_EOL;'
+php artisan route:list --json | php -r 'foreach (json_decode(stream_get_contents(STDIN), true) as $r) if (! preg_match("#^(api/|sanctum/|horizon(/|$)|up$|storage/|kanban(/|$))#", $r["uri"])) echo $r["uri"], PHP_EOL;'
 ```
 
 ## Ports
@@ -68,9 +67,9 @@ calls :8091, never :8090.
 - `docker/docker-entrypoint-local.sh`: appends `APP_URL`'s host to `SANCTUM_STATEFUL_DOMAINS`, and refuses a web port
   of 8080.
 - `Dockerfile.local`: the headless Chromium for the exact `@playwright/test` pin, installed at build as root.
-- Prod: `Dockerfile`'s frontend stage and Node binary, the `ssr` program and the boot checks in
-  `docker/docker-entrypoint.sh`, the `docker/Caddyfile` split, the build arg in `docker-compose.yml`, and
-  `.dockerignore` and `.env.prod.example` lines.
+- Prod: `Dockerfile`'s frontend stage and Node binary, the `ssr` program, the boot checks and a `view:cache` that
+  skips a missing `resources/views` (git keeps no empty directory) in `docker/docker-entrypoint.sh`, the
+  `docker/Caddyfile` split, the build arg in `docker-compose.yml`, and `.dockerignore` and `.env.prod.example` lines.
 
 ## Browser tests on `{{app}}_test`
 
@@ -82,20 +81,34 @@ prod split (`Caddyfile.frontend`). The e2e sites coexist with the dev stack.
 The only entry is `docker compose -f docker-compose.local.yml exec app docker/e2e.sh [playwright test args]`. It holds
 the test-database lock, refuses a cached config or a database not ending in `_test`, checks the image's browser
 against the lockfile, resets with `migrate:fresh --seeder=ReferenceDataSeeder --force` and `cache:clear`, builds with
-`PUBLIC_APP_URL=http://127.0.0.1:8090`, and runs Playwright with `E2E_DATABASE_READY=1`. Its comments give each guard.
+`PUBLIC_APP_URL=http://localhost:8090`, and runs Playwright with `E2E_DATABASE_READY=1`. Its comments give each guard.
 
-**The lock.** Pest and Playwright never use the test database at once. e2e.sh holds the lock alone; Pest takes it
-shared, so parallel workers coexist. It lives in the checkout, so a run on the host and one in the container see each
-other on a Linux host (Docker Desktop's file sharing may not carry host locks). `tests/bootstrap.php` takes it.
+**The origin is `localhost:8090`**, never `127.0.0.1:8090`: WebAuthn refuses an IP as its relying party. Only what the
+browser or Laravel sees uses it; server-to-server addresses (`API_INTERNAL_URL`, the webServer health URL, e2e.sh's
+probes) stay `127.0.0.1`, because Node may resolve `localhost` to `::1` first.
+
+**The lock.** One test run uses the test database at a time: e2e.sh and every top-level Pest run take
+`storage/framework/testing/db.lock` exclusively (`tests/bootstrap.php`; parallel workers run under their parent's), and
+a second run waits. It lives in the checkout, so a run on the host and one in the container see each other on a Linux
+host (Docker Desktop's file sharing may not carry host locks).
+
+**One switch.** The e2e site sets `APP_E2E`, and the app reads it as `config('app.e2e')`: every named rate limiter
+answers `Limit::none()` under it (`app/Providers/CLAUDE.md`), so back-to-back sign-ins never wait out a 429, and a
+test-only behaviour, such as a faked outside system, reads it too. `(e2e_php)` never gains a line per feature. The prod
+entrypoint refuses `APP_E2E`.
+
+**The CSRF token path.** Laravel 13 passes a write carrying `Sec-Fetch-Site: same-origin` without checking its token,
+and browsers send Fetch Metadata only to https, `localhost` and loopback. The `:8090` site strips the header, so every
+browser write in the run takes the token path a LAN http origin takes.
 
 **The Playwright contract.** `frontend/playwright.config.ts` is the frontend's file; these values are fixed here:
 
 - `testDir: './e2e'`, `workers: 1`, `fullyParallel: false`; one project, `chromium` with `devices['Desktop Chrome']`
-  and no `channel` (the image holds the headless shell only); `use.baseURL: 'http://127.0.0.1:8090'`.
+  and no `channel` (the image holds the headless shell only); `use.baseURL: 'http://localhost:8090'`.
 - `webServer`: `command: 'node build'` (e2e.sh builds), `url: 'http://127.0.0.1:3000/healthz'`,
   `reuseExistingServer: false`, and an explicit `env`, because Playwright merges it over the container's own:
-  `HOST: '127.0.0.1'`, `PORT: '3000'`, `ORIGIN: 'http://127.0.0.1:8090'`, `ADDRESS_HEADER: 'X-Real-IP'`,
-  `API_INTERNAL_URL: 'http://127.0.0.1:8091'`, `PUBLIC_APP_URL: 'http://127.0.0.1:8090'`, `BODY_SIZE_LIMIT: '8M'`,
+  `HOST: '127.0.0.1'`, `PORT: '3000'`, `ORIGIN: 'http://localhost:8090'`, `ADDRESS_HEADER: 'X-Real-IP'`,
+  `API_INTERNAL_URL: 'http://127.0.0.1:8091'`, `PUBLIC_APP_URL: 'http://localhost:8090'`, `BODY_SIZE_LIMIT: '8M'`,
   and with reverb `REVERB_APP_KEY: ''`.
 - `globalSetup` throws unless `process.env.E2E_DATABASE_READY === '1'` ("run docker/e2e.sh"): a bare
   `npx playwright test` would skip the lock and the reset.
@@ -143,7 +156,14 @@ Browser tests exercise no queue timing and no realtime: the e2e site runs `QUEUE
   `php artisan config:clear`. Never cache locally: the e2e sites' env would be ignored.
 - **`Executable doesn't exist` in a Playwright run** → `@playwright/test` changed without an image rebuild; e2e.sh
   refuses first. Run `docker compose -f docker-compose.local.yml up -d --build`.
-- **`php artisan test` says the test database is in use** → an e2e run holds the lock. Wait for it to end.
+- **`php artisan test` or e2e.sh prints "waiting for the test database"** → another test or e2e run holds the lock;
+  it goes on when that run ends.
+- **A write works on localhost and in browser tests but answers 419 from the LAN URL** → the token handling is broken
+  (`frontend/CLAUDE.md`, Browser), and only a LAN http origin runs it on Laravel 13. The e2e site strips
+  `Sec-Fetch-Site`, so the session flow proves it.
+- **A permanent 419 on `localhost` after a worktree stack was opened there** → every stack on a host shares the
+  `XSRF-TOKEN` cookie, because browsers keep cookies per host, not per port. The local compose gives each stack its own
+  session cookie (`SESSION_COOKIE`), and the client refreshes the token and retries a 419 once.
 
 ## Verify
 
@@ -161,11 +181,12 @@ it exists. `dc` stands for `docker compose -f docker-compose.local.yml`.
    controller fires. Signing in through the SvelteKit page works via `localhost`, `127.0.0.1` and the LAN URL, and an
    SSR load of an `auth:sanctum` route then renders 200. 20 anonymous SSR renders leave Redis's session count unchanged.
 4. **Browser tests.** Note the dev database's row counts, then `dc exec app docker/e2e.sh`. The session flow passes
-   through 127.0.0.1:8090 with SSR calling :8091, and the counts are unchanged. During the run `php artisan test`
-   refuses. During a Pest run, and after `php artisan config:cache`, e2e.sh refuses.
+   through `localhost:8090` with SSR calling :8091, and the counts are unchanged. During the run `php artisan test`
+   waits, and so does e2e.sh during a Pest run. After `php artisan config:cache`, e2e.sh refuses.
 5. **Prod shape** (SKILL.md, Verify, step 5): healthy; `node build` and `octane:frankenphp` run as www-data, and
    `octane:status` works. A prerendered page carries `no-cache` and `frame-ancestors 'none'`. A real
    `/_app/immutable/*` chunk carries `immutable`, and `content-encoding: br` for `Accept-Encoding: br`; a missing one
    answers 404 with `no-store`. `/_app/env.js` answers 200. `/storage/x.php` and `/storage/x.php/y` answer 404.
-   `APP_URL=`, an `APP_URL` with a trailing slash, an empty `SANCTUM_STATEFUL_DOMAINS`, or `TRUSTED_PROXIES=127.0.0.1`
-   each stop the boot with their message. `docker compose stop app` ends `ssr` within 25 s.
+   `APP_URL=`, an `APP_URL` with a trailing slash, an empty `SANCTUM_STATEFUL_DOMAINS`, `TRUSTED_PROXIES=127.0.0.1` or
+   `APP_E2E=true` each stop the boot with their message. The boot passes with no `resources/views`.
+   `docker compose stop app` ends `ssr` within 25 s.

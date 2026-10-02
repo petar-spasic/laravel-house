@@ -23,7 +23,7 @@
 # .env never defines are substitutable (COMPOSE_PROJECT_NAME, LOCAL_APP_URL,
 # WEB_PORT, WEB_BIND, DB_HOST_PORT, REDIS_HOST_PORT, SIDECAR_BIND,
 # HOST_UID, HOST_GID, DATABASE_SEED, XDEBUG_MODE, XDEBUG_SERVER_NAME,
-# KANBAN_WORKTREE_PATH, KANBAN_GIT_SSH_COMMAND).
+# KANBAN_WORKTREE_PATH, KANBAN_GIT_SSH_COMMAND, KANBAN_GIT_TOKEN).
 # if:reverb
 # unless:spa
 # WS_PORT too: Reverb's host port, one more worktree port.
@@ -94,10 +94,18 @@ services:
       # The page origins Sanctum treats as the browser; the entrypoint appends APP_URL's host.
       SANCTUM_STATEFUL_DOMAINS: localhost:${WEB_PORT:-{{web_port}}},127.0.0.1:${WEB_PORT:-{{web_port}}}
       # endif
-      # The clone's own deploy key (php artisan kanban:install and vendor/bin/kanban attach|doctor --fix make it for an
-      # ssh origin), in the mounted .git. The worker's exec() must stay enabled. A worktree stack's .env sets
-      # KANBAN_GIT_SSH_COMMAND empty: it mounts no main .git, has no board page and never pushes.
+      # The board page's sync, main stack only; the worker's exec() must stay enabled. A worktree stack's .env sets
+      # KANBAN_GIT_SSH_COMMAND and KANBAN_GIT_TOKEN empty: it mounts no main .git, has no board page and never pushes.
+      # An ssh origin: the clone's own deploy key in the mounted .git (php artisan kanban:install and
+      # vendor/bin/kanban attach|doctor --fix make it). An https origin: KANBAN_GIT_TOKEN in .env, a fine-grained token
+      # with read and write on this repository's contents only. This container's credential helper hands it to git
+      # only for origin's own host, never to another host that asks (a dependency, a pasted URL), and no git config
+      # holds it.
       GIT_SSH_COMMAND: ${KANBAN_GIT_SSH_COMMAND-ssh -i /app/.git/laravel-house/deploy_key -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/app/.git/laravel-house/known_hosts}
+      KANBAN_GIT_TOKEN: ${KANBAN_GIT_TOKEN:-}
+      GIT_CONFIG_COUNT: 1
+      GIT_CONFIG_KEY_0: credential.helper
+      GIT_CONFIG_VALUE_0: '!f() { [ "$$1" = get ] && [ -n "$$KANBAN_GIT_TOKEN" ] || return 0; h=; while IFS== read -r k v; do [ "$$k" = host ] && h=$$v; done; [ -n "$$h" ] || return 0; case "$$(git config --get remote.origin.url)" in "https://$$h/"*) printf "username=x-access-token\npassword=%s\n" "$$KANBAN_GIT_TOKEN" ;; esac; }; f'
       DB_CONNECTION: pgsql
       DB_HOST: postgres
       DB_PORT: 5432
@@ -115,6 +123,8 @@ services:
       CACHE_STORE: redis
       QUEUE_CONNECTION: redis
       SESSION_DRIVER: redis
+      # Browsers keep cookies per host, not per port: each stack signs in on its own session cookie.
+      SESSION_COOKIE: ${COMPOSE_PROJECT_NAME}_session
       REDIS_HOST: redis
       REDIS_PORT: 6379
       # if:reverb

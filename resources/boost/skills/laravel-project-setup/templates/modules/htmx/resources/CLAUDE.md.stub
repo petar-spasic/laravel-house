@@ -71,6 +71,8 @@ The practices behind root `CLAUDE.md`, Non-negotiables.
 <!-- unless:islands -->
 - **JavaScript on public pages** is `app.ts` and nothing else.
 <!-- endif -->
+- **Secure-context APIs** (WebAuthn, `crypto.subtle`, `navigator.clipboard`) exist only on https or `localhost`
+  (Hosting): code using one checks `window.isSecureContext` and says why the feature is unavailable, never throws.
 
 ## Who does what
 

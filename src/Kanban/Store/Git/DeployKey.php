@@ -36,6 +36,12 @@ final class DeployKey
         return Stack::enabled((array) ($this->config['stack'] ?? []), $this->paths->main) && $this->ssh($this->url() ?? '');
     }
 
+    /** A container syncs from this checkout and origin is reached over https: it signs in with `KANBAN_GIT_TOKEN`. */
+    public function tokenWanted(): bool
+    {
+        return Stack::enabled((array) ($this->config['stack'] ?? []), $this->paths->main) && str_starts_with($this->url() ?? '', 'https://');
+    }
+
     /** What install would do, for a dry run. */
     public function plan(): ?string
     {

@@ -8,8 +8,6 @@ class DatabaseSeeder extends Seeder
 {
     public function run(): void
     {
-        $this->call(app()->isProduction()
-            ? [ProductionSeeder::class]
-            : [ReferenceDataSeeder::class, DevSeeder::class]);
+        $this->call([ReferenceDataSeeder::class, app()->isProduction() ? ProductionSeeder::class : DevSeeder::class]);
     }
 }

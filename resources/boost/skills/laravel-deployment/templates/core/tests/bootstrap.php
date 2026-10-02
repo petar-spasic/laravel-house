@@ -15,16 +15,19 @@ foreach (simplexml_load_file($config)->php->env ?? [] as $env) {
         putenv("$name=$value");
     }
 }
-# if:spa
 
-// {{app}}_test has one user at a time. docker/e2e.sh holds this lock alone; test processes (parallel workers too)
-// share it. In the checkout, so a run on the host and one in the container see each other. The handle stays in
-// $GLOBALS, so the lock is held until the process exits.
-$lockFile = __DIR__.'/../storage/framework/testing/db.lock';
-is_dir(dirname($lockFile)) || mkdir(dirname($lockFile), 0775, true);
-$GLOBALS['testDatabaseLock'] = fopen($lockFile, 'c');
-if (! flock($GLOBALS['testDatabaseLock'], LOCK_SH | LOCK_NB)) {
-    fwrite(STDERR, "The test database is in use by an e2e run (docker/e2e.sh); run the tests when it ends.\n");
-    exit(1);
-}
+// {{app}}_test has one user at a time: two runs would deadlock or wipe each other's rows. A top-level test process
+// waits for this lock; parallel workers (PARATEST) run under their parent's. In the checkout, so a run on the host and
+// one in the container see each other. The handle stays in $GLOBALS, so the lock is held until the process exits.
+# if:spa
+// docker/e2e.sh takes the same lock.
 # endif
+if (getenv('PARATEST') === false) {
+    $lockFile = __DIR__.'/../storage/framework/testing/db.lock';
+    is_dir(dirname($lockFile)) || mkdir(dirname($lockFile), 0775, true);
+    $GLOBALS['testDatabaseLock'] = fopen($lockFile, 'c');
+    if (! flock($GLOBALS['testDatabaseLock'], LOCK_EX | LOCK_NB)) {
+        fwrite(STDERR, "Waiting for the test database (another test run holds it).\n");
+        flock($GLOBALS['testDatabaseLock'], LOCK_EX);
+    }
+}

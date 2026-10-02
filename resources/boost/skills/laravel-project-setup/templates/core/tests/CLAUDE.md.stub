@@ -75,8 +75,8 @@ Each is an E2E flow, written when the piece it proves is built.
 ## Browser flows (Playwright)
 
 Pest proves the API; user flows run in a real browser, in `frontend/e2e/*.spec.ts`, against the e2e site: the
-frontend's production build behind Caddy on `127.0.0.1:8090`, its Laravel side on `{{app}}_test`. Never the dev
-stack.
+frontend's production build behind Caddy on `localhost:8090`, its Laravel side on `{{app}}_test`. Never the dev
+stack. The e2e site runs Laravel's CSRF token path, as a LAN http origin does (laravel-deployment `references/spa.md`).
 
 - `frontend/playwright.config.ts` follows the Playwright contract in `laravel-deployment`'s `references/spa.md`
   (browser tests). Run the flows only with `docker/e2e.sh` in the app container: it takes the test-database lock,
@@ -86,7 +86,8 @@ stack.
   Laravel's public API (Playwright's `request` fixture); no shared leftovers, no test-only endpoints.
 - Assert what the user sees (`getByRole`, `getByLabel`, text). No selectors into `ui/` internals, no sleeps.
 - A form's flow saves, reloads and asserts every field it renders.
-- Fakes live on the Laravel side of the e2e site (its env, Hosting). Never `page.route()` or a mocked `fetch`.
+- Fakes live on the Laravel side, behind `config('app.e2e')`, which only the e2e site sets (Hosting). Never
+  `page.route()` or a mocked `fetch`, and never a new env line on the e2e site.
 - **The session flow**, written with the first auth page: sign in through `/login`, then reload an `(app)` page; it
   renders server-side with the user. Signed out, the same page redirects to `/login`.
 

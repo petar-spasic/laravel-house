@@ -49,7 +49,7 @@ resolves. A row marked with a module belongs to that module only.
 | `docker/Caddyfile.frontend`, `docker/e2e.sh` (spa) | SvelteKit's build: files off disk, the rest to Node; browser tests on `{{app}}_test` |
 | `docker/xdebug.ini`, `docker/postgres/init-test-db.sql` | Xdebug on trigger; `{{app}}_test` on a fresh volume |
 | `docker/postgres/roles.sql` (tenancy) | the app's database role `{{app}}_app` and its grants |
-| `tests/bootstrap.php` | forced phpunit `<env>` mirrored into `$_SERVER` |
+| `tests/bootstrap.php` | forced phpunit `<env>` mirrored into `$_SERVER`; one test run at a time (a lock the next run waits on) |
 | `.dockerignore`, `.env.prod.example` | the build context (never `public/hot`, `vendor/` or the FrankenPHP binary); the production env |
 | `snippets/` | `vite.config.js`, `phpunit.xml`, `bootstrap/app.php`, `.env`, the tenancy project files and the Hosting section (`references/project-files.md`) |
 
@@ -106,10 +106,12 @@ Both entrypoints run these steps in order, so healthy means migrated and seeded.
 3. **Clear caches** (local): `config:clear`, `route:clear`, `event:clear`, `view:clear`. Never cache locally.
 4. **Wait for the database:** 60 × 2 s, then "database unreachable" and exit 1. It only connects.
 5. **`migrate --force`**, once and loudly. With tenancy it runs as the owner (`references/tenancy.md`).
-6. **Seed by `DATABASE_SEED`.** Local: `auto` (the full seed when `users` is empty, else `ReferenceDataSeeder`), `true`,
-   `false`. Prod: `true` (`ProductionSeeder` only), `false`. Anything else exits 1. The seeders are idempotent
-   (laravel-project-setup), so a second boot never crash-loops.
-7. **Build caches** (prod): `config:cache`, `route:cache`, `event:cache`, `view:cache`.
+6. **Seed.** Reference data (`ReferenceDataSeeder`) on every boot. `DATABASE_SEED` decides the accounts. Local: `auto`
+   (the full seed when `users` is empty), `true` (the full seed), `false`. Prod: `true` (`ProductionSeeder`: the
+   operator and the admins), `false`. Anything else exits 1. The seeders are idempotent (laravel-project-setup), so a
+   second boot never crash-loops.
+7. **Build caches** (prod): `config:cache`, `route:cache`, `event:cache`, `view:cache` (with spa, only when
+   `resources/views` exists).
 8. **Start supervisor.** The entrypoint writes one supervisor `[program]` block per process (name, command, optional
    `stopwaitsecs` and directory under `/app`), then runs `exec supervisord -n`. Local: php-fpm, caddy,
    `rm -f public/hot`, then at most one dev server, `vite` on 127.0.0.1:5173 (htmx: the root Vite; spa: `frontend/`'s once
@@ -202,8 +204,8 @@ Where a value lives and the drift to fix on sight: `references/project-files.md`
   LAN-visible by default, sync pushes its writes, and card text reaches worker prompts. Set `KANBAN_UI_TOKEN=<secret>`
   in `.env` and open `/kanban?token=<secret>` once per browser, or set `WEB_BIND=127.0.0.1` or `KANBAN_UI=false`.
 - **The board in `/kanban` shows *Not synced* or *Not pushed*, or never shows others' changes** → the page syncs from the
-  app container with the clone's deploy key, so it needs an ssh `origin` and the key registered with write access.
-  Diagnose with `references/board-page.md`.
+  app container: an ssh `origin` needs the clone's deploy key registered with write access, an https one
+  `KANBAN_GIT_TOKEN` in `.env`. Diagnose with `references/board-page.md`.
 
 ## Verify
 
@@ -216,7 +218,8 @@ Image builds take minutes: run them in the background. `dc` stands for `docker c
    missing `/x.php` gets Laravel's 404 page. htmx and islands: the page and every asset answer 200, `public/hot` names
    that origin, and HMR connects at `/__vite_hmr`. API-only: `/up` answers 200; `/api/v1/x` answers JSON 404.
 3. **Restart twice.** The app container is healthy both times; seed crash loops and stale caches show on the second.
-4. **Tests.** `dc exec app php artisan test` leaves the dev database's rows untouched.
+4. **Tests.** `dc exec app php artisan test` leaves the dev database's rows untouched; a second run started meanwhile
+   waits for the first.
 5. **Prod shape.** Next to the local stack, with another `WEB_PORT` and `TRUSTED_PROXIES` set in `.env.prod`: `docker
    compose --env-file .env.prod up -d --build --wait`. `octane:frankenphp` runs as www-data; `/up` answers on
    `127.0.0.1:${WEB_PORT}` only. A `/build/*` asset is `immutable`; `/frankenphp-worker.php` and `/index.php` are 404.

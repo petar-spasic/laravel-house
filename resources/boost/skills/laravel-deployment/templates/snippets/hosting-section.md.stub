@@ -14,7 +14,9 @@ Never let a driver differ between local and prod (sqlite here, Postgres there; `
 
 Tests run on the same Postgres, in `{{app}}_test` (created by `docker/postgres/init-test-db.sql` on a fresh volume).
 `phpunit.xml` forces the test database and drivers, and `tests/bootstrap.php` mirrors them into `$_SERVER`, where
-compose's env would otherwise win. So `php artisan test` is safe on the host and in the container.
+compose's env would otherwise win. So `php artisan test` is safe on the host and in the container. One test run uses
+`{{app}}_test` at a time: a second one, on the host or in the container, prints "Waiting for the test database" and
+waits.
 
 ```shell
 docker compose -f docker-compose.local.yml up --build          # http://localhost:{{web_port}} (Caddy → php-fpm and Vite), /horizon
@@ -25,7 +27,8 @@ cp .env.prod.example .env.prod && docker compose --env-file .env.prod up -d --bu
   `{{app}}-local`, so its containers are `{{app}}-local-{app,postgres,redis}-1`. Never add `container_name`, a volume
   or network `name:`, or `image:` to `docker-compose.local.yml`.
 - **Worktree stacks**: each `.claude/worktrees/<name>` runs its own stack, `{{app}}-wt-<name>`, from the same compose
-  file. Its generated `.env` sets its own ports and turns Xdebug off (`vendor/bin/kanban stack create`).
+  file. Its generated `.env` sets its own ports and turns Xdebug off (`vendor/bin/kanban stack create`). Browsers keep
+  cookies per host, not per port, so each stack signs in on its own session cookie (`SESSION_COOKIE` in the compose).
 <!-- unless:spa -->
 - **Opened from another machine**: set `LOCAL_APP_URL=http://<LAN address>:{{web_port}}` in `.env`. Compose passes it
   as the container's `APP_URL`, and Vite writes it into `public/hot` as the asset and HMR origin. Apply it with
@@ -40,10 +43,14 @@ cp .env.prod.example .env.prod && docker compose --env-file .env.prod up -d --bu
   in from that address answers 401. The board (`/kanban`) answers only to IPs, `localhost`/`*.localhost`, `*.test` and
   the host of `LOCAL_APP_URL` (more via `kanban.ui.hosts`).
 <!-- endif -->
-- **Passkeys** take their relying party and allowed origin from `APP_URL`. Locally they work only while `APP_URL` is
-  `http://localhost:<the stack's web port>` (`LOCAL_APP_URL` unset or set to that) and the browser is on exactly that
-  origin: not `127.0.0.1`, a LAN address or a `.test` name. WebAuthn needs a secure context and a domain, and over http
-  only `localhost` is both. Worktree stacks take the host of main's `LOCAL_APP_URL` unless `KANBAN_HOST` is set.
+- **Secure-context APIs.** Browsers expose WebAuthn, `crypto.subtle`, `crypto.randomUUID`, `navigator.clipboard` and
+  service workers only on https or `localhost`. Locally they work only on `http://localhost:<the stack's web port>`,
+  never on `127.0.0.1`, a LAN address or a `.test` name. Code using one checks `window.isSecureContext` and says why
+  the feature is unavailable; it never throws.
+- **Passkeys** also take their relying party and allowed origin from `APP_URL`, which needs a domain. Locally they work
+  only while `APP_URL` is `http://localhost:<the stack's web port>` (`LOCAL_APP_URL` unset or set to that) and the
+  browser is on exactly that origin. Worktree stacks take the host of main's `LOCAL_APP_URL` unless `KANBAN_HOST` is
+  set.
 <!-- unless:spa -->
 - **Social sign-in** (when built): register `https://{{domain}}/auth/{provider}/callback` with each provider. Locally it
   is the same path on `http://localhost:{{web_port}}`, under the same condition as passkeys.
@@ -73,14 +80,16 @@ cp .env.prod.example .env.prod && docker compose --env-file .env.prod up -d --bu
   `APP_URL`: compose sets it locally, and the prod image is built per URL (a build arg). The prod image installs only
   `frontend/`'s `dependencies`.
 - **Browser tests:** `docker compose -f docker-compose.local.yml exec app docker/e2e.sh`. They run on `{{app}}_test`
-  through loopback-only e2e sites, never the dev data, and `php artisan test` refuses while they run. The e2e site's
-  Laravel env is the `(e2e_php)` snippet in `docker/Caddyfile.local`. The local image holds Chromium for the exact
-  `@playwright/test` pin.
+  through loopback-only e2e sites at `http://localhost:8090`, never the dev data, and `php artisan test` waits while
+  they run. The e2e site's Laravel env is the `(e2e_php)` snippet in `docker/Caddyfile.local`: `APP_E2E` lifts every
+  rate limiter, and a test-only behaviour reads `config('app.e2e')`; the snippet never grows per feature. The local
+  image holds Chromium for the exact `@playwright/test` pin.
 - Until `frontend/package.json` exists, the local stack runs without a dev server and the prod image does not build.
 <!-- endif -->
-- **The board page (`/kanban`)** syncs from the app container with the clone's deploy key (`GIT_SSH_COMMAND`). Check
-  it with `docker compose -f docker-compose.local.yml exec app vendor/bin/kanban sync`, never as `-u root`.
-  `KANBAN_USER` names who edits from the page. `KANBAN_UI_TOKEN` gates it; it has no login otherwise.
+- **The board page (`/kanban`)** syncs from the app container: with the clone's deploy key (`GIT_SSH_COMMAND`) for an
+  ssh origin, or with `KANBAN_GIT_TOKEN` in `.env` for an https one. Check it with
+  `docker compose -f docker-compose.local.yml exec app vendor/bin/kanban sync`, never as `-u root`. `KANBAN_USER` names
+  who edits from the page. `KANBAN_UI_TOKEN` gates it; it has no login otherwise.
 <!-- if:reverb -->
 <!-- unless:spa -->
 - **Reverb** listens on 8081 in the container. Locally Echo reaches it on `WS_PORT` (main {{ws_port}}); in prod the
@@ -99,8 +108,9 @@ cp .env.prod.example .env.prod && docker compose --env-file .env.prod up -d --bu
   bare publish's IPv6 clients as the host.
 - **PHP {{php_version}} everywhere**: the host (tests, artisan), the lock and both images.
 - **Boot** (`docker/docker-entrypoint*.sh`): dependencies (local); rebuild the package manifest (only `storage/` is a
-  volume, never `bootstrap/cache`); clear caches (local); wait for the database; migrate once and loudly; seed only as
-  `DATABASE_SEED` says (`database/CLAUDE.md`); build caches (prod); start supervisor.
+  volume, never `bootstrap/cache`); clear caches (local); wait for the database; migrate once and loudly; seed
+  reference data on every boot and the accounts only as `DATABASE_SEED` says (`database/CLAUDE.md`); build caches
+  (prod); start supervisor.
 - **Queues are Horizon's** (`config/horizon.php`), never `queue:work`. Redis `retry_after`
   (`REDIS_QUEUE_RETRY_AFTER`, 90 s) > Horizon's job `timeout` (60 s) > the longest job. A longer job raises both, in
   that order, plus supervisor's `stopwaitsecs` for Horizon (70 s) and the compose `stop_grace_period` (80 s), so
