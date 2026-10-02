@@ -5,8 +5,10 @@ the paths (root `CLAUDE.md`, Frontend).
 
 ## First frontend change
 
-`frontend/` holds only this file until the first change that needs a page. That change creates the app inside the app
-container (php and `PUBLIC_APP_URL` are there), with the owner's approval of the packages:
+`frontend/` holds only this file until the first change that needs a page. That change creates the app. Steps 1–5 run
+in the app container or on the host; on the host they need Node at the image's major and php. Step 6 needs docker:
+without it, the rebuild and every `docker/e2e.sh` run are someone else's step (on the board, the `kanban` skill says
+whose).
 
 1. From the repo root:
    `npx sv@0.17.1 create frontend --template minimal --types ts --add tailwindcss="plugins:none" sveltekit-adapter="adapter:node" --no-install --no-dir-check`.
@@ -19,19 +21,31 @@ container (php and `PUBLIC_APP_URL` are there), with the owner's approval of the
    - `npm install -D laravel-echo pusher-js`
 <!-- endif -->
 3. The `check` script is
-   `php ../artisan validation:export --check && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json`. No script
-   runs `playwright install`.
-4. `src/hooks.server.ts` with the `handle` in Guards, `/healthz` first.
+   `export PUBLIC_APP_URL=${PUBLIC_APP_URL:-http://localhost}; php ../artisan validation:export --check && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && playwright test --list --pass-with-no-tests > /dev/null`.
+   The default only satisfies the type check outside the stack. `--list` loads every spec and the config without
+   `globalSetup` or the `webServer`, so a spec that does not compile fails the check. No script runs
+   `playwright install`.
+4. `src/hooks.server.ts` with the `handle` in Guards, `/healthz` first. If
+   `php artisan route:list --path=api/v1/auth/me` lists nothing, the same change adds the session probe and its
+   `UserResource` (`routes/CLAUDE.md`, `app/Resources/CLAUDE.md`): `handle` calls it.
 5. `vite.config.ts` per Config; `components.json`, `src/lib/utils.ts`, the CSS and `scripts/check-ui.mjs` per
    Components; `playwright.config.ts` per `tests/CLAUDE.md`, Browser flows.
 6. Commit `package.json` and `package-lock.json`, then rebuild the stack (`up -d --build`): the entrypoint then runs
    `npm ci` and starts `vite`, and the image installs the browser for the `@playwright/test` pin (Hosting).
+7. Boost detects JS packages only from a root lockfile, so it never installs its Tailwind skill for `frontend/`. Copy
+   `vendor/laravel/boost/.ai/tailwindcss/4/skill/tailwindcss-development/` to `.ai/skills/tailwindcss-development/`
+   and run `php artisan boost:update`.
 
 ## Stack
 
-The packages in step 2 and nothing else without the owner's approval (convention 6): SvelteKit 2 with Svelte 5 runes,
-adapter-node, TypeScript, Tailwind 4, shadcn-svelte, superforms + formsnap on `zod` 4, Playwright. HTTP is
-SvelteKit's `fetch` only. Icons come from `@lucide/svelte` only, never emoji.
+The packages in step 2, plus what the shadcn-svelte components declare (Components, Add), and nothing else without
+the owner's approval (convention 6): SvelteKit 2 with Svelte 5 runes, adapter-node, TypeScript, Tailwind 4,
+shadcn-svelte, superforms + formsnap on `zod` 4, Playwright. HTTP is SvelteKit's `fetch` only. Icons come from
+`@lucide/svelte` only, never emoji.
+
+- The house runs the maintenance check of this set on each pin bump (laravel-project-setup `references/packages.md`).
+  A package of the set that fails it in this project is a finding for the house, never a reason to swap it in a
+  change.
 
 - Every package is a devDependency: adapter-node bundles it into `build/`. One that must stay external (native code)
   goes in `dependencies`, which the prod image installs.
@@ -83,15 +97,19 @@ SvelteKit's `fetch` only. Icons come from `@lucide/svelte` only, never emoji.
   - `theme.css` maps `--primary`, `--radius`, … in `:root` and `.dark` onto the house tokens. The CLI never touches it
     and it comes last, so an `add` rewriting `shadcn.css` changes nothing visible. House tokens never use shadcn's
     names (no `--color-primary`, `--color-background`, …).
-- **Add** from `frontend/` with the pinned local CLI (`npx shadcn-svelte add <name>`), only what a screen imports;
-  remove a component nothing uses. Review the rest of its diff; a new package needs approval.
+- **Add** from `frontend/` with the pinned local CLI (`npx shadcn-svelte add <name> --no-deps-install`), only what a
+  screen imports; remove a component nothing uses. Then `git diff package.json`:
+  - a new entry is a package the component declares (`svelte-sonner` and `mode-watcher` for `sonner`,
+    `@internationalized/date` for the date pickers, …): choosing shadcn-svelte approved it, so `npm install` it;
+  - a changed range on an existing entry goes back to the project's (the registry can name an older major);
+  - review the rest of its diff as code.
 - The project's UI layer lives in `src/lib/components/<area>/`, never in `ui/`: looks through the `class` prop (`cn`
   merges it last), variants through `tv({ extend: buttonVariants, … })`, behaviour through a wrapper component.
 - **Update**: bump the pin and the registry tag together, rerun `add <every installed component> --yes --overwrite`,
   commit `ui/`. Generated code failing `npm run check` means another pin (ask the owner), never an edit.
 - **The gate is `npm run check:ui`.** It fails unless `components.json` names the pinned tag and sets `style`. Then,
-  in a temp dir, it runs `npx shadcn-svelte@<version> add <every directory in ui/> --yes --overwrite --no-deps` and
-  fails on any diff in `ui/`, printing it. The temp dir holds:
+  in a temp dir, it runs `npx shadcn-svelte@<version> add <every directory in ui/> --yes --overwrite --no-deps-install`
+  and fails on any diff in `ui/`, printing it. The temp dir holds:
   - a `package.json` with only the project's `svelte` and `tailwindcss` ranges (no `@sveltejs/kit`, so the CLI skips
     `svelte-kit sync`);
   - a `tsconfig.json` mapping `$lib` and `$lib/*` to `./src/lib`;
@@ -135,6 +153,10 @@ sveltekit-superforms.
   the 422.
 - Numeric fields are `<input type="number">`. Never spread `$constraints` onto inputs (a `pattern` loses its flags).
   formsnap's `Control` props carry the name, id and aria attributes.
+- **A custom input** (formatted number, date, `EntityPicker`, anything without a native control) posts through
+  `<input type="hidden" name={…} value={raw}>` holding the raw value, never the formatted text. A field the page shows
+  but does not post is a bug: an update then clears it. Its wrapper in `src/lib/components/<area>/` carries the hidden
+  input, the label, `aria-invalid`/`aria-describedby` and the field error.
 
 ## API client
 
@@ -315,9 +337,15 @@ csp: {
   `GET {resource}/search` and `GET {resource}/autocomplete` (`term`, `limit`, optional id filters). A closed
   vocabulary uses a Select, never free text.
 - **Shared building blocks**: one data table (server-side sort, filter, pagination, selection; bulk actions via
-  `{resource}/bulk-action`), one confirm dialog before anything destructive, toasts, one wizard for multi-step flows.
+  `{resource}/bulk-action`), one confirm dialog before anything destructive, toasts (shadcn's `sonner`, one
+  `<Toaster>` in the root layout) for results that are not on the page, one wizard for multi-step flows.
 - **Never a blank pane.** SSR delivers the first data (realtime only updates it); client-side waits show skeletons
-  of the final size.
+  of the final size. A failed load renders an error state: what failed, the server's message (a 429 says when to
+  retry) and a retry action. Never nothing, never a silently empty list: every client-side fetch and `{#await}` has
+  its failure branch.
+- **The design reference.** When the owner has decided a visual reference (root `CLAUDE.md`, What we are building), a
+  change that adds or changes a page names the reference section it implements, and one of its criteria compares a
+  screenshot of the page with that section. A missing layout element fails it.
 - **WCAG 2.1 AA, full keyboard navigation.** Dialog focus comes from bits-ui; an overlay opened by a global shortcut
   saves `document.activeElement` on open and restores it on close. Every interactive element has an accessible name;
   live regions announce dynamic changes. Contrast ≥ 4.5:1 for text, 3:1 for large text and UI. A skip link on every
@@ -339,8 +367,9 @@ Channel auth, payload rules and operations are in `app/Events/CLAUDE.md` (Broadc
 - **One reconnect spine.** `src/lib/realtime/connection.ts` binds the connection state once and exposes
   `onReconnect(cb): Unregister`, firing only on a true reconnect (a `connected` after a real drop, flaps debounced,
   never the first connect). `disconnectEcho()` clears it at logout. Every feature re-auths and backfills through it.
-- **"Live" is refetch-on-event.** A list that can have gaps keeps a `lastSeenId` watermark and on reconnect merges the
-  gap from a keyset `…/since` endpoint, deduped by id. Deltas merge in place.
+- **"Live" is refetch-on-event.** A list that can have gaps keeps a `(created_at, id)` watermark and on reconnect
+  merges the gap from a keyset `…/since` endpoint, deduped by id (ids are random: `database/CLAUDE.md`). Deltas merge in
+  place.
 - **One setter per list** dedupes by id and sorts by `(created_at, id)` ascending.
 - **Counters come from the server**: a broadcast carries the authoritative count; new arrivals are announced in a
   polite `aria-live` region.
@@ -372,6 +401,7 @@ The tenant appears in a body only as the `_tenant` marker or the switcher's `ten
 
 ## Before a push
 
-- Always `npm run check`, inside the app container: it runs `validation:export --check` first, so it needs php.
+- Always `npm run check`, in the app container or on the host (First frontend change): it runs
+  `validation:export --check` first, so it needs php.
 - `npm run check:ui` when `ui/`, `components.json` or the `shadcn-svelte` pin changed.
 - The Playwright flows and Pest tests the change touches (`tests/CLAUDE.md`).

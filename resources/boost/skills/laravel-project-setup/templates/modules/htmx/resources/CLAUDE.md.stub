@@ -80,7 +80,7 @@ The practices behind root `CLAUDE.md`, Non-negotiables.
 | Render a page, a list, a form | **Blade** | an island that fetches JSON |
 | Submit, paginate, filter, reload part of a page | **htmx** (`hx-get`/`hx-post` → server renders the fragment) | `fetch()` in an island |
 | Rich local state before/without a round trip (drag-drop, editors, pickers, live previews) | **Svelte island** | Blade + a pile of `hx-*` |
-| Persist what an island did | a normal form submit / `htmx.ajax()` with the island's state in inputs | an island-owned JSON API |
+| Persist what an island did | a normal form submit / `htmx.ajax()` with the island's state in named hidden inputs (raw values) | an island-owned JSON API |
 | Shared state between two islands on one page | a `resources/js/*.svelte.ts` module with runes | `window.*`, DOM attributes |
 
 **htmx + Blade first.** If the htmx version is a couple of `hx-*` attributes and a fragment route, do that. An island
@@ -217,8 +217,9 @@ Around them:
   swap is the server's.
 - Tailwind classes work inside islands (no shadow DOM). `<style>` blocks only for what utilities cannot express.
 - `{@html}` follows the `{!! !!}` rule: `Markdown::render()` output only.
-- No fetching inside islands by default (Who does what). No global event bus; shared state is an explicit
-  `*.svelte.ts` module.
+- No fetching inside islands by default (Who does what). An island that does fetch renders a failed load as an error
+  state: what failed, the server's message (a 429 says when to retry) and a retry action, never nothing. No global
+  event bus; shared state is an explicit `*.svelte.ts` module.
 - `npm run check` is clean. Suppress a Svelte warning only with a `svelte-ignore` comment that says why.
 
 ## Components: shadcn-svelte
@@ -238,8 +239,10 @@ The first island that needs a component does the setup, with owner approval for 
   - the `check:ui` script.
 - `@` is `resources/js`: laravel-vite-plugin aliases it, and the shipped `tsconfig.json` `paths` cover it (the CLI
   reads `paths` from the root tsconfig only).
-- **Add** with the pinned CLI (`npx shadcn-svelte@<version> add <name>`), only what an island imports; remove a
-  component no island uses. Review the rest of its diff; a new package needs approval.
+- **Add** with the pinned CLI (`npx shadcn-svelte@<version> add <name> --no-deps-install`), only what an island
+  imports; remove a component no island uses. Then `git diff package.json`: a new entry is a package the component
+  declares, approved with shadcn-svelte, so `npm install` it; a changed range on an existing entry goes back to the
+  project's. Review the rest of its diff as code.
 - `resources/js/components/ui/` is exactly the CLI's output and is never edited. Looks go through the `class` prop
   (`cn` merges it last), variants through `tv({ extend: buttonVariants, … })` in `resources/js/components/<area>/`,
   behaviour through a wrapper component there.
@@ -248,8 +251,9 @@ The first island that needs a component does the setup, with owner approval for 
   `npm run check` means another pin (ask the owner), never an edit.
 - **The gate is `npm run check:ui`.** In a temp dir holding a minimal `package.json`, the same tsconfig `paths`,
   `components.json` and the same CSS files, it runs the pinned CLI with
-  `add <every directory in ui/> --yes --overwrite --no-deps` and fails on any diff in `ui/`. It needs the registry
-  host, so it is not part of `npm run check`; it runs before a push that touches `ui/`, `components.json` or the pin.
+  `add <every directory in ui/> --yes --overwrite --no-deps-install` and fails on any diff in `ui/`. It needs the
+  registry host, so it is not part of `npm run check`; it runs before a push that touches `ui/`, `components.json` or
+  the pin.
 - **CSS**: `resources/css/app.css` is the one Tailwind entry. It imports, in this order, `tailwindcss`,
   `tw-animate-css`, `shadcn-svelte/tailwind.css`, `./shadcn.css` and `./theme.css`, then holds the house `@theme`.
   - `shadcn.css` is CLI-managed: no `@import "tailwindcss"`, only its `@theme inline`, `:root`/`.dark` and a
