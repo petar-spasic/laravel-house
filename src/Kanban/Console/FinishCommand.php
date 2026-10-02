@@ -3,12 +3,15 @@
 namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
 use PetarSpasic\LaravelHouse\Kanban\Code\MainCheck;
+use PetarSpasic\LaravelHouse\Kanban\Code\MainPush;
 use PetarSpasic\LaravelHouse\Kanban\Code\MergeCheck;
 use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Lease;
 use PetarSpasic\LaravelHouse\Kanban\Store\Card;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Conflict;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\KanbanException;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
+use PetarSpasic\LaravelHouse\Kanban\Support\Git;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Process\Process;
 
@@ -118,8 +121,25 @@ class FinishCommand extends Command
         }
         $worktrees->prune();
         $this->reportPending();
+        $this->publishMain($git, $main);
 
         return $exit;
+    }
+
+    /** Pushes main once `publish.every` merges are not on the remote; a failed push leaves it to `publish`, never failing the finish. */
+    private function publishMain(Git $git, string $main): void
+    {
+        $every = (int) $this->setting('publish.every', 5);
+        $push = new MainPush($git, (string) $this->setting('remote', 'origin'), $main);
+        if ($every < 1 || ! $push->hasRemote() || ($merges = $push->unpushedMerges()) < $every) {
+            return;
+        }
+        $this->say("{$main}: {$merges} merges not on the remote (publish.every {$every})");
+        try {
+            $push->push($this->say(...));
+        } catch (KanbanException $e) {
+            $this->say("{$main}: not pushed ({$e->getMessage()}); run `kanban publish`");
+        }
     }
 
     /** While main is red, the check runs again first: a pass clears it; still red, only the card filed for it (or --force) merges. */

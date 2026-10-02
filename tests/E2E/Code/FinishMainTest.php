@@ -1,6 +1,7 @@
 <?php
 
 use PetarSpasic\LaravelHouse\Tests\Support\CodeSandbox;
+use PetarSpasic\LaravelHouse\Tests\Support\Origin;
 use PetarSpasic\LaravelHouse\Tests\Support\Sandbox;
 
 beforeEach(function () {
@@ -131,4 +132,36 @@ it('merges while main is red with --force, keeping the one bug card', function (
         ->and($code->sandbox->read($second)['stage'])->toBe('done')
         ->and(json_decode(file_get_contents($code->root().'/.git/laravel-house/main-check.json'), true))->toMatchArray(['card' => $card, 'after' => $first])
         ->and($code->ok(['status']))->toContain('main red since ')->toContain("({$card})");
+});
+
+it('pushes main once publish.every merges are not on the remote, and leaves a failed push to publish', function () {
+    $code = $this->code;
+    $origin = Origin::create();
+    $code->configure(['sync' => 'off', 'publish' => ['every' => 2]]);
+    $code->sandbox->git('commit', '-q', '-am', 'publish every 2');
+    $code->sandbox->addRemote($origin);
+    $finish = function (string $title) use ($code): array {
+        $id = $code->started($title);
+        $code->commit($id, strtolower(str_replace(' ', '-', $title)).'.php', "<?php\n");
+        $code->approve($id);
+        $run = $code->kanban(['finish', $id], $this->env);
+
+        return [$id, $run];
+    };
+
+    [$first, $run] = $finish('Tag notes');
+    expect($run->getOutput())->not->toContain('main: ')
+        ->and($origin->log('main'))->not->toContain("{$first}: Tag notes");
+
+    [$second, $run] = $finish('Archive notes');
+    expect($run->getOutput())->toContain("main: 2 merges not on the remote (publish.every 2)\nmain: pushed to origin\n")
+        ->and($origin->log('main'))->toContain("{$first}: Tag notes")->toContain("{$second}: Archive notes");
+
+    $finish('Share notes');
+    $code->sandbox->git('remote', 'set-url', 'origin', $code->root().'/missing.git');
+    [$fourth, $run] = $finish('Print notes');
+    expect($run->getExitCode())->toBe(0)
+        ->and($run->getOutput())->toContain("main: 2 merges not on the remote (publish.every 2)\nmain: not pushed (main: push failed: ")
+        ->toContain('; run `kanban publish`')
+        ->and($code->sandbox->read($fourth)['stage'])->toBe('done');
 });

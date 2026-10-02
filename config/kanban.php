@@ -106,6 +106,11 @@ return [
         'check' => [],
     ],
 
+    // `finish` pushes main once this many merges are not on the remote (0: only `kanban publish` pushes it).
+    'publish' => [
+        'every' => 5,
+    ],
+
     // Commands a worker's branch must pass before its report is applied ({main_branch} is replaced);
     // `kanban context` prints them for the worker and the evaluator.
     'gates' => [
