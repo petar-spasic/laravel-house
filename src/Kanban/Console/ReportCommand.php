@@ -22,6 +22,7 @@ class ReportCommand extends Command
         {--summary-file= : Read the summary from a file (- = stdin)}
         {--verified=* : "command → result" evidence}
         {--discovered=* : Out-of-scope work you found: "bug: Title — body"}
+        {--upstream=* : A problem in the house package itself, in generic terms: "Title — body"}
         {--reason= : Why blocked (required for blocked)}
         {--note= : Anything else for the main session}';
 
@@ -41,13 +42,14 @@ class ReportCommand extends Command
                 'head' => (string) $git->line(['rev-parse', 'HEAD']),
                 'worktree' => $this->paths()->relative($worktree),
                 'session' => (getenv('KANBAN_SESSION') ?: null),
-            ]);
+            ], $this->upstream($card));
         $runtime = new Runtime($this->paths());
         $runtime->stage($report, 'report');
 
         $this->say("staged report for {$card->id()}: {$report['status']}, head ".substr($report['head'], 0, 7)
             .($report['ticks'] === [] ? '' : ', ticks '.implode(',', $report['ticks']))
-            .($report['discovered'] === [] ? '' : ', '.count($report['discovered']).' discovered'));
+            .($report['discovered'] === [] ? '' : ', '.count($report['discovered']).' discovered')
+            .($report['upstream'] === [] ? '' : ', '.count($report['upstream']).' upstream'));
         if ($report['status'] === 'review' && ($refusal = (new Applier($this->store(), $this->paths(), $this->config(), $runtime))->refusal($card, false)) !== null) {
             $this->say('warning: '.strtok($refusal, "\n").' — the stop is refused until that is fixed');
         }

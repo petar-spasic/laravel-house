@@ -98,6 +98,13 @@ return [
         ],
     ],
 
+    // Findings about this package that workers and evaluators flag (`--upstream`) are filed as issues on `repo` by
+    // `kanban upstream file`, through gh. Off: they stay in the card logs for the owner (`kanban upstream`).
+    'upstream' => [
+        'enabled' => env('KANBAN_UPSTREAM', false),
+        'repo' => 'petar-spasic/laravel-house',
+    ],
+
     // true: githooks/commit-msg rejects Co-Authored-By trailers and install turns Claude Code's commit and PR
     // attribution off. Applied to git config by attach / doctor --fix.
     'githooks' => [

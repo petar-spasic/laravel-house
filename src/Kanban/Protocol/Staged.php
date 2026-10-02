@@ -15,10 +15,11 @@ final class Staged
      * @param  list<string>  $verified
      * @param  list<string>  $discovered  `type: Title — body`
      * @param  array{head: string, worktree: string, session: ?string}  $at
+     * @param  list<array{title: string, body: string}>  $upstream  scrubbed findings about the house package (Upstream\Findings::stage)
      * @return array<string, mixed>
      */
     public static function report(Card $card, string $status, array $ticks, ?string $summary, array $verified, array $discovered,
-        ?string $reason, ?string $note, array $at): array
+        ?string $reason, ?string $note, array $at, array $upstream = []): array
     {
         if (! in_array($status, ['review', 'blocked'], true)) {
             throw new Invalid("--status must be review or blocked, not '{$status}'");
@@ -42,6 +43,7 @@ final class Staged
             'summary' => $summary,
             'verified' => array_values(array_filter(array_map('trim', $verified), fn (string $v) => $v !== '')),
             'discovered' => array_map(fn (string $d) => self::discovered($d), $discovered),
+            'upstream' => $upstream,
             'reason' => $reason,
             'note' => self::text($note),
         ] + $at;
@@ -54,9 +56,10 @@ final class Staged
      * @param  list<string>  $issues
      * @param  list<string>  $discovered  `type: Title — body`; outside the card, so they never decide the verdict
      * @param  array{head: string, base: ?string, worktree: string, session: ?string}  $at
+     * @param  list<array{title: string, body: string}>  $upstream
      * @return array<string, mixed>
      */
-    public static function verdict(Card $card, string $decision, array $checks, array $issues, array $discovered, ?string $note, array $at): array
+    public static function verdict(Card $card, string $decision, array $checks, array $issues, array $discovered, ?string $note, array $at, array $upstream = []): array
     {
         if (! in_array($decision, ['approve', 'reject'], true)) {
             throw new Invalid("the verdict is approve or reject, not '{$decision}'");
@@ -96,6 +99,7 @@ final class Staged
             'checks' => array_combine(array_map('strval', array_keys($parsed)), array_values($parsed)),
             'issues' => $issues,
             'discovered' => array_map(fn (string $d) => self::discovered($d), $discovered),
+            'upstream' => $upstream,
             'note' => self::text($note),
         ] + $at);
     }

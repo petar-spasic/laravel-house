@@ -15,6 +15,7 @@ use PetarSpasic\LaravelHouse\Kanban\Support\Clock;
 use PetarSpasic\LaravelHouse\Kanban\Support\Git;
 use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
 use PetarSpasic\LaravelHouse\Kanban\Support\Sync;
+use PetarSpasic\LaravelHouse\Kanban\Upstream\Findings;
 
 /** The factual board brief printed by `status` and SessionStart. */
 final class Brief
@@ -73,6 +74,9 @@ final class Brief
         }
         if (($hubs = Shape::hubs($snapshot)) !== []) {
             $lines[] = 'hubs: '.implode(', ', array_map(fn (string $id) => "{$id} blocks ".count($hubs[$id]), array_keys($hubs)));
+        }
+        if (Findings::enabled($this->config) && ($pending = count(Findings::pending($snapshot))) > 0) {
+            $lines[] = "upstream: {$pending} pending (`kanban upstream`)";
         }
         $lines[] = 'next: '.($next['cards'] === []
             ? 'none: '.$next['reason']

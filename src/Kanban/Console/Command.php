@@ -14,6 +14,8 @@ use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
 use PetarSpasic\LaravelHouse\Kanban\Store\Store;
 use PetarSpasic\LaravelHouse\Kanban\Support\AgentStates;
 use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
+use PetarSpasic\LaravelHouse\Kanban\Upstream\Findings;
+use PetarSpasic\LaravelHouse\Kanban\Upstream\Scrubber;
 use Symfony\Component\Console\Output\ConsoleOutputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Throwable;
@@ -117,6 +119,18 @@ abstract class Command extends IlluminateCommand
         if ($this->paths()->cwd === $worktrees || str_starts_with($this->paths()->cwd, $worktrees.'/')) {
             throw new PolicyRefused("{$what} runs from the main checkout ({$this->paths()->main}), not from a worktree");
         }
+    }
+
+    /**
+     * The `--upstream` findings of a report or verdict, parsed and scrubbed.
+     *
+     * @return list<array{title: string, body: string}>
+     */
+    protected function upstream(Card $card): array
+    {
+        $texts = $this->option('upstream');
+
+        return $texts === [] ? [] : Findings::stage($texts, Scrubber::forProject($this->paths(), (string) strstr($card->id(), '-', true), (string) $this->setting('remote', 'origin')));
     }
 
     /** Tells the user when the write only reached the journal (git unusable here). */

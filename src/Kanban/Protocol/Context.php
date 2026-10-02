@@ -7,6 +7,7 @@ use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
 use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
 use PetarSpasic\LaravelHouse\Kanban\Support\Git;
 use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
+use PetarSpasic\LaravelHouse\Kanban\Upstream\Findings;
 
 /** What an agent needs about its card: `kanban context` and the SessionStart context of a card worktree. */
 final class Context
@@ -157,6 +158,9 @@ final class Context
             $lines[] = "protocol: read-only; verify each criterion, then `vendor/bin/kanban verdict {$card->id()} approve|reject {$criteria} [--issue=\"…\"] [--discovered=\"bug: Title — body\"]`";
         } else {
             $lines[] = "protocol: work and commit only in this worktree; when done `vendor/bin/kanban report {$card->id()} --status=review --tick=N --summary-file=- <<'EOF' … EOF` (or --status=blocked --reason=\"…\")";
+        }
+        if (Findings::enabled($this->config)) {
+            $lines[] = 'a problem in the house package itself (not this app): add --upstream="Title — body" in generic terms, without project, host, path or card names';
         }
 
         return $lines;

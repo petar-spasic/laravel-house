@@ -18,6 +18,7 @@ class VerdictCommand extends Command
         {--check=* : One per criterion: N:pass|fail:"evidence"}
         {--issue=* : A problem outside the criteria (rejects)}
         {--discovered=* : A problem outside the card, filed as a backlog card: "bug: Title — body"}
+        {--upstream=* : A problem in the house package itself, in generic terms: "Title — body"}
         {--note= : Anything else for the main session}';
 
     protected $description = 'Evaluator: stage the verdict of your card (applied when you stop)';
@@ -36,13 +37,14 @@ class VerdictCommand extends Command
             'base' => $git->line(['merge-base', 'HEAD', $main]),
             'worktree' => $this->paths()->relative($worktree),
             'session' => (getenv('KANBAN_SESSION') ?: null),
-        ]);
+        ], $this->upstream($card));
         (new Runtime($this->paths()))->stage($verdict, 'verdict');
 
         $failed = array_keys(array_filter($verdict['checks'], fn (array $c) => $c['result'] === 'fail'));
         $this->say("staged verdict for {$card->id()}: {$verdict['decision']} at ".substr($verdict['head'], 0, 7)
             .($failed === [] ? '' : ', failing '.implode(',', $failed)).($verdict['issues'] === [] ? '' : ', '.count($verdict['issues']).' issue(s)')
-            .($verdict['discovered'] === [] ? '' : ', '.count($verdict['discovered']).' discovered'));
+            .($verdict['discovered'] === [] ? '' : ', '.count($verdict['discovered']).' discovered')
+            .($verdict['upstream'] === [] ? '' : ', '.count($verdict['upstream']).' upstream'));
         $this->say('applied when you stop');
 
         return self::SUCCESS;

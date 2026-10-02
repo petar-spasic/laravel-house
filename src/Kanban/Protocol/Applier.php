@@ -148,13 +148,14 @@ final class Applier
                     'verified' => $report['verified'] ?? [], 'discovered' => $created,
                     'reason' => $report['reason'] ?? null, 'note' => self::cut($report['note'] ?? null, 500),
                 ], fn ($v) => $v !== null && $v !== []);
+                $data['log'] = [...$data['log'], ...self::upstream($report)];
 
                 return $status === 'review' && $data['stage'] === 'doing' ? Transitions::stage($data, 'review', 'apply') : $data;
             }, $by);
             $this->runtime->markApplied($id, 'report', $hash);
             $card = $this->store->card($id);
 
-            return "{$id}: report applied, stage {$card->stage()}".($status === 'blocked' ? ', blocked' : '').self::found($created);
+            return "{$id}: report applied, stage {$card->stage()}".($status === 'blocked' ? ', blocked' : '').self::found($created, $report);
         });
     }
 
@@ -202,18 +203,18 @@ final class Applier
                 $this->store->update($id, function (array $data) use ($verdict, $entry) {
                     $data['acceptance'] = self::tick($data['acceptance'] ?? [], array_column($data['acceptance'] ?? [], 'id'), true);
                     $data['work']['approved'] = ['head' => $verdict['head'], 'base' => $verdict['base'] ?? null, 'at' => Clock::now()];
-                    $data['log'][] = $entry;
+                    $data['log'] = [...$data['log'], $entry, ...self::upstream($verdict)];
 
                     return $data;
                 }, $by);
                 $this->runtime->markApplied($id, 'verdict', $hash);
 
-                return "{$id}: approved at ".substr((string) $verdict['head'], 0, 7).self::found($created);
+                return "{$id}: approved at ".substr((string) $verdict['head'], 0, 7).self::found($created, $verdict);
             }
 
-            $this->store->update($id, function (array $data) use ($failed, $entry) {
+            $this->store->update($id, function (array $data) use ($failed, $entry, $verdict) {
                 $data['acceptance'] = self::tick($data['acceptance'] ?? [], $failed, false);
-                $data['log'][] = $entry;
+                $data['log'] = [...$data['log'], $entry, ...self::upstream($verdict)];
 
                 return $data;
             }, $by);
@@ -224,7 +225,7 @@ final class Applier
             }
             $this->runtime->markApplied($id, 'verdict', $hash);
 
-            return "{$id}: rejected, stage ".$this->store->card($id)->stage().self::found($created);
+            return "{$id}: rejected, stage ".$this->store->card($id)->stage().self::found($created, $verdict);
         });
     }
 
@@ -242,10 +243,27 @@ final class Applier
         ], $by)->id(), $items);
     }
 
-    /** @param  list<string>  $created */
-    private static function found(array $created): string
+    /**
+     * @param  list<string>  $created
+     * @param  array<string, mixed>  $staged
+     */
+    private static function found(array $created, array $staged): string
     {
-        return $created === [] ? '' : ', discovered '.implode(', ', $created);
+        $upstream = count($staged['upstream'] ?? []);
+
+        return ($created === [] ? '' : ', discovered '.implode(', ', $created)).($upstream === 0 ? '' : ", {$upstream} upstream finding(s) for main");
+    }
+
+    /**
+     * The staged findings about the house package as `upstream` log entries: `kanban upstream` lists and files them.
+     *
+     * @param  array<string, mixed>  $staged
+     * @return list<array<string, string>>
+     */
+    private static function upstream(array $staged): array
+    {
+        return array_map(fn (array $f) => array_filter(['event' => 'upstream', 'title' => (string) $f['title'], 'body' => (string) ($f['body'] ?? '')],
+            fn (string $v) => $v !== ''), $staged['upstream'] ?? []);
     }
 
     public function branchHead(Card $card): ?string

@@ -22,9 +22,9 @@ it('stages a report only from the card\'s own worktree', function () {
         ->and($ok->getOutput())->toContain('warning: No commits beyond work.base');
 
     $staged = json_decode(file_get_contents($this->p->runtime("staged/{$this->id}.report.json")), true);
-    expect(array_keys($staged))->toBe(['card', 'status', 'ticks', 'summary', 'verified', 'discovered', 'reason', 'note', 'head', 'worktree', 'session', 'staged_at', 'hash'])
+    expect(array_keys($staged))->toBe(['card', 'status', 'ticks', 'summary', 'verified', 'discovered', 'upstream', 'reason', 'note', 'head', 'worktree', 'session', 'staged_at', 'hash'])
         ->and($staged)->toMatchArray(['card' => $this->id, 'status' => 'review', 'ticks' => [1, 2], 'summary' => 'Done', 'verified' => ['pest → 3 passed'],
-            'discovered' => [], 'reason' => null, 'note' => 'fyi', 'worktree' => '.claude/worktrees/'.basename($this->wt), 'session' => null])
+            'discovered' => [], 'upstream' => [], 'reason' => null, 'note' => 'fyi', 'worktree' => '.claude/worktrees/'.basename($this->wt), 'session' => null])
         ->and($staged['head'])->toBe(trim($this->p->git($this->wt, 'rev-parse', 'HEAD')))
         ->and($staged['hash'])->toMatch('/^[0-9a-f]{16}$/');
 });

@@ -15,6 +15,8 @@ use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
 use PetarSpasic\LaravelHouse\Kanban\Support\DotEnv;
 use PetarSpasic\LaravelHouse\Kanban\Support\Git;
 use PetarSpasic\LaravelHouse\Kanban\Support\Sync;
+use PetarSpasic\LaravelHouse\Kanban\Upstream\Findings;
+use PetarSpasic\LaravelHouse\Kanban\Upstream\Gh;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Process\Process;
 use Throwable;
@@ -58,6 +60,7 @@ class DoctorCommand extends Command
             }
         }
         $this->checkStacks();
+        $this->checkUpstream();
 
         foreach ($this->results as [$level, $text]) {
             $this->say("{$level} {$text}");
@@ -595,6 +598,17 @@ class DoctorCommand extends Command
         }
 
         return array_values(array_filter([...$parts, $current], fn (string $part) => trim($part) !== ''));
+    }
+
+    private function checkUpstream(): void
+    {
+        if (! Findings::enabled($this->config())) {
+            return;
+        }
+        $problem = (new Gh($this->paths()->main))->unusable();
+        $this->add(...($problem === null
+            ? ['ok', 'gh signed in: `kanban upstream file` files findings on '.Findings::repo($this->config())]
+            : ['warn', "{$problem}: `kanban upstream file` cannot file findings (KANBAN_UPSTREAM is on)"]));
     }
 
     private function checkAddressPools(): void
