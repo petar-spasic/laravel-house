@@ -132,7 +132,8 @@ final class GitStore implements Store
             ]);
             $data['log'] = [$this->entry($by, $now) + ['event' => 'created']];
             $card = $this->cardFrom($data, $board, "{$board}/{$id}.json");
-            $this->validate($snapshot, $snapshot->withCard($card), [$card->path => ['card', $card->data]]);
+            // the id was only drawn: an error names no card
+            $this->validate($snapshot, $snapshot->withCard($card), ['new card' => ['card', $card->data]]);
             $this->persist([$card->path => $card->data], [], "{$id} created [{$by->role}]", $by);
 
             return $card;

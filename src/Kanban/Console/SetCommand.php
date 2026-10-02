@@ -15,7 +15,7 @@ class SetCommand extends Command
 {
     protected $signature = 'kanban:set
         {id : Card id or unique prefix}
-        {changes* : title= priority= type= labels=+a,-b depends_on=+ID accept+="…" accept[2]="…" accept-=3 tick=1 untick=2 blocked="…" body=@- note="…"}
+        {changes* : title= priority= type= labels=+a,-b depends_on=+ID accept+="…" accept[2]="…" accept-=3 accept=@- tick=1 untick=2 blocked="…" body=@- note="…"}
         {--force : Change a card in a locked stage (main session only)}';
 
     protected $description = 'Change card fields (a card in a locked stage takes only note, blocked, tick and untick)';
@@ -81,6 +81,9 @@ class SetCommand extends Command
         if (! in_array($key, $known, true)) {
             throw new Invalid("unknown key '{$key}' (".implode(' ', $known).')');
         }
+        if ($key === 'accept' && $op === '=' && $index === '' && $value !== '@-') {
+            throw new Invalid('accept= replaces every criterion with the lines of stdin: accept=@- (accept+="…" adds one)');
+        }
         if ($value === '@-') {
             $value = (string) stream_get_contents(STDIN);
         }
@@ -140,6 +143,21 @@ class SetCommand extends Command
             return Edits::add($data, $value, $removed);
         }
         $ids = array_column($data['acceptance'], 'id');
+        if ($op === '=' && $index === null) {
+            Edits::assertRemovable($data);
+            $lines = array_values(array_filter(array_map('trim', explode("\n", $value)), fn (string $line) => $line !== ''));
+            if ($lines === []) {
+                throw new Invalid('accept=@- read no criteria from stdin (one per line)');
+            }
+            foreach ($ids as $id) {
+                $data = Edits::remove($data, $id, $removed);
+            }
+            foreach ($lines as $line) {
+                $data = Edits::add($data, $line, $removed);
+            }
+
+            return $data;
+        }
         if ($op === '-=') {
             Edits::assertRemovable($data); // before the criterion is looked up: the stage refusal comes first
 

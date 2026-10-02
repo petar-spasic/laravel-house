@@ -10,6 +10,9 @@ use PetarSpasic\LaravelHouse\Kanban\Support\Clock;
 /** Builds and validates the staged report (worker) and verdict (evaluator) of a card. */
 final class Staged
 {
+    /** Characters of a report's summary the card log keeps. */
+    public const SUMMARY = 2000;
+
     /**
      * @param  list<string>  $ticks
      * @param  list<string>  $verified

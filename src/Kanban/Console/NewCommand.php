@@ -31,7 +31,7 @@ class NewCommand extends Command
         $store = $this->store();
         $ref = BoardRef::parse($this->argument('board'));
         $body = $this->option('body-file') !== null ? $this->readFile($this->option('body-file')) : $this->option('body');
-        $fields = (new Creation('--stage'))->fields($store->snapshot(), $ref, [
+        $fields = (new Creation(Creation::CLI))->fields($store->snapshot(), $ref, [
             'title' => $this->argument('title'),
             'type' => $this->option('type'),
             'priority' => $this->option('priority'),

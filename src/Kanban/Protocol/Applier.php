@@ -159,7 +159,7 @@ final class Applier
                 }
                 $data['log'][] = array_filter([
                     'event' => 'report', 'status' => $status, 'hash' => $report['hash'], 'head' => $head,
-                    'ticks' => $report['ticks'] ?? [], 'summary' => self::cut($report['summary'] ?? null, 2000),
+                    'ticks' => $report['ticks'] ?? [], 'summary' => self::cut($report['summary'] ?? null, Staged::SUMMARY),
                     'verified' => $report['verified'] ?? [], 'discovered' => $created,
                     'reason' => $report['reason'] ?? null, 'note' => self::cut($report['note'] ?? null, 500),
                 ], fn ($v) => $v !== null && $v !== []);

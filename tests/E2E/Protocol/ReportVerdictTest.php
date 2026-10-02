@@ -135,3 +135,16 @@ it('lets a card worktree read and report as before', function () {
 
     expect($show->getExitCode())->toBe(0)->and($context->getExitCode())->toBe(0);
 });
+
+it('warns when a summary is longer than the card keeps, and stages it whole', function () {
+    $summary = str_repeat('s', 2001);
+
+    $long = $this->p->in($this->wt, ['report', $this->id, '--status=blocked', '--reason=Waiting', '--summary='.$summary]);
+    $staged = json_decode(file_get_contents($this->p->runtime("staged/{$this->id}.report.json")), true);
+    $short = $this->p->in($this->wt, ['report', $this->id, '--status=blocked', '--reason=Waiting', '--summary=Short']);
+
+    expect($long->getExitCode())->toBe(0)
+        ->and($long->getOutput())->toContain('warning: the summary is 2001 characters; the card keeps the first 2000')
+        ->and($staged['summary'])->toBe($summary)
+        ->and($short->getOutput())->not->toContain('warning: the summary');
+});

@@ -430,3 +430,50 @@ it('keeps a card with an open question out of ready', function () {
     $s->ok(['set', $id, 'blocked=question: monthly or yearly plans?']);
     expect($s->kanban(['move', $id, 'ready'])->getErrorOutput())->toContain('R6 blocked: question: monthly or yearly plans?');
 });
+
+it('checks a new card before it draws an id, naming the option and no card', function (array $args, string $error) {
+    $commits = count($this->sandbox->boardLog());
+
+    $refused = $this->sandbox->kanban(['new', 'project/work', ...$args]);
+
+    expect($refused->getExitCode())->toBe(2)
+        ->and($refused->getOutput())->toBe('')
+        ->and($refused->getErrorOutput())->toContain($error)
+        ->and($refused->getErrorOutput())->not->toContain('ACME-')
+        ->and(count($this->sandbox->boardLog()))->toBe($commits);
+})->with([
+    'long title' => [[str_repeat('t', 121)], 'the title is 121 characters; the limit is 120'],
+    'blank title' => [['   '], 'the title is blank'],
+    'priority' => [['Someday', '--priority=someday'], "--priority 'someday' is not one of: urgent, high, normal, low"],
+    'type' => [['Idea', '--type=idea'], "--type 'idea' is not one of: feature, bug, chore, spike"],
+    'body' => [['Long body', '--body='.str_repeat('b', 20001)], '--body is 20001 characters; the limit is 20000'],
+    'criterion' => [['Wide', '--accept=fine', '--accept='.str_repeat('c', 501)], '--accept 2 is 501 characters'],
+    'blank criterion' => [['Blank', '--accept= '], '--accept 1 is blank'],
+    'label' => [['Bad label', '--label=Not Valid'], 'new card: '],
+]);
+
+it('replaces every criterion of an open card from stdin with accept=@-, and keeps the ids unused', function () {
+    $s = $this->sandbox;
+    $id = $s->card('Rewritten', ['--accept=One', '--accept=Two', '--accept=Three']);
+
+    $s->ok(['set', $id, 'accept=@-'], input: "First\n\n  Second  \n");
+    $card = $s->read($id);
+
+    expect($card['acceptance'])->toBe([['id' => 4, 'text' => 'First', 'done' => false], ['id' => 5, 'text' => 'Second', 'done' => false]])
+        ->and(end($card['log']))->toMatchArray(['event' => 'set', 'acceptance_removed' => [1, 2, 3]]);
+
+    $inline = $s->kanban(['set', $id, 'accept=Third']);
+    $empty = $s->kanban(['set', $id, 'accept=@-'], input: "\n");
+    expect($inline->getExitCode())->toBe(2)->and($inline->getErrorOutput())->toContain('accept= replaces every criterion with the lines of stdin: accept=@-')
+        ->and($empty->getExitCode())->toBe(2)->and($empty->getErrorOutput())->toContain('read no criteria')
+        ->and($s->read($id)['acceptance'])->toHaveCount(2);
+});
+
+it('refuses accept=@- on a started card', function () {
+    $code = CodeSandbox::create();
+    $id = $code->started('Under way');
+
+    $refused = $code->sandbox->kanban(['set', $id, 'accept=@-'], ['KANBAN_SESSION' => 's1'], input: "New\n");
+
+    expect($refused->getExitCode())->toBe(3)->and($refused->getErrorOutput())->toContain('never deleted once work started');
+});

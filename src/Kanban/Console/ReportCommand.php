@@ -50,6 +50,9 @@ class ReportCommand extends Command
             .($report['ticks'] === [] ? '' : ', ticks '.implode(',', $report['ticks']))
             .($report['discovered'] === [] ? '' : ', '.count($report['discovered']).' discovered')
             .($report['upstream'] === [] ? '' : ', '.count($report['upstream']).' upstream'));
+        if (mb_strlen((string) $report['summary']) > Staged::SUMMARY) {
+            $this->say('warning: the summary is '.mb_strlen((string) $report['summary']).' characters; the card keeps the first '.Staged::SUMMARY.'; shorten it and stage the report again');
+        }
         if ($report['status'] === 'review' && ($refusal = (new Applier($this->store(), $this->paths(), $this->config(), $runtime))->refusal($card, false)) !== null) {
             $this->say('warning: '.strtok($refusal, "\n").' — the stop is refused until that is fixed');
         }
