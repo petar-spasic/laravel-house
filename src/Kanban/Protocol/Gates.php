@@ -103,15 +103,15 @@ final class Gates
     private function where(string $command, string $worktree): string
     {
         $paths = Paths::discover($worktree);
-        $worktrees = new Worktrees($paths, $this->config);
-        $record = $worktrees->stackRecord($worktree);
-        $exec = Guard::exec($paths->main);
-        if (($record['shell'] ?? null) !== 'container' || ! is_string($record['container'] ?? null) || ! is_file($paths->main.'/vendor/bin/kanban-exec')
-            || preg_match('#^\s*(?:php\s+)?(?:[A-Za-z0-9_.~/-]*/)?vendor/bin/kanban(?:\s|$)#', $command)) {
+        if ($paths->main !== (realpath($worktree) ?: $worktree) && ($host = Guard::hostKanban($paths->main, $command)) !== null) {
+            return $host;
+        }
+        $record = (new Worktrees($paths, $this->config))->stackRecord($worktree);
+        if (($record['shell'] ?? null) !== 'container' || ! is_string($record['container'] ?? null) || ! is_file($paths->main.'/vendor/bin/kanban-exec')) {
             return $command;
         }
 
-        return $exec.' '.escapeshellarg($record['container']).' '.escapeshellarg(realpath($worktree) ?: $worktree).' '.escapeshellarg($command);
+        return Guard::exec($paths->main).' '.escapeshellarg($record['container']).' '.escapeshellarg(realpath($worktree) ?: $worktree).' '.escapeshellarg($command);
     }
 
     /**

@@ -7,6 +7,19 @@ use PetarSpasic\LaravelHouse\Kanban\Support\Git;
 /** Read-only checks before a card branch is merged into main. */
 final class MergeCheck
 {
+    /** What a card changes only with the owner's look: the agents' settings and hooks, the board's config, git's. */
+    public const PROTECTED = ['.claude/', 'config/kanban.php', '.gitattributes', 'githooks/', '.githooks/', '.husky/'];
+
+    /**
+     * @param  list<string>  $files
+     * @return list<string> the files under PROTECTED
+     */
+    public static function protected(array $files): array
+    {
+        return array_values(array_filter($files, fn (string $f) => array_filter(self::PROTECTED,
+            fn (string $p) => str_ends_with($p, '/') ? str_starts_with($f, $p) : $f === $p) !== []));
+    }
+
     /** Files whose change means a stack must be rebuilt and recreated; a lockfile at any depth. */
     public const REBUILD = ['composer.lock', 'package-lock.json', 'Dockerfile.local', 'docker/'];
 

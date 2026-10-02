@@ -197,3 +197,17 @@ it("lists the diff's new packages and its added TODOs, skipped tests and private
         ->toContain("added lines with a private IPv4 address: tests/NotesTest.php\n")
         ->not->toContain('docs.md');
 });
+
+it("runs a kanban gate as main's binary, never the card's own copy, which its agent can change", function () {
+    $marker = $this->p->sandbox->root.'/../tampered-'.$this->id;
+    @mkdir($this->wt.'/vendor/bin', 0775, true);
+    file_put_contents($this->wt.'/vendor/bin/kanban', "#!/bin/sh\ntouch {$marker}\n");
+    chmod($this->wt.'/vendor/bin/kanban', 0755);
+    $this->p->config(['gates' => ['report' => ['vendor/bin/kanban migrations --base=main']]]);
+
+    $gates = $this->p->in($this->wt, ['gates']);
+
+    expect($gates->getOutput())->toContain('pass vendor/bin/kanban migrations --base=main (exit 0)')
+        ->and(file_exists($marker))->toBeFalse();
+    @unlink($marker);
+});

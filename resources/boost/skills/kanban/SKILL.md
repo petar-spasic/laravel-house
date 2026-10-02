@@ -103,7 +103,8 @@ Before a card is created, and before it is promoted:
    - exit 5 `main moved`: `refresh <ID>`, then a fresh evaluator. exit 5 `does not merge cleanly`: the card is in
      doing; `refresh <ID>` hands the conflict to the worker.
    - exit 3: the message names it (uncommitted main files, a live agent, an approval head mismatch, leftover conflict
-     markers: the card is back in doing; send the worker the listed lines).
+     markers: the card is back in doing; send the worker the listed lines). A card that changes kanban's own files
+     (`.claude/`, `config/kanban.php`, hooks, `.gitattributes`): show the owner the diff; `--force` with their OK.
    - `main is red`: the main check failed after an earlier merge, and the bug card it filed holds the next `finish`:
      start that card next (`--force` merges anyway, with the owner).
    - `main: not pushed (…)`: `publish` later. `rebuild main: …`: run the printed compose command.

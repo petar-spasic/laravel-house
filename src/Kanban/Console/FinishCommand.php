@@ -22,7 +22,7 @@ class FinishCommand extends Command
 {
     protected $signature = 'kanban:finish
         {id : Card id or unique prefix}
-        {--force : Merge while main is red (finish.check failed after an earlier merge)}';
+        {--force : Merge anyway, with the owner: while main is red (finish.check failed after an earlier merge), or a branch that changes kanban\'s own files}';
 
     protected $description = 'Merge an approved card into main, mark it done, then tear down its stack, worktree and branch';
 
@@ -75,6 +75,9 @@ class FinishCommand extends Command
             throw new PolicyRefused("{$id}: the branch holds leftover conflict markers; {$id} → doing, the worker resolves them and reports again", explode("\n", MergeCheck::markersMessage($markers)));
         }
         $files = $check->branchFiles($branch);
+        if (($touched = MergeCheck::protected($files)) !== [] && ! $this->option('force')) {
+            throw new PolicyRefused("{$id} changes files that steer the agents or git: ".implode(', ', $touched).'; show the owner the diff, then `kanban finish '.$id.' --force`');
+        }
         if (($uncommitted = $check->uncommittedOverlap($files)) !== []) {
             throw new PolicyRefused("{$id}: the main checkout has uncommitted changes to files the branch changes; commit or stash them first", $uncommitted);
         }

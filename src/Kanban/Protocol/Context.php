@@ -3,6 +3,7 @@
 namespace PetarSpasic\LaravelHouse\Kanban\Protocol;
 
 use PetarSpasic\LaravelHouse\Kanban\Code\DatabaseSteps;
+use PetarSpasic\LaravelHouse\Kanban\Code\MergeCheck;
 use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
 use PetarSpasic\LaravelHouse\Kanban\Console\Standalone;
 use PetarSpasic\LaravelHouse\Kanban\Store\Card;
@@ -252,6 +253,10 @@ final class Context
         }
         if ($packages !== []) {
             $lines[] = 'new packages: '.implode(', ', $packages);
+        }
+        $files = array_values(array_filter(explode("\n", $git->attempt(['diff', '--name-only', $main.'...HEAD'])->out)));
+        if (($touched = MergeCheck::protected($files)) !== []) {
+            $lines[] = "changes kanban's own files (finish needs the owner): ".implode(', ', $touched);
         }
         $patterns = [
             'TODO or FIXME' => '/\b(TODO|FIXME)\b/',

@@ -21,8 +21,11 @@ final class Guard
 
     private const HELD_SECONDS = 300;
 
-    /** The one command that stays on this machine: `vendor/bin/kanban` (host docker, the board, main's runtime), by any path. */
-    private const HOST = '#^\s*(?:[A-Za-z_][A-Za-z0-9_]*=[A-Za-z0-9_.,:/@%+=-]*\s+)*(?:php\s+)?(?:[A-Za-z0-9_.~/-]*/)?vendor/bin/kanban(?:\s|$)#';
+    /**
+     * The one command that stays on this machine: `vendor/bin/kanban` (host docker, the board, main's runtime), by any
+     * path, without environment assignments. It runs as main's binary: the card's own copy is the agent's to change.
+     */
+    private const HOST = '#^\s*(?:php\s+)?(?:[A-Za-z0-9_.~/-]*/)?vendor/bin/kanban(?=\s|$)#';
 
     /** What makes a command more than one plain command: anything chained to a host command would run on the host too. */
     private const COMPOUND = '/[;&|<>`\n\r]|\$\(/';
@@ -35,8 +38,27 @@ final class Guard
     /** The command a card agent's shell runs through; ClaudeSettings allows exactly this prefix. */
     public static function exec(string $main): string
     {
-        $path = $main.'/vendor/bin/kanban-exec';
+        return self::quoted($main.'/vendor/bin/kanban-exec');
+    }
 
+    /** Main's kanban binary, which a card agent's kanban command is rewritten to; ClaudeSettings allows it. */
+    public static function kanban(string $main): string
+    {
+        return self::quoted($main.'/vendor/bin/kanban');
+    }
+
+    /** $command with its leading kanban path (and `php`) replaced by main's binary, or null when it is not a plain kanban command. */
+    public static function hostKanban(string $main, string $command): ?string
+    {
+        if (preg_match(self::HOST, $command, $m) !== 1 || preg_match(self::COMPOUND, $command) === 1) {
+            return null;
+        }
+
+        return self::kanban($main).substr($command, strlen($m[0]));
+    }
+
+    private static function quoted(string $path): string
+    {
         return preg_match('#^[A-Za-z0-9_.,:/@%+=-]+$#', $path) ? $path : escapeshellarg($path);
     }
 
@@ -146,8 +168,14 @@ final class Guard
     {
         $command = $input['command'] ?? null;
         $worktree = $binding['worktree'] ?? null;
-        if (! is_string($command) || trim($command) === '' || (preg_match(self::HOST, $command) && ! preg_match(self::COMPOUND, $command)) || ! is_string($worktree) || $worktree === ''
+        if (! is_string($command) || trim($command) === '' || ! is_string($worktree) || $worktree === ''
             || ! in_array($binding['agent_type'] ?? null, [self::WORKER, self::EVALUATOR], true)) {
+            return;
+        }
+        if (($host = self::hostKanban($main, $command)) !== null) {
+            $input['command'] = $host;
+            echo json_encode(['hookSpecificOutput' => ['hookEventName' => 'PreToolUse', 'updatedInput' => $input]], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+
             return;
         }
         $record = json_decode((string) @file_get_contents($main.'/.git/laravel-house/stacks/'.basename($worktree).'.json'), true);

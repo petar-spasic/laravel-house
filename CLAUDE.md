@@ -120,7 +120,7 @@ would load here as live instructions. Never rename one back.
 Class names below are relative to `PetarSpasic\LaravelHouse\Kanban` (`src/Kanban`).
 
 - **`bin/kanban-guard` + `src/Kanban/Guard/Guard.php` have zero dependencies.** They are loaded with `require_once` and use no Composer or Illuminate. The hook runs on tool calls, so p95 must stay under 50 ms; `tests/E2E/Guard` asserts this. It binds an agent to its card at EnterWorktree, refreshes the heartbeat and records kanban spawns. For a bound worker or evaluator it does two more things, by string checks only:
-  - **Routing:** every Bash and Monitor command except a plain `vendor/bin/kanban` one (no shell operators) is rewritten through `updatedInput`, never with a decision, to `vendor/bin/kanban-exec <container> <cwd> '<cmd>'`. `ClaudeSettings` writes the matching allow rule.
+  - **Routing:** every Bash and Monitor command is rewritten through `updatedInput`, never with a decision. A plain `vendor/bin/kanban` command (no shell operators, no environment assignments) becomes main's own binary, never the card's copy; every other command becomes `vendor/bin/kanban-exec <container> <cwd> '<cmd>'`. `ClaudeSettings` writes the matching allow rules, and gates take the same two paths.
   - **The fence:** its file tools are denied outside the card's directory, and writes into the card's `.git` and `.claude`; reads may also reach Claude Code's temp directory and the skill directories. This is the only thing it denies.
 
   Any error prints nothing. Everything else agents do is steered by their instructions (`stubs/claude/agents`, the SubagentStart context).

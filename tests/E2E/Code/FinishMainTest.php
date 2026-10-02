@@ -61,7 +61,8 @@ it('runs the after-step that the merged card adds to config/kanban.php', functio
     $code->commit($id, 'config/kanban.php', str_replace("'echo after >> {$this->steps}',", "'echo after >> {$this->steps}', 'echo tags seeded >> {$this->steps}',", $config));
     $code->approve($id);
 
-    $code->ok(['finish', $id], $this->env);
+    // a card that changes the board's config merges only with the owner's --force
+    $code->ok(['finish', $id, '--force'], $this->env);
 
     expect(steps($this->steps))->toBe(['migrate', 'after', 'tags seeded']);
 });

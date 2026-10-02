@@ -238,3 +238,21 @@ it('clears the approval when the card is sent back to doing', function () {
         ->and($code->sandbox->read($id)['work']['approved'])->toBeNull()
         ->and($code->kanban(['finish', $id])->getExitCode())->toBe(3);
 });
+
+it("holds a card that changes kanban's own files until the owner forces it, and names them in context", function () {
+    $code = $this->code;
+    $id = $code->started('Tune the agents');
+    $code->commit($id, '.claude/settings.json', "{}\n", 'settings');
+    $code->commit($id, 'app/Tuned.php', "<?php\n", 'code');
+    $code->approve($id);
+
+    $context = $code->ok(['context', $id], cwd: $code->worktree($id));
+    $held = $code->kanban(['finish', $id]);
+    $forced = $code->kanban(['finish', $id, '--force']);
+
+    expect($context)->toContain("changes kanban's own files (finish needs the owner): .claude/settings.json\n")
+        ->and($held->getExitCode())->toBe(3)
+        ->and($held->getErrorOutput())->toContain("{$id} changes files that steer the agents or git: .claude/settings.json")
+        ->and($forced->getExitCode())->toBe(0)
+        ->and($code->sandbox->read($id)['stage'])->toBe('done');
+});

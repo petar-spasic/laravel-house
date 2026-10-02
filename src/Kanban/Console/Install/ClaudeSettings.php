@@ -112,7 +112,7 @@ final class ClaudeSettings extends Step
 
         $permissions = ($settings->permissions ?? null) instanceof stdClass ? $settings->permissions : new stdClass;
         $allow = is_array($permissions->allow ?? null) ? $permissions->allow : [];
-        $rules = [self::PERMISSION];
+        $rules = [self::PERMISSION, 'Bash('.Guard::kanban(realpath($this->paths->main) ?: $this->paths->main).' *)'];
         if (($this->config['agents']['shell'] ?? null) !== 'host') {
             $rules[] = self::execPermission($this->paths->main);
         }
