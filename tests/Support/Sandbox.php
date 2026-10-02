@@ -193,6 +193,6 @@ final class Sandbox
      */
     private function env(array $env): array
     {
-        return $env + ['KANBAN_SESSION' => false, 'KANBAN_SYNC' => 'off', 'KANBAN_USER' => false, 'KANBAN_GIT_AUTHOR' => false, 'KANBAN_ID_SEQUENCE' => false, 'KANBAN_UPSTREAM' => false, 'XDEBUG_MODE' => 'off'];
+        return $env + ['KANBAN_SESSION' => false, 'KANBAN_SYNC' => 'off', 'KANBAN_USER' => false, 'KANBAN_GIT_AUTHOR' => false, 'KANBAN_ID_SEQUENCE' => false, 'KANBAN_UPSTREAM' => false, 'KANBAN_GIT_TOKEN' => false, 'XDEBUG_MODE' => 'off'];
     }
 }

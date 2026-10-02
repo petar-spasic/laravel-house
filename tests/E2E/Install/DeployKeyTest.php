@@ -79,6 +79,18 @@ it('lets doctor report whether the key is there', function () {
         ->and($present)->toContain('ok deploy key .git/laravel-house/deploy_key');
 });
 
+it('lets doctor tell an https origin to set KANBAN_GIT_TOKEN for the container sync, and see it once set', function () {
+    $sandbox = keyedProject('https://github.com/acme/notes.git');
+
+    $unset = $sandbox->kanban('doctor')->getOutput();
+    file_put_contents($sandbox->root.'/.env', "KANBAN_GIT_TOKEN=github_pat_example\n", FILE_APPEND);
+    $set = $sandbox->kanban('doctor')->getOutput();
+
+    expect($unset)->toContain('warn https origin: set KANBAN_GIT_TOKEN in .env')
+        ->and($set)->toContain('ok https origin: the container syncs with KANBAN_GIT_TOKEN')->not->toContain('github_pat_example')
+        ->and(keyedProject('https://github.com/acme/notes.git', compose: false)->kanban('doctor')->getOutput())->not->toContain('KANBAN_GIT_TOKEN');
+});
+
 it('hands GIT_SSH_COMMAND to the git that syncs, which is how the container picks up its key', function () {
     $sandbox = keyedProject('ssh://git@git.example.test/acme/notes.git');
     $log = $sandbox->root.'/ssh.log';
