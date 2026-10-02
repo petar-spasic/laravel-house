@@ -6,6 +6,12 @@
 #   cp .env.prod.example .env.prod && edit
 #   docker compose --env-file .env.prod up -d --build
 # Required in .env.prod: APP_KEY, APP_URL, DB_PASSWORD, TRUSTED_PROXIES, OCTANE_WORKERS.
+# if:tenancy
+# Also DB_OWNER_PASSWORD.
+# endif
+# if:spa
+# Also SANCTUM_STATEFUL_DOMAINS.
+# endif
 name: {{app}}
 
 volumes:
@@ -20,13 +26,25 @@ services:
   app:
     <<: *logging
     image: {{app}}:prod
+    # unless:spa
     build: { context: ., dockerfile: Dockerfile }
+    # endif
+    # if:spa
+    # PUBLIC_APP_URL is baked into the SvelteKit build: a new APP_URL means a rebuild.
+    build: { context: ., dockerfile: Dockerfile, args: { PUBLIC_APP_URL: "${APP_URL:?APP_URL is required in .env.prod}" } }
+    # endif
     container_name: {{app}}-app
     restart: unless-stopped
     env_file: .env.prod
     # Loopback only: the on-host reverse proxy that terminates TLS is the sole entry.
     ports:
       - "127.0.0.1:${WEB_PORT:-{{web_port}}}:8080"
+      # if:reverb
+      # unless:spa
+      # The reverse proxy sends the public WebSocket host (or /app/* and /apps/*) here.
+      - "127.0.0.1:${WS_PORT:-{{ws_port}}}:8081"
+      # endif
+      # endif
     # storage/ only: a persisted bootstrap/cache would drop providers after an image update.
     volumes:
       - app_storage:/app/storage
@@ -43,10 +61,27 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${DB_DATABASE:-{{app}}}
+      # unless:tenancy
       POSTGRES_USER: ${DB_USERNAME:-{{app}}}
       POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required in .env.prod}
-    volumes: [postgres_data:/var/lib/postgresql/data]
+      # endif
+      # if:tenancy
+      # The superuser owns the tables and only migrates; DB_PASSWORD is the app role's (roles.sql).
+      POSTGRES_USER: {{app}}
+      POSTGRES_PASSWORD: ${DB_OWNER_PASSWORD:?DB_OWNER_PASSWORD is required in .env.prod}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required in .env.prod}
+      # endif
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # if:tenancy
+      - ./docker/postgres/roles.sql:/docker-entrypoint-initdb.d/roles.sql:ro
+      # endif
+    # unless:tenancy
     healthcheck: { test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-{{app}}} -d ${DB_DATABASE:-{{app}}}"], interval: 10s, timeout: 5s, retries: 5 }
+    # endif
+    # if:tenancy
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U {{app}} -d ${DB_DATABASE:-{{app}}}"], interval: 10s, timeout: 5s, retries: 5 }
+    # endif
 
   redis:
     <<: *logging

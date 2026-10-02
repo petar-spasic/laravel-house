@@ -26,3 +26,13 @@ docs
 .idea
 .vscode
 docker-compose*.yml
+# if:spa
+# **/node_modules covers frontend/node_modules; $env/static/* would bake a developer's .env into the bundle.
+frontend/build
+frontend/.svelte-kit
+frontend/.env
+frontend/.env.*
+frontend/e2e
+frontend/test-results
+frontend/playwright-report
+# endif

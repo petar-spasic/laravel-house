@@ -1,0 +1,17 @@
+<!-- Merge into phpunit.xml: bootstrap= names tests/bootstrap.php, which mirrors every force="true" value into $_SERVER.
+     Never list DB_HOST, DB_PORT or REDIS_*: .env (host) or compose (container) points them at this checkout's stack. -->
+<phpunit bootstrap="tests/bootstrap.php">
+    <php>
+        <env name="APP_ENV" value="testing" force="true"/>
+        <env name="APP_MAINTENANCE_DRIVER" value="file" force="true"/>
+        <env name="BCRYPT_ROUNDS" value="4" force="true"/>
+        <env name="BROADCAST_CONNECTION" value="null" force="true"/>
+        <env name="CACHE_STORE" value="array" force="true"/>
+        <env name="DB_CONNECTION" value="pgsql" force="true"/>
+        <env name="DB_DATABASE" value="{{app}}_test" force="true"/>
+        <env name="DB_URL" value="" force="true"/>
+        <env name="MAIL_MAILER" value="array" force="true"/>
+        <env name="QUEUE_CONNECTION" value="sync" force="true"/>
+        <env name="SESSION_DRIVER" value="array" force="true"/>
+    </php>
+</phpunit>

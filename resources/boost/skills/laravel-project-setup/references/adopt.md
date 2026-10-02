@@ -68,11 +68,11 @@ htmx: never turn Fortify's views on before the project's auth pages exist.
 ## 6. Hand off to laravel-deployment
 
 Invoke laravel-deployment and run its whole Procedure, with the project's modules:
-- its templates, merged against the project's files;
-- its project files: `vite.config.js`, `phpunit.xml`, `bootstrap/app.php` (`TRUSTED_PROXIES`) and `.env`;
-- its module references (spa, reverb, tenancy), and the API-only root lockfile;
-- the Hosting section, filled again from its `references/hosting-section.md`. The rendered root `CLAUDE.md` has only
-  the `{{hosting}}` placeholder there, so the project's old Hosting text stays until this replaces it.
+- its templates, rendered with the project's modules and merged against the project's files;
+- its snippets: `vite.config.js`, `phpunit.xml`, `bootstrap/app.php` (`TRUSTED_PROXIES`), `.env` and the tenancy
+  project files; and the API-only root lockfile;
+- the Hosting section, filled again from its rendered `hosting-section.md` snippet. The rendered root `CLAUDE.md` has
+  only the `{{hosting}}` placeholder there, so the project's old Hosting text stays until this replaces it.
 
 The current local image serves through Caddy, so the merge also:
 - removes the earlier local web server's config file under `docker/` once the owner confirms;

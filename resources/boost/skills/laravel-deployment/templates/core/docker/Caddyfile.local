@@ -1,0 +1,182 @@
+# unless:spa
+# Local front server: Vite's dev paths and HMR socket to the vite program when one runs, everything else to php-fpm.
+# endif
+# if:spa
+# Local front server: Laravel's paths to php-fpm, everything else to SvelteKit's dev server; two loopback sites for
+# browser tests.
+# endif
+# Read from the checkout: `supervisorctl restart caddy` applies an edit.
+{
+	# Local only (SKILL trap: Octane's status, reload or stop fail in prod).
+	admin off
+	auto_https off
+	persist_config off
+	servers {
+		# Never private_ranges: the LAN and the Docker gateway are private ranges.
+		# SKILL trap: Anyone on the LAN opens /horizon.
+		trusted_proxies static 127.0.0.1/8
+		trusted_proxies_strict
+	}
+}
+
+# unless:spa
+:8080 {
+	route {
+		# Stock caddy has no br encoder.
+		encode zstd gzip
+
+		# Vite's paths; /__vite_hmr is vite.config.js server.ws.path. A root-level directory the frontend
+		# imports from joins this list and server.fs.allow together; for vendor/ list /vendor/<package>/*,
+		# never all of /vendor/ (public/vendor/ is Laravel's). No route lives under these prefixes.
+		@vite path /@vite/* /@id/* /@fs/* /@react-refresh /__open-in-editor /__laravel_vite_plugin__/fonts/* /resources/* /node_modules/* /__vite_hmr
+		handle @vite {
+			reverse_proxy 127.0.0.1:5173
+		}
+
+		handle {
+			root * /app/public
+			@hidden {
+				path */.*
+				not path /.well-known/*
+			}
+			respond @hidden 404
+			# A PHP file in public/ other than the front controller (e.g. Octane's worker) never runs here,
+			# nor a subdirectory's index.php through its directory URL; a missing /x.php still reaches
+			# Laravel, as in prod.
+			@phpfile {
+				file {
+					try_files {path}
+					split_path .php
+				}
+				path *.php *.php/*
+				not path /index.php /index.php/*
+			}
+			respond @phpfile 404
+			@phpdir {
+				file {path}/index.php
+				not path /
+			}
+			respond @phpdir 404
+			php_fastcgi 127.0.0.1:9000 {
+				# An Xdebug session may hold a request for minutes.
+				read_timeout 30m
+			}
+			file_server
+		}
+	}
+}
+# endif
+# if:spa
+# Laravel's public/ with the PHP guards. A PHP file other than the front controller never runs, nor a subdirectory's
+# index.php through its directory URL; a missing /x.php still reaches Laravel, as in prod.
+(laravel_root) {
+	root * /app/public
+	@hidden {
+		path */.*
+		not path /.well-known/*
+	}
+	respond @hidden 404
+	@phpfile {
+		file {
+			try_files {path}
+			split_path .php
+		}
+		path *.php *.php/*
+		not path /index.php /index.php/*
+	}
+	respond @phpfile 404
+	@phpdir {
+		file {path}/index.php
+		not path /
+	}
+	respond @phpdir 404
+}
+
+# Browser tests (docker/e2e.sh): the only list of the test env. Both e2e sites import it and e2e.sh reads its env
+# lines (one `env NAME value` per line, no quotes). FastCGI params win over the container env in $_SERVER and
+# getenv(); a cached config ignores them. REDIS_DB and REDIS_CACHE_DB keep e2e sessions, cache, rate limits and locks
+# apart from dev, so the reset's cache:clear flushes only DB 3. QUEUE_CONNECTION=sync: the dev Horizon never runs a
+# test job against the dev database. APP_URL points mailed links at the e2e site; SANCTUM_STATEFUL_DOMAINS matches
+# Chromium's Origin there. A test-only switch, such as a faked outside system, is one more env line.
+(e2e_php) {
+	php_fastcgi 127.0.0.1:9000 {
+		env APP_URL http://127.0.0.1:8090
+		env DB_DATABASE {{app}}_test
+		env REDIS_DB 2
+		env REDIS_CACHE_DB 3
+		env QUEUE_CONNECTION sync
+		env MAIL_MAILER log
+		env BROADCAST_CONNECTION null
+		env SANCTUM_STATEFUL_DOMAINS 127.0.0.1:8090
+		read_timeout 30m
+	}
+}
+
+:8080 {
+	route {
+		# Stock caddy has no br encoder.
+		encode zstd gzip
+		@healthz path /healthz /healthz/*
+		respond @healthz 404
+
+		# Laravel's paths; everything else is SvelteKit's. Never /horizon*: it also matches /horizonX. A new Laravel
+		# route moves under /api or joins @backend here and in docker/Caddyfile.
+		@backend path /api/* /sanctum/* /horizon /horizon/* /up /storage/* /kanban /kanban/*
+		handle @backend {
+			import laravel_root
+			php_fastcgi 127.0.0.1:9000 {
+				# An Xdebug session may hold a request for minutes.
+				read_timeout 30m
+			}
+			# php_fastcgi runs PHP only; /storage files need this.
+			file_server
+		}
+
+		# if:reverb
+		# Echo's WebSocket on the page's own origin.
+		@reverb path /app/*
+		handle @reverb {
+			reverse_proxy 127.0.0.1:8081
+		}
+
+		# endif
+		# vite dev, its HMR socket included.
+		handle {
+			reverse_proxy 127.0.0.1:5173 {
+				header_up X-Real-IP {client_ip}
+			}
+		}
+	}
+}
+
+# The browser's origin in browser tests: Laravel's paths on the test env, the rest from the production build of
+# frontend/. Loopback only, never published.
+:8090 {
+	bind 127.0.0.1
+	route {
+		encode zstd gzip
+		@healthz path /healthz /healthz/*
+		respond @healthz 404
+
+		@backend path /api/* /sanctum/* /up /storage/*
+		handle @backend {
+			import laravel_root
+			import e2e_php
+			file_server
+		}
+
+		import /app/docker/Caddyfile.frontend
+	}
+}
+
+# SvelteKit's API_INTERNAL_URL in browser tests: a second origin, because SvelteKit answers a server-side fetch to its
+# own origin itself.
+:8091 {
+	bind 127.0.0.1
+	route {
+		import laravel_root
+		import e2e_php
+		file_server
+	}
+}
+# endif

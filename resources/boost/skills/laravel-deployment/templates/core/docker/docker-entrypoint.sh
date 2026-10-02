@@ -12,6 +12,20 @@ case "${OCTANE_WORKERS:?OCTANE_WORKERS unset in .env.prod}" in
 esac
 # Empty leaves the reverse proxy untrusted: every client shares its address and URLs come out http://.
 [ -n "${TRUSTED_PROXIES:-}" ] || { echo "TRUSTED_PROXIES is empty: set the reverse proxy's address as requests arrive in the container"; exit 1; }
+# if:spa
+# APP_URL is also the SvelteKit server's ORIGIN: adapter-node refuses an empty one and, without one, assumes https
+# and 403s every form post.
+case "${APP_URL:-}" in
+    http://*/*|https://*/*) echo "APP_URL must be the site's bare origin, no path or trailing slash (https://host), got '${APP_URL}'"; exit 1 ;;
+    http://?*|https://?*) ;;
+    *) echo "APP_URL must be the site's bare origin (https://host), got '${APP_URL:-}'"; exit 1 ;;
+esac
+# Empty makes nothing stateful: every browser /api call would 401.
+[ -n "${SANCTUM_STATEFUL_DOMAINS:-}" ] || { echo "SANCTUM_STATEFUL_DOMAINS is empty: set the public host"; exit 1; }
+# SvelteKit's server-side calls come from 127.0.0.1, browsers through the reverse proxy: Laravel trusts both.
+case ",${TRUSTED_PROXIES// /}," in *,127.0.0.1,*) ;; *) echo "TRUSTED_PROXIES must include 127.0.0.1 (SvelteKit's server-side calls)"; exit 1 ;; esac
+[ "$(echo "${TRUSTED_PROXIES// /}" | tr ',' '\n' | grep -cvxE '127\.0\.0\.1|')" -gt 0 ] || { echo "TRUSTED_PROXIES also needs the reverse proxy's address as its requests arrive in the container"; exit 1; }
+# endif
 
 mkdir -p storage/app/private storage/app/public storage/framework/cache/data storage/framework/sessions storage/framework/views storage/logs bootstrap/cache
 chmod -R 775 storage bootstrap/cache 2>/dev/null || true
@@ -31,7 +45,13 @@ for i in $(seq 1 60); do
     sleep 2
 done
 # Once and loudly: a broken migration stops the boot with its own error.
+# unless:tenancy
 php artisan migrate --force
+# endif
+# if:tenancy
+# As the tables' owner; the app's role cannot create them.
+php artisan migrate --force --database=pgsql_owner
+# endif
 # ProductionSeeder only: the prod image has no faker, so DatabaseSeeder's factories
 # would crash-loop the container (database/CLAUDE.md).
 case "${DATABASE_SEED:-false}" in
@@ -66,11 +86,22 @@ CONF
 # conf.d survives `docker compose restart`: start from the programs this boot configures.
 rm -f /etc/supervisor/conf.d/*.conf
 program web "php artisan octane:frankenphp --host=0.0.0.0 --port=8080 --workers=${OCTANE_WORKERS} --log-level=${OCTANE_LOG_LEVEL:-WARN} --caddyfile=/app/docker/Caddyfile" 30
+# if:spa
+# SvelteKit (adapter-node) on loopback; Caddy is its only client and sets X-Real-IP. ORIGIN fixes event.url, so
+# PROTOCOL_HEADER and HOST_HEADER are unused. SHUTDOWN_TIMEOUT (20) < stopwaitsecs (25) < compose stop_grace_period
+# (80); the app group stops it together with the others. BODY_SIZE_LIMIT = PHP's post_max_size: raise both together.
+# Literals, not .env.prod entries: no two environments differ in them.
+program ssr "env HOST=127.0.0.1 PORT=3000 ORIGIN=${APP_URL%/} ADDRESS_HEADER=X-Real-IP BODY_SIZE_LIMIT=8M SHUTDOWN_TIMEOUT=20 API_INTERNAL_URL=http://127.0.0.1:8080 node build" 25 frontend
+# endif
 program scheduler "php artisan schedule:work"
 # Horizon owns the worker pool (config/horizon.php). stopwaitsecs covers its job
 # timeout (60 s) so an in-flight job finishes on SIGTERM; the compose
 # stop_grace_period stays above it.
 program horizon "php artisan horizon" 70
+# if:reverb
+# Listens on REVERB_SERVER_* (.env.prod).
+program reverb "php artisan reverb:start"
+# endif
 
 # Last, after every program: supervisord stops one group after another, but a group's programs together, so the stop
 # takes the longest stopwaitsecs, not their sum. supervisorctl names them app:web, app:horizon, …

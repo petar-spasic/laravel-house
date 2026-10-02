@@ -15,3 +15,16 @@ foreach (simplexml_load_file($config)->php->env ?? [] as $env) {
         putenv("$name=$value");
     }
 }
+# if:spa
+
+// {{app}}_test has one user at a time. docker/e2e.sh holds this lock alone; test processes (parallel workers too)
+// share it. In the checkout, so a run on the host and one in the container see each other. The handle stays in
+// $GLOBALS, so the lock is held until the process exits.
+$lockFile = __DIR__.'/../storage/framework/testing/db.lock';
+is_dir(dirname($lockFile)) || mkdir(dirname($lockFile), 0775, true);
+$GLOBALS['testDatabaseLock'] = fopen($lockFile, 'c');
+if (! flock($GLOBALS['testDatabaseLock'], LOCK_SH | LOCK_NB)) {
+    fwrite(STDERR, "The test database is in use by an e2e run (docker/e2e.sh); run the tests when it ends.\n");
+    exit(1);
+}
+# endif

@@ -5,6 +5,13 @@ set -e
 cd /app
 echo "=== {{app}} (local) ==="
 [ -f .env ] || cp .env.example .env
+# if:spa
+# Sanctum's stateful origins are compose's localhost and 127.0.0.1 at WEB_PORT plus APP_URL's host (LOCAL_APP_URL).
+# `php artisan` through `docker compose exec` sees only compose's part; CLI requests are never stateful.
+export SANCTUM_STATEFUL_DOMAINS="$SANCTUM_STATEFUL_DOMAINS,$(echo "${APP_URL#*://}" | cut -d/ -f1)"
+# SvelteKit answers a fetch to its own origin itself: API_INTERNAL_URL is never a page's origin.
+case ",$SANCTUM_STATEFUL_DOMAINS," in *",${API_INTERNAL_URL#*://},"*) echo "the web port is 8080, which is API_INTERNAL_URL's: set another WEB_PORT"; exit 1 ;; esac
+# endif
 # sha256 sentinels, not mtimes: `git worktree add` stamps the lockfiles with the
 # current time, which would make every new worktree reinstall its copied deps.
 lock_sha() { sha256sum "$1" | cut -d' ' -f1; }
@@ -13,8 +20,13 @@ for d in /cache/composer /cache/npm; do
     [ -w "$d" ] || { echo "$d is not writable by uid $(id -u): mkdir -p and chown the host directory to the host user"; exit 1; }
 done
 [ "$(cat vendor/.lock-sha 2>/dev/null)" = "$(lock_sha composer.lock)" ] || { composer install --no-interaction || { echo "composer install failed"; exit 1; }; lock_sha composer.lock > vendor/.lock-sha; }
-# The root app and, with spa, frontend/: each one that has a package.json.
+# unless:spa
+for d in .; do
+# endif
+# if:spa
+# The root app and frontend/: each one that has a package.json.
 for d in . frontend; do
+# endif
     [ -f "$d/package.json" ] || continue
     [ -f "$d/package-lock.json" ] || { echo "$d/package.json has no package-lock.json: run npm install in $d"; exit 1; }
     [ "$(cat "$d/node_modules/.lock-sha" 2>/dev/null)" = "$(lock_sha "$d/package-lock.json")" ] || { (cd "$d" && npm ci) || { echo "npm ci in $d failed"; exit 1; }; lock_sha "$d/package-lock.json" > "$d/node_modules/.lock-sha"; }
@@ -35,7 +47,13 @@ for i in $(seq 1 60); do
     sleep 2
 done
 # Once and loudly: a broken migration stops the boot with its own error.
+# unless:tenancy
 php artisan migrate --force
+# endif
+# if:tenancy
+# As the tables' owner; the app's role cannot create them.
+php artisan migrate --force --database=pgsql_owner
+# endif
 case "${DATABASE_SEED:-auto}" in
     auto) if php_app 'exit(App\Models\User::query()->exists() ? 0 : 1);'; then php artisan db:seed --class=ReferenceDataSeeder --force; else php artisan db:seed --force; fi ;;
     true) php artisan db:seed --force ;;
@@ -67,13 +85,20 @@ program php-fpm "php-fpm -F"
 program caddy "caddy run --config /app/docker/Caddyfile.local --adapter caddyfile"
 # laravel-vite-plugin deletes public/hot only on a clean exit; after a SIGKILL or OOM kill Laravel would point at a dead dev server.
 rm -f public/hot
-# At most one dev server on 127.0.0.1:5173, chosen by what exists. spa: frontend/'s, once frontend/package.json exists.
+# if:spa
+# SvelteKit's dev server on 127.0.0.1:5173, once frontend/package.json exists.
 if [ -f frontend/package.json ]; then
     program vite "node_modules/.bin/vite dev --host 127.0.0.1 --port 5173 --strictPort" 10 frontend
-# htmx, islands: the root Vite. API-only deletes this branch with its comment.
-elif [ -f package.json ]; then
-    program vite "node_modules/.bin/vite --host 127.0.0.1 --port 5173 --strictPort"
 fi
+# endif
+# if:htmx
+# The root Vite on 127.0.0.1:5173.
+program vite "node_modules/.bin/vite --host 127.0.0.1 --port 5173 --strictPort"
+# endif
 program scheduler "php artisan schedule:work"
 program horizon "php artisan horizon" 70
+# if:reverb
+# Listens on REVERB_SERVER_* (compose).
+program reverb "php artisan reverb:start"
+# endif
 exec /usr/bin/supervisord -n -c /etc/supervisor/supervisord.conf

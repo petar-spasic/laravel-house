@@ -9,6 +9,7 @@ WORKDIR /app
 COPY composer.json composer.lock ./
 RUN composer install --no-dev --optimize-autoloader --no-interaction --no-progress --prefer-dist --no-scripts --ignore-platform-req=ext-pcntl
 
+# unless:spa
 # ── Stage 2: frontend ────────────────────────────────────────────────────────
 # No PHP in this stage: call vite directly, never `npm run build` hooks that
 # shell out to artisan. The whole tree and vendor/ are here for Tailwind's @source globs.
@@ -20,9 +21,34 @@ COPY . .
 COPY --from=composer-builder /app/vendor /app/vendor
 RUN npx vite build
 
+# endif
+# if:spa
+# ── Stage 2: frontend ────────────────────────────────────────────────────────
+# Debian, never alpine: the runtime copies this stage's node binary and node_modules into a glibc image.
+# No PHP here: the validation export is committed, never generated in the build.
+FROM node:24-bookworm-slim AS frontend-builder
+WORKDIR /app/frontend
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ ./
+# Large builds exhaust Node's default heap ("Ineffective mark-compacts near heap limit").
+ENV NODE_OPTIONS=--max-old-space-size=8192
+# $env/static/public is baked in: the image is built per public URL (compose build.args).
+ARG PUBLIC_APP_URL
+ENV PUBLIC_APP_URL=$PUBLIC_APP_URL
+# adapter-node bundles devDependencies into build/; the runtime keeps only "dependencies" (usually none).
+RUN [ -n "$PUBLIC_APP_URL" ] || { echo "PUBLIC_APP_URL build arg missing"; exit 1; }; \
+    npm run build && npm ci --omit=dev && mkdir -p node_modules
+
+# endif
 # ── Stage 3: runtime ─────────────────────────────────────────────────────────
 FROM dunglas/frankenphp:php{{php_version}}
 WORKDIR /app
+# if:spa
+# Node for the ssr program; fails the build early if the binary does not run on this Debian.
+COPY --from=frontend-builder /usr/local/bin/node /usr/local/bin/node
+RUN node --version
+# endif
 
 RUN apt-get update && apt-get install -y --no-install-recommends supervisor curl procps \
     && rm -rf /var/lib/apt/lists/*
@@ -35,7 +61,14 @@ RUN printf 'memory_limit = ${PHP_MEMORY_LIMIT}\nopcache.enable=1\nopcache.valida
 
 COPY . /app
 COPY --from=composer-builder /app/vendor /app/vendor
+# unless:spa
 COPY --from=node-builder /app/public/build /app/public/build
+# endif
+# if:spa
+# frontend/package.json comes with `COPY . /app`; `node build` needs it for "type": "module".
+COPY --from=frontend-builder /app/frontend/build /app/frontend/build
+COPY --from=frontend-builder /app/frontend/node_modules /app/frontend/node_modules
+# endif
 RUN --mount=type=bind,from=composer-builder,source=/usr/bin/composer,target=/usr/bin/composer composer check-platform-reqs --no-dev
 
 # Runs as www-data: it owns only what it writes at runtime (Octane writes public/frankenphp-worker.php).
@@ -50,5 +83,10 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh /usr/local/bin/healthcheck.sh
 ENV APP_ENV=production APP_DEBUG=false
 USER www-data
 EXPOSE 8080
+# if:reverb
+# unless:spa
+EXPOSE 8081
+# endif
+# endif
 HEALTHCHECK --interval=30s --timeout=15s --retries=3 --start-period=60s CMD /usr/local/bin/healthcheck.sh
 ENTRYPOINT ["docker-entrypoint.sh"]

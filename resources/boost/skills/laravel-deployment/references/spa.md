@@ -1,9 +1,9 @@
 # SvelteKit hosting — the `spa` module only
 
 With `spa`, Laravel and SvelteKit on Node (`adapter-node`) share one Caddy port and one origin, so the Sanctum session
-cookie needs no CORS. This file is the hosting side; the frontend's rules are `frontend/CLAUDE.md`. Merge all of it
-with the module: the spa template rows and the edits below. The `@reverb` blocks come only with the reverb module
-(`references/reverb.md`); without it, `/app/*` is SvelteKit's. Placeholders as in SKILL.md.
+cookie needs no CORS. This file is the hosting side's why, traps and checks; the frontend's rules are
+`frontend/CLAUDE.md`. The templates' `spa` blocks carry every file change (SKILL.md, Procedure). The `@reverb` blocks
+come only with the reverb module (`references/reverb.md`); without it, `/app/*` is SvelteKit's.
 
 ## Before `frontend/` exists
 
@@ -57,191 +57,20 @@ itself, and it has no `/api` routes. So `API_INTERNAL_URL` is `http://127.0.0.1:
 `http://127.0.0.1:8091` in browser tests. The host web port, main's and every worktree's, is never 8080. The e2e Node
 calls :8091, never :8090.
 
-## Local
+## What the blocks hold
 
-### docker/Caddyfile.local
-
-Keep the global block. Replace the header's first line with `# Local front server: Laravel's paths to php-fpm,
-everything else to SvelteKit's dev server; two loopback sites for browser tests.` Replace everything after the global
-block with this, and fill `{{app}}`. The base PHP branch becomes the `(laravel_root)` snippet all three sites import:
-
-```caddyfile
-# Laravel's public/ with the base PHP branch's guards. A PHP file other than the front controller never runs, nor a
-# subdirectory's index.php through its directory URL; a missing /x.php still reaches Laravel, as in prod.
-(laravel_root) {
-	root * /app/public
-	@hidden {
-		path */.*
-		not path /.well-known/*
-	}
-	respond @hidden 404
-	@phpfile {
-		file {
-			try_files {path}
-			split_path .php
-		}
-		path *.php *.php/*
-		not path /index.php /index.php/*
-	}
-	respond @phpfile 404
-	@phpdir {
-		file {path}/index.php
-		not path /
-	}
-	respond @phpdir 404
-}
-
-# Browser tests (docker/e2e.sh): the only list of the test env. Both e2e sites import it and e2e.sh reads its env
-# lines (one `env NAME value` per line, no quotes). FastCGI params win over the container env in $_SERVER and
-# getenv(); a cached config ignores them.
-(e2e_php) {
-	php_fastcgi 127.0.0.1:9000 {
-		env APP_URL http://127.0.0.1:8090
-		env DB_DATABASE {{app}}_test
-		env REDIS_DB 2
-		env REDIS_CACHE_DB 3
-		env QUEUE_CONNECTION sync
-		env MAIL_MAILER log
-		env BROADCAST_CONNECTION null
-		env SANCTUM_STATEFUL_DOMAINS 127.0.0.1:8090
-		read_timeout 30m
-	}
-}
-
-:8080 {
-	route {
-		# Stock caddy has no br encoder.
-		encode zstd gzip
-		@healthz path /healthz /healthz/*
-		respond @healthz 404
-
-		# Laravel's paths (references/spa.md); everything else is SvelteKit's.
-		@backend path /api/* /sanctum/* /horizon /horizon/* /up /storage/* /kanban /kanban/*
-		handle @backend {
-			import laravel_root
-			php_fastcgi 127.0.0.1:9000 {
-				# An Xdebug session may hold a request for minutes.
-				read_timeout 30m
-			}
-			# php_fastcgi runs PHP only; /storage files need this.
-			file_server
-		}
-
-		# reverb module only: Echo's WebSocket on the page's own origin.
-		@reverb path /app/*
-		handle @reverb {
-			reverse_proxy 127.0.0.1:8081
-		}
-
-		# vite dev, its HMR socket included.
-		handle {
-			reverse_proxy 127.0.0.1:5173 {
-				header_up X-Real-IP {client_ip}
-			}
-		}
-	}
-}
-
-# The browser's origin in browser tests: Laravel's paths on the test env, the rest from the production build of
-# frontend/. Loopback only, never published.
-:8090 {
-	bind 127.0.0.1
-	route {
-		encode zstd gzip
-		@healthz path /healthz /healthz/*
-		respond @healthz 404
-
-		@backend path /api/* /sanctum/* /up /storage/*
-		handle @backend {
-			import laravel_root
-			import e2e_php
-			file_server
-		}
-
-		import /app/docker/Caddyfile.frontend
-	}
-}
-
-# SvelteKit's API_INTERNAL_URL in browser tests: a second origin, because SvelteKit answers a server-side fetch to its
-# own origin itself.
-:8091 {
-	bind 127.0.0.1
-	route {
-		import laravel_root
-		import e2e_php
-		file_server
-	}
-}
-```
-
-Why the test env holds what it does:
-- `REDIS_DB` and `REDIS_CACHE_DB` keep e2e sessions, cache, rate limits and locks apart from dev. The reset's
-  `cache:clear` then flushes only DB 3; a `CACHE_PREFIX` alone would flush dev's cache DB.
-- `QUEUE_CONNECTION=sync`: the dev Horizon never runs a test job against the dev database. `APP_URL` points mailed
-  links at the e2e site. `SANCTUM_STATEFUL_DOMAINS` matches Chromium's `Origin` there.
-- A test-only switch, such as a faked outside system, is one more `env` line in `(e2e_php)`.
-
-### docker-compose.local.yml
-
-In the header, after the URL lines, add this line:
-`#   Browser tests: docker compose -f docker-compose.local.yml exec app docker/e2e.sh`. On the `app` service add
-`shm_size: 1gb`, headroom for Chromium. Never `ipc: host`: it shares the host's IPC namespace on a LAN-visible stack.
-Under `environment` add:
-
-```yaml
-      # spa: SvelteKit's server-side calls go to Caddy in this container; the host web port is never 8080
-      # (references/spa.md).
-      API_INTERNAL_URL: http://127.0.0.1:8080
-      # $env/static/public: vite dev, npm run check and every build need it. The same expression as APP_URL.
-      PUBLIC_APP_URL: ${LOCAL_APP_URL:-http://localhost:${WEB_PORT:-{{web_port}}}}
-      # The page origins Sanctum treats as the browser; the entrypoint appends APP_URL's host.
-      SANCTUM_STATEFUL_DOMAINS: localhost:${WEB_PORT:-{{web_port}}},127.0.0.1:${WEB_PORT:-{{web_port}}}
-```
-
-Keep `TRUSTED_PROXIES: 127.0.0.1`: SvelteKit's server-side calls arrive from loopback, carrying the browser's address.
-
-### docker/docker-entrypoint-local.sh
-
-After the `.env` line:
-
-```bash
-# spa: Sanctum's stateful origins are compose's localhost and 127.0.0.1 at WEB_PORT plus APP_URL's host (LOCAL_APP_URL).
-export SANCTUM_STATEFUL_DOMAINS="$SANCTUM_STATEFUL_DOMAINS,$(echo "${APP_URL#*://}" | cut -d/ -f1)"
-# SvelteKit answers a fetch to its own origin itself: API_INTERNAL_URL is never a page's origin.
-case ",$SANCTUM_STATEFUL_DOMAINS," in *",${API_INTERNAL_URL#*://},"*) echo "the web port is 8080, which is API_INTERNAL_URL's: set another WEB_PORT"; exit 1 ;; esac
-```
-
-The `vite` program needs no edit. `php artisan` through `docker compose exec` sees only compose's part of the list;
-CLI requests are never stateful.
-
-### Dockerfile.local
-
-Chromium is installed at build, as root: the container runs as `HOST_UID`, and Chromium's libraries need apt. Before
-the `FROM php:…` line:
-
-```dockerfile
-# spa: the @playwright/test version frontend/package-lock.json pins, empty until frontend/ exists; the browser layer
-# rebuilds only when it changes. composer.json always exists, so the lockfile may match nothing; the directory is a
-# pattern too, because BuildKit fails on a missing parent directory.
-FROM node:24-bookworm-slim AS playwright-version
-COPY composer.json fronten[d]/package-lock.jso[n] /tmp/ctx/
-RUN if [ -f /tmp/ctx/package-lock.json ]; then node -p "require('/tmp/ctx/package-lock.json').packages['node_modules/@playwright/test']?.version ?? ''"; fi > /tmp/playwright-version
-```
-
-After the php-fpm `zz-listen.conf` line, before `ENV COMPOSER_CACHE_DIR=… npm_config_cache=/cache/npm` (that cache is
-a host mount at runtime):
-
-```dockerfile
-# Headless Chromium, its libraries and fonts. Outside the bind mount, so npm ci never touches it; read-only at runtime.
-ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-COPY --from=playwright-version /tmp/playwright-version /tmp/playwright-version
-RUN v=$(cat /tmp/playwright-version) && mkdir -p /ms-playwright \
-    && if [ -n "$v" ]; then npx -y "playwright@$v" install --with-deps --only-shell chromium; fi \
-    && echo "$v" > /ms-playwright/.version && chmod -R a+rX /ms-playwright \
-    && rm -rf /var/lib/apt/lists/* /root/.npm /tmp/playwright-version
-```
-
-Playwright launches Chromium with `--no-sandbox`, so no seccomp profile or capability is needed.
+- `docker/Caddyfile.local`: the split on :8080, plus two loopback sites for browser tests, :8090 (the browser's
+  origin) and :8091 (the e2e backend). All three import `(laravel_root)`. The e2e sites import `(e2e_php)`, the one
+  list of the test env; its comment says why each value is there.
+- `docker-compose.local.yml`: `API_INTERNAL_URL`, `PUBLIC_APP_URL` and `SANCTUM_STATEFUL_DOMAINS`, and
+  `shm_size: 1gb` for Chromium. `TRUSTED_PROXIES: 127.0.0.1` stays, because SvelteKit's server-side calls arrive from
+  loopback carrying the browser's address.
+- `docker/docker-entrypoint-local.sh`: appends `APP_URL`'s host to `SANCTUM_STATEFUL_DOMAINS`, and refuses a web port
+  of 8080.
+- `Dockerfile.local`: the headless Chromium for the exact `@playwright/test` pin, installed at build as root.
+- Prod: `Dockerfile`'s frontend stage and Node binary, the `ssr` program and the boot checks in
+  `docker/docker-entrypoint.sh`, the `docker/Caddyfile` split, the build arg in `docker-compose.yml`, and
+  `.dockerignore` and `.env.prod.example` lines.
 
 ## Browser tests on `{{app}}_test`
 
@@ -257,21 +86,7 @@ against the lockfile, resets with `migrate:fresh --seeder=ReferenceDataSeeder --
 
 **The lock.** Pest and Playwright never use the test database at once. e2e.sh holds the lock alone; Pest takes it
 shared, so parallel workers coexist. It lives in the checkout, so a run on the host and one in the container see each
-other on a Linux host (Docker Desktop's file sharing may not carry host locks). Append to `tests/bootstrap.php`:
-
-```php
-// spa: {{app}}_test has one user at a time. docker/e2e.sh holds this lock alone; test processes (parallel workers too)
-// share it. In the checkout, so a run on the host and one in the container see each other.
-$lockFile = __DIR__.'/../storage/framework/testing/db.lock';
-is_dir(dirname($lockFile)) || mkdir(dirname($lockFile), 0775, true);
-$GLOBALS['testDatabaseLock'] = fopen($lockFile, 'c');
-if (! flock($GLOBALS['testDatabaseLock'], LOCK_SH | LOCK_NB)) {
-    fwrite(STDERR, "The test database is in use by an e2e run (docker/e2e.sh); run the tests when it ends.\n");
-    exit(1);
-}
-```
-
-The handle stays in `$GLOBALS`, so the lock is held until the process exits.
+other on a Linux host (Docker Desktop's file sharing may not carry host locks). `tests/bootstrap.php` takes it.
 
 **The Playwright contract.** `frontend/playwright.config.ts` is the frontend's file; these values are fixed here:
 
@@ -287,163 +102,6 @@ The handle stays in `$GLOBALS`, so the lock is held until the process exits.
 
 Browser tests exercise no queue timing and no realtime: the e2e site runs `QUEUE_CONNECTION=sync` and
 `BROADCAST_CONNECTION=null`, and an empty `REVERB_APP_KEY` means no Echo. Test those with Pest or by hand.
-
-## Prod
-
-### Dockerfile
-
-Stage 2 becomes:
-
-```dockerfile
-# ── Stage 2: frontend ────────────────────────────────────────────────────────
-# Debian, never alpine: the runtime copies this stage's node binary and node_modules into a glibc image.
-# No PHP here: the validation export is committed, never generated in the build.
-FROM node:24-bookworm-slim AS frontend-builder
-WORKDIR /app/frontend
-COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci
-COPY frontend/ ./
-# Large builds exhaust Node's default heap ("Ineffective mark-compacts near heap limit").
-ENV NODE_OPTIONS=--max-old-space-size=8192
-# $env/static/public is baked in: the image is built per public URL (compose build.args).
-ARG PUBLIC_APP_URL
-ENV PUBLIC_APP_URL=$PUBLIC_APP_URL
-# adapter-node bundles devDependencies into build/; the runtime keeps only "dependencies" (usually none).
-RUN [ -n "$PUBLIC_APP_URL" ] || { echo "PUBLIC_APP_URL build arg missing"; exit 1; }; \
-    npm run build && npm ci --omit=dev && mkdir -p node_modules
-```
-
-In the runtime stage, right after `FROM dunglas/frankenphp:…` and `WORKDIR`:
-
-```dockerfile
-# Node for the ssr program; fails the build early if the binary does not run on this Debian.
-COPY --from=frontend-builder /usr/local/bin/node /usr/local/bin/node
-RUN node --version
-```
-
-In place of `COPY --from=node-builder /app/public/build /app/public/build`:
-
-```dockerfile
-COPY --from=frontend-builder /app/frontend/build /app/frontend/build
-COPY --from=frontend-builder /app/frontend/node_modules /app/frontend/node_modules
-```
-
-`frontend/package.json` comes with `COPY . /app`; `node build` needs it for `"type": "module"`.
-
-### docker-compose.yml
-
-The header's required list adds `SANCTUM_STATEFUL_DOMAINS`. `stop_grace_period` stays 80s. The `build:` line becomes:
-
-```yaml
-    # PUBLIC_APP_URL is baked into the SvelteKit build: a new APP_URL means a rebuild.
-    build: { context: ., dockerfile: Dockerfile, args: { PUBLIC_APP_URL: "${APP_URL:?APP_URL is required in .env.prod}" } }
-```
-
-### docker/docker-entrypoint.sh
-
-After the `TRUSTED_PROXIES` check:
-
-```bash
-# spa: APP_URL is also the SvelteKit server's ORIGIN: adapter-node refuses an empty one and, without one, assumes https
-# and 403s every form post.
-case "${APP_URL:-}" in
-    http://*/*|https://*/*) echo "APP_URL must be the site's bare origin, no path or trailing slash (https://host), got '${APP_URL}'"; exit 1 ;;
-    http://?*|https://?*) ;;
-    *) echo "APP_URL must be the site's bare origin (https://host), got '${APP_URL:-}'"; exit 1 ;;
-esac
-# Empty makes nothing stateful: every browser /api call would 401.
-[ -n "${SANCTUM_STATEFUL_DOMAINS:-}" ] || { echo "SANCTUM_STATEFUL_DOMAINS is empty: set the public host"; exit 1; }
-# SvelteKit's server-side calls come from 127.0.0.1, browsers through the reverse proxy: Laravel trusts both.
-case ",${TRUSTED_PROXIES// /}," in *,127.0.0.1,*) ;; *) echo "TRUSTED_PROXIES must include 127.0.0.1 (SvelteKit's server-side calls)"; exit 1 ;; esac
-[ "$(echo "${TRUSTED_PROXIES// /}" | tr ',' '\n' | grep -cvxE '127\.0\.0\.1|')" -gt 0 ] || { echo "TRUSTED_PROXIES also needs the reverse proxy's address as its requests arrive in the container"; exit 1; }
-```
-
-Next to `program web`:
-
-```bash
-# SvelteKit (adapter-node) on loopback; Caddy is its only client and sets X-Real-IP. ORIGIN fixes event.url, so
-# PROTOCOL_HEADER and HOST_HEADER are unused. SHUTDOWN_TIMEOUT (20) < stopwaitsecs (25) < compose stop_grace_period
-# (80); the app group stops it together with the others. BODY_SIZE_LIMIT = PHP's post_max_size: raise both together.
-program ssr "env HOST=127.0.0.1 PORT=3000 ORIGIN=${APP_URL%/} ADDRESS_HEADER=X-Real-IP BODY_SIZE_LIMIT=8M SHUTDOWN_TIMEOUT=20 API_INTERNAL_URL=http://127.0.0.1:8080 node build" 25 frontend
-```
-
-`ssr` starts with `web`, after migrating and caching, and joins the `app` group. Its values are literals, not
-`.env.prod` entries: no two environments differ in them. The healthcheck template already checks
-`127.0.0.1:3000/healthz` once `ssr.conf` exists.
-
-### docker/Caddyfile
-
-The `route { … }` block becomes:
-
-```caddyfile
-	route {
-		encode zstd br gzip
-
-		{$CADDY_SERVER_EXTRA_DIRECTIVES}
-
-		@healthz path /healthz /healthz/*
-		respond @healthz 404
-
-		@backend path /api/* /sanctum/* /horizon /horizon/* /up /storage/*
-		handle @backend {
-			root * "{$APP_PUBLIC_PATH}"
-			# php_server's try_files {path} would serve a dotfile and run an uploaded .php under /storage, also by a
-			# PATH_INFO URL (/storage/x.php/y).
-			@hidden path */.* *.php *.php/*
-			respond @hidden 404
-			php_server {
-				index frankenphp-worker.php
-				try_files {path} frankenphp-worker.php
-			}
-		}
-
-		# reverb module only: Echo's WebSocket on the page's own origin.
-		@reverb path /app/*
-		handle @reverb {
-			reverse_proxy 127.0.0.1:8081
-		}
-
-		import /app/docker/Caddyfile.frontend
-	}
-```
-
-Inside a `handle`, Caddy runs directives in its standard order, so `respond` runs before `php_server`. The global
-block, `{$CADDY_EXTRA_CONFIG}`, the site address and the log block stay. `docker/Caddyfile.frontend` holds the
-SvelteKit rules, each explained in its comments.
-
-### .dockerignore
-
-Append these. `**/node_modules` already covers `frontend/node_modules`, and `$env/static/*` would bake a developer's
-`.env` into the bundle:
-
-```
-frontend/build
-frontend/.svelte-kit
-frontend/.env
-frontend/.env.*
-frontend/e2e
-frontend/test-results
-frontend/playwright-report
-```
-
-### .env.prod.example
-
-These replace the `APP_URL` and `TRUSTED_PROXIES` lines:
-
-```dotenv
-# A bare origin, no path or trailing slash: also the SvelteKit server's ORIGIN and the build's PUBLIC_APP_URL.
-APP_URL=https://{{domain}}
-# Comma-separated: 127.0.0.1 (SvelteKit's server-side calls, which carry the browser's address) and the reverse
-# proxy's address as its requests arrive in the container (the compose network's gateway). Add the gateway: the
-# entrypoint refuses a value without both.
-TRUSTED_PROXIES=127.0.0.1,
-# The page origins Sanctum treats as the browser (host[:port], no scheme). Empty makes every browser /api call 401.
-SANCTUM_STATEFUL_DOMAINS={{domain}}
-```
-
-Left out on purpose: `ORIGIN` (derived from `APP_URL`; an empty one crashes adapter-node), `PROTOCOL_HEADER` (ignored
-once `ORIGIN` is set) and `SESSION_DOMAIN` (unset gives the host-only cookie one origin needs; `.{{domain}}` would share
-the session with subdomains).
 
 ## Client address and host
 

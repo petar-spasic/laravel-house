@@ -24,7 +24,8 @@ core (Adopting the current core).
 
 `${CLAUDE_SKILL_DIR}/scripts/install.php` copies `templates/core` and each chosen `templates/modules/<module>` into the
 repo. It resolves `<!-- if:m -->` / `<!-- unless:m -->` … `<!-- endif -->` blocks and `{{key}}` placeholders. The
-files in `templates/snippets/` are merged by hand into files that already exist.
+files in `templates/snippets/` are merged by hand into files that already exist. laravel-deployment renders its own
+templates with the same script (`--templates`), with `# if:m` … `# endif` blocks in files that are not Markdown.
 
 The house ships rules, not frontend code. Frontends, social sign-in and tenancy ship as binding rules in the generated
 `CLAUDE.md` files. The project builds each piece when its work needs it.
@@ -154,7 +155,7 @@ This table owns the combination rules. `install.php` enforces them and refuses a
    - The module checks in `references/modules.md`.
    - The E2E tests need the stack's `{{app}}_test` (step 9).
 9. **Hand off to `laravel-deployment`.** Invoke it with `{{app}}`, `{{app_name}}`, `{{php_version}}`, the ports, the
-   LAN URL, `{{domain}}` and the modules, tenancy included. It merges its `references/project-files.md` and fills
+   LAN URL, `{{domain}}` and the modules, tenancy included. It renders its templates, merges its snippets and fills
    `{{hosting}}`. Done when `php artisan test --compact tests/E2E` passes against the stack, and:
    - htmx: the page loads from the LAN URL with every asset answering 200;
    - API-only and spa: through Caddy, `/up` answers 200 and `/api/v1/x` answers Laravel's JSON 404, never a 502.

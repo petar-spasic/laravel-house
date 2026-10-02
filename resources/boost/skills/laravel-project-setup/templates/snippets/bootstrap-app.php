@@ -1,7 +1,7 @@
 <?php
 
 // The shape of bootstrap/app.php. Merge it in, keeping what install:api / install:broadcasting added unless noted; the
-// TRUSTED_PROXIES block in withMiddleware is laravel-deployment's (references/project-files.md).
+// TRUSTED_PROXIES block in withMiddleware is laravel-deployment's (its bootstrap-app.php snippet).
 
 use App\Http\Middleware\AcceptJson;
 <!-- if:htmx -->
