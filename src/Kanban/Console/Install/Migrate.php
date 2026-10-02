@@ -50,8 +50,17 @@ final class Migrate extends Step
             ...$this->markers($dryRun),
             ...$this->hooksPath($dryRun),
             ...$this->boost($dryRun),
-            ...$this->compose($dryRun),
+            ...($this->blocked() && ! $dryRun ? [] : $this->compose($dryRun)),
         ];
+    }
+
+    /**
+     * The old runtime directory is still there (agents running, a held lock, or a file it keeps), so the deploy key the
+     * repository knows may still live in it: `attach` must not run, or it makes a second, unregistered key.
+     */
+    public function blocked(): bool
+    {
+        return is_dir($this->path(self::RUNTIME));
     }
 
     public function check(): array
@@ -152,6 +161,9 @@ final class Migrate extends Step
         $stale = 60 * Snapshot::staleMinutesOf((array) json_decode((string) $this->read(Paths::BOARD.'/kanban.json'), true));
         $working = 0;
         foreach (glob($runtime.'/agents/*.json') ?: [] as $file) {
+            // After the upgrade the guard and the hooks update the current runtime's copy of the record.
+            $current = $this->paths->agents(basename($file, '.json'));
+            $file = is_file($current) ? $current : $file;
             $agent = json_decode((string) @file_get_contents($file), true);
             if (is_array($agent) && empty($agent['stopped_at']) && time() - (int) @filemtime($file) <= $stale) {
                 $working++;
@@ -189,17 +201,26 @@ final class Migrate extends Step
                 $taken = [];
             } else {
                 $into = json_decode((string) file_get_contents($new.'/stacks.json'), true);
-                $taken = [];
+                $registered = array_column((array) ($into['stacks'] ?? []), 'worktree');
+                $left = [];
                 foreach (self::stacksOf($old) as $slot => $entry) {
+                    if (in_array($entry['worktree'] ?? null, $registered, true)) {
+                        continue;
+                    }
                     if (isset($into['stacks'][$slot])) {
-                        $taken[] = (string) $slot;
+                        $left[$slot] = $entry;
                     } else {
                         $into['stacks'][$slot] = $entry;
                     }
                 }
-                Json::write($new.'/stacks.json', json_encode($into, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)."\n");
-                if ($taken === []) {
+                Json::write($new.'/stacks.json', self::registryJson($into));
+                $taken = array_map('strval', array_keys($left));
+                if ($left === []) {
                     unlink($old.'/stacks.json');
+                } else {
+                    $remaining = json_decode((string) file_get_contents($old.'/stacks.json'), true);
+                    $remaining['stacks'] = $left;
+                    Json::write($old.'/stacks.json', self::registryJson($remaining));
                 }
             }
         } finally {
@@ -221,6 +242,12 @@ final class Migrate extends Step
         $repos = array_unique(array_filter(array_map(fn (mixed $entry) => is_array($entry) ? ($entry['repo'] ?? null) : null, self::stacksOf($old)), 'is_string'));
 
         return array_values(array_filter($repos, fn (string $repo) => is_dir($repo.'/vendor/'.self::PACKAGE)));
+    }
+
+    /** @param  array<string, mixed>  $registry */
+    private static function registryJson(array $registry): string
+    {
+        return json_encode($registry, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)."\n";
     }
 
     /** @return array<array-key, mixed> */

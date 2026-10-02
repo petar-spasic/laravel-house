@@ -599,7 +599,9 @@ the project.
 > The package's git hooks work by pointing `core.hooksPath` at them, so hooks in `.git/hooks` stop running. If
 > `core.hooksPath` is already set, for example by Husky, it is kept and the package's hooks do not run.
 > `vendor/bin/kanban attach --force` replaces it. To keep `Co-Authored-By` trailers and Claude Code's attribution, set
-> `githooks.reject_co_authored` to `false` in `config/kanban.php`, then run `vendor/bin/kanban doctor --fix`.
+> `githooks.reject_co_authored` to `false` in `config/kanban.php` before you install. On a project already installed,
+> set it, run `vendor/bin/kanban doctor --fix`, and remove the `attribution` object from `.claude/settings.json`
+> yourself.
 
 <a name="joining-an-existing-board"></a>
 ### Joining an Existing Board
@@ -1124,6 +1126,11 @@ Skip the `doctor` line in a project without the board. Then restart Claude Code.
 > [!WARNING]
 > While the package is at 0.x, `^0.N` stays on `0.N.x`, so `composer update` alone never reaches a new minor
 > version.
+
+> [!WARNING]
+> A project that still requires `petar-spasic/laravel-kanban` cannot require this package next to it: the two
+> conflict. Its own copy of `/implement-kanban` is too old to help, so run the plugin's copy,
+> `/laravel-house:implement-kanban`, and follow its case for that package.
 
 > [!WARNING]
 > Every clone that shares a board must run the same version of the package. Commit `composer.lock`. Each other clone

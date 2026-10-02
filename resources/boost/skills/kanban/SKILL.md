@@ -17,7 +17,9 @@ description: >-
 
 # Kanban orchestrator (main session)
 
-No `docs/kanban` in the project: the board is not adopted. Offer the owner `/implement-kanban`, and stop.
+No `docs/kanban` in the project: if the root `CLAUDE.md` has the `laravel-house:kanban:start` block, this clone is
+not attached yet: run `vendor/bin/kanban attach`, then `doctor`. Without the block, the board is not adopted: offer
+the owner `/implement-kanban`, and stop.
 
 You drive the board; agents do the card work. Exact flags, every exit code and the rarer failures are in
 `references/protocol.md`. All commands below are `vendor/bin/kanban <command>` run from the main checkout.

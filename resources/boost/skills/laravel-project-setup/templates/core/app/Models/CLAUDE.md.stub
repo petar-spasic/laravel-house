@@ -61,12 +61,12 @@ The rules are root `CLAUDE.md`, Tenancy.
   `Models\Scopes\TenantScope` (`where tenant_id = CurrentTenant::id()`, `app/Support/CLAUDE.md`) and a `creating`
   hook that fills `tenant_id` and throws when a preset value differs. `tenant_id` is never `$fillable`.
 - **Lookups** go by prefixed id through the scope (binding, `findOrFail`), so another tenant's id is a 404.
-  `withoutGlobalScope(TenantScope::class)` appears only in the RLS proof and a decided platform-admin card.
+  `withoutGlobalScope(TenantScope::class)` appears only in the RLS proof and a platform-admin path the owner decided.
 - **Tokens.** `App\Models\PersonalAccessToken` extends Sanctum's and has a non-null `tenant_id`. Tokens are issued
   only by `User::createTenantToken(Tenant $tenant, string $name, array $abilities = ['*'])`, which checks
   membership; a plain `createToken()` fails on the non-null column. Removing a membership deletes that user's tokens
   for the tenant.
-- **How a user gets a membership** is a decided card (registration creates a tenant, invitations, or both): one
+- **How a user gets a membership** is the owner's decision (registration creates a tenant, invitations, or both): one
   action, run inside the user's transaction by Fortify's `CreateNewUser` and the social sign-in create path. Never
   inferred from an email domain or a provider claim.
 <!-- endif -->

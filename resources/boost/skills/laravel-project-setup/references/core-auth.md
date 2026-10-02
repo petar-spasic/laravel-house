@@ -63,7 +63,7 @@ closure from `routes/api.php`.
 - Setup installs `laravel/socialite` and nothing else.
 - The `social_accounts` table, the routes, the provider keys and the nullable-password migration come when the
   project turns a provider on. The rules are the root `CLAUDE.md`, Social sign-in, and `routes/CLAUDE.md`.
-- Which providers are on is a proposed card (SKILL.md step 11).
+- Which providers are on is an open question (SKILL.md step 11).
 - The callback URLs: root `CLAUDE.md`, Hosting, which laravel-deployment fills.
 
 ## Tests shipped

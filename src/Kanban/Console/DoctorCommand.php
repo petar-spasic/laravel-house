@@ -67,15 +67,20 @@ class DoctorCommand extends Command
 
     private function fix(): void
     {
-        foreach ((new Migrate($this->paths(), $this->config()))->run() as $line) {
+        $migrate = new Migrate($this->paths(), $this->config());
+        foreach ($migrate->run() as $line) {
             $this->say("fix: {$line}");
         }
-        try {
-            foreach ((new Bootstrap($this->paths(), $this->config()))->attach() as $line) {
-                $this->say("fix: {$line}");
+        if ($migrate->blocked()) {
+            $this->say('fix: '.'stopped: '.Migrate::RUNTIME.' is still there (see above); attach waits for it, so no second deploy key is made');
+        } else {
+            try {
+                foreach ((new Bootstrap($this->paths(), $this->config()))->attach() as $line) {
+                    $this->say("fix: {$line}");
+                }
+            } catch (Throwable $e) {
+                $this->say('fix: attach failed: '.$e->getMessage());
             }
-        } catch (Throwable $e) {
-            $this->say('fix: attach failed: '.$e->getMessage());
         }
         foreach (Steps::make($this->paths(), $this->config()) as $step) {
             foreach ($step->run() as $line) {

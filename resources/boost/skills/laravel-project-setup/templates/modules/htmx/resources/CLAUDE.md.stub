@@ -158,7 +158,7 @@ Configured once in `app.ts`, never per element:
 
 ## Auth pages
 
-Fortify's views stay off, with `AcceptJson`, until the project builds these pages ("Build the auth pages" is a card):
+Fortify's views stay off, with `AcceptJson`, until the project builds these pages ("Build the auth pages" is an open item):
 `resources/views/auth/<name>`, the names `Fortify::viewPrefix('auth.')` registers, built from the project's
 components inside the app layout, `noindex`:
 

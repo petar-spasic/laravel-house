@@ -5,7 +5,7 @@ the paths (root `CLAUDE.md`, Frontend).
 
 ## First frontend change
 
-`frontend/` holds only this file until the first card that needs a page. That card creates the app inside the app
+`frontend/` holds only this file until the first change that needs a page. That change creates the app inside the app
 container (php and `PUBLIC_APP_URL` are there), with the owner's approval of the packages:
 
 1. From the repo root:

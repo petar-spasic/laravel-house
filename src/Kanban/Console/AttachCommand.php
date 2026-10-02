@@ -15,7 +15,16 @@ class AttachCommand extends Command
 
     protected function perform(): int
     {
-        foreach ([...(new Migrate($this->paths(), $this->config()))->run(), ...(new Bootstrap($this->paths(), $this->config()))->attach((bool) $this->option('force'))] as $line) {
+        $migrate = new Migrate($this->paths(), $this->config());
+        foreach ($migrate->run() as $line) {
+            $this->say($line);
+        }
+        if ($migrate->blocked()) {
+            $this->say('stopped: '.Migrate::RUNTIME.' is still there (see above); attach waits for it, so no second deploy key is made');
+
+            return self::FAILURE;
+        }
+        foreach ((new Bootstrap($this->paths(), $this->config()))->attach((bool) $this->option('force')) as $line) {
             $this->say($line);
         }
         $this->publishOnce();

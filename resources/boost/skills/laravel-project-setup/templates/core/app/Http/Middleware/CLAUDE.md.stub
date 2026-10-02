@@ -65,7 +65,7 @@ Per request, in order:
 
 No `terminate()` reset: `app/CLAUDE.md` (Octane) owns the reset points.
 
-**Platform admin, only if a decided card says so:** an explicit act-as-tenant behind its own gate, written to an
+**Platform admin, only if the owner decided it:** an explicit act-as-tenant behind its own gate, written to an
 append-only audit log, that sets the tenant like a member; or a separate SELECT-only BYPASSRLS connection for
 cross-tenant reports. Never by leaving the tenant unset, removing the scope, or connecting as the owner.
 <!-- endif -->

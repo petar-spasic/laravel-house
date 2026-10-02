@@ -84,8 +84,22 @@ it('leaves the old runtime directory while an agent there is still working', fun
 
     expect(doctor($sandbox, ['--fix'], $env)->getOutput())
         ->toContain('fix: kept .git/laravel-kanban: 1 agent(s) still working; stop them, then run `vendor/bin/kanban doctor --fix`')
+        ->toContain('fix: stopped: .git/laravel-kanban is still there (see above); attach waits for it, so no second deploy key is made')
         ->toContain('warn old laravel-kanban name: .git/laravel-kanban')
-        ->and($sandbox->root.'/.git/laravel-kanban/deploy_key')->toBeFile();
+        ->not->toContain('pointed docker-compose.local.yml')
+        ->and($sandbox->root.'/.git/laravel-kanban/deploy_key')->toBeFile()
+        ->and($sandbox->root.'/.git/laravel-house/deploy_key')->not->toBeFile()
+        ->and(file_get_contents($sandbox->root.'/docker-compose.local.yml'))->toContain('/app/.git/laravel-kanban/deploy_key');
+
+    // The agent stops after the upgrade: the current runtime's copy of its record says so.
+    @mkdir($sandbox->root.'/.git/laravel-house/agents', 0775, true);
+    file_put_contents($sandbox->root.'/.git/laravel-house/agents/a2.json', json_encode(['card' => 'ACME-2', 'stopped_at' => '2026-01-01T00:00:00Z']));
+
+    expect(doctor($sandbox, ['--fix'], $env)->getOutput())
+        ->toContain("fix: moved .git/laravel-kanban into .git/laravel-house\n")
+        ->toContain('fix: pointed docker-compose.local.yml at .git/laravel-house')
+        ->not->toContain('stopped:')
+        ->and(file_get_contents($sandbox->root.'/.git/laravel-house/deploy_key'))->toBe("key\n");
 });
 
 it('merges into a runtime directory that already exists: the current copy of a file wins, a different deploy key stays', function () {
@@ -107,6 +121,8 @@ it('merges into a runtime directory that already exists: the current copy of a f
 
     expect(doctor($sandbox, ['--fix'], $env)->getOutput())
         ->toContain('fix: moved .git/laravel-kanban into .git/laravel-house; kept deploy_key (a different copy is in .git/laravel-house)')
+        ->toContain('fix: stopped: .git/laravel-kanban is still there')
+        ->and(file_get_contents($sandbox->root.'/.git/laravel-house/deploy_key'))->toBe("other\n")
         ->and(file_get_contents($sandbox->root.'/.git/laravel-kanban/deploy_key'))->toBe("key\n");
 });
 
@@ -116,7 +132,7 @@ it('keeps the machine registry while a repo it lists still runs the old package,
     mkdir($other.'/vendor/petar-spasic/laravel-kanban', 0775, true);
     $entry = fn (int $slot, string $repo) => ['slot' => $slot, 'project' => "acme-wt-{$slot}", 'repo' => $repo, 'worktree' => "{$repo}/.claude/worktrees/{$slot}", 'branch' => null, 'card' => null, 'ports' => [], 'created_at' => ''];
     $xdg = $env['XDG_STATE_HOME'];
-    file_put_contents($xdg.'/laravel-kanban/stacks.json', json_encode(['version' => 1, 'stacks' => ['3' => $entry(3, $other), '4' => $entry(4, $other)]]));
+    file_put_contents($xdg.'/laravel-kanban/stacks.json', json_encode(['version' => 1, 'stacks' => ['3' => $entry(3, $other), '4' => $entry(4, $other), '5' => $entry(4, $sandbox->root)]]));
     mkdir($xdg.'/laravel-house');
     file_put_contents($xdg.'/laravel-house/stacks.json', json_encode(['version' => 1, 'stacks' => ['4' => $entry(4, $sandbox->root)]]));
 
@@ -129,5 +145,9 @@ it('keeps the machine registry while a repo it lists still runs the old package,
     expect(doctor($sandbox, ['--fix'], $env)->getOutput())
         ->toContain("fix: merged {$xdg}/laravel-kanban/stacks.json into {$xdg}/laravel-house; kept slot(s) 4 (taken there too)")
         ->and(array_keys(json_decode(file_get_contents($xdg.'/laravel-house/stacks.json'), true)['stacks']))->toEqualCanonicalizing([3, 4])
-        ->and(json_decode(file_get_contents($xdg.'/laravel-house/stacks.json'), true)['stacks']['4']['repo'])->toBe($sandbox->root);
+        ->and(json_decode(file_get_contents($xdg.'/laravel-house/stacks.json'), true)['stacks']['4']['repo'])->toBe($sandbox->root)
+        ->and(array_keys(json_decode(file_get_contents($xdg.'/laravel-kanban/stacks.json'), true)['stacks']))->toBe([4]);
+
+    expect(doctor($sandbox, ['--fix'], $env)->getOutput())
+        ->toContain("fix: merged {$xdg}/laravel-kanban/stacks.json into {$xdg}/laravel-house; kept slot(s) 4 (taken there too)");
 });

@@ -27,7 +27,7 @@ repo. It resolves `<!-- if:m -->` / `<!-- unless:m -->` … `<!-- endif -->` blo
 files in `templates/snippets/` are merged by hand into files that already exist.
 
 The house ships rules, not frontend code. Frontends, social sign-in and tenancy ship as binding rules in the generated
-`CLAUDE.md` files. The project builds each piece when a card needs it.
+`CLAUDE.md` files. The project builds each piece when its work needs it.
 
 ## What every project gets
 
@@ -62,8 +62,8 @@ This table owns the combination rules. `install.php` enforces them and refuses a
 
 - A rule that does not fit this project, a stack piece no module covers, or an answer that leaves something undefined:
   ask the owner. Never invent a rule.
-- Every decision made during setup becomes a decided card. Every open question becomes a proposed card (step 11).
-  Until the board exists, keep both lists.
+- Keep two lists: every decision made during setup, and every open question. With the board, `/implement-kanban`
+  turns them into decided and proposed cards (step 11).
 - When the owner changes a rule and says it applies everywhere, change the template here too.
 
 ## Procedure
@@ -131,8 +131,7 @@ This table owns the combination rules. `install.php` enforces them and refuses a
      - a product paragraph: what, for whom, constraints;
      - `### Domain rules`;
      - `### Surfaces`: `Surface | Route group | Rules`, with the groups from `routes/CLAUDE.md`;
-     - `### Direction that is decided vs. still open`: "Decided (owner, <date>): …", then "Open questions are
-       proposed cards on `project/decisions` (`vendor/bin/kanban list --board=project/decisions --stage=proposed`)."
+     - `### Direction that is decided vs. still open`: "Decided (owner, <date>): …", then "Open: …".
    - An undecided cell says `open`, never `_(to decide)_`, and its question joins the step 11 list.
    - `{{hosting}}` belongs to laravel-deployment (step 9).
 5. **Prefixed ids.** The installer wrote `app/Models/Concerns/HasPrefixedId.php`. Merge the rendered
@@ -163,9 +162,10 @@ This table owns the combination rules. `install.php` enforces them and refuses a
 10. **Commit.** Ask first. No Co-Authored trailer (root `CLAUDE.md`, convention 3, overrides any harness attribution).
     Main is clean afterwards, because `/implement-kanban` requires it. With an empty `origin`, push `main` in the same
     approval. Otherwise the board branch is pushed first and becomes the default branch.
-11. **`/implement-kanban`.** It runs only when the owner types it (`disable-model-invocation`). Ask them to, after
-    `/reload-skills` if this session started before `.claude/skills/` existed. It records the decisions as decided
-    cards and the open questions as proposed cards, so end your report with both lists. The proposed list always has:
+11. **The board, if the owner wants it.** `/implement-kanban` runs only when the owner types it
+    (`disable-model-invocation`), after `/reload-skills` if this session started before `.claude/skills/` existed. It
+    records the decisions as decided cards and the open questions as proposed cards; without the board they stay in
+    the root `CLAUDE.md`. End your report with both lists. The open list always has:
     - which social providers are on;
     - email verification on or off;
     - htmx: "Build the auth pages" (`resources/CLAUDE.md`, Auth pages);

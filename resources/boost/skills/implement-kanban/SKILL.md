@@ -36,11 +36,15 @@ the `kanban` skill's `references/gotchas.md` in the same session.
 | (b) A new project | laravel-project-setup just ran; its choices live only in this chat and the files it wrote | 1–9 |
 | (c) A board on an older house version | `docs/kanban` exists, no separate kanban package; the house is behind | "Upgrading a board", (c) |
 | (d) A board on the separate kanban package | `composer.json` requires the board as a package of its own | "Upgrading a board", (d) |
+| (e) The separate package, no board | `composer.json` requires it, but there is no `kanban` branch, local or on `origin` | (e), then (a) or (b) |
+
+A project on the separate package runs this skill from the plugin (`/laravel-house:implement-kanban`): its own copy
+is older than cases (d) and (e).
 
 ## 1. Prerequisites: stop and report any that fail
 
-- **The house:** `petar-spasic/laravel-house` in `require-dev` and in `boost.json` `packages`. A project without it
-  comes onto the house with laravel-project-setup first.
+- **The house:** `petar-spasic/laravel-house` in `require-dev` and in `boost.json` `packages`, and no
+  `petar-spasic/laravel-kanban` (case (e)). A project without the house comes onto it with laravel-project-setup first.
 - **Tools:** Laravel 12 or 13, PHP ≥ 8.3, git ≥ 2.42, Docker Compose v2, Laravel Boost (`boost.json`). `ssh-keygen` on
   the host too, when `origin` is ssh and the compose file below exists.
 - **main:** `main` is clean. The install changes files on main. Step 7 commits them.
@@ -90,7 +94,13 @@ Every open item becomes a proposed card. Write them as the `kanban` skill's "Dec
 
 **Both:** in the root `CLAUDE.md`, the decided/open prose becomes a pointer: decisions are cards on `project/decisions`,
 open questions are the proposed ones (`vendor/bin/kanban list --board=project/decisions --stage=proposed`). "Where the
-docs live" gets the `docs/kanban/` row. Bugs the owner names become cards on `project/work`.
+docs live" gets this row:
+
+```markdown
+| `docs/kanban/` (branch `kanban`) | The board: epics, cards, owner decisions (`project/decisions`: proposed → decided). Use only `vendor/bin/kanban`; decided cards are final until superseded |
+```
+
+Bugs the owner names become cards on `project/work`.
 
 ## 4. Restart Claude Code
 
@@ -187,10 +197,19 @@ worktree stacks there: the port registry is machine-wide.
 3. **Read every migration line.** `doctor --fix` renames `.git/laravel-kanban` to `.git/laravel-house`, moves the
    port registry, rewrites the old markers (`CLAUDE.md`, the agents, worktree `.env` files), switches
    `core.hooksPath`, drops the old package from `boost.json` and points the local compose file at `.git/laravel-house`.
-   It refuses the rename while agents are live: stop them and run `doctor --fix` again, until `doctor` shows no
-   migration warning.
+   It refuses the rename while agents are live, and then also skips `attach`, so no second deploy key is made: stop
+   them and run `doctor --fix` again. A `deploy_key` it keeps in `.git/laravel-kanban` differs from the one in
+   `.git/laravel-house`: keep the one the repository knows, delete the other, and run it again. A
+   `stacks.json … still used by <repo>` warning stays until those projects are upgraded; the last one's `doctor --fix`
+   moves the registry.
 4. **The container's half:** openssh-client in `Dockerfile.local`, `GIT_SSH_COMMAND` (both paths under
    `.git/laravel-house`) and the `user:` line in the local compose, merged per laravel-deployment's Procedure, step 1.
    Then rebuild and recreate with `docker compose -f docker-compose.local.yml up -d --build --wait`. Without
    `--build` the container has no ssh.
 5. **Finish:** step 6's container check, the commit (step 7), restart (step 4).
+
+**(e) The separate package, no board.** Swap the packages, with no `doctor`, then adopt the board by path (a) or (b):
+
+```bash
+composer remove --dev petar-spasic/laravel-kanban && composer require --dev petar-spasic/laravel-house -W && php artisan boost:update
+```

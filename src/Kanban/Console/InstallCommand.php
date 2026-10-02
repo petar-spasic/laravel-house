@@ -23,7 +23,16 @@ class InstallCommand extends Command
         $key = strtoupper((string) ($this->option('key') ?? substr((string) preg_replace('/[^A-Za-z0-9]/', '', basename($paths->main)), 0, 3)));
         $dryRun = (bool) $this->option('dry-run');
         $force = (bool) $this->option('force');
-        foreach ([...(new Migrate($paths, $this->config()))->run($dryRun), ...(new Bootstrap($paths, $this->config()))->install($key, $dryRun, $force)] as $line) {
+        $migrate = new Migrate($paths, $this->config());
+        foreach ($migrate->run($dryRun) as $line) {
+            $this->say($line);
+        }
+        if (! $dryRun && $migrate->blocked()) {
+            $this->say('stopped: '.Migrate::RUNTIME.' is still there (see above); attach waits for it, so no second deploy key is made');
+
+            return self::FAILURE;
+        }
+        foreach ((new Bootstrap($paths, $this->config()))->install($key, $dryRun, $force) as $line) {
             $this->say($line);
         }
         foreach ($this->laravel->tagged(InstallStep::TAG) as $step) {

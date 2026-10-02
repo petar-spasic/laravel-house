@@ -59,7 +59,6 @@ a commit is void.
 <!-- if:spa -->
 | `frontend/CLAUDE.md` | The SvelteKit app: first frontend change, config, components, forms, API client, auth pages, guards, rendering, CSP |
 <!-- endif -->
-| `docs/kanban/` (branch `kanban`) | The board: epics, cards, owner decisions (`project/decisions`: proposed → decided). Use only `vendor/bin/kanban`; decided cards are final until superseded |
 | `app/<Layer>/CLAUDE.md` | One per layer directory (`Requests`, `Resources`, `Models`, `Jobs`, `Services`, `Contracts`, `Enums`, `Events`, `Listeners`, `Policies`, `Providers`, `Console`, `Support`, `Http/Controllers`, `Http/Middleware`) |
 
 A change to the layer layout, the process model, the auth model or what a surface exposes updates the governing file
