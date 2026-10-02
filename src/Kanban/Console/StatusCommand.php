@@ -52,6 +52,7 @@ class StatusCommand extends Command
             'blocked' => array_map(fn (Card $c) => $c->id(), $blocked),
             'next' => array_map(fn (Card $c) => $c->id(), $next['cards']),
             'next_reason' => $next['reason'],
+            'skipped' => $pull->skipped($snapshot),
             'merge_driver' => $driver !== null,
         ]);
     }

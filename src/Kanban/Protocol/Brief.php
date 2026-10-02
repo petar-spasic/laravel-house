@@ -90,6 +90,11 @@ final class Brief
         $lines[] = 'next: '.($next['cards'] === []
             ? 'none: '.$next['reason']
             : implode(', ', array_map(fn (Card $c) => $c->id().' '.Priority::short($c->priority()), $next['cards'])));
+        $skipped = $pull->skipped($snapshot);
+        if ($skipped !== []) {
+            $lines[] = 'skipped: '.implode('; ', array_map(fn (string $id, string $why) => "{$id} {$why}", array_keys(array_slice($skipped, 0, 5)), array_slice($skipped, 0, 5)))
+                .(count($skipped) > 5 ? '; '.(count($skipped) - 5).' more (`kanban next -v`)' : '');
+        }
         $lines[] = 'checks: '.implode(' · ', $this->checks($snapshot, $repo?->mergeDriver() !== null, $session));
 
         return $lines;

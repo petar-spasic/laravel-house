@@ -203,8 +203,8 @@ final class Transitions
             throw new PolicyRefused("refused {$card->id()}: ".implode('; ', $refusals), $refusals);
         }
         if (! $force && ! in_array($card->id(), array_map(fn (Card $c) => $c->id(), $this->pull->next($snapshot, PHP_INT_MAX)['cards']), true)) {
-            $capacity = $this->pull->capacity($snapshot);
-            throw new PolicyRefused("refused {$card->id()}: no capacity (".($capacity['reason'] ?? 'area or WIP limit').')');
+            $skipped = $this->pull->skipped($snapshot)[$card->id()] ?? null;
+            throw new PolicyRefused("refused {$card->id()}: ".($skipped ?? 'no capacity ('.($this->pull->capacity($snapshot)['reason'] ?? 'board WIP limits reached').')'));
         }
 
         return $card;
@@ -243,11 +243,17 @@ final class Transitions
         }, $by);
     }
 
-    /** doing/review → ready, backlog or dropped; a branch with commits is kept as work.parked_branch. */
+    /** doing/review → ready (unblocked), backlog or dropped; a branch with commits is kept as work.parked_branch. */
     public function stop(string $id, string $to, Actor $by, ?string $reason = null, ?string $parkedBranch = null, bool $force = false): Card
     {
         return $this->store->update($id, function (array $data) use ($to, $reason, $parkedBranch, $force) {
+            $blocked = $data['blocked'] ?? null;
             $data = self::stage($data, $to, 'stop', $reason, $force);
+            // back in ready it is to be started again, so what blocked the last attempt goes; an open question stays and keeps it out
+            if (is_string($blocked) && (str_starts_with($blocked, 'start failed:') || ($to === 'ready' && ! str_starts_with($blocked, Card::QUESTION)))) {
+                $data['blocked'] = null;
+                $data['log'][array_key_last($data['log'])]['unblocked'] = $blocked;
+            }
             if ($parkedBranch !== null) {
                 $data['work'] = ['parked_branch' => $parkedBranch];
             }

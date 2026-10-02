@@ -42,18 +42,42 @@ final class PullPolicy
     /** @return list<Card> startable ready cards in pull order */
     public function candidates(Snapshot $snapshot): array
     {
-        $busyAreas = [];
-        foreach ($snapshot->cards(fn (Card $c) => in_array($c->stage(), ['doing', 'review'], true)) as $card) {
-            $busyAreas += array_flip($card->areas());
-        }
-        $cards = $snapshot->cards(fn (Card $c) => $c->stage() === 'ready'
-            && $c->areas() !== []
-            && $c->blocked() === null
-            && $c->claim() === null
-            && $snapshot->depsSatisfied($c)
-            && array_intersect_key(array_flip($c->areas()), $busyAreas) === []);
+        $skipped = $this->skipped($snapshot);
 
-        return $this->sort($snapshot, $cards, 'ready');
+        return $this->sort($snapshot, $snapshot->cards(fn (Card $c) => $c->stage() === 'ready' && $c->claim() === null && ! isset($skipped[$c->id()])), 'ready');
+    }
+
+    /**
+     * Why each unclaimed ready card is not startable, whatever the capacity, in pull order: `blocked: …`, `waits on ACME-Z
+     * (doing)`, `area:billing busy (ACME-V review)`, `no area:* label`. For display only.
+     *
+     * @return array<string, string> id => reason
+     */
+    public function skipped(Snapshot $snapshot): array
+    {
+        $busy = [];
+        foreach ($snapshot->cards(fn (Card $c) => in_array($c->stage(), ['doing', 'review'], true)) as $card) {
+            foreach ($card->areas() as $area) {
+                $busy[$area] ??= "{$card->id()} {$card->stage()}";
+            }
+        }
+        $reasons = [];
+        foreach ($this->sort($snapshot, $snapshot->cards(fn (Card $c) => $c->stage() === 'ready' && $c->claim() === null), 'ready') as $card) {
+            $waits = array_values(array_filter($card->dependsOn(), fn (string $id) => ! $snapshot->isSatisfied($id)));
+            $areas = array_values(array_filter($card->areas(), fn (string $area) => isset($busy[$area])));
+            $reason = match (true) {
+                $card->areas() === [] => 'no area:* label',
+                $card->blocked() !== null => 'blocked: '.mb_strimwidth($card->blocked(), 0, 120, '…'),
+                $waits !== [] => 'waits on '.implode(', ', array_map(fn (string $id) => $id.' ('.($snapshot->card($id)?->stage() ?? 'missing').')', $waits)),
+                $areas !== [] => implode(', ', array_map(fn (string $area) => "{$area} busy ({$busy[$area]})", $areas)),
+                default => null,
+            };
+            if ($reason !== null) {
+                $reasons[$card->id()] = $reason;
+            }
+        }
+
+        return $reasons;
     }
 
     /**

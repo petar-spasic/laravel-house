@@ -74,9 +74,6 @@ class StopCommand extends Command
             }
         }
 
-        if (str_starts_with((string) $card->blocked(), 'start failed:')) {
-            $this->store()->update($id, fn (array $data) => ['blocked' => null] + $data, $this->actor());
-        }
         $stopped = $this->transitions()->stop($id, $to, $this->actor(), $reason, $parked);
         $this->say("{$id} {$card->stage()}→{$stopped->stage()}");
         $this->reportPending();

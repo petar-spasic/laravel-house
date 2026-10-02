@@ -55,7 +55,7 @@ it('fills the ready buffer in pull order with --auto', function () {
     $s->card('Not ready yet');
     file_put_contents($s->root.'/docs/kanban/kanban.json', str_replace('"ready_buffer": 12', '"ready_buffer": 1', file_get_contents($s->root.'/docs/kanban/kanban.json')));
 
-    expect($s->ok(['promote', '--auto']))->toBe("promoted {$high}\nready 1/1\n")
+    expect($s->ok(['promote', '--auto']))->toBe("promoted {$high}\nready 1/1 startable\n")
         ->and($s->read($low)['stage'])->toBe('backlog');
 });
 
@@ -64,7 +64,7 @@ it('orders next by the pull policy', function (Closure $setup, array|string $exp
 
     $output = $this->sandbox->ok(['next', '--count=10']);
 
-    $actual = is_string($expected) ? trim($output) : array_values(array_map(
+    $actual = is_string($expected) ? strtok($output, "\n") : array_values(array_map(
         fn (string $line) => array_search(explode(' ', $line)[0], $ids, true),
         array_filter(explode("\n", $output)),
     ));
@@ -173,4 +173,70 @@ it('claims only within capacity unless urgent or forced', function () {
     expect($card['stage'])->toBe('doing')
         ->and($card['claim'])->toMatchArray(['session' => 's1'])
         ->and(end($card['log']))->toMatchArray(['event' => 'stage', 'from' => 'ready', 'to' => 'doing', 'via' => 'start', 'by' => 'main']);
+});
+
+it('says why each ready card waits: under none, with -v, in status and in the brief', function () {
+    $s = $this->sandbox;
+    $main = ['KANBAN_SESSION' => 's1'];
+    $busy = $s->readyCard('Busy', ['--label=area:pdf']);
+    $s->ok(['claim', $busy], $main);
+    $dep = $s->card('Dep');
+    $waits = $s->readyCard('Waits', ["--depends={$dep}"]);
+    $blocked = $s->readyCard('Blocked');
+    $s->ok(['set', $blocked, 'blocked=waiting on the design']);
+    $area = $s->readyCard('Same area', ['--label=area:pdf']);
+
+    $expected = [
+        "skipped {$waits} waits on {$dep} (backlog)",
+        "skipped {$blocked} blocked: waiting on the design",
+        "skipped {$area} area:pdf busy ({$busy} doing)",
+    ];
+    expect(explode("\n", trim($s->ok('next'))))->toBe(['none: no startable ready cards', ...$expected]);
+
+    $free = $s->readyCard('Free');
+    expect($s->ok('next'))->toStartWith($free)->not->toContain('skipped')
+        ->and(explode("\n", trim($s->ok(['next', '-v']))))->toHaveCount(4)->toContain(...$expected)
+        ->and(json_decode($s->ok(['status', '--json']), true)['skipped'])->toBe([$waits => "waits on {$dep} (backlog)", $blocked => 'blocked: waiting on the design', $area => "area:pdf busy ({$busy} doing)"])
+        ->and($s->ok('status'))->toContain("skipped: {$waits} waits on {$dep} (backlog); {$blocked} blocked: waiting on the design; {$area} area:pdf busy ({$busy} doing)\n");
+
+    $refused = $s->kanban(['claim', $area], $main);
+    expect($refused->getExitCode())->toBe(3)->and($refused->getErrorOutput())->toContain("refused {$area}: area:pdf busy ({$busy} doing)");
+});
+
+it('fills the ready buffer with startable cards only, and names each backlog card it passes over', function () {
+    $s = $this->sandbox;
+    $main = ['KANBAN_SESSION' => 's1'];
+    $busy = $s->readyCard('Busy', ['--label=area:pdf']);
+    $s->ok(['claim', $busy], $main);
+    $s->ok(['board', 'project/work', '--wip-doing=1']);
+    $waiting = $s->readyCard('Waits too', ["--depends={$busy}"]);
+    $later = $s->card('After busy', ['--body=x', '--accept=y', '--label=area:a1x', "--depends={$busy}", '--priority=high']);
+    $pdf = $s->card('More pdf', ['--body=x', '--accept=y', '--label=area:pdf', '--priority=high']);
+    $bare = $s->card('No criteria', ['--priority=high']);
+    $next = $s->card('Next', ['--body=x', '--accept=y', '--label=area:a2x']);
+    file_put_contents($s->root.'/docs/kanban/kanban.json', str_replace('"ready_buffer": 12', '"ready_buffer": 1', file_get_contents($s->root.'/docs/kanban/kanban.json')));
+
+    $out = $s->ok(['promote', '--auto']);
+
+    expect($out)->toContain("skipped {$later}: waits on {$busy} (doing)\n")
+        ->and($out)->toContain("skipped {$pdf}: area:pdf busy ({$busy} doing)\n")
+        ->and($out)->toContain("skipped {$bare}: R")
+        ->and($out)->toEndWith("promoted {$next}\nready 1/1 startable\n")
+        ->and(array_map(fn (string $id) => $s->read($id)['stage'], [$waiting, $later, $pdf, $bare, $next]))->toBe(['ready', 'backlog', 'backlog', 'backlog', 'ready']);
+});
+
+it('clears what blocked a card when it is stopped back to ready, and logs it', function () {
+    $code = \PetarSpasic\LaravelHouse\Tests\Support\CodeSandbox::create();
+    $id = $code->started('Picked up');
+    $code->ok(['set', $id, 'blocked=start failed: the stack would not build']);
+    $code->ok(['stop', $id, '--to=ready']);
+
+    $card = $code->sandbox->read($id);
+    expect($card['blocked'])->toBeNull()
+        ->and(end($card['log']))->toMatchArray(['event' => 'stage', 'to' => 'ready', 'via' => 'stop', 'unblocked' => 'start failed: the stack would not build']);
+
+    $code->ok(['start', $id]);
+    $code->ok(['set', $id, 'blocked=waiting on the owner']);
+    $code->ok(['stop', $id, '--to=backlog']);
+    expect($code->sandbox->read($id)['blocked'])->toBe('waiting on the owner');
 });

@@ -44,24 +44,38 @@ class PromoteCommand extends Command
         return $refused > 0 ? 3 : self::SUCCESS;
     }
 
+    /**
+     * Promotes backlog cards in pull order until `ready_buffer` cards in ready are startable. A card that could not start
+     * yet (dependencies not done, its area busy) stays in the backlog for a later run, and every card passed over is named.
+     */
     private function auto(): void
     {
         $snapshot = $this->store()->snapshot();
         $buffer = (int) $snapshot->setting('ready_buffer', 12);
-        $ready = count($snapshot->cards(fn (Card $c) => $c->stage() === 'ready'));
+        $pull = new PullPolicy;
+        $ready = count($pull->candidates($snapshot));
         $policy = new ReadyPolicy;
-        $candidates = (new PullPolicy)->sort($snapshot, $snapshot->cards(fn (Card $c) => $c->stage() === 'backlog'), 'backlog');
-        foreach ($candidates as $card) {
+        foreach ($pull->sort($snapshot, $snapshot->cards(fn (Card $c) => $c->stage() === 'backlog'), 'backlog') as $card) {
             if ($ready >= $buffer) {
                 break;
             }
-            if ($policy->refusals($card, $snapshot) !== []) {
+            $refusals = $policy->refusals($card, $snapshot);
+            if ($refusals !== []) {
+                $this->say("skipped {$card->id()}: ".implode('; ', $refusals));
+
+                continue;
+            }
+            $asReady = new Card(['stage' => 'ready'] + $card->data, $card->board, $card->path, $card->rev);
+            if (($why = $pull->skipped($snapshot->withCard($asReady))[$card->id()] ?? null) !== null) {
+                $this->say("skipped {$card->id()}: {$why}");
+
                 continue;
             }
             $this->transitions()->promote($card->id(), $this->actor());
             $this->say("promoted {$card->id()}");
-            $ready++;
+            $snapshot = $this->store()->snapshot();
+            $ready = count($pull->candidates($snapshot));
         }
-        $this->say("ready {$ready}/{$buffer}");
+        $this->say("ready {$ready}/{$buffer} startable");
     }
 }
