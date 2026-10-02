@@ -33,7 +33,7 @@ it('hints at a hub and lists it in the brief', function () {
     $three = $s->kanban(['new', 'project/work', 'Three', '--depends='.$hub]);
     expect($three->getExitCode())->toBe(0)
         ->and($three->getOutput())->toContain("hint: {$hub} blocks 3 open cards (")->toContain($one)->toContain($two)
-        ->and($three->getOutput())->toMatch('/; if they are one piece of work: kanban fold ACME-\w+ ACME-\w+ --into=ACME-\w+\n/');
+        ->and($three->getOutput())->toMatch("/; if they are one piece of work: kanban fold ACME-\\w+ ACME-\\w+ ACME-\\w+ --into={$hub}\\n/");
 
     $four = $s->card('Four');
     $set = $s->kanban(['set', $four, 'depends_on=+'.$hub]);

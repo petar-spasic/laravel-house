@@ -89,3 +89,17 @@ it('refuses cards outside backlog and ready, a locked dependent, and a card into
         ->and($locked->getErrorOutput())->toContain("{$waiting} is in doing, a locked stage, and depends on {$from}")
         ->and($s->read($from)['stage'])->toBe('backlog');
 });
+
+it('refuses a fold that would close a dependency cycle', function () {
+    $s = $this->sandbox;
+    $from = $s->card('Schema');
+    $middle = $s->card('Migrations', ['--depends='.$from]);
+    $into = $s->card('Models', ['--depends='.$middle]);
+    $head = $s->boardGit('rev-parse', 'HEAD');
+
+    $refused = $s->kanban(['fold', $from, "--into={$into}"]);
+
+    expect($refused->getExitCode())->toBe(2)
+        ->and($refused->getErrorOutput())->toContain('dependency cycle')
+        ->and($s->boardGit('rev-parse', 'HEAD'))->toBe($head);
+});

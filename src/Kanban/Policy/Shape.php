@@ -59,7 +59,8 @@ final class Shape
             }
             $foldable = array_values(array_filter($hubs[$id], fn (string $c) => in_array($snapshot->card($c)?->stage(), ['backlog', 'ready'], true)));
             $hints[] = "hint: {$id} blocks ".count($hubs[$id]).' open cards ('.implode(', ', $hubs[$id]).')'
-                .(count($foldable) < 2 ? '' : '; if they are one piece of work: kanban fold '.implode(' ', array_slice($foldable, 1))." --into={$foldable[0]}");
+                .($foldable === [] || ! in_array($snapshot->card($id)?->stage(), ['backlog', 'ready'], true) ? ''
+                    : '; if they are one piece of work: kanban fold '.implode(' ', $foldable)." --into={$id}");
         }
 
         return $hints;
