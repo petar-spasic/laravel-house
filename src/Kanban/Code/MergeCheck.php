@@ -58,6 +58,28 @@ final class MergeCheck
     }
 
     /**
+     * Conflict markers on lines added from $from to $to (`path:line`): `diff --check` with every whitespace rule off, so
+     * Markdown line breaks pass and only full-width markers on added lines count.
+     *
+     * @return list<string>
+     */
+    public function markers(string $from, string $to = 'HEAD'): array
+    {
+        $result = $this->git->attempt(['-c', 'core.whitespace=-blank-at-eol,-blank-at-eof,-space-before-tab,-indent-with-non-tab,-tab-in-indent,-cr-at-eol',
+            'diff', '--check', "{$from}...{$to}"]);
+        preg_match_all('/^(.+:\d+): leftover conflict marker$/m', $result->out, $m);
+
+        return $m[1];
+    }
+
+    /** @param  list<string>  $markers  what markers() found; the refusal names the first 20 */
+    public static function markersMessage(array $markers): string
+    {
+        return "Leftover conflict markers; resolve them and commit:\n".implode("\n", array_slice($markers, 0, 20))
+            .(count($markers) > 20 ? "\n… ".(count($markers) - 20).' more' : '');
+    }
+
+    /**
      * Uncommitted files of the main checkout that the branch also changes.
      *
      * @param  list<string>  $branchFiles

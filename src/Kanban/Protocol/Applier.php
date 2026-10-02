@@ -3,6 +3,7 @@
 namespace PetarSpasic\LaravelHouse\Kanban\Protocol;
 
 use Closure;
+use PetarSpasic\LaravelHouse\Kanban\Code\MergeCheck;
 use PetarSpasic\LaravelHouse\Kanban\Policy\Transitions;
 use PetarSpasic\LaravelHouse\Kanban\Store\Actor;
 use PetarSpasic\LaravelHouse\Kanban\Store\Card;
@@ -39,7 +40,7 @@ final class Applier
         return realpath($path) ?: $path;
     }
 
-    /** Why a review report cannot be applied (dirty tree, no commits, failing gate), or null. */
+    /** Why a review report cannot be applied (dirty tree, no commits, a leftover conflict marker, failing gate), or null. */
     public function refusal(Card $card, bool $gates = true): ?string
     {
         $worktree = $this->worktree($card);
@@ -52,10 +53,14 @@ final class Applier
             return 'The worktree has uncommitted changes; commit them (git add … && git commit -m "'.$card->id().': …"):'."\n"
                 .implode("\n", array_slice($dirty, 0, 20)).(count($dirty) > 20 ? "\n… ".(count($dirty) - 20).' more' : '');
         }
+        $main = (string) ($this->config['main_branch'] ?? 'main');
         $base = $card->work()['base'] ?? null;
-        $range = (is_string($base) && $base !== '' ? $base : 'refs/heads/'.($this->config['main_branch'] ?? 'main')).'..HEAD';
+        $range = (is_string($base) && $base !== '' ? $base : 'refs/heads/'.$main).'..HEAD';
         if ((int) $git->line(['rev-list', '--count', $range]) === 0) {
             return "No commits beyond work.base ({$range}): commit your work on the card's branch first.";
+        }
+        if (($markers = (new MergeCheck($git, $main))->markers('refs/heads/'.$main)) !== []) {
+            return MergeCheck::markersMessage($markers);
         }
 
         return $gates ? (new Gates($this->config))->failure($worktree) : null;

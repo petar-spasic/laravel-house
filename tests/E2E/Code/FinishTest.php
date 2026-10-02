@@ -99,6 +99,10 @@ it('refuses to finish', function (Closure $arrange, int $exit, string $message, 
         $c->commitMain('app.php', "<?php\n\nreturn 'main';\n");
         $c->approve($id);
     }, 5, 'does not merge cleanly', 'doing'],
+    'leftover conflict marker' => [function (CodeSandbox $c, string $id) {
+        $c->commit($id, 'notes.md', "<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> main\n");
+        $c->approve($id);
+    }, 3, 'the branch holds leftover conflict markers;', 'doing'],
     'uncommitted main change to a branch file' => [function (CodeSandbox $c, string $id) {
         $c->approve($id);
         file_put_contents($c->root().'/app.php', "<?php\n\nreturn 'local';\n");

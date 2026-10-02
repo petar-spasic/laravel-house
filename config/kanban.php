@@ -100,6 +100,7 @@ return [
     'gates' => [
         'report' => [
             'vendor/bin/pint --test --diff={main_branch}',
+            'vendor/bin/kanban migrations --base={main_branch}',
         ],
     ],
 

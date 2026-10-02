@@ -58,6 +58,10 @@ class FinishCommand extends Command
             $this->transitions()->sendBack($id, 'refresh', $this->actor(), 'merge into '.$main.' conflicts in '.implode(', ', $conflicts));
             throw new Conflict("{$id}: the branch does not merge cleanly into {$main}; {$id} → doing, `kanban refresh {$id}` hands the conflict to the worker", $conflicts);
         }
+        if (($markers = $check->markers('refs/heads/'.$main, 'refs/heads/'.$branch)) !== []) {
+            $this->transitions()->sendBack($id, 'move', $this->actor(), 'leftover conflict markers: '.implode(', ', array_slice($markers, 0, 5)));
+            throw new PolicyRefused("{$id}: the branch holds leftover conflict markers; {$id} → doing, the worker resolves them and reports again", explode("\n", MergeCheck::markersMessage($markers)));
+        }
         $files = $check->branchFiles($branch);
         if (($uncommitted = $check->uncommittedOverlap($files)) !== []) {
             throw new PolicyRefused("{$id}: the main checkout has uncommitted changes to files the branch changes; commit or stash them first", $uncommitted);
