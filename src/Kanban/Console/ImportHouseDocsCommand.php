@@ -1,22 +1,22 @@
 <?php
 
-namespace PetarSpasic\Kanban\Console;
+namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
-use PetarSpasic\Kanban\Import\DecisionsMarkdown;
-use PetarSpasic\Kanban\Import\IdeasMarkdown;
-use PetarSpasic\Kanban\Schema\CrossCardRules;
-use PetarSpasic\Kanban\Schema\Validator;
-use PetarSpasic\Kanban\Store\BoardRef;
-use PetarSpasic\Kanban\Store\Card;
-use PetarSpasic\Kanban\Store\Exceptions\GitFailed;
-use PetarSpasic\Kanban\Store\Exceptions\Invalid;
-use PetarSpasic\Kanban\Store\Exceptions\NotFound;
-use PetarSpasic\Kanban\Store\Exceptions\PolicyRefused;
-use PetarSpasic\Kanban\Store\Rev;
-use PetarSpasic\Kanban\Store\Snapshot;
-use PetarSpasic\Kanban\Support\Clock;
-use PetarSpasic\Kanban\Support\Ids;
-use PetarSpasic\Kanban\Support\Json;
+use PetarSpasic\LaravelHouse\Kanban\Import\DecisionsMarkdown;
+use PetarSpasic\LaravelHouse\Kanban\Import\IdeasMarkdown;
+use PetarSpasic\LaravelHouse\Kanban\Schema\CrossCardRules;
+use PetarSpasic\LaravelHouse\Kanban\Schema\Validator;
+use PetarSpasic\LaravelHouse\Kanban\Store\BoardRef;
+use PetarSpasic\LaravelHouse\Kanban\Store\Card;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\GitFailed;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Invalid;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\NotFound;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
+use PetarSpasic\LaravelHouse\Kanban\Store\Rev;
+use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
+use PetarSpasic\LaravelHouse\Kanban\Support\Clock;
+use PetarSpasic\LaravelHouse\Kanban\Support\Ids;
+use PetarSpasic\LaravelHouse\Kanban\Support\Json;
 use Symfony\Component\Console\Attribute\AsCommand;
 
 /**

@@ -1,6 +1,6 @@
 <?php
 
-namespace PetarSpasic\Kanban\Support;
+namespace PetarSpasic\LaravelHouse\Kanban\Support;
 
 use Dotenv\Dotenv as Loader;
 

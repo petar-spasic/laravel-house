@@ -1,10 +1,10 @@
 <?php
 
-namespace PetarSpasic\Kanban\Console;
+namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
-use PetarSpasic\Kanban\Hooks\WorktreeRemove;
-use PetarSpasic\Kanban\Protocol\Runtime;
-use PetarSpasic\Kanban\Support\Lock;
+use PetarSpasic\LaravelHouse\Kanban\Hooks\WorktreeRemove;
+use PetarSpasic\LaravelHouse\Kanban\Protocol\Runtime;
+use PetarSpasic\LaravelHouse\Kanban\Support\Lock;
 use Symfony\Component\Console\Attribute\AsCommand;
 
 #[AsCommand(name: 'kanban:sweep')]

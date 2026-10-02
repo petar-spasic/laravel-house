@@ -1,6 +1,6 @@
 <?php
 
-namespace PetarSpasic\Kanban\Http\Middleware;
+namespace PetarSpasic\LaravelHouse\Kanban\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\RedirectResponse;

@@ -1,10 +1,10 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
-use PetarSpasic\Kanban\Http\Controllers\AssetController;
-use PetarSpasic\Kanban\Http\Controllers\BoardsController;
-use PetarSpasic\Kanban\Http\Controllers\CardsController;
-use PetarSpasic\Kanban\Http\Controllers\ShellController;
+use PetarSpasic\LaravelHouse\Kanban\Http\Controllers\AssetController;
+use PetarSpasic\LaravelHouse\Kanban\Http\Controllers\BoardsController;
+use PetarSpasic\LaravelHouse\Kanban\Http\Controllers\CardsController;
+use PetarSpasic\LaravelHouse\Kanban\Http\Controllers\ShellController;
 
 $slug = '[a-z0-9]+(?:-[a-z0-9]+)*';
 

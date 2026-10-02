@@ -1,9 +1,9 @@
 <?php
 
-namespace PetarSpasic\Kanban\Console;
+namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
-use PetarSpasic\Kanban\Protocol\Context;
-use PetarSpasic\Kanban\Support\Clock;
+use PetarSpasic\LaravelHouse\Kanban\Protocol\Context;
+use PetarSpasic\LaravelHouse\Kanban\Support\Clock;
 use Symfony\Component\Console\Attribute\AsCommand;
 
 #[AsCommand(name: 'kanban:show')]

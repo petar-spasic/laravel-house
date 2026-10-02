@@ -1,9 +1,9 @@
 <?php
 
-namespace PetarSpasic\Kanban\Tests\Support;
+namespace PetarSpasic\LaravelHouse\Tests\Support;
 
-use PetarSpasic\Kanban\Code\Worktrees;
-use PetarSpasic\Kanban\Support\Json;
+use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
+use PetarSpasic\LaravelHouse\Kanban\Support\Json;
 use RuntimeException;
 use Symfony\Component\Process\Process;
 

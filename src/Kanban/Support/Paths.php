@@ -1,8 +1,8 @@
 <?php
 
-namespace PetarSpasic\Kanban\Support;
+namespace PetarSpasic\LaravelHouse\Kanban\Support;
 
-use PetarSpasic\Kanban\Code\Worktrees;
+use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
 
 final class Paths
 {

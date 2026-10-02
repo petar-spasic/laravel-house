@@ -1,19 +1,19 @@
 <?php
 
-namespace PetarSpasic\Kanban\Protocol;
+namespace PetarSpasic\LaravelHouse\Kanban\Protocol;
 
-use PetarSpasic\Kanban\Policy\PullPolicy;
-use PetarSpasic\Kanban\Store\Card;
-use PetarSpasic\Kanban\Store\Git\Bootstrap;
-use PetarSpasic\Kanban\Store\Git\GitStore;
-use PetarSpasic\Kanban\Store\Git\SyncStatus;
-use PetarSpasic\Kanban\Store\Priority;
-use PetarSpasic\Kanban\Store\Snapshot;
-use PetarSpasic\Kanban\Store\Store;
-use PetarSpasic\Kanban\Support\Clock;
-use PetarSpasic\Kanban\Support\Git;
-use PetarSpasic\Kanban\Support\Paths;
-use PetarSpasic\Kanban\Support\Sync;
+use PetarSpasic\LaravelHouse\Kanban\Policy\PullPolicy;
+use PetarSpasic\LaravelHouse\Kanban\Store\Card;
+use PetarSpasic\LaravelHouse\Kanban\Store\Git\Bootstrap;
+use PetarSpasic\LaravelHouse\Kanban\Store\Git\GitStore;
+use PetarSpasic\LaravelHouse\Kanban\Store\Git\SyncStatus;
+use PetarSpasic\LaravelHouse\Kanban\Store\Priority;
+use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
+use PetarSpasic\LaravelHouse\Kanban\Store\Store;
+use PetarSpasic\LaravelHouse\Kanban\Support\Clock;
+use PetarSpasic\LaravelHouse\Kanban\Support\Git;
+use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
+use PetarSpasic\LaravelHouse\Kanban\Support\Sync;
 
 /** The factual board brief printed by `status` and SessionStart. */
 final class Brief
@@ -122,7 +122,7 @@ final class Brief
     /** @return list<string> */
     private function checks(Snapshot $snapshot, bool $driver, ?string $session): array
     {
-        $guard = dirname(__DIR__, 2).'/bin/kanban-guard';
+        $guard = dirname(__DIR__, 3).'/bin/kanban-guard';
         $hooksPath = (new Git($this->paths->main))->line(['config', '--get', 'core.hooksPath']);
         $orphans = $this->orphans($snapshot);
 

@@ -1,10 +1,10 @@
 <?php
 
-namespace PetarSpasic\Kanban\Http\Controllers;
+namespace PetarSpasic\LaravelHouse\Kanban\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
-use PetarSpasic\Kanban\Http\Ui;
+use PetarSpasic\LaravelHouse\Kanban\Http\Ui;
 
 class AssetController
 {

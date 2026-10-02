@@ -1,6 +1,6 @@
 <?php
 
-namespace PetarSpasic\Kanban\Import;
+namespace PetarSpasic\LaravelHouse\Kanban\Import;
 
 /**
  * `docs/ideas.md` of the house docs: the `| date | idea | status |` table, one idea per row.

@@ -1,8 +1,8 @@
 <?php
 
 use Illuminate\Support\Facades\Artisan;
-use PetarSpasic\Kanban\Support\Paths;
-use PetarSpasic\Kanban\Tests\Support\Sandbox;
+use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
+use PetarSpasic\LaravelHouse\Tests\Support\Sandbox;
 use Symfony\Component\Process\Process;
 
 it('creates the board on an orphan kanban branch at docs/kanban', function () {

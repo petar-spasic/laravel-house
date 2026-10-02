@@ -1,10 +1,10 @@
 <?php
 
-namespace PetarSpasic\Kanban\Policy;
+namespace PetarSpasic\LaravelHouse\Kanban\Policy;
 
-use PetarSpasic\Kanban\Store\Exceptions\Invalid;
-use PetarSpasic\Kanban\Store\Exceptions\NotFound;
-use PetarSpasic\Kanban\Store\Exceptions\PolicyRefused;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Invalid;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\NotFound;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
 
 /** Changes to a card's acceptance criteria and log that the CLI (`set`) and the UI share, on card data. */
 final class Edits

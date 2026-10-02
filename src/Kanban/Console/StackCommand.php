@@ -1,15 +1,15 @@
 <?php
 
-namespace PetarSpasic\Kanban\Console;
+namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
-use PetarSpasic\Kanban\Code\EnvWriter;
-use PetarSpasic\Kanban\Code\Stack;
-use PetarSpasic\Kanban\Code\StackFailed;
-use PetarSpasic\Kanban\Code\Worktrees;
-use PetarSpasic\Kanban\Hooks\WorktreeRemove;
-use PetarSpasic\Kanban\Store\Exceptions\Invalid;
-use PetarSpasic\Kanban\Store\Exceptions\NotFound;
-use PetarSpasic\Kanban\Store\Exceptions\PolicyRefused;
+use PetarSpasic\LaravelHouse\Kanban\Code\EnvWriter;
+use PetarSpasic\LaravelHouse\Kanban\Code\Stack;
+use PetarSpasic\LaravelHouse\Kanban\Code\StackFailed;
+use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
+use PetarSpasic\LaravelHouse\Kanban\Hooks\WorktreeRemove;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Invalid;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\NotFound;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
 use Symfony\Component\Console\Attribute\AsCommand;
 
 #[AsCommand(name: 'kanban:stack')]

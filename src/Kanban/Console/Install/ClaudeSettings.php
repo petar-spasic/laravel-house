@@ -1,9 +1,9 @@
 <?php
 
-namespace PetarSpasic\Kanban\Console\Install;
+namespace PetarSpasic\LaravelHouse\Kanban\Console\Install;
 
 use JsonException;
-use PetarSpasic\Kanban\Store\Git\Bootstrap;
+use PetarSpasic\LaravelHouse\Kanban\Store\Git\Bootstrap;
 use stdClass;
 
 /**

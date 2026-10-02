@@ -1,17 +1,17 @@
 <?php
 
-namespace PetarSpasic\Kanban\Console;
+namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
-use PetarSpasic\Kanban\Code\PortRegistry;
-use PetarSpasic\Kanban\Code\Stack;
-use PetarSpasic\Kanban\Console\Install\NextSteps;
-use PetarSpasic\Kanban\Console\Install\Steps;
-use PetarSpasic\Kanban\Store\Git\Bootstrap;
-use PetarSpasic\Kanban\Store\Git\DeployKey;
-use PetarSpasic\Kanban\Store\Git\SyncStatus;
-use PetarSpasic\Kanban\Support\DotEnv;
-use PetarSpasic\Kanban\Support\Git;
-use PetarSpasic\Kanban\Support\Sync;
+use PetarSpasic\LaravelHouse\Kanban\Code\PortRegistry;
+use PetarSpasic\LaravelHouse\Kanban\Code\Stack;
+use PetarSpasic\LaravelHouse\Kanban\Console\Install\NextSteps;
+use PetarSpasic\LaravelHouse\Kanban\Console\Install\Steps;
+use PetarSpasic\LaravelHouse\Kanban\Store\Git\Bootstrap;
+use PetarSpasic\LaravelHouse\Kanban\Store\Git\DeployKey;
+use PetarSpasic\LaravelHouse\Kanban\Store\Git\SyncStatus;
+use PetarSpasic\LaravelHouse\Kanban\Support\DotEnv;
+use PetarSpasic\LaravelHouse\Kanban\Support\Git;
+use PetarSpasic\LaravelHouse\Kanban\Support\Sync;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Process\Process;
 use Throwable;

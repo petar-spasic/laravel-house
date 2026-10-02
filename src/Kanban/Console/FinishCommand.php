@@ -1,12 +1,12 @@
 <?php
 
-namespace PetarSpasic\Kanban\Console;
+namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
-use PetarSpasic\Kanban\Code\MergeCheck;
-use PetarSpasic\Kanban\Code\Worktrees;
-use PetarSpasic\Kanban\Protocol\Lease;
-use PetarSpasic\Kanban\Store\Exceptions\Conflict;
-use PetarSpasic\Kanban\Store\Exceptions\PolicyRefused;
+use PetarSpasic\LaravelHouse\Kanban\Code\MergeCheck;
+use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
+use PetarSpasic\LaravelHouse\Kanban\Protocol\Lease;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Conflict;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Process\Process;
 

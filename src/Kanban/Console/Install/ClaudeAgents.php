@@ -1,6 +1,6 @@
 <?php
 
-namespace PetarSpasic\Kanban\Console\Install;
+namespace PetarSpasic\LaravelHouse\Kanban\Console\Install;
 
 /**
  * Writes `.claude/agents/kanban-{worker,evaluator}.md` with `model` and `effort` from `kanban.agents.<role>`; a file

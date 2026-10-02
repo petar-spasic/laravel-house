@@ -1,15 +1,15 @@
 <?php
 
-namespace PetarSpasic\Kanban\Policy;
+namespace PetarSpasic\LaravelHouse\Kanban\Policy;
 
-use PetarSpasic\Kanban\Store\BoardRef;
-use PetarSpasic\Kanban\Store\Card;
-use PetarSpasic\Kanban\Store\Exceptions\Invalid;
-use PetarSpasic\Kanban\Store\Exceptions\NotFound;
-use PetarSpasic\Kanban\Store\Exceptions\PolicyRefused;
-use PetarSpasic\Kanban\Store\Rev;
-use PetarSpasic\Kanban\Store\Snapshot;
-use PetarSpasic\Kanban\Support\Clock;
+use PetarSpasic\LaravelHouse\Kanban\Store\BoardRef;
+use PetarSpasic\LaravelHouse\Kanban\Store\Card;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Invalid;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\NotFound;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
+use PetarSpasic\LaravelHouse\Kanban\Store\Rev;
+use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
+use PetarSpasic\LaravelHouse\Kanban\Support\Clock;
 
 /** The fields of a new card, from what the CLI (`new`) or the UI was given. */
 final class Creation

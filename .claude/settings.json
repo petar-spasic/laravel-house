@@ -8,7 +8,11 @@
     "allow": [
       "Bash(claude plugin validate *)",
       "Bash(claude --plugin-dir . plugin details *)",
-      "Bash(php resources/boost/skills/laravel-project-setup/scripts/install.php *)"
+      "Bash(php resources/boost/skills/laravel-project-setup/scripts/install.php *)",
+      "Bash(./dev *)",
+      "Bash(vendor/bin/pest *)",
+      "Bash(vendor/bin/pint *)",
+      "Bash(bin/kanban *)"
     ]
   }
 }

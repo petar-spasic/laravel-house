@@ -1,6 +1,6 @@
 <?php
 
-use PetarSpasic\Kanban\Tests\Support\CodeSandbox;
+use PetarSpasic\LaravelHouse\Tests\Support\CodeSandbox;
 use Symfony\Component\Process\Process;
 
 beforeEach(function () {

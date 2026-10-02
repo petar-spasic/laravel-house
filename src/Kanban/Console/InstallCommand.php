@@ -1,9 +1,9 @@
 <?php
 
-namespace PetarSpasic\Kanban\Console;
+namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
-use PetarSpasic\Kanban\Console\Install\NextSteps;
-use PetarSpasic\Kanban\Store\Git\Bootstrap;
+use PetarSpasic\LaravelHouse\Kanban\Console\Install\NextSteps;
+use PetarSpasic\LaravelHouse\Kanban\Store\Git\Bootstrap;
 use Symfony\Component\Console\Attribute\AsCommand;
 
 #[AsCommand(name: 'kanban:install')]

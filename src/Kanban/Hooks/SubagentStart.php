@@ -1,12 +1,12 @@
 <?php
 
-namespace PetarSpasic\Kanban\Hooks;
+namespace PetarSpasic\LaravelHouse\Kanban\Hooks;
 
-use PetarSpasic\Kanban\Protocol\Runtime;
-use PetarSpasic\Kanban\Store\Card;
-use PetarSpasic\Kanban\Store\Store;
-use PetarSpasic\Kanban\Support\Clock;
-use PetarSpasic\Kanban\Support\Paths;
+use PetarSpasic\LaravelHouse\Kanban\Protocol\Runtime;
+use PetarSpasic\LaravelHouse\Kanban\Store\Card;
+use PetarSpasic\LaravelHouse\Kanban\Store\Store;
+use PetarSpasic\LaravelHouse\Kanban\Support\Clock;
+use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
 
 /**
  * SubagentStart: records kanban agents in the runtime (a resume keeps the binding) and gives every

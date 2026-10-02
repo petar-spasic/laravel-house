@@ -1,10 +1,10 @@
 <?php
 
-namespace PetarSpasic\Kanban\Policy;
+namespace PetarSpasic\LaravelHouse\Kanban\Policy;
 
-use PetarSpasic\Kanban\Store\Card;
-use PetarSpasic\Kanban\Store\Priority;
-use PetarSpasic\Kanban\Store\Snapshot;
+use PetarSpasic\LaravelHouse\Kanban\Store\Card;
+use PetarSpasic\LaravelHouse\Kanban\Store\Priority;
+use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
 
 /** Which ready cards to start next, and how many may start. */
 final class PullPolicy

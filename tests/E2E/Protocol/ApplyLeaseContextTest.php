@@ -1,6 +1,6 @@
 <?php
 
-use PetarSpasic\Kanban\Tests\Support\ProtocolSandbox;
+use PetarSpasic\LaravelHouse\Tests\Support\ProtocolSandbox;
 
 it('applies a staged report whose agent is gone, and waits for a live one', function () {
     $p = ProtocolSandbox::create();

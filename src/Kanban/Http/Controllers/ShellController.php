@@ -1,6 +1,6 @@
 <?php
 
-namespace PetarSpasic\Kanban\Http\Controllers;
+namespace PetarSpasic\LaravelHouse\Kanban\Http\Controllers;
 
 use Illuminate\Contracts\View\View;
 

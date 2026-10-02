@@ -1,6 +1,6 @@
 <?php
 
-namespace PetarSpasic\Kanban\Store\Exceptions;
+namespace PetarSpasic\LaravelHouse\Kanban\Store\Exceptions;
 
 /** A git conflict, or the file changed since it was read (rev check). */
 class Conflict extends KanbanException

@@ -1,6 +1,6 @@
 <?php
 
-namespace PetarSpasic\Kanban\Store\Exceptions;
+namespace PetarSpasic\LaravelHouse\Kanban\Store\Exceptions;
 
 /** A transition, policy or precondition refuses the change. */
 class PolicyRefused extends KanbanException

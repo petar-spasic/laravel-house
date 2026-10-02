@@ -1,10 +1,10 @@
 <?php
 
-namespace PetarSpasic\Kanban\Console;
+namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
-use PetarSpasic\Kanban\Store\Exceptions\Conflict;
-use PetarSpasic\Kanban\Store\Exceptions\RemoteFailed;
-use PetarSpasic\Kanban\Support\Git;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Conflict;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\RemoteFailed;
+use PetarSpasic\LaravelHouse\Kanban\Support\Git;
 use Symfony\Component\Console\Attribute\AsCommand;
 
 #[AsCommand(name: 'kanban:publish')]

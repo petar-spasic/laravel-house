@@ -1,12 +1,12 @@
 <?php
 
-namespace PetarSpasic\Kanban\Protocol;
+namespace PetarSpasic\LaravelHouse\Kanban\Protocol;
 
-use PetarSpasic\Kanban\Store\Card;
-use PetarSpasic\Kanban\Store\Exceptions\PolicyRefused;
-use PetarSpasic\Kanban\Store\Snapshot;
-use PetarSpasic\Kanban\Support\Git;
-use PetarSpasic\Kanban\Support\Paths;
+use PetarSpasic\LaravelHouse\Kanban\Store\Card;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
+use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
+use PetarSpasic\LaravelHouse\Kanban\Support\Git;
+use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
 
 /** What an agent needs about its card: `kanban context` and the SessionStart context of a card worktree. */
 final class Context

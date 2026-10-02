@@ -1,8 +1,8 @@
 <?php
 
-namespace PetarSpasic\Kanban\Store;
+namespace PetarSpasic\LaravelHouse\Kanban\Store;
 
-use PetarSpasic\Kanban\Support\Clock;
+use PetarSpasic\LaravelHouse\Kanban\Support\Clock;
 
 final class Claim
 {

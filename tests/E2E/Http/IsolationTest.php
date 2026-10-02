@@ -1,8 +1,8 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
-use PetarSpasic\Kanban\Tests\Support\Sandbox;
-use PetarSpasic\Kanban\Tests\Support\UiSandbox;
+use PetarSpasic\LaravelHouse\Tests\Support\Sandbox;
+use PetarSpasic\LaravelHouse\Tests\Support\UiSandbox;
 
 it('registers no routes outside the local environment', function () {
     $s = Sandbox::create();

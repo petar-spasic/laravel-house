@@ -1,7 +1,7 @@
 <?php
 
-use PetarSpasic\Kanban\Tests\Support\CodeSandbox;
-use PetarSpasic\Kanban\Tests\Support\Sandbox;
+use PetarSpasic\LaravelHouse\Tests\Support\CodeSandbox;
+use PetarSpasic\LaravelHouse\Tests\Support\Sandbox;
 
 beforeEach(function () {
     $this->sandbox = Sandbox::create();

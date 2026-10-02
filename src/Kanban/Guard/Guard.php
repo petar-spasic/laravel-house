@@ -1,6 +1,6 @@
 <?php
 
-namespace PetarSpasic\Kanban\Guard;
+namespace PetarSpasic\LaravelHouse\Kanban\Guard;
 
 use DateTimeImmutable;
 use DateTimeZone;

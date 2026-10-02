@@ -14,7 +14,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 PHP_VERSION="${PHP_VERSION:-8.5}"
-IMAGE="laravel-kanban-dev:php${PHP_VERSION}"
+IMAGE="laravel-house-dev:php${PHP_VERSION}"
 # Parallel test workers: each has its own port pool (50 of them), and more than a few dozen stop helping.
 JOBS="${JOBS:-$(( $(nproc) > 32 ? 32 : $(nproc) ))}"
 
@@ -24,7 +24,7 @@ build() {
 
 # vendor lives in a volume: the host's vendor directory may belong to another PHP.
 run() {
-    local flags=(--rm --init -v "$PWD:/app" -v "laravel-kanban-vendor-php${PHP_VERSION}:/app/vendor" -v laravel-kanban-composer:/home/dev/.composer
+    local flags=(--rm --init -v "$PWD:/app" -v "laravel-house-vendor-php${PHP_VERSION}:/app/vendor" -v laravel-house-composer:/home/dev/.composer
         --tmpfs /tmp:exec,mode=1777 -u "$(id -u):$(id -g)")
     [ -t 1 ] && flags+=(-t)
     docker run "${flags[@]}" "$@"

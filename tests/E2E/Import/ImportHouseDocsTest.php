@@ -1,6 +1,6 @@
 <?php
 
-use PetarSpasic\Kanban\Tests\Support\Sandbox;
+use PetarSpasic\LaravelHouse\Tests\Support\Sandbox;
 
 function houseDocs(Sandbox $sandbox, string $decisions = 'acme-decisions.md', string $ideas = 'acme-ideas.md'): void
 {

@@ -1,18 +1,18 @@
 <?php
 
-namespace PetarSpasic\Kanban\Http;
+namespace PetarSpasic\LaravelHouse\Kanban\Http;
 
-use PetarSpasic\Kanban\Policy\PullPolicy;
-use PetarSpasic\Kanban\Store\Board;
-use PetarSpasic\Kanban\Store\BoardRef;
-use PetarSpasic\Kanban\Store\Card;
-use PetarSpasic\Kanban\Store\CardType;
-use PetarSpasic\Kanban\Store\Snapshot;
-use PetarSpasic\Kanban\Store\Stage;
-use PetarSpasic\Kanban\Support\AgentStates;
-use PetarSpasic\Kanban\Support\Clock;
-use PetarSpasic\Kanban\Support\Markdown;
-use PetarSpasic\Kanban\Support\Paths;
+use PetarSpasic\LaravelHouse\Kanban\Policy\PullPolicy;
+use PetarSpasic\LaravelHouse\Kanban\Store\Board;
+use PetarSpasic\LaravelHouse\Kanban\Store\BoardRef;
+use PetarSpasic\LaravelHouse\Kanban\Store\Card;
+use PetarSpasic\LaravelHouse\Kanban\Store\CardType;
+use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
+use PetarSpasic\LaravelHouse\Kanban\Store\Stage;
+use PetarSpasic\LaravelHouse\Kanban\Support\AgentStates;
+use PetarSpasic\LaravelHouse\Kanban\Support\Clock;
+use PetarSpasic\LaravelHouse\Kanban\Support\Markdown;
+use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
 use Throwable;
 
 /** What the UI script gets: a snapshot of the board as plain arrays. */

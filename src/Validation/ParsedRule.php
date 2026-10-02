@@ -18,8 +18,7 @@ final readonly class ParsedRule
         public string $source,
         public ?object $object = null,
         public bool $serverOnly = false,
-    ) {
-    }
+    ) {}
 
     public static function serverOnly(string $source): self
     {

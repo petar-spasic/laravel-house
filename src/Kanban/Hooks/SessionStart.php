@@ -1,16 +1,16 @@
 <?php
 
-namespace PetarSpasic\Kanban\Hooks;
+namespace PetarSpasic\LaravelHouse\Kanban\Hooks;
 
-use PetarSpasic\Kanban\Protocol\Brief;
-use PetarSpasic\Kanban\Protocol\Context;
-use PetarSpasic\Kanban\Protocol\Runtime;
-use PetarSpasic\Kanban\Store\Actor;
-use PetarSpasic\Kanban\Store\Exceptions\KanbanException;
-use PetarSpasic\Kanban\Store\Git\Bootstrap;
-use PetarSpasic\Kanban\Store\Snapshot;
-use PetarSpasic\Kanban\Store\Store;
-use PetarSpasic\Kanban\Support\Paths;
+use PetarSpasic\LaravelHouse\Kanban\Protocol\Brief;
+use PetarSpasic\LaravelHouse\Kanban\Protocol\Context;
+use PetarSpasic\LaravelHouse\Kanban\Protocol\Runtime;
+use PetarSpasic\LaravelHouse\Kanban\Store\Actor;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\KanbanException;
+use PetarSpasic\LaravelHouse\Kanban\Store\Git\Bootstrap;
+use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
+use PetarSpasic\LaravelHouse\Kanban\Store\Store;
+use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
 use Throwable;
 
 /**
@@ -96,7 +96,7 @@ final class SessionStart
             $this->paths->ensureRuntime();
             @touch($last);
             $php = PHP_SAPI === 'cli' ? PHP_BINARY : 'php';
-            $bin = dirname(__DIR__, 2).'/bin/kanban';
+            $bin = dirname(__DIR__, 3).'/bin/kanban';
             exec(sprintf('cd %s && nohup %s %s sweep --reclaim > /dev/null 2>&1 &', escapeshellarg($this->paths->main), escapeshellarg($php), escapeshellarg($bin)));
         } catch (Throwable) {
         }

@@ -1,17 +1,17 @@
 <?php
 
-namespace PetarSpasic\Kanban\Http\Controllers;
+namespace PetarSpasic\LaravelHouse\Kanban\Http\Controllers;
 
 use Illuminate\Http\Request;
-use PetarSpasic\Kanban\Http\Api;
-use PetarSpasic\Kanban\Http\Presenter;
-use PetarSpasic\Kanban\Store\BoardRef;
-use PetarSpasic\Kanban\Store\Exceptions\NotFound;
-use PetarSpasic\Kanban\Store\Git\SyncStatus;
-use PetarSpasic\Kanban\Store\Snapshot;
-use PetarSpasic\Kanban\Store\Store;
-use PetarSpasic\Kanban\Support\AgentStates;
-use PetarSpasic\Kanban\Support\Paths;
+use PetarSpasic\LaravelHouse\Kanban\Http\Api;
+use PetarSpasic\LaravelHouse\Kanban\Http\Presenter;
+use PetarSpasic\LaravelHouse\Kanban\Store\BoardRef;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\NotFound;
+use PetarSpasic\LaravelHouse\Kanban\Store\Git\SyncStatus;
+use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
+use PetarSpasic\LaravelHouse\Kanban\Store\Store;
+use PetarSpasic\LaravelHouse\Kanban\Support\AgentStates;
+use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
 use Symfony\Component\HttpFoundation\Response;
 
 class BoardsController

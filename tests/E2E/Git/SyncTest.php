@@ -1,8 +1,8 @@
 <?php
 
-use PetarSpasic\Kanban\Tests\Support\Origin;
-use PetarSpasic\Kanban\Tests\Support\Sandbox;
-use PetarSpasic\Kanban\Tests\Support\UiSandbox;
+use PetarSpasic\LaravelHouse\Tests\Support\Origin;
+use PetarSpasic\LaravelHouse\Tests\Support\Sandbox;
+use PetarSpasic\LaravelHouse\Tests\Support\UiSandbox;
 
 /** An origin with an installed, published board, plus two attached clones. */
 function published(): array

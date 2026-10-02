@@ -1,19 +1,19 @@
 <?php
 
-namespace PetarSpasic\Kanban\Protocol;
+namespace PetarSpasic\LaravelHouse\Kanban\Protocol;
 
 use Closure;
-use PetarSpasic\Kanban\Policy\Transitions;
-use PetarSpasic\Kanban\Store\Actor;
-use PetarSpasic\Kanban\Store\Card;
-use PetarSpasic\Kanban\Store\Exceptions\KanbanException;
-use PetarSpasic\Kanban\Store\Exceptions\PolicyRefused;
-use PetarSpasic\Kanban\Store\Exceptions\StaleReport;
-use PetarSpasic\Kanban\Store\Git\GitStore;
-use PetarSpasic\Kanban\Store\Store;
-use PetarSpasic\Kanban\Support\Clock;
-use PetarSpasic\Kanban\Support\Git;
-use PetarSpasic\Kanban\Support\Paths;
+use PetarSpasic\LaravelHouse\Kanban\Policy\Transitions;
+use PetarSpasic\LaravelHouse\Kanban\Store\Actor;
+use PetarSpasic\LaravelHouse\Kanban\Store\Card;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\KanbanException;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\StaleReport;
+use PetarSpasic\LaravelHouse\Kanban\Store\Git\GitStore;
+use PetarSpasic\LaravelHouse\Kanban\Store\Store;
+use PetarSpasic\LaravelHouse\Kanban\Support\Clock;
+use PetarSpasic\LaravelHouse\Kanban\Support\Git;
+use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
 
 /**
  * Applies staged reports and verdicts to the board under the store lock, once per content hash.

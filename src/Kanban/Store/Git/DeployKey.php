@@ -1,10 +1,10 @@
 <?php
 
-namespace PetarSpasic\Kanban\Store\Git;
+namespace PetarSpasic\LaravelHouse\Kanban\Store\Git;
 
-use PetarSpasic\Kanban\Code\Stack;
-use PetarSpasic\Kanban\Support\Git;
-use PetarSpasic\Kanban\Support\Paths;
+use PetarSpasic\LaravelHouse\Kanban\Code\Stack;
+use PetarSpasic\LaravelHouse\Kanban\Support\Git;
+use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
 use Symfony\Component\Process\Process;
 use Throwable;
 

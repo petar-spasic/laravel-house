@@ -1,30 +1,30 @@
 <?php
 
-namespace PetarSpasic\Kanban\Http\Controllers;
+namespace PetarSpasic\LaravelHouse\Kanban\Http\Controllers;
 
 use Closure;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
-use PetarSpasic\Kanban\Http\Api;
-use PetarSpasic\Kanban\Http\Presenter;
-use PetarSpasic\Kanban\Http\Ui;
-use PetarSpasic\Kanban\Policy\Creation;
-use PetarSpasic\Kanban\Policy\Edits;
-use PetarSpasic\Kanban\Policy\Transitions;
-use PetarSpasic\Kanban\Store\Actor;
-use PetarSpasic\Kanban\Store\BoardRef;
-use PetarSpasic\Kanban\Store\Card;
-use PetarSpasic\Kanban\Store\CardType;
-use PetarSpasic\Kanban\Store\Exceptions\Invalid;
-use PetarSpasic\Kanban\Store\Exceptions\NotFound;
-use PetarSpasic\Kanban\Store\Exceptions\PolicyRefused;
-use PetarSpasic\Kanban\Store\Priority;
-use PetarSpasic\Kanban\Store\Rev;
-use PetarSpasic\Kanban\Store\Snapshot;
-use PetarSpasic\Kanban\Store\Stage;
-use PetarSpasic\Kanban\Store\Store;
-use PetarSpasic\Kanban\Support\Paths;
+use PetarSpasic\LaravelHouse\Kanban\Http\Api;
+use PetarSpasic\LaravelHouse\Kanban\Http\Presenter;
+use PetarSpasic\LaravelHouse\Kanban\Http\Ui;
+use PetarSpasic\LaravelHouse\Kanban\Policy\Creation;
+use PetarSpasic\LaravelHouse\Kanban\Policy\Edits;
+use PetarSpasic\LaravelHouse\Kanban\Policy\Transitions;
+use PetarSpasic\LaravelHouse\Kanban\Store\Actor;
+use PetarSpasic\LaravelHouse\Kanban\Store\BoardRef;
+use PetarSpasic\LaravelHouse\Kanban\Store\Card;
+use PetarSpasic\LaravelHouse\Kanban\Store\CardType;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Invalid;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\NotFound;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
+use PetarSpasic\LaravelHouse\Kanban\Store\Priority;
+use PetarSpasic\LaravelHouse\Kanban\Store\Rev;
+use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
+use PetarSpasic\LaravelHouse\Kanban\Store\Stage;
+use PetarSpasic\LaravelHouse\Kanban\Store\Store;
+use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
 use Symfony\Component\HttpFoundation\Response;
 
 class CardsController

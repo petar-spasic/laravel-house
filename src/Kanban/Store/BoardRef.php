@@ -1,8 +1,8 @@
 <?php
 
-namespace PetarSpasic\Kanban\Store;
+namespace PetarSpasic\LaravelHouse\Kanban\Store;
 
-use PetarSpasic\Kanban\Store\Exceptions\Invalid;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Invalid;
 use Stringable;
 
 final class BoardRef implements Stringable

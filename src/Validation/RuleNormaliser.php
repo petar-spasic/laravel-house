@@ -57,9 +57,7 @@ final readonly class RuleNormaliser
     /**
      * @param  array<string, mixed>  $extensions  the validator factory's registered extensions
      */
-    public function __construct(private array $extensions)
-    {
-    }
+    public function __construct(private array $extensions) {}
 
     /**
      * @return list<ParsedRule>

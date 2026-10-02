@@ -1,10 +1,10 @@
 <?php
 
-namespace PetarSpasic\Kanban\Console\Install;
+namespace PetarSpasic\LaravelHouse\Kanban\Console\Install;
 
-use PetarSpasic\Kanban\Console\InstallCommand;
-use PetarSpasic\Kanban\Console\InstallStep;
-use PetarSpasic\Kanban\Support\Paths;
+use PetarSpasic\LaravelHouse\Kanban\Console\InstallCommand;
+use PetarSpasic\LaravelHouse\Kanban\Console\InstallStep;
+use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
 
 /** An idempotent Claude Code / project wiring step of `kanban:install`, re-run by `doctor --fix` and checked by `doctor`. */
 abstract class Step implements InstallStep
@@ -28,7 +28,7 @@ abstract class Step implements InstallStep
 
     public static function stub(string $relative): string
     {
-        return (string) file_get_contents(dirname(__DIR__, 3).'/stubs/'.$relative);
+        return (string) file_get_contents(dirname(__DIR__, 4).'/stubs/'.$relative);
     }
 
     protected function path(string $relative): string

@@ -1,6 +1,6 @@
 <?php
 
-use PetarSpasic\Kanban\Tests\Support\ProtocolSandbox;
+use PetarSpasic\LaravelHouse\Tests\Support\ProtocolSandbox;
 
 beforeEach(function () {
     $this->p = ProtocolSandbox::create();

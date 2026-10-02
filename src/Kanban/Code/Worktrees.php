@@ -1,12 +1,12 @@
 <?php
 
-namespace PetarSpasic\Kanban\Code;
+namespace PetarSpasic\LaravelHouse\Kanban\Code;
 
 use Illuminate\Support\Str;
-use PetarSpasic\Kanban\Store\Exceptions\GitFailed;
-use PetarSpasic\Kanban\Store\Exceptions\PolicyRefused;
-use PetarSpasic\Kanban\Support\Git;
-use PetarSpasic\Kanban\Support\Paths;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\GitFailed;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
+use PetarSpasic\LaravelHouse\Kanban\Support\Git;
+use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
 use Symfony\Component\Process\Process;
 
 /** Code worktrees under `<main>/.claude/worktrees/` and the slot, `.env` and Docker stack that go with each. */

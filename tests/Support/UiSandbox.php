@@ -1,9 +1,9 @@
 <?php
 
-namespace PetarSpasic\Kanban\Tests\Support;
+namespace PetarSpasic\LaravelHouse\Tests\Support;
 
-use PetarSpasic\Kanban\Http\Ui;
-use PetarSpasic\Kanban\Support\Paths;
+use PetarSpasic\LaravelHouse\Kanban\Http\Ui;
+use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
 
 /** Points the testbench app at a sandbox checkout, as if the app ran from it, and boots the UI the way the provider does. */
 final class UiSandbox

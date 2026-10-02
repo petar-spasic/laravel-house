@@ -1,6 +1,6 @@
 <?php
 
-namespace PetarSpasic\Kanban\Store\Exceptions;
+namespace PetarSpasic\LaravelHouse\Kanban\Store\Exceptions;
 
 use RuntimeException;
 

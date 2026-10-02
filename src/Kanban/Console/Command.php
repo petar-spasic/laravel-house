@@ -1,19 +1,19 @@
 <?php
 
-namespace PetarSpasic\Kanban\Console;
+namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
 use Illuminate\Console\Command as IlluminateCommand;
-use PetarSpasic\Kanban\Policy\Transitions;
-use PetarSpasic\Kanban\Store\Actor;
-use PetarSpasic\Kanban\Store\Card;
-use PetarSpasic\Kanban\Store\Exceptions\KanbanException;
-use PetarSpasic\Kanban\Store\Exceptions\PolicyRefused;
-use PetarSpasic\Kanban\Store\Git\GitStore;
-use PetarSpasic\Kanban\Store\Priority;
-use PetarSpasic\Kanban\Store\Snapshot;
-use PetarSpasic\Kanban\Store\Store;
-use PetarSpasic\Kanban\Support\AgentStates;
-use PetarSpasic\Kanban\Support\Paths;
+use PetarSpasic\LaravelHouse\Kanban\Policy\Transitions;
+use PetarSpasic\LaravelHouse\Kanban\Store\Actor;
+use PetarSpasic\LaravelHouse\Kanban\Store\Card;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\KanbanException;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
+use PetarSpasic\LaravelHouse\Kanban\Store\Git\GitStore;
+use PetarSpasic\LaravelHouse\Kanban\Store\Priority;
+use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
+use PetarSpasic\LaravelHouse\Kanban\Store\Store;
+use PetarSpasic\LaravelHouse\Kanban\Support\AgentStates;
+use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
 use Symfony\Component\Console\Output\ConsoleOutputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Throwable;

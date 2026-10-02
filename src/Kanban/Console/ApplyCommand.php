@@ -1,11 +1,11 @@
 <?php
 
-namespace PetarSpasic\Kanban\Console;
+namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
-use PetarSpasic\Kanban\Hooks\SubagentStop;
-use PetarSpasic\Kanban\Protocol\Applier;
-use PetarSpasic\Kanban\Protocol\Lease;
-use PetarSpasic\Kanban\Protocol\Runtime;
+use PetarSpasic\LaravelHouse\Kanban\Hooks\SubagentStop;
+use PetarSpasic\LaravelHouse\Kanban\Protocol\Applier;
+use PetarSpasic\LaravelHouse\Kanban\Protocol\Lease;
+use PetarSpasic\LaravelHouse\Kanban\Protocol\Runtime;
 use Symfony\Component\Console\Attribute\AsCommand;
 
 #[AsCommand(name: 'kanban:apply')]

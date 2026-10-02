@@ -1,6 +1,6 @@
 <?php
 
-namespace PetarSpasic\Kanban\Tests\Support;
+namespace PetarSpasic\LaravelHouse\Tests\Support;
 
 use Symfony\Component\Process\Process;
 

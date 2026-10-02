@@ -1,9 +1,9 @@
 <?php
 
-namespace PetarSpasic\Kanban\Store;
+namespace PetarSpasic\LaravelHouse\Kanban\Store;
 
-use PetarSpasic\Kanban\Store\Exceptions\NotFound;
-use PetarSpasic\Kanban\Support\Ids;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\NotFound;
+use PetarSpasic\LaravelHouse\Kanban\Support\Ids;
 
 final class Snapshot
 {

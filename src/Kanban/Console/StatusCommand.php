@@ -1,12 +1,12 @@
 <?php
 
-namespace PetarSpasic\Kanban\Console;
+namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
-use PetarSpasic\Kanban\Policy\PullPolicy;
-use PetarSpasic\Kanban\Protocol\Brief;
-use PetarSpasic\Kanban\Store\Card;
-use PetarSpasic\Kanban\Store\Git\SyncStatus;
-use PetarSpasic\Kanban\Support\Sync;
+use PetarSpasic\LaravelHouse\Kanban\Policy\PullPolicy;
+use PetarSpasic\LaravelHouse\Kanban\Protocol\Brief;
+use PetarSpasic\LaravelHouse\Kanban\Store\Card;
+use PetarSpasic\LaravelHouse\Kanban\Store\Git\SyncStatus;
+use PetarSpasic\LaravelHouse\Kanban\Support\Sync;
 use Symfony\Component\Console\Attribute\AsCommand;
 
 #[AsCommand(name: 'kanban:status')]

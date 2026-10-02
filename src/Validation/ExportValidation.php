@@ -13,7 +13,5 @@ use Attribute;
 #[Attribute(Attribute::TARGET_CLASS)]
 final readonly class ExportValidation
 {
-    public function __construct(public string $name)
-    {
-    }
+    public function __construct(public string $name) {}
 }

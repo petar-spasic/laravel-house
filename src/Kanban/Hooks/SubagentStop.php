@@ -1,18 +1,18 @@
 <?php
 
-namespace PetarSpasic\Kanban\Hooks;
+namespace PetarSpasic\LaravelHouse\Kanban\Hooks;
 
-use PetarSpasic\Kanban\Protocol\Applier;
-use PetarSpasic\Kanban\Protocol\Context;
-use PetarSpasic\Kanban\Protocol\Runtime;
-use PetarSpasic\Kanban\Store\Actor;
-use PetarSpasic\Kanban\Store\Exceptions\NotFound;
-use PetarSpasic\Kanban\Store\Exceptions\PolicyRefused;
-use PetarSpasic\Kanban\Store\Exceptions\StaleReport;
-use PetarSpasic\Kanban\Store\Snapshot;
-use PetarSpasic\Kanban\Store\Store;
-use PetarSpasic\Kanban\Support\Clock;
-use PetarSpasic\Kanban\Support\Paths;
+use PetarSpasic\LaravelHouse\Kanban\Protocol\Applier;
+use PetarSpasic\LaravelHouse\Kanban\Protocol\Context;
+use PetarSpasic\LaravelHouse\Kanban\Protocol\Runtime;
+use PetarSpasic\LaravelHouse\Kanban\Store\Actor;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\NotFound;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\StaleReport;
+use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
+use PetarSpasic\LaravelHouse\Kanban\Store\Store;
+use PetarSpasic\LaravelHouse\Kanban\Support\Clock;
+use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
 
 /**
  * SubagentStop for kanban-worker / kanban-evaluator: refuses the stop until a report (verdict) is staged and the

@@ -23,9 +23,7 @@ final readonly class FormReader
     /** Hooks that add server-side checks only. */
     private const array SERVER_HOOKS = ['withValidator', 'after', 'passedValidation'];
 
-    public function __construct(private Container $container, private Translator $translator)
-    {
-    }
+    public function __construct(private Container $container, private Translator $translator) {}
 
     /**
      * @param  class-string<FormRequest>  $class

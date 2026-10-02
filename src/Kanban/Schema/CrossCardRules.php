@@ -1,11 +1,11 @@
 <?php
 
-namespace PetarSpasic\Kanban\Schema;
+namespace PetarSpasic\LaravelHouse\Kanban\Schema;
 
-use PetarSpasic\Kanban\Store\Card;
-use PetarSpasic\Kanban\Store\CardType;
-use PetarSpasic\Kanban\Store\Snapshot;
-use PetarSpasic\Kanban\Store\Stage;
+use PetarSpasic\LaravelHouse\Kanban\Store\Card;
+use PetarSpasic\LaravelHouse\Kanban\Store\CardType;
+use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
+use PetarSpasic\LaravelHouse\Kanban\Store\Stage;
 
 /** Rules that span files or fields: identity, placement, references, stage-coupled fields. */
 final class CrossCardRules

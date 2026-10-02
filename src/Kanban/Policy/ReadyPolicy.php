@@ -1,9 +1,9 @@
 <?php
 
-namespace PetarSpasic\Kanban\Policy;
+namespace PetarSpasic\LaravelHouse\Kanban\Policy;
 
-use PetarSpasic\Kanban\Store\Card;
-use PetarSpasic\Kanban\Store\Snapshot;
+use PetarSpasic\LaravelHouse\Kanban\Store\Card;
+use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
 
 /** Backlog → Ready gate (R1–R7). */
 final class ReadyPolicy

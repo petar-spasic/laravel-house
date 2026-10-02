@@ -1,7 +1,7 @@
 <?php
 
-use PetarSpasic\Kanban\Console\Install\Steps;
-use PetarSpasic\Kanban\Tests\Support\Sandbox;
+use PetarSpasic\LaravelHouse\Kanban\Console\Install\Steps;
+use PetarSpasic\LaravelHouse\Tests\Support\Sandbox;
 
 beforeEach(fn () => Steps::register(app()));
 

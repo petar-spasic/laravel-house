@@ -1,8 +1,8 @@
 <?php
 
-namespace PetarSpasic\Kanban\Store\Exceptions;
+namespace PetarSpasic\LaravelHouse\Kanban\Store\Exceptions;
 
-use PetarSpasic\Kanban\Support\GitResult;
+use PetarSpasic\LaravelHouse\Kanban\Support\GitResult;
 
 class GitFailed extends KanbanException
 {

@@ -1,8 +1,8 @@
 <?php
 
-namespace PetarSpasic\Kanban\Support;
+namespace PetarSpasic\LaravelHouse\Kanban\Support;
 
-use PetarSpasic\Kanban\Store\Exceptions\GitFailed;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\GitFailed;
 use Symfony\Component\Process\Process;
 use Throwable;
 

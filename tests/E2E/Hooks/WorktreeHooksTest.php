@@ -1,6 +1,6 @@
 <?php
 
-use PetarSpasic\Kanban\Tests\Support\ProtocolSandbox;
+use PetarSpasic\LaravelHouse\Tests\Support\ProtocolSandbox;
 
 it('routes worktree-create and worktree-remove through kanban hook', function () {
     $p = ProtocolSandbox::create();

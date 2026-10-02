@@ -1,11 +1,11 @@
 <?php
 
-namespace PetarSpasic\Kanban\Protocol;
+namespace PetarSpasic\LaravelHouse\Kanban\Protocol;
 
-use PetarSpasic\Kanban\Store\Card;
-use PetarSpasic\Kanban\Store\CardType;
-use PetarSpasic\Kanban\Store\Exceptions\Invalid;
-use PetarSpasic\Kanban\Support\Clock;
+use PetarSpasic\LaravelHouse\Kanban\Store\Card;
+use PetarSpasic\LaravelHouse\Kanban\Store\CardType;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Invalid;
+use PetarSpasic\LaravelHouse\Kanban\Support\Clock;
 
 /** Builds and validates the staged report (worker) and verdict (evaluator) of a card. */
 final class Staged

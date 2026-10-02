@@ -1,9 +1,9 @@
 <?php
 
-namespace PetarSpasic\Kanban\Tests\Support;
+namespace PetarSpasic\LaravelHouse\Tests\Support;
 
 use Illuminate\Support\Facades\Artisan;
-use PetarSpasic\Kanban\Support\Paths;
+use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
 use RuntimeException;
 use Symfony\Component\Process\Process;
 

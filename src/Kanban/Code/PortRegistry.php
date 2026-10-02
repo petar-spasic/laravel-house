@@ -1,10 +1,10 @@
 <?php
 
-namespace PetarSpasic\Kanban\Code;
+namespace PetarSpasic\LaravelHouse\Kanban\Code;
 
-use PetarSpasic\Kanban\Support\Clock;
-use PetarSpasic\Kanban\Support\Json;
-use PetarSpasic\Kanban\Support\Lock;
+use PetarSpasic\LaravelHouse\Kanban\Support\Clock;
+use PetarSpasic\LaravelHouse\Kanban\Support\Json;
+use PetarSpasic\LaravelHouse\Kanban\Support\Lock;
 
 /**
  * Machine-wide port slots of worktree stacks: `<state>/stacks.json`, serialized by flock on `<state>/stacks.lock`.

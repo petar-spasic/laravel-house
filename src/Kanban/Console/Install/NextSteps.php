@@ -1,9 +1,9 @@
 <?php
 
-namespace PetarSpasic\Kanban\Console\Install;
+namespace PetarSpasic\LaravelHouse\Kanban\Console\Install;
 
-use PetarSpasic\Kanban\Store\Git\Bootstrap;
-use PetarSpasic\Kanban\Support\Git;
+use PetarSpasic\LaravelHouse\Kanban\Store\Git\Bootstrap;
+use PetarSpasic\LaravelHouse\Kanban\Support\Git;
 
 /** The closing lines of `kanban:install`: what the owner reviews and commits on main. */
 final class NextSteps extends Step

@@ -1,7 +1,7 @@
 <?php
 
-use PetarSpasic\Kanban\Tests\Support\ProtocolSandbox;
-use PetarSpasic\Kanban\Tests\Support\Sandbox;
+use PetarSpasic\LaravelHouse\Tests\Support\ProtocolSandbox;
+use PetarSpasic\LaravelHouse\Tests\Support\Sandbox;
 use Symfony\Component\Process\Process;
 
 it('prints the brief and exports KANBAN_SESSION into CLAUDE_ENV_FILE', function () {

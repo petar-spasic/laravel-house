@@ -1,12 +1,12 @@
 <?php
 
-namespace PetarSpasic\Kanban;
+namespace PetarSpasic\LaravelHouse\Kanban;
 
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Support\ServiceProvider;
-use PetarSpasic\Kanban\Store\Git\GitStore;
-use PetarSpasic\Kanban\Store\Store;
-use PetarSpasic\Kanban\Support\Paths;
+use PetarSpasic\LaravelHouse\Kanban\Store\Git\GitStore;
+use PetarSpasic\LaravelHouse\Kanban\Store\Store;
+use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
 
 class KanbanServiceProvider extends ServiceProvider
 {
@@ -17,7 +17,7 @@ class KanbanServiceProvider extends ServiceProvider
 
     public function register(): void
     {
-        $this->mergeConfigFrom(__DIR__.'/../config/kanban.php', 'kanban');
+        $this->mergeConfigFrom(__DIR__.'/../../config/kanban.php', 'kanban');
         $this->app->singleton(Paths::class, fn () => Paths::discover($this->app->basePath()));
         self::bindStore($this->app);
         Console\Install\Steps::register($this->app);
@@ -26,7 +26,7 @@ class KanbanServiceProvider extends ServiceProvider
     public function boot(): void
     {
         if ($this->app->runningInConsole()) {
-            $this->publishes([__DIR__.'/../config/kanban.php' => config_path('kanban.php')], 'kanban-config');
+            $this->publishes([__DIR__.'/../../config/kanban.php' => config_path('kanban.php')], 'kanban-config');
             $this->commands(self::commandClasses());
         }
         $this->bootUi();

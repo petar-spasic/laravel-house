@@ -1,6 +1,6 @@
 <?php
 
-namespace PetarSpasic\Kanban\Console\Install;
+namespace PetarSpasic\LaravelHouse\Kanban\Console\Install;
 
 /** Main's `.gitignore` keeps the board worktree and the code worktrees out of main. */
 final class GitIgnore extends Step

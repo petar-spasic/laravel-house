@@ -64,8 +64,7 @@ final class FieldTranslator
     public function __construct(
         private readonly RequestPipeline $pipeline,
         private readonly RegexTranslator $regex = new RegexTranslator,
-    ) {
-    }
+    ) {}
 
     /**
      * @param  class-string  $class

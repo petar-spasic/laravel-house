@@ -3,9 +3,9 @@
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Http\Request;
 use Orchestra\Testbench\Foundation\Application;
-use PetarSpasic\Kanban\Http\Ui;
-use PetarSpasic\Kanban\KanbanServiceProvider;
-use PetarSpasic\Kanban\Support\Paths;
+use PetarSpasic\LaravelHouse\Kanban\Http\Ui;
+use PetarSpasic\LaravelHouse\Kanban\KanbanServiceProvider;
+use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
 
 /* Router of the seeded UI server: a testbench app whose base path is the seeded checkout, the UI booted the way the provider does. */
 

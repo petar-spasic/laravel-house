@@ -1,10 +1,10 @@
 <?php
 
-namespace PetarSpasic\Kanban\Code;
+namespace PetarSpasic\LaravelHouse\Kanban\Code;
 
 use Illuminate\Support\Str;
-use PetarSpasic\Kanban\Support\DotEnv;
-use PetarSpasic\Kanban\Support\Json;
+use PetarSpasic\LaravelHouse\Kanban\Support\DotEnv;
+use PetarSpasic\LaravelHouse\Kanban\Support\Json;
 
 /**
  * The worktree `.env`: main's `.env` minus the managed keys, plus the `stack.env` block with its

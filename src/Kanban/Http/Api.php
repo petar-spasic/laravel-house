@@ -1,17 +1,17 @@
 <?php
 
-namespace PetarSpasic\Kanban\Http;
+namespace PetarSpasic\LaravelHouse\Kanban\Http;
 
 use Closure;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Validation\ValidationException;
-use PetarSpasic\Kanban\Store\Exceptions\Changed;
-use PetarSpasic\Kanban\Store\Exceptions\Conflict;
-use PetarSpasic\Kanban\Store\Exceptions\Invalid;
-use PetarSpasic\Kanban\Store\Exceptions\KanbanException;
-use PetarSpasic\Kanban\Store\Exceptions\LockTimeout;
-use PetarSpasic\Kanban\Store\Exceptions\NotFound;
-use PetarSpasic\Kanban\Store\Exceptions\PolicyRefused;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Changed;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Conflict;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Invalid;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\KanbanException;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\LockTimeout;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\NotFound;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
 use Symfony\Component\HttpFoundation\Response;
 
 final class Api

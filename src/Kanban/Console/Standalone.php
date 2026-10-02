@@ -1,15 +1,15 @@
 <?php
 
-namespace PetarSpasic\Kanban\Console;
+namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
 use Illuminate\Config\Repository;
 use Illuminate\Console\Application;
 use Illuminate\Container\Container;
 use Illuminate\Contracts\Config\Repository as RepositoryContract;
 use Illuminate\Events\Dispatcher;
-use PetarSpasic\Kanban\KanbanServiceProvider;
-use PetarSpasic\Kanban\Support\DotEnv;
-use PetarSpasic\Kanban\Support\Paths;
+use PetarSpasic\LaravelHouse\Kanban\KanbanServiceProvider;
+use PetarSpasic\LaravelHouse\Kanban\Support\DotEnv;
+use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
 use Symfony\Component\Console\Input\ArgvInput;
 
 /** `vendor/bin/kanban`: the kanban commands on Illuminate Console without booting the host app. */
@@ -97,7 +97,7 @@ final class Standalone
      */
     public static function config(string $root): array
     {
-        $config = require dirname(__DIR__, 2).'/config/kanban.php';
+        $config = require dirname(__DIR__, 3).'/config/kanban.php';
         $project = $root.'/config/kanban.php';
 
         return is_file($project) ? array_merge($config, (array) require $project) : $config;

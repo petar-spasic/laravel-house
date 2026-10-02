@@ -1,8 +1,8 @@
 <?php
 
-namespace PetarSpasic\Kanban\Console;
+namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
-use PetarSpasic\Kanban\Store\Git\MergeDriver;
+use PetarSpasic\LaravelHouse\Kanban\Store\Git\MergeDriver;
 use Symfony\Component\Console\Attribute\AsCommand;
 
 #[AsCommand(name: 'kanban:merge-driver')]

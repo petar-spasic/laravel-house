@@ -1,6 +1,6 @@
 <?php
 
-use PetarSpasic\Kanban\Tests\Support\GuardSandbox;
+use PetarSpasic\LaravelHouse\Tests\Support\GuardSandbox;
 
 function guardPayload(GuardSandbox $sandbox, string $name): string
 {

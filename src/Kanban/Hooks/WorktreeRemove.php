@@ -1,12 +1,12 @@
 <?php
 
-namespace PetarSpasic\Kanban\Hooks;
+namespace PetarSpasic\LaravelHouse\Kanban\Hooks;
 
-use PetarSpasic\Kanban\Code\Worktrees;
-use PetarSpasic\Kanban\Store\Card;
-use PetarSpasic\Kanban\Store\Git\GitStore;
-use PetarSpasic\Kanban\Store\Store;
-use PetarSpasic\Kanban\Support\Paths;
+use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
+use PetarSpasic\LaravelHouse\Kanban\Store\Card;
+use PetarSpasic\LaravelHouse\Kanban\Store\Git\GitStore;
+use PetarSpasic\LaravelHouse\Kanban\Store\Store;
+use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
 use Throwable;
 
 /**

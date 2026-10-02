@@ -1,6 +1,6 @@
 <?php
 
-namespace PetarSpasic\Kanban\Console;
+namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
 /**
  * Extension point of `kanban:install`: bind implementations and tag them `InstallStep::TAG` in a service

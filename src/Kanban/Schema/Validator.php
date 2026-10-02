@@ -1,8 +1,8 @@
 <?php
 
-namespace PetarSpasic\Kanban\Schema;
+namespace PetarSpasic\LaravelHouse\Kanban\Schema;
 
-use PetarSpasic\Kanban\Store\Snapshot;
+use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
 
 /**
  * JSON-Schema subset: type, enum, const, pattern, format (date, date-time: a real calendar date), minLength, maxLength, minimum, maximum, items, minItems,
@@ -242,6 +242,6 @@ final class Validator
     /** @return array<string, mixed> */
     private function schema(string $kind): array
     {
-        return $this->schemas[$kind] ??= json_decode((string) file_get_contents(dirname(__DIR__, 2)."/schema/{$kind}.schema.json"), true, 64, JSON_THROW_ON_ERROR);
+        return $this->schemas[$kind] ??= json_decode((string) file_get_contents(dirname(__DIR__, 3)."/schema/{$kind}.schema.json"), true, 64, JSON_THROW_ON_ERROR);
     }
 }

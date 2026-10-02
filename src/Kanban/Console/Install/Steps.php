@@ -1,10 +1,10 @@
 <?php
 
-namespace PetarSpasic\Kanban\Console\Install;
+namespace PetarSpasic\LaravelHouse\Kanban\Console\Install;
 
 use Illuminate\Contracts\Container\Container;
-use PetarSpasic\Kanban\Console\InstallStep;
-use PetarSpasic\Kanban\Support\Paths;
+use PetarSpasic\LaravelHouse\Kanban\Console\InstallStep;
+use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
 
 /** Registers the install steps under `InstallStep::TAG` (once per container) and builds them for `doctor`. */
 final class Steps

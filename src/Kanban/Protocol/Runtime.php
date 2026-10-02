@@ -1,13 +1,13 @@
 <?php
 
-namespace PetarSpasic\Kanban\Protocol;
+namespace PetarSpasic\LaravelHouse\Kanban\Protocol;
 
-use PetarSpasic\Kanban\Store\Snapshot;
-use PetarSpasic\Kanban\Support\AgentStates;
-use PetarSpasic\Kanban\Support\Clock;
-use PetarSpasic\Kanban\Support\Json;
-use PetarSpasic\Kanban\Support\Lock;
-use PetarSpasic\Kanban\Support\Paths;
+use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
+use PetarSpasic\LaravelHouse\Kanban\Support\AgentStates;
+use PetarSpasic\LaravelHouse\Kanban\Support\Clock;
+use PetarSpasic\LaravelHouse\Kanban\Support\Json;
+use PetarSpasic\LaravelHouse\Kanban\Support\Lock;
+use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
 use Symfony\Component\Process\Process;
 
 /**

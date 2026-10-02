@@ -1,13 +1,13 @@
 <?php
 
-namespace PetarSpasic\Kanban\Store\Git;
+namespace PetarSpasic\LaravelHouse\Kanban\Store\Git;
 
-use PetarSpasic\Kanban\Store\Exceptions\Conflict;
-use PetarSpasic\Kanban\Store\Exceptions\GitFailed;
-use PetarSpasic\Kanban\Store\Exceptions\RemoteFailed;
-use PetarSpasic\Kanban\Support\Git;
-use PetarSpasic\Kanban\Support\Ids;
-use PetarSpasic\Kanban\Support\Paths;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Conflict;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\GitFailed;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\RemoteFailed;
+use PetarSpasic\LaravelHouse\Kanban\Support\Git;
+use PetarSpasic\LaravelHouse\Kanban\Support\Ids;
+use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
 
 /** Git operations on the board worktree (`docs/kanban`, branch `kanban`). */
 final class BoardRepo
@@ -253,7 +253,7 @@ final class BoardRepo
      */
     private function driverArguments(): array
     {
-        $driver = escapeshellarg(PHP_BINARY).' '.escapeshellarg(dirname(__DIR__, 3).'/bin/kanban').' merge-driver %O %A %B %P';
+        $driver = escapeshellarg(PHP_BINARY).' '.escapeshellarg(dirname(__DIR__, 4).'/bin/kanban').' merge-driver %O %A %B %P';
 
         return ['-c', 'merge.kanban.name=laravel-kanban JSON merge', '-c', 'merge.kanban.driver='.$driver];
     }

@@ -8,9 +8,9 @@ foreach ([$GLOBALS['_composer_autoload_path'] ?? null, __DIR__.'/../vendor/autol
     }
 }
 
-if (($main = PetarSpasic\Kanban\Console\Standalone::mainCheckoutBinary((string) ($_SERVER['SCRIPT_FILENAME'] ?? ''))) !== null) {
+if (($main = PetarSpasic\LaravelHouse\Kanban\Console\Standalone::mainCheckoutBinary((string) ($_SERVER['SCRIPT_FILENAME'] ?? ''))) !== null) {
     passthru(implode(' ', array_map('escapeshellarg', [PHP_BINARY, $main, ...array_slice($_SERVER['argv'], 1)])), $exit);
     exit($exit);
 }
 
-exit(PetarSpasic\Kanban\Console\Standalone::run($_SERVER['argv']));
+exit(PetarSpasic\LaravelHouse\Kanban\Console\Standalone::run($_SERVER['argv']));

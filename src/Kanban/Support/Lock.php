@@ -1,8 +1,8 @@
 <?php
 
-namespace PetarSpasic\Kanban\Support;
+namespace PetarSpasic\LaravelHouse\Kanban\Support;
 
-use PetarSpasic\Kanban\Store\Exceptions\LockTimeout;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\LockTimeout;
 use RuntimeException;
 
 final class Lock

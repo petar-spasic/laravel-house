@@ -1,14 +1,14 @@
 <?php
 
-namespace PetarSpasic\Kanban\Store\Git;
+namespace PetarSpasic\LaravelHouse\Kanban\Store\Git;
 
-use PetarSpasic\Kanban\Store\Exceptions\Conflict;
-use PetarSpasic\Kanban\Store\Exceptions\Invalid;
-use PetarSpasic\Kanban\Store\Exceptions\KanbanException;
-use PetarSpasic\Kanban\Store\Exceptions\RemoteFailed;
-use PetarSpasic\Kanban\Support\Clock;
-use PetarSpasic\Kanban\Support\Json;
-use PetarSpasic\Kanban\Support\Paths;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Conflict;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Invalid;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\KanbanException;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\RemoteFailed;
+use PetarSpasic\LaravelHouse\Kanban\Support\Clock;
+use PetarSpasic\LaravelHouse\Kanban\Support\Json;
+use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
 use Throwable;
 
 /**

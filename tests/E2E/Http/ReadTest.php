@@ -1,12 +1,12 @@
 <?php
 
-use PetarSpasic\Kanban\Policy\Transitions;
-use PetarSpasic\Kanban\Store\Actor;
-use PetarSpasic\Kanban\Store\BoardRef;
-use PetarSpasic\Kanban\Store\Store;
-use PetarSpasic\Kanban\Tests\Support\CodeSandbox;
-use PetarSpasic\Kanban\Tests\Support\Sandbox;
-use PetarSpasic\Kanban\Tests\Support\UiSandbox;
+use PetarSpasic\LaravelHouse\Kanban\Policy\Transitions;
+use PetarSpasic\LaravelHouse\Kanban\Store\Actor;
+use PetarSpasic\LaravelHouse\Kanban\Store\BoardRef;
+use PetarSpasic\LaravelHouse\Kanban\Store\Store;
+use PetarSpasic\LaravelHouse\Tests\Support\CodeSandbox;
+use PetarSpasic\LaravelHouse\Tests\Support\Sandbox;
+use PetarSpasic\LaravelHouse\Tests\Support\UiSandbox;
 
 beforeEach(function () {
     $this->sandbox = Sandbox::create();

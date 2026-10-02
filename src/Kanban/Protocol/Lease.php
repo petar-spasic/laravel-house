@@ -1,13 +1,13 @@
 <?php
 
-namespace PetarSpasic\Kanban\Protocol;
+namespace PetarSpasic\LaravelHouse\Kanban\Protocol;
 
-use PetarSpasic\Kanban\Store\Actor;
-use PetarSpasic\Kanban\Store\Exceptions\LockTimeout;
-use PetarSpasic\Kanban\Store\Exceptions\PolicyRefused;
-use PetarSpasic\Kanban\Support\Clock;
-use PetarSpasic\Kanban\Support\Lock;
-use PetarSpasic\Kanban\Support\Paths;
+use PetarSpasic\LaravelHouse\Kanban\Store\Actor;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\LockTimeout;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
+use PetarSpasic\LaravelHouse\Kanban\Support\Clock;
+use PetarSpasic\LaravelHouse\Kanban\Support\Lock;
+use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
 
 /**
  * One orchestrating session per machine: `lease.json` = {session, since}, its mtime the last use. Main-only commands

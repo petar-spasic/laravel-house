@@ -1,6 +1,6 @@
 <?php
 
-namespace PetarSpasic\Kanban\Support;
+namespace PetarSpasic\LaravelHouse\Kanban\Support;
 
 /**
  * The `sync` setting: `on` (also 1, true, yes) always pulls before and pushes after every write; `auto` does so while the

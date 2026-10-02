@@ -1,22 +1,45 @@
 {
     "name": "petar-spasic/laravel-house",
-    "description": "House skills for Laravel projects, installed into Claude Code by Laravel Boost: project setup with per-layer CLAUDE.md rules, Docker hosting behind Caddy, laravel-kanban adoption, and the validation:export command.",
+    "description": "House skills for Laravel projects, installed into Claude Code by Laravel Boost: project setup with per-layer CLAUDE.md rules, Docker hosting behind Caddy, a git-backed kanban board with worktree stacks and Claude Code agents, and the validation:export command.",
     "type": "library",
     "license": "MIT",
-    "keywords": ["laravel", "boost", "claude-code", "skills", "docker", "caddy", "frankenphp", "sveltekit", "htmx", "validation", "zod"],
+    "keywords": ["laravel", "boost", "claude-code", "skills", "docker", "caddy", "frankenphp", "sveltekit", "htmx", "validation", "zod", "kanban", "agents", "git", "worktree"],
     "authors": [
         { "name": "Petar Spasic", "email": "spasicpetar@gmail.com" }
     ],
     "require": {
-        "php": "^8.3"
+        "php": "^8.3",
+        "laravel/framework": "^12.0|^13.0"
+    },
+    "require-dev": {
+        "laravel/pint": "^1.32",
+        "orchestra/testbench": "^10.0|^11.0",
+        "pestphp/pest": "^4.0|^5.0"
+    },
+    "conflict": {
+        "petar-spasic/laravel-kanban": "*"
     },
     "autoload": {
         "psr-4": { "PetarSpasic\\LaravelHouse\\": "src/" }
     },
+    "autoload-dev": {
+        "psr-4": { "PetarSpasic\\LaravelHouse\\Tests\\": "tests/" }
+    },
+    "bin": ["bin/kanban"],
     "extra": {
         "laravel": {
-            "providers": ["PetarSpasic\\LaravelHouse\\LaravelHouseServiceProvider"]
+            "providers": [
+                "PetarSpasic\\LaravelHouse\\LaravelHouseServiceProvider",
+                "PetarSpasic\\LaravelHouse\\Kanban\\KanbanServiceProvider"
+            ]
         }
+    },
+    "scripts": {
+        "test": "pest"
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": { "pestphp/pest-plugin": true }
     },
     "minimum-stability": "stable",
     "prefer-stable": true

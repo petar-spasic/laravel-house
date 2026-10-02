@@ -1,16 +1,16 @@
 <?php
 
-namespace PetarSpasic\Kanban\Policy;
+namespace PetarSpasic\LaravelHouse\Kanban\Policy;
 
-use PetarSpasic\Kanban\Store\Actor;
-use PetarSpasic\Kanban\Store\Card;
-use PetarSpasic\Kanban\Store\Claim;
-use PetarSpasic\Kanban\Store\Exceptions\PolicyRefused;
-use PetarSpasic\Kanban\Store\Rev;
-use PetarSpasic\Kanban\Store\Snapshot;
-use PetarSpasic\Kanban\Store\Stage;
-use PetarSpasic\Kanban\Store\Store;
-use PetarSpasic\Kanban\Support\Clock;
+use PetarSpasic\LaravelHouse\Kanban\Store\Actor;
+use PetarSpasic\LaravelHouse\Kanban\Store\Card;
+use PetarSpasic\LaravelHouse\Kanban\Store\Claim;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
+use PetarSpasic\LaravelHouse\Kanban\Store\Rev;
+use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
+use PetarSpasic\LaravelHouse\Kanban\Store\Stage;
+use PetarSpasic\LaravelHouse\Kanban\Store\Store;
+use PetarSpasic\LaravelHouse\Kanban\Support\Clock;
 
 /**
  * Stage changes. `check()` is the table the Store enforces on every write; the instance methods are the only

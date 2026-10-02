@@ -1,16 +1,16 @@
 <?php
 
-namespace PetarSpasic\Kanban\Http;
+namespace PetarSpasic\LaravelHouse\Kanban\Http;
 
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Foundation\Http\Middleware\TrimStrings;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Router;
-use PetarSpasic\Kanban\Http\Middleware\UiGuard;
-use PetarSpasic\Kanban\Http\Middleware\UiHeaders;
-use PetarSpasic\Kanban\Http\Middleware\UiToken;
-use PetarSpasic\Kanban\Policy\Transitions;
-use PetarSpasic\Kanban\Store\Stage;
+use PetarSpasic\LaravelHouse\Kanban\Http\Middleware\UiGuard;
+use PetarSpasic\LaravelHouse\Kanban\Http\Middleware\UiHeaders;
+use PetarSpasic\LaravelHouse\Kanban\Http\Middleware\UiToken;
+use PetarSpasic\LaravelHouse\Kanban\Policy\Transitions;
+use PetarSpasic\LaravelHouse\Kanban\Store\Stage;
 
 /** The local board UI: only in the local environment, from the main checkout, with routes not cached. */
 final class Ui
@@ -30,7 +30,7 @@ final class Ui
         if (! self::enabled($app)) {
             return;
         }
-        $app['view']->addNamespace('kanban', dirname(__DIR__, 2).'/resources/views');
+        $app['view']->addNamespace('kanban', dirname(__DIR__, 3).'/resources/views');
         $prefix = trim((string) $app['config']->get('kanban.ui.path', 'kanban'), '/');
         // Markdown keeps its leading whitespace
         $api = fn (Request $request) => $request->is(ltrim($prefix.'/_api/*', '/'));
@@ -51,7 +51,7 @@ final class Ui
         $router->prefix($prefix)
             ->middleware('kanban')
             ->name('kanban.')
-            ->group(dirname(__DIR__, 2).'/routes/web.php');
+            ->group(dirname(__DIR__, 3).'/routes/web.php');
         $app->booted(function () use ($router) {
             $router->getRoutes()->refreshNameLookups();
             $router->getRoutes()->refreshActionLookups();
@@ -92,6 +92,6 @@ final class Ui
 
     public static function asset(string $asset): string
     {
-        return dirname(__DIR__, 2).'/resources/dist/'.$asset;
+        return dirname(__DIR__, 3).'/resources/dist/'.$asset;
     }
 }

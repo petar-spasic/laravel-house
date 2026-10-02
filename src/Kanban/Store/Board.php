@@ -1,6 +1,6 @@
 <?php
 
-namespace PetarSpasic\Kanban\Store;
+namespace PetarSpasic\LaravelHouse\Kanban\Store;
 
 final class Board
 {

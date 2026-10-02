@@ -1,6 +1,6 @@
 <?php
 
-namespace PetarSpasic\Kanban\Store\Git;
+namespace PetarSpasic\LaravelHouse\Kanban\Store\Git;
 
 /** Board writes that are on disk but not committed yet (git was unusable). Flushed by the next host write. */
 final class Journal

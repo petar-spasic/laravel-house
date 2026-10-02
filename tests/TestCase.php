@@ -1,9 +1,9 @@
 <?php
 
-namespace PetarSpasic\Kanban\Tests;
+namespace PetarSpasic\LaravelHouse\Tests;
 
 use Orchestra\Testbench\TestCase as Orchestra;
-use PetarSpasic\Kanban\KanbanServiceProvider;
+use PetarSpasic\LaravelHouse\Kanban\KanbanServiceProvider;
 
 abstract class TestCase extends Orchestra
 {

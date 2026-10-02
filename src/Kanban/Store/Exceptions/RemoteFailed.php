@@ -1,6 +1,6 @@
 <?php
 
-namespace PetarSpasic\Kanban\Store\Exceptions;
+namespace PetarSpasic\LaravelHouse\Kanban\Store\Exceptions;
 
 /** The remote could not be reached or kept rejecting the push. */
 class RemoteFailed extends KanbanException

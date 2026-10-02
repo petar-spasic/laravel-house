@@ -1,8 +1,8 @@
 <?php
 
-namespace PetarSpasic\Kanban\Code;
+namespace PetarSpasic\LaravelHouse\Kanban\Code;
 
-use PetarSpasic\Kanban\Support\Git;
+use PetarSpasic\LaravelHouse\Kanban\Support\Git;
 
 /** Read-only checks before a card branch is merged into main. */
 final class MergeCheck

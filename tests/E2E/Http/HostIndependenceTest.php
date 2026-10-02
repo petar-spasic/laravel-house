@@ -5,8 +5,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Env;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\URL;
-use PetarSpasic\Kanban\Tests\Support\Sandbox;
-use PetarSpasic\Kanban\Tests\Support\UiSandbox;
+use PetarSpasic\LaravelHouse\Tests\Support\Sandbox;
+use PetarSpasic\LaravelHouse\Tests\Support\UiSandbox;
 
 beforeEach(function () {
     $this->sandbox = Sandbox::create();

@@ -6,8 +6,8 @@
 <meta name="robots" content="noindex, nofollow">
 <meta name="color-scheme" content="light dark">
 <title>Kanban</title>
-<link rel="icon" href="{{ route('kanban.asset', ['asset' => 'kanban.svg', 'v' => \PetarSpasic\Kanban\Http\Ui::version('kanban.svg')]) }}" type="image/svg+xml">
-<link rel="stylesheet" href="{{ route('kanban.asset', ['asset' => 'kanban.css', 'v' => \PetarSpasic\Kanban\Http\Ui::version('kanban.css')]) }}">
+<link rel="icon" href="{{ route('kanban.asset', ['asset' => 'kanban.svg', 'v' => \PetarSpasic\LaravelHouse\Kanban\Http\Ui::version('kanban.svg')]) }}" type="image/svg+xml">
+<link rel="stylesheet" href="{{ route('kanban.asset', ['asset' => 'kanban.css', 'v' => \PetarSpasic\LaravelHouse\Kanban\Http\Ui::version('kanban.css')]) }}">
 </head>
 <body>
 <main class="gate">

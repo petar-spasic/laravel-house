@@ -1,6 +1,6 @@
 <?php
 
-use PetarSpasic\Kanban\Tests\Support\Sandbox;
+use PetarSpasic\LaravelHouse\Tests\Support\Sandbox;
 
 it('serializes 20 parallel writers: 20 distinct ids, 20 commits, a clean tree', function () {
     $sandbox = Sandbox::create();

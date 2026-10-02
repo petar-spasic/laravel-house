@@ -1,10 +1,10 @@
 <?php
 
-namespace PetarSpasic\Kanban\Store\Git;
+namespace PetarSpasic\LaravelHouse\Kanban\Store\Git;
 
-use PetarSpasic\Kanban\Store\Exceptions\Invalid;
-use PetarSpasic\Kanban\Support\Ids;
-use PetarSpasic\Kanban\Support\Json;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Invalid;
+use PetarSpasic\LaravelHouse\Kanban\Support\Ids;
+use PetarSpasic\LaravelHouse\Kanban\Support\Json;
 
 /**
  * git merge driver for board JSON (`kanban merge-driver %O %A %B %P`). Pure: no lock, no app.

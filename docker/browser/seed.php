@@ -23,16 +23,16 @@ require dirname(__DIR__, 2).'/vendor/autoload.php';
 
 use Illuminate\Contracts\Console\Kernel;
 use Orchestra\Testbench\Foundation\Application;
-use PetarSpasic\Kanban\KanbanServiceProvider;
-use PetarSpasic\Kanban\Policy\Creation;
-use PetarSpasic\Kanban\Policy\Transitions;
-use PetarSpasic\Kanban\Store\Actor;
-use PetarSpasic\Kanban\Store\BoardRef;
-use PetarSpasic\Kanban\Store\Store;
-use PetarSpasic\Kanban\Tests\Support\CodeSandbox;
-use PetarSpasic\Kanban\Tests\Support\Origin;
-use PetarSpasic\Kanban\Tests\Support\Sandbox;
-use PetarSpasic\Kanban\Tests\Support\UiSandbox;
+use PetarSpasic\LaravelHouse\Kanban\KanbanServiceProvider;
+use PetarSpasic\LaravelHouse\Kanban\Policy\Creation;
+use PetarSpasic\LaravelHouse\Kanban\Policy\Transitions;
+use PetarSpasic\LaravelHouse\Kanban\Store\Actor;
+use PetarSpasic\LaravelHouse\Kanban\Store\BoardRef;
+use PetarSpasic\LaravelHouse\Kanban\Store\Store;
+use PetarSpasic\LaravelHouse\Tests\Support\CodeSandbox;
+use PetarSpasic\LaravelHouse\Tests\Support\Origin;
+use PetarSpasic\LaravelHouse\Tests\Support\Sandbox;
+use PetarSpasic\LaravelHouse\Tests\Support\UiSandbox;
 
 [, $port, $out] = $argv + [null, '8099', '/tmp/seed.json'];
 $rich = in_array('--rich', $argv, true);

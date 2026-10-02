@@ -1,15 +1,15 @@
 <?php
 
-namespace PetarSpasic\Kanban\Console;
+namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
-use PetarSpasic\Kanban\Hooks\SessionStart;
-use PetarSpasic\Kanban\Hooks\SubagentStart;
-use PetarSpasic\Kanban\Hooks\SubagentStop;
-use PetarSpasic\Kanban\Hooks\WorktreeCreate;
-use PetarSpasic\Kanban\Hooks\WorktreeRemove;
-use PetarSpasic\Kanban\Protocol\Runtime;
-use PetarSpasic\Kanban\Store\Store;
-use PetarSpasic\Kanban\Support\Paths;
+use PetarSpasic\LaravelHouse\Kanban\Hooks\SessionStart;
+use PetarSpasic\LaravelHouse\Kanban\Hooks\SubagentStart;
+use PetarSpasic\LaravelHouse\Kanban\Hooks\SubagentStop;
+use PetarSpasic\LaravelHouse\Kanban\Hooks\WorktreeCreate;
+use PetarSpasic\LaravelHouse\Kanban\Hooks\WorktreeRemove;
+use PetarSpasic\LaravelHouse\Kanban\Protocol\Runtime;
+use PetarSpasic\LaravelHouse\Kanban\Store\Store;
+use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Output\OutputInterface;
 use Throwable;

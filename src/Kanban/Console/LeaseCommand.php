@@ -1,8 +1,8 @@
 <?php
 
-namespace PetarSpasic\Kanban\Console;
+namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
-use PetarSpasic\Kanban\Protocol\Lease;
+use PetarSpasic\LaravelHouse\Kanban\Protocol\Lease;
 use Symfony\Component\Console\Attribute\AsCommand;
 
 #[AsCommand(name: 'kanban:lease')]

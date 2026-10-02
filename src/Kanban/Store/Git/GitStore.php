@@ -1,39 +1,39 @@
 <?php
 
-namespace PetarSpasic\Kanban\Store\Git;
+namespace PetarSpasic\LaravelHouse\Kanban\Store\Git;
 
 use Closure;
 use Illuminate\Support\Str;
-use PetarSpasic\Kanban\Policy\Transitions;
-use PetarSpasic\Kanban\Schema\CrossCardRules;
-use PetarSpasic\Kanban\Schema\Validator;
-use PetarSpasic\Kanban\Store\Actor;
-use PetarSpasic\Kanban\Store\Board;
-use PetarSpasic\Kanban\Store\BoardRef;
-use PetarSpasic\Kanban\Store\Card;
-use PetarSpasic\Kanban\Store\CardType;
-use PetarSpasic\Kanban\Store\Claim;
-use PetarSpasic\Kanban\Store\Epic;
-use PetarSpasic\Kanban\Store\Exceptions\Changed;
-use PetarSpasic\Kanban\Store\Exceptions\Conflict;
-use PetarSpasic\Kanban\Store\Exceptions\GitFailed;
-use PetarSpasic\Kanban\Store\Exceptions\Invalid;
-use PetarSpasic\Kanban\Store\Exceptions\LockTimeout;
-use PetarSpasic\Kanban\Store\Exceptions\LostClaim;
-use PetarSpasic\Kanban\Store\Exceptions\NotFound;
-use PetarSpasic\Kanban\Store\Exceptions\PolicyRefused;
-use PetarSpasic\Kanban\Store\Exceptions\RemoteFailed;
-use PetarSpasic\Kanban\Store\Rev;
-use PetarSpasic\Kanban\Store\Snapshot;
-use PetarSpasic\Kanban\Store\Stage;
-use PetarSpasic\Kanban\Store\Store;
-use PetarSpasic\Kanban\Store\SyncResult;
-use PetarSpasic\Kanban\Support\Clock;
-use PetarSpasic\Kanban\Support\Ids;
-use PetarSpasic\Kanban\Support\Json;
-use PetarSpasic\Kanban\Support\Lock;
-use PetarSpasic\Kanban\Support\Paths;
-use PetarSpasic\Kanban\Support\Sync;
+use PetarSpasic\LaravelHouse\Kanban\Policy\Transitions;
+use PetarSpasic\LaravelHouse\Kanban\Schema\CrossCardRules;
+use PetarSpasic\LaravelHouse\Kanban\Schema\Validator;
+use PetarSpasic\LaravelHouse\Kanban\Store\Actor;
+use PetarSpasic\LaravelHouse\Kanban\Store\Board;
+use PetarSpasic\LaravelHouse\Kanban\Store\BoardRef;
+use PetarSpasic\LaravelHouse\Kanban\Store\Card;
+use PetarSpasic\LaravelHouse\Kanban\Store\CardType;
+use PetarSpasic\LaravelHouse\Kanban\Store\Claim;
+use PetarSpasic\LaravelHouse\Kanban\Store\Epic;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Changed;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Conflict;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\GitFailed;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Invalid;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\LockTimeout;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\LostClaim;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\NotFound;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\RemoteFailed;
+use PetarSpasic\LaravelHouse\Kanban\Store\Rev;
+use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
+use PetarSpasic\LaravelHouse\Kanban\Store\Stage;
+use PetarSpasic\LaravelHouse\Kanban\Store\Store;
+use PetarSpasic\LaravelHouse\Kanban\Store\SyncResult;
+use PetarSpasic\LaravelHouse\Kanban\Support\Clock;
+use PetarSpasic\LaravelHouse\Kanban\Support\Ids;
+use PetarSpasic\LaravelHouse\Kanban\Support\Json;
+use PetarSpasic\LaravelHouse\Kanban\Support\Lock;
+use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
+use PetarSpasic\LaravelHouse\Kanban\Support\Sync;
 use Throwable;
 
 /**
@@ -610,7 +610,7 @@ final class GitStore implements Store
         try {
             file_put_contents($this->paths->runtime('sync.requested'), (string) microtime(true));
             $php = PHP_SAPI === 'cli' ? PHP_BINARY : 'php';
-            $bin = dirname(__DIR__, 3).'/bin/kanban';
+            $bin = dirname(__DIR__, 4).'/bin/kanban';
             exec(sprintf('cd %s && %s %s sync --background > /dev/null 2>&1 &', escapeshellarg($this->paths->main), escapeshellarg($php), escapeshellarg($bin)));
         } catch (Throwable) {
         }

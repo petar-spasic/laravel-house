@@ -1,6 +1,6 @@
 <?php
 
-namespace PetarSpasic\Kanban\Import;
+namespace PetarSpasic\LaravelHouse\Kanban\Import;
 
 /**
  * `docs/decisions.md` of the house docs: one bullet per decision, `- **YYYY-MM-DD — Title.** Body. Why: reason.`

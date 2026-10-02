@@ -24,8 +24,7 @@ final readonly class RequestPipeline
         public bool $emptyToNull,
         public array $except,
         public bool $skipCallbacks,
-    ) {
-    }
+    ) {}
 
     public static function read(Application $app): self
     {

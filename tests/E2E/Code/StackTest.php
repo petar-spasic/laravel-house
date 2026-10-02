@@ -1,6 +1,6 @@
 <?php
 
-use PetarSpasic\Kanban\Tests\Support\CodeSandbox;
+use PetarSpasic\LaravelHouse\Tests\Support\CodeSandbox;
 
 beforeEach(function () {
     $this->code = CodeSandbox::create();

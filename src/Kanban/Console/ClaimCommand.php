@@ -1,6 +1,6 @@
 <?php
 
-namespace PetarSpasic\Kanban\Console;
+namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
 use Symfony\Component\Console\Attribute\AsCommand;
 

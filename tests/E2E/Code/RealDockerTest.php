@@ -1,6 +1,6 @@
 <?php
 
-use PetarSpasic\Kanban\Tests\Support\CodeSandbox;
+use PetarSpasic\LaravelHouse\Tests\Support\CodeSandbox;
 use Symfony\Component\Process\Process;
 
 it('runs a real compose stack per worktree: start, wait for /up, stop', function () {

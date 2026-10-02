@@ -1,8 +1,8 @@
 <?php
 
-namespace PetarSpasic\Kanban\Code;
+namespace PetarSpasic\LaravelHouse\Kanban\Code;
 
-use PetarSpasic\Kanban\Support\DotEnv;
+use PetarSpasic\LaravelHouse\Kanban\Support\DotEnv;
 use Symfony\Component\Process\Process;
 use Throwable;
 

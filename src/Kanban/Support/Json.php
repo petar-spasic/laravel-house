@@ -1,9 +1,9 @@
 <?php
 
-namespace PetarSpasic\Kanban\Support;
+namespace PetarSpasic\LaravelHouse\Kanban\Support;
 
 use JsonException;
-use PetarSpasic\Kanban\Store\Exceptions\Invalid;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Invalid;
 use RuntimeException;
 
 final class Json
