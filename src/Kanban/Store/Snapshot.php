@@ -159,9 +159,12 @@ final class Snapshot
         return new self($this->kanban, $epics, [(string) $board->ref => $board] + $this->boards, $this->cards, $this->problems);
     }
 
-    public function version(): int
+    /** An older format, by kanban.json's own `version`; a file without one is left to validation. */
+    public function isOld(): bool
     {
-        return (int) ($this->kanban['version'] ?? 1);
+        $version = $this->kanban['version'] ?? null;
+
+        return is_int($version) && $version < self::VERSION;
     }
 
     /** A dependency is satisfied when its card is done. */

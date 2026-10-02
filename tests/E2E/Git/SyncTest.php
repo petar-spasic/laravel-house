@@ -1030,3 +1030,18 @@ it('keeps local edits of a card deleted on origin aside, so the sync goes on and
     $b->ok('sync');
     expect($b->read($kept)['body'])->toBe('Also edited here');
 });
+
+it('refuses a pulled kanban.json that cannot be read, rather than taking it for an older board', function () {
+    [$origin, $a, $b] = published();
+    file_put_contents($a->root.'/docs/kanban/kanban.json', "{not json\n");
+    $a->boardGit('commit', '-q', '-am', 'a broken settings file');
+    $a->boardGit('push', '-q', 'origin', 'kanban');
+
+    $pulled = $b->kanban('sync');
+    $validate = $b->kanban('validate');
+
+    expect($pulled->getExitCode())->toBe(2)
+        ->and($pulled->getErrorOutput())->toContain('invalid after the pull')->toContain('kanban.json: invalid JSON')
+        ->and($validate->getExitCode())->toBe(2)
+        ->and($validate->getOutput().$validate->getErrorOutput())->toContain('kanban.json: invalid JSON')->not->toContain('board version 1');
+});

@@ -103,6 +103,12 @@ it('orders next by the pull policy', function (Closure $setup, array|string $exp
 
         return ['r' => $ready, 'd' => $s->readyCard('D', ["--depends={$done}"]), 'e' => $s->readyCard('E', ["--depends={$ready}"])];
     }, ['r', 'd']],
+    'a ready card that lost its area waits' => [function (Sandbox $s) {
+        $id = $s->readyCard('Unscoped', ['--label=area:x']);
+        $s->ok(['set', $id, 'labels=-area:x']);
+
+        return ['u' => $id, 'k' => $s->readyCard('K')];
+    }, ['k']],
     'blocked cards wait' => [function (Sandbox $s) {
         $id = $s->readyCard('J');
         $s->ok(['set', $id, 'blocked=waiting']);

@@ -47,6 +47,7 @@ final class PullPolicy
             $busyAreas += array_flip($card->areas());
         }
         $cards = $snapshot->cards(fn (Card $c) => $c->stage() === 'ready'
+            && $c->areas() !== []
             && $c->blocked() === null
             && $c->claim() === null
             && $snapshot->depsSatisfied($c)

@@ -408,7 +408,7 @@ final class GitStore implements Store
                 }
                 // a board in the older format is pulled and pushed as it is: the upgrade validates it
                 $snapshot = $this->load();
-                $errors = $snapshot->version() < Snapshot::VERSION ? [] : $this->problems($snapshot);
+                $errors = $snapshot->isOld() ? [] : $this->problems($snapshot);
                 if ($errors !== []) {
                     throw new Invalid('the board is invalid after the pull; fix it, then sync again', $errors);
                 }
@@ -1154,7 +1154,7 @@ final class GitStore implements Store
     private function current(): Snapshot
     {
         $snapshot = $this->load();
-        if ($snapshot->version() < Snapshot::VERSION) {
+        if ($snapshot->isOld()) {
             throw new OldBoard;
         }
 

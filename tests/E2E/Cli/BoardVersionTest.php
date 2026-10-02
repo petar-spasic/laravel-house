@@ -64,6 +64,8 @@ it('says so at session start and in the UI, and doctor reports it among its chec
     expect($fix->getOutput())->toContain('fix: board attached at docs/kanban')->toContain('fail '.OLD_BOARD)
         ->and($fix->getErrorOutput())->toBe('');
 
+    expect($s->install('ACME'))->toContain('board attached at docs/kanban');
+
     UiSandbox::boot($s->root);
     $this->getJson('/kanban/_api/boards')->assertOk()->assertJsonPath('epics', [])->assertJsonPath('notices', [OLD_BOARD]);
     $this->getJson('/kanban/_api/project/work')->assertStatus(422)->assertJsonPath('message', OLD_BOARD);
