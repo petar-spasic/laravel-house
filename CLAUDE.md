@@ -235,12 +235,14 @@ A release that changes the core is a new minor. A 0.x caret never crosses a mino
 minor after every project is upgraded.
 
 Before tagging a release that touches `src/`, `bin/` or `composer.json`, smoke-install it on the host into a scratch
-Laravel app outside the repo, with `house` set to this repository's path:
+Laravel app outside the repo, with `house` set to this repository's path. Export `XDG_STATE_HOME` to a scratch
+directory first: `doctor --fix` and the stack commands otherwise act on this machine's real port registry
+(`~/.local/state/laravel-house`, and the old-name one `Migrate` moves), which other projects' stacks share:
 
 ```bash
 composer config repositories.house path "$house"
 composer require --dev petar-spasic/laravel-house:@dev
 php artisan list | grep validation:export                       # listed
 php artisan list | grep kanban:install                          # listed
-vendor/bin/kanban --version                                     # prints the version
+vendor/bin/kanban --version                                     # prints "kanban laravel-house"
 ```

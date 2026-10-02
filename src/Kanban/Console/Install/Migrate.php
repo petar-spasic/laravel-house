@@ -7,6 +7,7 @@ use PetarSpasic\LaravelHouse\Kanban\Code\PortRegistry;
 use PetarSpasic\LaravelHouse\Kanban\Store\Git\Bootstrap;
 use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
 use PetarSpasic\LaravelHouse\Kanban\Support\Git;
+use PetarSpasic\LaravelHouse\Kanban\Support\Json;
 use PetarSpasic\LaravelHouse\Kanban\Support\Lock;
 use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
 
@@ -63,7 +64,8 @@ final class Migrate extends Step
             $left[] = self::RUNTIME;
         }
         if (($registry = $this->oldRegistry()) !== null && is_file($registry.'/stacks.json')) {
-            $left[] = "{$registry}/stacks.json";
+            $users = $this->oldPackageUsers($registry);
+            $left[] = "{$registry}/stacks.json".($users === [] ? '' : ', still used by '.implode(', ', $users));
         }
         array_push($left, ...$this->markedFiles());
         if ($this->gitHooksPath() === self::HOOKS_PATH) {
@@ -159,31 +161,74 @@ final class Migrate extends Step
         return $working;
     }
 
-    /** @return list<string> */
+    /**
+     * The machine-wide registry moves only once no repo it lists still runs the old package: until then, that repo
+     * allocates from the old file and a move would hand out its slots twice. Into an existing registry, each old
+     * entry joins unless its slot is taken.
+     *
+     * @return list<string>
+     */
     private function registry(bool $dryRun): array
     {
         $old = $this->oldRegistry();
         if ($old === null || ! is_file($old.'/stacks.json')) {
             return [];
         }
-        $new = (new PortRegistry((array) ($this->config['stack'] ?? [])))->dir();
-        if (is_file($new.'/stacks.json')) {
-            return ["kept {$old}/stacks.json: {$new}/stacks.json exists too; upgrade every project on this machine, then delete {$old}"];
+        if (($users = $this->oldPackageUsers($old)) !== []) {
+            return ["kept {$old}/stacks.json: still used by ".implode(', ', $users).' (on '.self::PACKAGE.'); upgrade those, then run `vendor/bin/kanban doctor --fix`'];
         }
+        $new = (new PortRegistry((array) ($this->config['stack'] ?? [])))->dir();
         if ($dryRun) {
             return ["would move {$old}/stacks.json to {$new}"];
         }
-        $lock = Lock::exclusive($old.'/stacks.lock');
+        $oldLock = Lock::exclusive($old.'/stacks.lock');
+        $newLock = Lock::exclusive($new.'/stacks.lock');
         try {
-            @mkdir($new, 0775, true);
-            rename($old.'/stacks.json', $new.'/stacks.json');
+            if (! is_file($new.'/stacks.json')) {
+                rename($old.'/stacks.json', $new.'/stacks.json');
+                $taken = [];
+            } else {
+                $into = json_decode((string) file_get_contents($new.'/stacks.json'), true);
+                $taken = [];
+                foreach (self::stacksOf($old) as $slot => $entry) {
+                    if (isset($into['stacks'][$slot])) {
+                        $taken[] = (string) $slot;
+                    } else {
+                        $into['stacks'][$slot] = $entry;
+                    }
+                }
+                Json::write($new.'/stacks.json', json_encode($into, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)."\n");
+                if ($taken === []) {
+                    unlink($old.'/stacks.json');
+                }
+            }
         } finally {
-            $lock->release();
+            $newLock->release();
+            $oldLock->release();
+        }
+        if ($taken !== []) {
+            return ["merged {$old}/stacks.json into {$new}; kept slot(s) ".implode(', ', $taken).' (taken there too): stop those stacks, then delete '.$old];
         }
         @unlink($old.'/stacks.lock');
         @rmdir($old);
 
         return ["moved {$old}/stacks.json to {$new}"];
+    }
+
+    /** @return list<string> repos listed in the old registry that still have the old package in vendor */
+    private function oldPackageUsers(string $old): array
+    {
+        $repos = array_unique(array_filter(array_map(fn (mixed $entry) => is_array($entry) ? ($entry['repo'] ?? null) : null, self::stacksOf($old)), 'is_string'));
+
+        return array_values(array_filter($repos, fn (string $repo) => is_dir($repo.'/vendor/'.self::PACKAGE)));
+    }
+
+    /** @return array<array-key, mixed> */
+    private static function stacksOf(string $dir): array
+    {
+        $registry = json_decode((string) @file_get_contents($dir.'/stacks.json'), true);
+
+        return is_array($registry) && is_array($registry['stacks'] ?? null) ? $registry['stacks'] : [];
     }
 
     /** The old machine-wide registry directory, or null when `KANBAN_STATE_DIR` names one explicitly. */

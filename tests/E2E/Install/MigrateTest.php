@@ -109,3 +109,25 @@ it('merges into a runtime directory that already exists: the current copy of a f
         ->toContain('fix: moved .git/laravel-kanban into .git/laravel-house; kept deploy_key (a different copy is in .git/laravel-house)')
         ->and(file_get_contents($sandbox->root.'/.git/laravel-kanban/deploy_key'))->toBe("key\n");
 });
+
+it('keeps the machine registry while a repo it lists still runs the old package, then merges it into the current one', function () {
+    [$sandbox, $env] = oldLayout();
+    $other = Sandbox::tmp();
+    mkdir($other.'/vendor/petar-spasic/laravel-kanban', 0775, true);
+    $entry = fn (int $slot, string $repo) => ['slot' => $slot, 'project' => "acme-wt-{$slot}", 'repo' => $repo, 'worktree' => "{$repo}/.claude/worktrees/{$slot}", 'branch' => null, 'card' => null, 'ports' => [], 'created_at' => ''];
+    $xdg = $env['XDG_STATE_HOME'];
+    file_put_contents($xdg.'/laravel-kanban/stacks.json', json_encode(['version' => 1, 'stacks' => ['3' => $entry(3, $other), '4' => $entry(4, $other)]]));
+    mkdir($xdg.'/laravel-house');
+    file_put_contents($xdg.'/laravel-house/stacks.json', json_encode(['version' => 1, 'stacks' => ['4' => $entry(4, $sandbox->root)]]));
+
+    expect(doctor($sandbox, ['--fix'], $env)->getOutput())
+        ->toContain("fix: kept {$xdg}/laravel-kanban/stacks.json: still used by {$other} (on petar-spasic/laravel-kanban)")
+        ->toContain("warn old laravel-kanban name: {$xdg}/laravel-kanban/stacks.json, still used by {$other}");
+
+    rmdir($other.'/vendor/petar-spasic/laravel-kanban');
+
+    expect(doctor($sandbox, ['--fix'], $env)->getOutput())
+        ->toContain("fix: merged {$xdg}/laravel-kanban/stacks.json into {$xdg}/laravel-house; kept slot(s) 4 (taken there too)")
+        ->and(array_keys(json_decode(file_get_contents($xdg.'/laravel-house/stacks.json'), true)['stacks']))->toEqualCanonicalizing([3, 4])
+        ->and(json_decode(file_get_contents($xdg.'/laravel-house/stacks.json'), true)['stacks']['4']['repo'])->toBe($sandbox->root);
+});
