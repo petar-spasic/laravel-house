@@ -54,7 +54,7 @@ class FoldBoardsCommand extends Command
             $this->say("spike {$id} {$title} (a backlog card with its question as the block)");
         }
         foreach ($plan->questions as $id => ['title' => $title, 'cards' => $cards]) {
-            $this->say("question {$id} {$title}: on ".implode(', ', $cards).(count($cards) >= 2 ? ' ('.count($cards).' cards: fold them into one first)' : ''));
+            $this->say("question {$id} {$title}: on ".implode(', ', $cards).(count($cards) >= 2 ? ' ('.count($cards).' cards: one piece of work? fold them into one after this)' : ''));
         }
         foreach ($plan->kept as $id => $blocked) {
             $this->say("kept block {$id}: {$blocked} (its question is in the body)");

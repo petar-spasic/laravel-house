@@ -49,7 +49,9 @@ it('sends a ready card back to backlog when it takes an open question', function
     $out = $s->ok(['fold', $from, "--into={$into}"]);
 
     expect($out)->toContain("{$into} goes back to backlog: it carries an open question")
-        ->and($s->read($into))->toMatchArray(['stage' => 'backlog', 'blocked' => 'question: PDF or HTML?']);
+        ->and($s->read($into))->toMatchArray(['stage' => 'backlog', 'blocked' => 'question: PDF or HTML?'])
+        ->and($s->read($from))->toMatchArray(['stage' => 'dropped', 'blocked' => null])
+        ->and($s->ok(['status']))->toContain('blocked 1 · questions 1');
 });
 
 it('refuses a fold past the card limits and writes nothing', function () {

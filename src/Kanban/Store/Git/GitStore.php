@@ -532,6 +532,11 @@ final class GitStore implements Store
         if (! $this->persist($files, array_values(array_unique($deleted)), $plan->message()." [{$by->role}]", $by, $texts)) {
             throw new GitFailed('the fold could not be committed, so it cannot be pushed');
         }
+        // git keeps no directories: the folded boards' and epics' would stay behind empty
+        foreach (array_unique($deleted) as $path) {
+            for ($dir = dirname($path); $dir !== '.' && $dir !== '' && @rmdir($this->paths->board($dir)); $dir = dirname($dir)) {
+            }
+        }
         if (! $online) {
             return $plan;
         }

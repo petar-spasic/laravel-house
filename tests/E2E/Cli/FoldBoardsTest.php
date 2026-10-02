@@ -131,7 +131,10 @@ it('folds every board into one, archives the decisions and puts open questions o
     expect($files)->toBe(['README.md', 'decisions.md', 'kanban.json', 'project/epic.json', 'project/work/ACME-BE0001.json', 'project/work/ACME-BE0002.json',
         'project/work/ACME-DEC0P2.json', 'project/work/ACME-FE0001.json', 'project/work/ACME-FE0002.json', 'project/work/ACME-FE0003.json',
         'project/work/ACME-WK0001.json', 'project/work/board.json'])
-        ->and(boardFile($s, 'kanban.json'))->toMatchArray(['version' => 2, 'locked' => ['doing', 'review', 'done']]);
+        ->and(boardFile($s, 'kanban.json'))->toMatchArray(['version' => 2, 'locked' => ['doing', 'review', 'done']])
+        // no empty directory of a folded board or epic stays behind
+        ->and(array_map('basename', glob($s->root.'/docs/kanban/*', GLOB_ONLYDIR)))->toBe(['project'])
+        ->and(array_map('basename', glob($s->root.'/docs/kanban/project/*', GLOB_ONLYDIR)))->toBe(['work']);
     $board = boardFile($s, 'project/work/board.json');
     expect($board)->not->toHaveKey('kind')
         ->and($board['wip'])->toBe([])
@@ -222,7 +225,7 @@ it('prints the plan on a dry run and writes nothing', function () {
     expect($out)->toContain("moved ACME-FE0001 app/frontend → project/work\n")
         ->toContain("folded board app/frontend\n")->toContain("folded board project/decisions\n")
         ->toContain("archived ACME-DEC0P1 proposed Which editor library\n")
-        ->toContain("question ACME-DEC0P1 Which editor library: on ACME-FE0001, ACME-FE0002 (2 cards: fold them into one first)\n")
+        ->toContain("question ACME-DEC0P1 Which editor library: on ACME-FE0001, ACME-FE0002 (2 cards: one piece of work? fold them into one after this)\n")
         ->toContain("no area: ACME-DEC0P2, ACME-WK0001 (promote refuses a card without an area:* label)\n")
         ->toContain("startable areas: 2 of max_parallel 6\n")
         ->toContain('would fold into project/work: 6 moved, 4 archived, 1 spikes; nothing written')

@@ -230,9 +230,9 @@ board. Every command but `sync`, `doctor`, `attach` and `kanban:install` refuses
 2. **Every clone runs the new house** before anyone writes: the merge driver must write the same bytes everywhere.
 3. `vendor/bin/kanban fold-boards --dry-run`, and show the owner every line: the moves, the archived decisions, each
    open question and the cards it lands on, the cards with no area, and the startable areas against `max_parallel`.
-4. Cards that would get the same question are one piece of work: `fold` them first (`kanban fold A B --into=C`).
-5. `vendor/bin/kanban fold-boards`. It runs the stored-name migration first, then makes one commit and pushes it. With
+4. `vendor/bin/kanban fold-boards`. It runs the stored-name migration first, then makes one commit and pushes it. With
    sync off, `vendor/bin/kanban sync` once it is on.
+5. Cards that got the same question are usually one piece of work: `kanban fold A B --into=C`.
 6. Give every open card an `area:*` label (`set ID labels=+area:…`), with areas sized as the `kanban` skill's "Planning
    cards" says; then re-plan with the owner: fold enabler cards, group small ones.
 7. "Judging decisions", then `vendor/bin/kanban validate` and `doctor`.

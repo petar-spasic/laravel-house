@@ -78,7 +78,8 @@ final class Fold
         $changes->put($target, $data);
 
         foreach ($sources as $source) {
-            $dropped = Transitions::stage($source->data, 'dropped', 'fold', "folded into {$into}");
+            // its block went to the card that took it
+            $dropped = ['blocked' => null] + Transitions::stage($source->data, 'dropped', 'fold', "folded into {$into}");
             Edits::assertOpen($source->data, $dropped, $locked);
             $changes->put($source, $dropped);
         }
