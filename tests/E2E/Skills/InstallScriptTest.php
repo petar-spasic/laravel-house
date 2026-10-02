@@ -83,3 +83,21 @@ it('renders laravel-deployment for every module set with nothing unresolved', fu
         ->and(file_exists("{$out}/docker/e2e.sh"))->toBe(str_contains($modules, 'spa'))
         ->and(str_contains($text, 'reverb:start'))->toBe(str_contains($modules, 'reverb'));
 })->with(['', 'htmx,islands', 'htmx,reverb,tenancy', 'spa', 'spa,reverb,tenancy']);
+
+it('has a packages.md row for every npm package the spa frontend rules install', function () {
+    $out = Sandbox::tmp();
+
+    $process = installScript(['--modules=spa,reverb', '--set', 'app=acme', '--set', 'laravel_version=13',
+        '--set', 'php_version=8.5', '--set', 'pest_version=5', "--render-to={$out}"]);
+    preg_match_all('/`npm install -D ([^`]+)`/', (string) @file_get_contents("{$out}/frontend/CLAUDE.md"), $commands);
+    $packages = array_values(array_filter(
+        array_map(fn (string $word) => preg_replace('/(?<=.)@.*$/', '', $word), preg_split('/\s+/', implode(' ', $commands[1]))),
+        // First-party packages need no row.
+        fn (string $name) => ! str_starts_with($name, '-') && ! str_starts_with($name, '@laravel/') && $name !== 'laravel-echo',
+    ));
+    $rows = file_get_contents(Sandbox::package().'/resources/boost/skills/laravel-project-setup/references/packages.md');
+
+    expect($process->getExitCode())->toBe(0, $process->getErrorOutput())
+        ->and($packages)->toContain('zod', 'cn', 'svelte-sonner', 'pusher-js')
+        ->and(array_values(array_filter($packages, fn (string $name) => ! str_contains($rows, "| `{$name}`"))))->toBe([]);
+});
