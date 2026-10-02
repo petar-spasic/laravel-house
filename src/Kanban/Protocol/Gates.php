@@ -25,7 +25,7 @@ final class Gates
     /** @param  array<string, mixed>  $config  the `kanban` config */
     public function __construct(private readonly array $config) {}
 
-    /** @return list<array{run: string, timeout: int}> */
+    /** @return list<array{run: string, timeout: int, when: ?string}> */
     public function commands(): array
     {
         $main = (string) ($this->config['main_branch'] ?? 'main');
@@ -34,7 +34,8 @@ final class Gates
         foreach ((array) ($this->config['gates']['report'] ?? []) as $gate) {
             $run = is_array($gate) ? (string) ($gate['run'] ?? '') : (string) $gate;
             if (trim($run) !== '') {
-                $commands[] = ['run' => str_replace('{main_branch}', $main, $run), 'timeout' => is_array($gate) && isset($gate['timeout']) ? max(1, (int) $gate['timeout']) : $default];
+                $commands[] = ['run' => str_replace('{main_branch}', $main, $run), 'timeout' => is_array($gate) && isset($gate['timeout']) ? max(1, (int) $gate['timeout']) : $default,
+                    'when' => is_array($gate) && is_string($gate['when'] ?? null) && $gate['when'] !== '' ? $gate['when'] : null];
             }
         }
 
@@ -124,11 +125,14 @@ final class Gates
     }
 
     /**
-     * @param  array{run: string, timeout: int}  $gate
+     * @param  array{run: string, timeout: int, when: ?string}  $gate
      * @return array{ok: bool, why: string, tail: string}
      */
     private function run(array $gate, string $worktree): array
     {
+        if ($gate['when'] !== null && ! file_exists($worktree.'/'.$gate['when'])) {
+            return ['ok' => true, 'why' => "skipped: no {$gate['when']}", 'tail' => ''];
+        }
         $process = Process::fromShellCommandline($this->where($gate['run'], $worktree), $worktree, ['XDEBUG_MODE' => 'off'], null, $gate['timeout']);
         try {
             $process->run();

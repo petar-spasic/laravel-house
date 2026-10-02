@@ -166,3 +166,17 @@ it("says when the branch's config/kanban.php has other gates than main's", funct
     expect($this->p->in($this->wt, ['context'])->getOutput())
         ->toContain("  true\nthis branch's config/kanban.php has other gates than main's: main's apply; merge main if a gate needs code the branch lacks\n");
 });
+
+it('runs a gate with `when` only where its path exists', function () {
+    $this->p->config(['gates' => ['report' => [['run' => 'false', 'when' => 'frontend/package.json']]]]);
+
+    $without = $this->p->in($this->wt, ['gates']);
+    @mkdir($this->wt.'/frontend');
+    file_put_contents($this->wt.'/frontend/package.json', "{}\n");
+    $with = $this->p->in($this->wt, ['gates']);
+
+    expect($without->getExitCode())->toBe(0)
+        ->and($without->getOutput())->toContain('pass false (skipped: no frontend/package.json)')
+        ->and($with->getExitCode())->toBe(1)
+        ->and($with->getOutput())->toContain('fail false (exit 1)');
+});

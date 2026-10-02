@@ -10,7 +10,7 @@ use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
 final class Steps
 {
     /** The steps `doctor` checks and `doctor --fix` re-runs, in order. */
-    public const CHECKED = [ClaudeSettings::class, ClaudeAgents::class, Guidelines::class, GitIgnore::class];
+    public const CHECKED = [ClaudeSettings::class, ClaudeAgents::class, Guidelines::class, GitIgnore::class, Compose::class];
 
     public static function register(Container $app): void
     {

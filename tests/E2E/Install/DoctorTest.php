@@ -202,7 +202,7 @@ it('accepts a host port published from a stack.env variable that is built from a
 it('warns when the local compose file mounts no worktree at its host path, unless agents\' shells stay on the host', function () {
     $sandbox = doctorSandbox();
     file_put_contents($sandbox->root.'/docker-compose.local.yml', str_replace('      - .:${KANBAN_WORKTREE_PATH:-/app}'."\n", '', file_get_contents($sandbox->root.'/docker-compose.local.yml')));
-    $warning = 'warn docker-compose.local.yml mounts no worktree at ${KANBAN_WORKTREE_PATH}';
+    $warning = 'warn docker-compose.local.yml lacks - ./:${KANBAN_WORKTREE_PATH:-/app} in the app service\'s volumes';
 
     expect(doctor($sandbox)->getOutput())->toContain($warning)
         ->and(doctor($sandbox, env: ['KANBAN_AGENT_SHELL' => 'host'])->getOutput())->not->toContain($warning);
@@ -218,4 +218,32 @@ it('warns when tmp or the checkout runs low on inodes while space looks fine', f
     expect($low->getOutput())->toMatch('/^warn tmp \(.+\) inodes 4% free: /m')
         ->and($low->getOutput())->not->toContain('space 92%')
         ->and($fine->getOutput())->toContain('ok disk space and inodes');
+});
+
+it('adds the card-stack lines to a compose file written before them, once, and leaves the rest as it was', function () {
+    $sandbox = doctorSandbox('compose-cardless.yml');
+    $file = $sandbox->root.'/docker-compose.local.yml';
+    expect(file_get_contents($file))->toContain('KANBAN_WORKTREE_PATH');
+    // as a project installed before these lines has it
+    copy(__DIR__.'/fixtures/compose-cardless.yml', $file);
+    $before = file_get_contents($file);
+
+    $warned = doctor($sandbox)->getOutput();
+    $fixed = doctor($sandbox, ['--fix'])->getOutput();
+    $after = file_get_contents($file);
+    $again = doctor($sandbox, ['--fix'])->getOutput();
+
+    expect($warned)->toContain('warn docker-compose.local.yml lacks - ./:${KANBAN_WORKTREE_PATH:-/app}')
+        ->toContain('`vendor/bin/kanban doctor --fix` adds them')
+        ->and($fixed)->toContain('fix: added to docker-compose.local.yml: the card mount; the ssh command as KANBAN_GIT_SSH_COMMAND and TMPDIR')
+        ->toContain('ok docker-compose.local.yml carries the card-stack lines')
+        ->and($after)->toBe(str_replace([
+            "      - ./:/app\n",
+            "      GIT_SSH_COMMAND: ssh -i /app/.git/laravel-house/deploy_key -o IdentitiesOnly=yes -o BatchMode=yes\n",
+        ], [
+            "      - ./:/app\n      - ./:\${KANBAN_WORKTREE_PATH:-/app}\n",
+            "      TMPDIR: \${KANBAN_TMPDIR:-/tmp}\n      GIT_SSH_COMMAND: \${KANBAN_GIT_SSH_COMMAND-ssh -i /app/.git/laravel-house/deploy_key -o IdentitiesOnly=yes -o BatchMode=yes}\n",
+        ], $before))
+        ->and($again)->not->toContain('fix: added to')
+        ->and(file_get_contents($file))->toBe($after);
 });

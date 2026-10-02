@@ -1,4 +1,4 @@
-# Worktree-ready: one file, many stacks.
+# Worktree-ready, written before the card-stack lines.
 name: "${COMPOSE_PROJECT_NAME:?COMPOSE_PROJECT_NAME unset}"
 
 services:
@@ -9,10 +9,10 @@ services:
     ports:
       - "${WEB_PORT:-8011}:80"
     volumes:
-      - .:/app
-      - .:${KANBAN_WORKTREE_PATH:-/app}
+      - ./:/app
     environment:
-      TMPDIR: ${KANBAN_TMPDIR:-/tmp}
+      DB_HOST: postgres
+      GIT_SSH_COMMAND: ssh -i /app/.git/laravel-house/deploy_key -o IdentitiesOnly=yes -o BatchMode=yes
   postgres:
     image: postgres:16-alpine
     ports:
