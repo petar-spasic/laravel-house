@@ -7,8 +7,8 @@ The house serves the board at `/kanban`. The page syncs from the app container: 
   local compose names it, and a repository admin must register its public half with write access.
 - **An https `origin`** (a host that disables deploy keys) syncs with a token: set `KANBAN_GIT_TOKEN` in `.env` to a
   fine-grained token with read and write on this repository's contents only, then `up -d`. The local compose's
-  credential helper hands it to git inside the container only; no git config holds it. It sits in the container's
-  environment, so scope it to this one repository.
+  credential helper hands it to git in the main stack's container, and only for origin's own host; no git config
+  holds it. It sits in the container's environment, so scope it to this one repository.
 
 ## Diagnose
 

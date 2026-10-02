@@ -112,21 +112,24 @@ it('gives every stack its own session cookie and the https token helper, and see
         ->and(file_get_contents("{$out}/snippets/env.dotenv"))->toContain('# KANBAN_GIT_TOKEN=');
 })->with(['', 'htmx', 'spa,reverb,tenancy']);
 
-it('answers git with KANBAN_GIT_TOKEN through the local compose credential helper, and stays silent without it', function () {
+it('answers git with KANBAN_GIT_TOKEN through the local compose credential helper for origin\'s host only', function () {
     preg_match("/GIT_CONFIG_VALUE_0: '(.*)'$/m", file_get_contents(deployment('htmx').'/docker-compose.local.yml'), $m);
     $helper = str_replace('$$', '$', $m[1]);
-    $home = Sandbox::tmp();
-    $fill = function (string|false $token) use ($helper, $home): string {
-        $git = new Process(['git', '-c', "credential.helper={$helper}", 'credential', 'fill'], $home,
-            ['HOME' => $home, 'GIT_CONFIG_NOSYSTEM' => '1', 'GIT_CONFIG_GLOBAL' => '/dev/null', 'GIT_TERMINAL_PROMPT' => '0', 'GIT_ASKPASS' => false, 'SSH_ASKPASS' => false, 'KANBAN_GIT_TOKEN' => $token]);
-        $git->setInput("protocol=https\nhost=git.example.test\n\n");
+    $repo = Sandbox::tmp();
+    $env = ['HOME' => $repo, 'GIT_CONFIG_NOSYSTEM' => '1', 'GIT_CONFIG_GLOBAL' => '/dev/null', 'GIT_TERMINAL_PROMPT' => '0', 'GIT_ASKPASS' => false, 'SSH_ASKPASS' => false];
+    (new Process(['git', 'init', '-q'], $repo, $env))->mustRun();
+    (new Process(['git', 'remote', 'add', 'origin', 'https://git.example.test/acme/notes.git'], $repo, $env))->mustRun();
+    $fill = function (string $host, string|false $token) use ($helper, $repo, $env): string {
+        $git = new Process(['git', '-c', "credential.helper={$helper}", 'credential', 'fill'], $repo, $env + ['KANBAN_GIT_TOKEN' => $token]);
+        $git->setInput("protocol=https\nhost={$host}\n\n");
         $git->run();
 
         return $git->getOutput();
     };
 
-    expect($fill('github_pat_example'))->toContain("username=x-access-token\npassword=github_pat_example\n")
-        ->and($fill(false))->not->toContain('password=');
+    expect($fill('git.example.test', 'github_pat_example'))->toContain("username=x-access-token\npassword=github_pat_example\n")
+        ->and($fill('other.example.test', 'github_pat_example'))->not->toContain('password=')
+        ->and($fill('git.example.test', false))->not->toContain('password=');
 });
 
 it('takes the test database lock for every top-level test run: a second run waits, a parallel worker does not', function (string $modules) {
@@ -138,20 +141,21 @@ it('takes the test database lock for every top-level test run: a second run wait
     file_put_contents("{$app}/phpunit.xml", '<phpunit><php><env name="DB_DATABASE" value="acme_test" force="true"/></php></phpunit>');
     $run = fn (string $code, array $env = []) => new Process(['php', '-r', "require 'tests/bootstrap.php'; {$code}"], $app, $env + ['PARATEST' => false]);
 
-    $holder = $run('echo "held\n"; fflush(STDOUT); usleep(1500000);');
+    $holder = $run('echo "held\n"; fflush(STDOUT); while (! is_file("release")) { usleep(20000); }');
     $holder->start();
     $holder->waitUntil(fn (string $type, string $out) => str_contains($out, 'held'));
     $worker = $run('echo "worker";', ['PARATEST' => '1']);
     $worker->run();
-    $heldDuringWorker = $holder->isRunning();
     $second = $run('echo "second";');
-    $second->run();
+    $second->start();
+    $second->waitUntil(fn (string $type, string $out) => str_contains($out, 'Waiting for the test database'));
+    $waiting = $second->isRunning();
+    touch("{$app}/release");
+    $second->wait();
 
     expect($worker->getOutput())->toBe('worker')
-        ->and($heldDuringWorker)->toBeTrue()
-        ->and($second->getErrorOutput())->toContain('Waiting for the test database')
-        ->and($second->getOutput())->toBe('second')
-        ->and($holder->isRunning())->toBeFalse();
+        ->and($waiting)->toBeTrue()
+        ->and($second->getOutput())->toBe('second');
 })->with(['', 'spa']);
 
 it('keeps the spa e2e site on localhost, on the CSRF token path and behind one switch the prod boot refuses', function () {

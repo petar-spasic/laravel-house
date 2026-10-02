@@ -93,13 +93,14 @@ services:
       # The board page's sync, main stack only (a worktree's .git is a file and its board page is off); the worker's
       # exec() must stay enabled. An ssh origin: the clone's own deploy key in the mounted .git (php artisan
       # kanban:install and vendor/bin/kanban attach|doctor --fix make it). An https origin: KANBAN_GIT_TOKEN in .env, a
-      # fine-grained token with read and write on this repository's contents only, answered by this container's
-      # credential helper and never written to a git config.
+      # fine-grained token with read and write on this repository's contents only. This container's credential helper
+      # hands it to git only for origin's own host, never to another host that asks (a dependency, a pasted URL), and
+      # no git config holds it.
       GIT_SSH_COMMAND: ssh -i /app/.git/laravel-house/deploy_key -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/app/.git/laravel-house/known_hosts
       KANBAN_GIT_TOKEN: ${KANBAN_GIT_TOKEN:-}
       GIT_CONFIG_COUNT: 1
       GIT_CONFIG_KEY_0: credential.helper
-      GIT_CONFIG_VALUE_0: '!f() { if [ "$$1" = get ] && [ -n "$$KANBAN_GIT_TOKEN" ]; then printf "username=x-access-token\npassword=%s\n" "$$KANBAN_GIT_TOKEN"; fi; }; f'
+      GIT_CONFIG_VALUE_0: '!f() { [ "$$1" = get ] && [ -n "$$KANBAN_GIT_TOKEN" ] || return 0; h=; while IFS== read -r k v; do [ "$$k" = host ] && h=$$v; done; [ -n "$$h" ] || return 0; case "$$(git config --get remote.origin.url)" in "https://$$h/"*) printf "username=x-access-token\npassword=%s\n" "$$KANBAN_GIT_TOKEN" ;; esac; }; f'
       DB_CONNECTION: pgsql
       DB_HOST: postgres
       DB_PORT: 5432
