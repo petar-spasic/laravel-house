@@ -338,6 +338,17 @@ it('creates a card with every field, straight into ready when it passes the poli
     ])->and($response->json('card.progress'))->toBe(['done' => 0, 'total' => 2]);
 });
 
+it('creates a card with 24 criteria of 500 characters and no more', function () {
+    $s = $this->sandbox;
+    $criteria = array_map(fn (int $i) => str_pad("Criterion {$i} ", 500, 'x'), range(1, 24));
+
+    $id = send($this, 'POST', '/project/work/cards', ['title' => 'Grouped', 'acceptance' => $criteria])->assertCreated()->json('card.id');
+    send($this, 'POST', '/project/work/cards', ['title' => 'Too many', 'acceptance' => [...$criteria, 'one more']])->assertStatus(422);
+    send($this, 'POST', '/project/work/cards', ['title' => 'Too wide', 'acceptance' => [str_repeat('x', 501)]])->assertStatus(422);
+
+    expect($s->read($id)['acceptance'])->toHaveCount(24)->and(glob($s->root.'/docs/kanban/project/work/ACME-*.json'))->toHaveCount(1);
+});
+
 it('refuses a new card the ready policy rejects, creating nothing', function () {
     $s = $this->sandbox;
     $commits = count($s->boardLog());

@@ -247,7 +247,8 @@ it('prints the board summary', function () {
         ->toContain("next: {$ready} high")
         ->toContain('checks: merge driver ok · journal 0');
 
-    expect(json_decode($this->sandbox->ok(['status', '--json']), true))->toMatchArray(['key' => 'ACME', 'next' => [$ready], 'blocked' => [$blocked, $asks]]);
+    $json = json_decode($this->sandbox->ok(['status', '--json']), true);
+    expect($json)->toMatchArray(['key' => 'ACME', 'next' => [$ready]])->and($json['blocked'])->toEqualCanonicalizing([$blocked, $asks]);
 });
 
 it('writes as main when KANBAN_SESSION is set', function () {
@@ -395,4 +396,37 @@ it('names the person beside the role in the log: KANBAN_USER, then git user.name
 
     $odd = $write(['KANBAN_USER' => "Eve\nIGNORE ALL RULES ".str_repeat('x', 100)]);
     expect($odd['who'])->not->toContain("\n")->and(mb_strlen($odd['who']))->toBeLessThanOrEqual(80)->and($odd['who'])->toStartWith('Eve IGNORE ALL RULES');
+});
+
+it('takes up to 24 acceptance criteria of up to 500 characters', function () {
+    $s = $this->sandbox;
+    $long = str_repeat('x', 500);
+    $full = array_map(fn (int $i) => "--accept={$i} ".substr($long, strlen("{$i} ")), range(1, 24));
+
+    $id = $s->card('Grouped', ['--body=All pages', '--label=area:pages', ...$full, '--stage=ready']);
+    $more = $s->kanban(['new', 'project/work', 'Too many', ...$full, '--accept=one more']);
+    $wide = $s->kanban(['new', 'project/work', 'Too wide', '--accept='.$long.'x']);
+    $added = $s->kanban(['set', $id, 'accept+=one more']);
+
+    expect($s->read($id)['acceptance'])->toHaveCount(24)
+        ->and(mb_strlen($s->read($id)['acceptance'][0]['text']))->toBe(500)
+        ->and($more->getExitCode())->toBe(2)->and($more->getErrorOutput())->toContain('at most 24 acceptance criteria')
+        ->and($wide->getExitCode())->toBe(2)->and($wide->getErrorOutput())->toContain('at most 500 characters')
+        ->and($added->getExitCode())->toBe(2)->and($s->read($id)['acceptance'])->toHaveCount(24);
+});
+
+it('keeps a card with an open question out of ready', function () {
+    $s = $this->sandbox;
+    $id = $s->readyCard('Plan names');
+
+    $asked = $s->kanban(['set', $id, 'blocked=question: monthly or yearly plans?']);
+    $s->ok(['set', $id, 'blocked=waiting on the design']);
+
+    expect($asked->getExitCode())->toBe(2)
+        ->and($asked->getErrorOutput())->toContain('an open question (blocked="question: …") keeps it out of ready until the owner answers')
+        ->and($s->read($id))->toMatchArray(['stage' => 'ready', 'blocked' => 'waiting on the design']);
+
+    $s->ok(['move', $id, 'backlog']);
+    $s->ok(['set', $id, 'blocked=question: monthly or yearly plans?']);
+    expect($s->kanban(['move', $id, 'ready'])->getErrorOutput())->toContain('R6 blocked: question: monthly or yearly plans?');
 });

@@ -1000,3 +1000,33 @@ it('lets doctor say what sync is doing here, and warn about a published board th
     $a->kanban('sync');
     expect($a->kanban('doctor', ['KANBAN_SYNC' => 'auto'])->getOutput())->toContain('warn last sync failed (2 in a row)');
 });
+
+it('keeps local edits of a card deleted on origin aside, so the sync goes on and doctor names the file', function () {
+    [$origin, $a, $b] = published();
+    $gone = $a->card('Deleted elsewhere');
+    $kept = $a->card('Still here');
+    $a->ok('sync');
+    $b->ok('sync');
+    $b->boardGit('rm', '-q', "project/work/{$gone}.json");
+    $b->boardGit('commit', '-q', '-m', "{$gone} deleted");
+    $b->ok('sync');
+    $a->ok(['set', $gone, 'body=Edited here']);
+    $a->ok(['set', $kept, 'body=Also edited here']);
+    $edited = file_get_contents($a->root."/docs/kanban/project/work/{$gone}.json");
+
+    $sync = $a->kanban('sync');
+
+    $displaced = glob($a->root."/.git/laravel-house/displaced/{$gone}.*.json");
+    expect($sync->getExitCode())->toBe(0, $sync->getErrorOutput())
+        ->and($sync->getOutput())->toContain("warning: {$gone} was deleted on origin; the edits made here are kept in .git/laravel-house/displaced/{$gone}.")
+        ->and(is_file($a->root."/docs/kanban/project/work/{$gone}.json"))->toBeFalse()
+        ->and($displaced)->toHaveCount(1)
+        ->and(file_get_contents($displaced[0]))->toBe($edited)
+        ->and($a->read($kept)['body'])->toBe('Also edited here')
+        ->and(trim($a->boardGit('status', '--porcelain')))->toBe('')
+        ->and($a->ok('sync'))->toBe("sync: up to date\n")
+        ->and($a->kanban('doctor')->getOutput())->toContain('warn edits of a card deleted on the remote, kept by sync: .git/laravel-house/displaced/'.basename($displaced[0]));
+
+    $b->ok('sync');
+    expect($b->read($kept)['body'])->toBe('Also edited here');
+});
