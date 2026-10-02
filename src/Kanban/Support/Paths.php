@@ -122,6 +122,12 @@ final class Paths
         return $this->join($this->runtime('applied'), $file);
     }
 
+    /** Local edits of cards that origin deleted, kept by sync for a person to read. */
+    public function displaced(string $file = ''): string
+    {
+        return $this->join($this->runtime('displaced'), $file);
+    }
+
     public function inbox(string $file = ''): string
     {
         return $this->join($this->runtime('inbox'), $file);

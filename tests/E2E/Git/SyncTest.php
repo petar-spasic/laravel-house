@@ -30,7 +30,7 @@ it('attaches the board on a fresh clone', function () {
         ->and(trim($a->git('config', 'merge.kanban.driver')))->toBe("php '{$a->root}/vendor/bin/kanban' merge-driver %O %A %B %P")
         ->and(trim($a->git('status', '--porcelain')))->toBe('')
         ->and($a->ok('attach'))->toStartWith('board attached at docs/kanban')
-        ->and($a->ok('validate'))->toContain('ok: 0 cards on 2 boards');
+        ->and($a->ok('validate'))->toContain('ok: 0 cards on 1 boards');
 
     $stray = $origin->clone('stray');
     mkdir($stray->root.'/docs/kanban', 0775, true);

@@ -11,11 +11,6 @@ final class Board
         public readonly Rev $rev,
     ) {}
 
-    public function kind(): string
-    {
-        return (string) ($this->data['kind'] ?? 'work');
-    }
-
     public function title(): string
     {
         return (string) ($this->data['title'] ?? $this->ref->board);

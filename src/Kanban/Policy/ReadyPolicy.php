@@ -12,8 +12,8 @@ final class ReadyPolicy
     public function refusals(Card $card, Snapshot $snapshot, bool $requireBacklog = true): array
     {
         $refusals = [];
-        if ($card->isDecision()) {
-            $refusals[] = 'R1 a decision is not work';
+        if ($card->areas() === []) {
+            $refusals[] = 'R1 no area:* label';
         }
         $title = trim($card->title());
         if ($title === '' || mb_strlen($card->title()) > 120) {
@@ -25,8 +25,8 @@ final class ReadyPolicy
         $criteria = count($card->acceptance());
         if ($criteria === 0) {
             $refusals[] = 'R4 no acceptance criteria';
-        } elseif ($criteria > 12) {
-            $refusals[] = 'R4 more than 12 acceptance criteria';
+        } elseif ($criteria > Card::MAX_CRITERIA) {
+            $refusals[] = 'R4 more than '.Card::MAX_CRITERIA.' acceptance criteria';
         }
         foreach ($card->dependsOn() as $id) {
             $dep = $snapshot->card($id);
@@ -34,8 +34,6 @@ final class ReadyPolicy
                 $refusals[] = "R5 dependency {$id} does not exist";
             } elseif ($dep->stage() === 'dropped') {
                 $refusals[] = "R5 dependency {$id} is dropped";
-            } elseif ($dep->isDecision() && $dep->stage() !== 'decided') {
-                $refusals[] = "R5 decision {$id} is not decided";
             }
         }
         if ($this->inCycle($card, $snapshot)) {

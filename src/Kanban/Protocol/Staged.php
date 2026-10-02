@@ -110,8 +110,8 @@ final class Staged
         $text = trim($text);
         $type = 'feature';
         if (preg_match('/^([a-z]+)\s*:\s*(.+)$/s', $text, $m) === 1) {
-            if (! in_array($m[1], CardType::forKind('work'), true)) {
-                throw new Invalid("--discovered '{$text}': type must be one of ".implode(', ', CardType::forKind('work')));
+            if (! in_array($m[1], CardType::values(), true)) {
+                throw new Invalid("--discovered '{$text}': type must be one of ".implode(', ', CardType::values()));
             }
             [$type, $text] = [$m[1], trim($m[2])];
         }

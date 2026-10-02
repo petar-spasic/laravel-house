@@ -16,11 +16,10 @@ final class MergeDriver
     /** Card fields that only make sense together. */
     private const GROUPS = [
         ['stage', 'claim', 'work', 'blocked'],
-        ['decided_on', 'superseded_by', 'resolution'],
     ];
 
     /** Text fields whose displaced value is kept in the log. */
-    private const TEXTS = ['title', 'body', 'why', 'resolution', 'blocked'];
+    private const TEXTS = ['title', 'body', 'blocked'];
 
     /** Where a card is in the flow; a displaced value is kept in the log as one line. */
     private const FLOW = ['stage', 'claim', 'work'];

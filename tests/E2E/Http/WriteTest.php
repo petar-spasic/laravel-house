@@ -33,7 +33,7 @@ function send(object $test, string $method, string $url, array $data = [])
 
 it('moves a card, commits it on the kanban branch as owner and answers with the card', function () {
     $s = $this->sandbox;
-    $id = $s->card('Promote me', ['--body=Build it', '--accept=It works']);
+    $id = $s->card('Promote me', ['--body=Build it', '--accept=It works', '--label=area:api']);
 
     $response = send($this, 'POST', "/cards/{$id}/stage", ['to' => 'ready', 'rev' => rev($s, $id)])->assertOk();
 
@@ -84,7 +84,7 @@ it('refuses doing, review and done as CLI only', function (string $to) {
 
 it('answers a stale rev with 409 and the fresh card, for every kind of write', function (string $method, string $path, array $data) {
     $s = $this->sandbox;
-    $id = $s->card('Contested', ['--body=Build it', '--accept=It renders']);
+    $id = $s->card('Contested', ['--body=Build it', '--accept=It renders', '--label=area:ui']);
     $stale = rev($s, $id);
     $s->ok(['set', $id, 'title=Changed elsewhere']);
     $before = cardFile($s, $id);
@@ -177,18 +177,6 @@ it('sets dependencies by id or prefix and refuses an unknown card', function () 
     expect($s->read($id)['depends_on'])->toBe($both);
 });
 
-it('edits a decision\'s why and refuses acceptance criteria on it', function () {
-    $s = $this->sandbox;
-    $id = $s->card('Workspace per team', ['--why=Because'], board: 'project/decisions');
-
-    send($this, 'PATCH', "/cards/{$id}", ['rev' => rev($s, $id), 'why' => null])->assertOk()->assertJsonPath('card.why', null);
-    expect($s->read($id)['why'])->toBe('');
-
-    send($this, 'PATCH', "/cards/{$id}", ['rev' => rev($s, $id), 'why' => 'Because **reasons**'])->assertOk()->assertJsonPath('card.why_html', "<p>Because <strong>reasons</strong></p>\n");
-    send($this, 'PATCH', "/cards/{$id}", ['rev' => rev($s, $id), 'acceptance' => [['text' => 'nope']]])->assertStatus(422)
-        ->assertJsonPath('message', 'decisions have no acceptance criteria');
-});
-
 it('rejects invalid input with 422 and a list of what is wrong', function (array $data, string $field) {
     $s = $this->sandbox;
     $id = $s->card('Keep me');
@@ -207,7 +195,8 @@ it('rejects invalid input with 422 and a list of what is wrong', function (array
     'title too long' => [['title' => str_repeat('x', 121)], 'title'],
     'label pattern' => [['labels' => ['Bug Fix']], 'labels.0'],
     'too many labels' => [['labels' => array_map(fn ($i) => "l{$i}", range(1, 11))], 'labels'],
-    'criterion too long' => [['acceptance' => [['text' => str_repeat('x', 301)]]], 'acceptance.0.text'],
+    'criterion too long' => [['acceptance' => [['text' => str_repeat('x', 501)]]], 'acceptance.0.text'],
+    'too many criteria' => [['acceptance' => array_map(fn ($i) => ['text' => "c{$i}"], range(1, 25))], 'acceptance'],
 ]);
 
 it('needs a rev, and 404s an unknown card', function () {
@@ -306,7 +295,7 @@ it('refuses acceptance edits that name an unknown criterion or exceed the limit'
     $before = cardFile($s, $id);
 
     send($this, 'PATCH', "/cards/{$id}", ['rev' => sha1($before), 'acceptance' => [['id' => 9, 'text' => 'Ghost', 'done' => false]]])->assertStatus(422);
-    send($this, 'PATCH', "/cards/{$id}", ['rev' => sha1($before), 'acceptance' => array_map(fn ($i) => ['text' => "c{$i}"], range(1, 13))])->assertStatus(422);
+    send($this, 'PATCH', "/cards/{$id}", ['rev' => sha1($before), 'acceptance' => array_map(fn ($i) => ['text' => "c{$i}"], range(1, 25))])->assertStatus(422);
 
     expect(cardFile($s, $id))->toBe($before);
 });
@@ -357,17 +346,6 @@ it('refuses a new card the ready policy rejects, creating nothing', function () 
 
     expect($response->json('message'))->toContain('R3 empty body')->and(count($s->boardLog()))->toBe($commits)
         ->and(glob($s->root.'/docs/kanban/project/work/ACME-*.json'))->toBe([]);
-});
-
-it('creates a decision, decided today when asked to', function () {
-    $s = $this->sandbox;
-
-    $response = send($this, 'POST', '/project/decisions/cards', ['title' => 'Use queues', 'why' => 'Speed', 'stage' => 'decided'])->assertCreated();
-
-    expect($s->read($response->json('card.id')))->toMatchArray(['type' => 'decision', 'stage' => 'decided', 'why' => 'Speed'])
-        ->and($s->read($response->json('card.id'))['decided_on'])->toBe(gmdate('Y-m-d'));
-    send($this, 'POST', '/project/decisions/cards', ['title' => 'With criteria', 'acceptance' => ['x']])->assertStatus(422);
-    send($this, 'POST', '/project/decisions/cards', ['title' => 'Bad stage', 'stage' => 'ready'])->assertStatus(422);
 });
 
 it('refuses to create on an unknown board or without a title', function () {
@@ -423,8 +401,8 @@ it('stores criteria without the whitespace around them, as when creating', funct
 });
 
 it('words a refused initial stage for the UI, not the CLI', function () {
-    send($this, 'POST', '/project/decisions/cards', ['title' => 'Bad stage', 'stage' => 'ready'])->assertStatus(422)
-        ->assertJsonPath('message', 'stage must be one of: proposed, decided');
+    send($this, 'POST', '/project/work/cards', ['title' => 'Bad stage', 'stage' => 'doing'])->assertStatus(422)
+        ->assertJsonPath('message', 'stage must be one of: backlog, ready');
 });
 
 it('leaves a card alone when asked to move it to the stage it is in', function () {
@@ -462,13 +440,13 @@ it('reports a rebase in progress as such, not as a card that changed', function 
     send($this, 'POST', '/project/work/cards', ['title' => 'Nope'])->assertStatus(503);
 });
 
-it('accepts the decision type on decisions and refuses the wrong kind', function () {
+it('refuses the decision type', function () {
     $s = $this->sandbox;
+    $id = $s->card('Typed');
 
-    $id = send($this, 'POST', '/project/decisions/cards', ['title' => 'Typed', 'type' => 'decision'])->assertCreated()->json('card.id');
-    send($this, 'PATCH', "/cards/{$id}", ['rev' => rev($s, $id), 'type' => 'decision', 'title' => 'Echoed'])->assertOk();
-    send($this, 'PATCH', "/cards/{$id}", ['rev' => rev($s, $id), 'type' => 'bug'])->assertStatus(422);
     send($this, 'POST', '/project/work/cards', ['title' => 'Wrong', 'type' => 'decision'])->assertStatus(422);
+    send($this, 'PATCH', "/cards/{$id}", ['rev' => rev($s, $id), 'type' => 'decision'])->assertStatus(422);
+    expect($s->read($id)['type'])->toBe('feature');
 });
 
 it('refuses a write whose Origin is another site, even from a same-site page', function () {

@@ -14,14 +14,14 @@ class SetCommand extends Command
 {
     protected $signature = 'kanban:set
         {id : Card id or unique prefix}
-        {changes* : title= priority= type= labels=+a,-b depends_on=+ID accept+="…" accept[2]="…" accept-=3 tick=1 untick=2 blocked="…" body=@- why=@- note="…" decided_on= supersedes=+ID resolution=}
+        {changes* : title= priority= type= labels=+a,-b depends_on=+ID accept+="…" accept[2]="…" accept-=3 tick=1 untick=2 blocked="…" body=@- note="…"}
         {--force : Change a card in a locked stage (main session only)}';
 
     protected $description = 'Change card fields (a card in a locked stage takes only note, blocked, tick and untick)';
 
-    private const SCALARS = ['title', 'priority', 'type', 'blocked', 'body', 'why', 'decided_on', 'resolution'];
+    private const SCALARS = ['title', 'priority', 'type', 'blocked', 'body'];
 
-    private const SETS = ['labels' => 'labels', 'depends_on' => 'depends_on', 'supersedes' => 'supersedes'];
+    private const SETS = ['labels' => 'labels', 'depends_on' => 'depends_on'];
 
     protected function perform(): int
     {
@@ -56,9 +56,6 @@ class SetCommand extends Command
 
             return self::SUCCESS;
         }
-        if ($updated->stage() === 'decided' && ($updated->data['supersedes'] ?? []) !== []) {
-            $this->transitions()->supersede($updated->id(), $this->actor());
-        }
         $this->say("{$updated->id()} updated");
         $this->reportPending();
 
@@ -79,7 +76,7 @@ class SetCommand extends Command
         if ($value === '@-') {
             $value = (string) stream_get_contents(STDIN);
         }
-        if (in_array($key, ['depends_on', 'supersedes'], true)) {
+        if ($key === 'depends_on') {
             $value = implode(',', array_map(function (string $item) use ($snapshot) {
                 $sign = in_array($item[0] ?? '', ['+', '-'], true) ? $item[0] : '';
 
@@ -99,7 +96,7 @@ class SetCommand extends Command
     {
         if (in_array($key, self::SCALARS, true)) {
             $this->expect($key, $op === '=' && $index === null);
-            $data[$key] = $value === '' && in_array($key, ['blocked', 'decided_on', 'resolution'], true) ? null : $value;
+            $data[$key] = $value === '' && $key === 'blocked' ? null : $value;
 
             return $data;
         }
@@ -131,9 +128,6 @@ class SetCommand extends Command
      */
     private function accept(array $data, ?int $index, string $op, string $value, array &$removed): array
     {
-        if (! array_key_exists('acceptance', $data)) {
-            throw new Invalid('decisions have no acceptance criteria');
-        }
         if ($op === '+=') {
             return Edits::add($data, $value, $removed);
         }

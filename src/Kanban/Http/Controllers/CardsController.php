@@ -55,8 +55,8 @@ class CardsController
     {
         return Api::run(function () use ($request, $epic, $board) {
             $input = $request->validate($this->fieldRules(new: true) + [
-                'acceptance' => ['array', 'max:12'], 'acceptance.*' => ['required', 'string', 'max:300'],
-                'stage' => ['nullable', Rule::in(self::stages())],
+                'acceptance' => ['array', 'max:'.Card::MAX_CRITERIA], 'acceptance.*' => ['required', 'string', 'max:'.Card::MAX_CRITERION],
+                'stage' => ['nullable', Rule::in(Stage::WORK)],
             ]);
             $ref = new BoardRef($epic, $board);
             $snapshot = $this->store->snapshot();
@@ -64,7 +64,6 @@ class CardsController
                 'title' => trim($input['title']),
                 'type' => $input['type'] ?? null,
                 'priority' => $input['priority'] ?? null,
-                'why' => $input['why'] ?? null,
                 'body' => $input['body'] ?? null,
                 'labels' => $input['labels'] ?? [],
                 'accept' => array_map('trim', $input['acceptance'] ?? []),
@@ -81,9 +80,9 @@ class CardsController
     {
         return $this->write($request, $card, $this->fieldRules(new: false) + [
             'blocked' => ['nullable', 'string', 'max:500'],
-            'acceptance' => ['array'],
+            'acceptance' => ['array', 'max:'.Card::MAX_CRITERIA],
             'acceptance.*.id' => ['nullable', 'integer', 'min:1'],
-            'acceptance.*.text' => ['required', 'string', 'max:300'],
+            'acceptance.*.text' => ['required', 'string', 'max:'.Card::MAX_CRITERION],
             'acceptance.*.done' => ['boolean'],
         ], function (Card $card, Snapshot $snapshot, array $input, Rev $rev) {
             $dependsOn = array_key_exists('depends_on', $input) ? $this->dependencies($snapshot, $input['depends_on'] ?? []) : null;
@@ -100,10 +99,8 @@ class CardsController
                 if (array_key_exists('title', $input)) {
                     $data['title'] = trim($input['title']);
                 }
-                foreach (['body', 'why'] as $field) {
-                    if (array_key_exists($field, $input)) {
-                        $data[$field] = (string) $input[$field];
-                    }
+                if (array_key_exists('body', $input)) {
+                    $data['body'] = (string) $input['body'];
                 }
                 if (array_key_exists('labels', $input)) {
                     $data['labels'] = array_values(array_unique($input['labels'] ?? []));
@@ -128,7 +125,7 @@ class CardsController
     public function stage(Request $request, string $card): JsonResponse
     {
         return $this->write($request, $card, [
-            'to' => ['required', Rule::in(self::stages())],
+            'to' => ['required', Rule::in(Stage::WORK)],
             'reason' => ['nullable', 'string', 'max:500'],
         ], function (Card $card, Snapshot $snapshot, array $input, Rev $rev) {
             $to = $input['to'];
@@ -196,19 +193,12 @@ class CardsController
     {
         return [
             'title' => [$new ? 'required' : 'filled', 'string', 'max:120'],
-            'type' => [$new ? 'nullable' : 'sometimes', Rule::in(array_column(CardType::cases(), 'value'))],
+            'type' => [$new ? 'nullable' : 'sometimes', Rule::in(CardType::values())],
             'priority' => [$new ? 'nullable' : 'sometimes', Rule::in(array_column(Priority::cases(), 'value'))],
             'labels' => ['array', 'max:10'], 'labels.*' => self::LABEL,
             'body' => ['nullable', 'string', 'max:20000'],
-            'why' => ['nullable', 'string', 'max:10000'],
             'depends_on' => ['array'], 'depends_on.*' => ['string'],
         ];
-    }
-
-    /** @return list<string> */
-    private static function stages(): array
-    {
-        return array_map(fn (Stage $stage) => $stage->value, Stage::cases());
     }
 
     private function present(Snapshot $snapshot): Presenter

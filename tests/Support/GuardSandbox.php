@@ -74,9 +74,9 @@ final class GuardSandbox
 
         $this->git('worktree add -q --orphan -b kanban docs/kanban');
         $this->json('docs/kanban/kanban.json', array_replace_recursive([
-            'version' => 1, 'key' => 'ACME', 'id_length' => 6, 'stale_after_minutes' => 20,
+            'version' => 2, 'key' => 'ACME', 'id_length' => 6, 'stale_after_minutes' => 20,
         ], $kanban));
-        $this->json('docs/kanban/project/work/board.json', ['title' => 'Work', 'kind' => 'work']);
+        $this->json('docs/kanban/project/work/board.json', ['title' => 'Work']);
         $this->card(self::DOING, 'doing', '.claude/worktrees/acme-7k2m9q');
         $this->card(self::REVIEW, 'review', '.claude/worktrees/acme-a1b2c3');
         $this->card(self::READY, 'ready', null);

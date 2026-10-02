@@ -11,7 +11,7 @@ use PetarSpasic\LaravelHouse\Kanban\Store\Actor;
 use PetarSpasic\LaravelHouse\Kanban\Store\Board;
 use PetarSpasic\LaravelHouse\Kanban\Store\BoardRef;
 use PetarSpasic\LaravelHouse\Kanban\Store\Card;
-use PetarSpasic\LaravelHouse\Kanban\Store\CardType;
+use PetarSpasic\LaravelHouse\Kanban\Store\Changes;
 use PetarSpasic\LaravelHouse\Kanban\Store\Claim;
 use PetarSpasic\LaravelHouse\Kanban\Store\Epic;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Changed;
@@ -21,11 +21,11 @@ use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Invalid;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\LockTimeout;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\LostClaim;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\NotFound;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\OldBoard;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\RemoteFailed;
 use PetarSpasic\LaravelHouse\Kanban\Store\Rev;
 use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
-use PetarSpasic\LaravelHouse\Kanban\Store\Stage;
 use PetarSpasic\LaravelHouse\Kanban\Store\Store;
 use PetarSpasic\LaravelHouse\Kanban\Store\SyncResult;
 use PetarSpasic\LaravelHouse\Kanban\Support\Clock;
@@ -104,7 +104,7 @@ final class GitStore implements Store
         if ($this->repo->abandoned()) {
             $this->write(fn () => null);
         }
-        $snapshot = $this->read(fn () => $this->load());
+        $snapshot = $this->read(fn () => $this->current());
         if ($board === null) {
             return $snapshot;
         }
@@ -121,13 +121,13 @@ final class GitStore implements Store
     public function create(BoardRef $board, array $fields, Actor $by): Card
     {
         return $this->write(function () use ($board, $fields, $by) {
-            $snapshot = $this->load();
-            $target = $snapshot->board($board) ?? throw new NotFound("no board {$board}");
+            $snapshot = $this->current();
+            $snapshot->board($board) ?? throw new NotFound("no board {$board}");
             $remote = $this->repo->remoteIds();
             $id = Ids::card($snapshot->key(), (int) $snapshot->setting('id_length', 6),
                 fn (string $id) => isset($snapshot->cards[$id]) || isset($remote[$id]));
             $now = Clock::now();
-            $data = array_replace($this->defaults($target->kind()), $this->normalizeFields($fields), [
+            $data = array_replace($this->defaults(), $this->normalizeFields($fields), [
                 'id' => $id, 'created' => $now, 'updated' => $now,
             ]);
             $data['log'] = [$this->entry($by, $now) + ['event' => 'created']];
@@ -142,7 +142,7 @@ final class GitStore implements Store
     public function update(string $id, Closure $mutate, Actor $by, ?Rev $expected = null): Card
     {
         return $this->write(function () use ($id, $mutate, $by, $expected) {
-            $snapshot = $this->load();
+            $snapshot = $this->current();
             $card = $snapshot->resolve($id);
             if ($expected !== null && ! $expected->equals($card->rev)) {
                 throw new Changed("{$card->id()} changed since it was read; reload and retry");
@@ -162,7 +162,7 @@ final class GitStore implements Store
     public function relocate(string $id, BoardRef $to, Actor $by): Card
     {
         return $this->write(function () use ($id, $to, $by) {
-            $snapshot = $this->load();
+            $snapshot = $this->current();
             $card = $snapshot->resolve($id);
             if ($card->board->equals($to)) {
                 return $card;
@@ -179,10 +179,61 @@ final class GitStore implements Store
         });
     }
 
+    public function batch(Closure $plan, Actor $by, string $message): array
+    {
+        return $this->write(function () use ($plan, $by, $message) {
+            $snapshot = $this->current();
+            $changes = $plan($snapshot);
+            if (! $changes instanceof Changes) {
+                throw new Invalid('a batch plan returns Changes');
+            }
+            $gone = array_flip($changes->removed);
+            $known = array_merge(array_map(fn (Epic $e) => $e->path(), $snapshot->epics), array_map(fn (Board $b) => $b->path(), $snapshot->boards),
+                array_map(fn (Card $c) => $c->path, $snapshot->cards));
+            foreach ($changes->removed as $path) {
+                in_array($path, $known, true) || throw new NotFound("no board file {$path}");
+            }
+            $cards = array_filter($snapshot->cards, fn (Card $c) => ! isset($gone[$c->path]));
+            $files = [];
+            $checked = [];
+            $deleted = $changes->removed;
+            $written = [];
+            foreach ($changes->cards as $id => ['card' => $card, 'data' => $data, 'to' => $to]) {
+                if (isset($gone[$card->path])) {
+                    throw new Invalid("{$id} is both changed and removed");
+                }
+                [$data, $summary] = $this->finalize($card->data, $data, $by);
+                if ($summary === null && $to->equals($card->board)) {
+                    continue;
+                }
+                $updated = $this->cardFrom($data, $to, "{$to}/{$id}.json");
+                if (! $to->equals($card->board)) {
+                    $snapshot->board($to) ?? throw new NotFound("no board {$to}");
+                    $deleted[] = $card->path;
+                }
+                $cards[$id] = $updated;
+                $files[$updated->path] = $updated->data;
+                $checked[$updated->path] = ['card', $updated->data];
+                $written[] = $updated;
+            }
+            if ($files === [] && $deleted === [] && $changes->texts === []) {
+                return [];
+            }
+            $after = new Snapshot($snapshot->kanban,
+                array_filter($snapshot->epics, fn (Epic $e) => ! isset($gone[$e->path()])),
+                array_filter($snapshot->boards, fn (Board $b) => ! isset($gone[$b->path()])),
+                $cards, $snapshot->problems);
+            $this->validate($snapshot, $after, $checked);
+            $this->persist($files, $deleted, "{$message} [{$by->role}]", $by, $changes->texts);
+
+            return $written;
+        });
+    }
+
     public function saveBoard(BoardRef $ref, array $data, Actor $by): void
     {
         $this->write(function () use ($ref, $data, $by) {
-            $snapshot = $this->load();
+            $snapshot = $this->current();
             $now = Clock::now();
             $files = [];
             $epic = $snapshot->epic($ref->epic);
@@ -198,9 +249,8 @@ final class GitStore implements Store
             $existing = $snapshot->board($ref);
             if ($existing === null) {
                 $orders = array_map(fn (Board $b) => $b->order(), array_filter($snapshot->boards, fn (Board $b) => $b->ref->epic === $ref->epic));
-                $kind = $data['kind'] ?? 'work';
-                $base = ['title' => Str::headline($ref->board), 'kind' => $kind, 'body' => '', 'order' => ($orders === [] ? 0 : max($orders)) + 10,
-                    'wip' => $kind === 'work' ? ['doing' => (int) $snapshot->setting('max_parallel', 6)] : []];
+                $base = ['title' => Str::headline($ref->board), 'body' => '', 'order' => ($orders === [] ? 0 : max($orders)) + 10,
+                    'wip' => ['doing' => (int) $snapshot->setting('max_parallel', 6)]];
             } else {
                 $base = $existing->data;
             }
@@ -245,7 +295,7 @@ final class GitStore implements Store
         if ($online) {
             $this->repo->rebase();
         }
-        $snapshot = $this->load();
+        $snapshot = $this->current();
         $card = $snapshot->resolve($id);
         $held = $card->claim();
         if ($held !== null && [$held['by'], $held['session']] !== [$claim->by, $claim->session]) {
@@ -323,34 +373,42 @@ final class GitStore implements Store
     private function syncRounds(): SyncResult
     {
         $renamed = [];
+        $warnings = [];
         for ($attempt = 1; $attempt <= 3; $attempt++) {
             $exists = $this->repo->fetch();
             // in step with origin, nothing waiting in the journal, no rebase going on: there is nothing to do, so no lock and no validation.
             // Not while the last pull left the board invalid: that stays reported until a sync finds it valid again.
             if ($exists && ($this->status->read()['kind'] ?? null) !== 'invalid' && $this->repo->behind() === 0 && $this->repo->ahead() === 0 && $this->journal->count() === 0 && ! $this->repo->rebasing()) {
-                return new SyncResult('up-to-date', 0, 0, $renamed);
+                return new SyncResult('up-to-date', 0, 0, $renamed, $warnings);
             }
-            [$ahead, $pulled] = $this->write(function () use ($exists, &$renamed) {
+            [$ahead, $pulled] = $this->write(function () use ($exists, &$renamed, &$warnings) {
                 $pulled = 0;
                 if ($exists) {
                     $behind = $this->repo->behind() > 0;
                     $moves = [];
                     $aside = [];
+                    $displaced = [];
                     $rebased = false;
                     $original = $this->repo->headRev();
                     try {
                         if ($behind) {
                             $this->undoLocalMoves($moves);
                             $this->setAsideEditsOfMovedCards($aside);
+                            $this->setAsideEditsOfDeletedCards($displaced);
                         }
                         $renamed += $this->reIdCollisions();
                         $pulled = $this->repo->rebase();
                         $rebased = true;
                     } finally {
-                        $this->afterRebase($aside, $moves, $rebased, $original);
+                        $this->afterRebase($aside, $moves, $rebased, $original, $displaced);
+                    }
+                    foreach ($displaced as $id => $file) {
+                        $warnings[] = "{$id} was deleted on ".$this->repo->remote().'; the edits made here are kept in '.$this->paths->relative($file);
                     }
                 }
-                $errors = $this->problems($this->load());
+                // a board in the older format is pulled and pushed as it is: the upgrade validates it
+                $snapshot = $this->load();
+                $errors = $snapshot->version() < Snapshot::VERSION ? [] : $this->problems($snapshot);
                 if ($errors !== []) {
                     throw new Invalid('the board is invalid after the pull; fix it, then sync again', $errors);
                 }
@@ -358,10 +416,10 @@ final class GitStore implements Store
                 return [$this->repo->ahead(), $pulled];
             });
             if ($ahead === 0) {
-                return new SyncResult($pulled > 0 ? 'pulled' : 'up-to-date', $pulled, 0, $renamed);
+                return new SyncResult($pulled > 0 ? 'pulled' : 'up-to-date', $pulled, 0, $renamed, $warnings);
             }
             if ($this->repo->push() === 'ok') {
-                return new SyncResult('pushed', $pulled, $ahead, $renamed);
+                return new SyncResult('pushed', $pulled, $ahead, $renamed, $warnings);
             }
             // schedulers that finish together must not burn all three rounds in lockstep
             usleep(random_int(50000, 300000));
@@ -479,7 +537,7 @@ final class GitStore implements Store
     }
 
     /**
-     * `validate --fix`: canonical formatting, duplicate ids re-id'd, superseded_by made consistent. One commit.
+     * `validate --fix`: canonical formatting, duplicate ids re-id'd. One commit.
      *
      * @return list<string> what was fixed
      */
@@ -489,7 +547,7 @@ final class GitStore implements Store
             $fixed = [];
             $files = [];
             $deleted = [];
-            $snapshot = $this->load();
+            $snapshot = $this->current();
             $all = $this->files();
             $byStem = [];
             foreach ($all as $path => $bytes) {
@@ -520,22 +578,6 @@ final class GitStore implements Store
                     $files[dirname($path)."/{$new}.json"] = $data;
                     $deleted[] = $path;
                     $fixed[] = "renamed {$stem} → {$new} ({$path})";
-                }
-            }
-            foreach ($snapshot->cards as $card) {
-                if ($card->stage() !== 'decided') {
-                    continue;
-                }
-                foreach ($card->data['supersedes'] ?? [] as $old) {
-                    $target = $snapshot->card($old);
-                    if ($target === null || $target->stage() !== 'decided') {
-                        continue;
-                    }
-                    $data = $target->data;
-                    $data['superseded_by'] = $card->id();
-                    [$data] = $this->finalize($target->data, Transitions::stage($data, 'superseded', 'auto'), $by);
-                    $files[$target->path] = $data;
-                    $fixed[] = "{$old} superseded by {$card->id()}";
                 }
             }
             foreach ($all as $path => $bytes) {
@@ -616,14 +658,19 @@ final class GitStore implements Store
         }
     }
 
-    /** Restores the merged edits and the moves; when the rebase failed a problem here must not hide why it failed. */
-    private function afterRebase(array $aside, array $moves, bool $rebased, ?string $original): void
+    /**
+     * Restores the merged edits and the moves; when the rebase failed a problem here must not hide why it failed.
+     *
+     * @param  array<string, string>  $displaced
+     */
+    private function afterRebase(array $aside, array $moves, bool $rebased, ?string $original, array $displaced = []): void
     {
         if (! $rebased) {
             // The rebase did not happen: back to the local history and files as they were before the sync began.
-            if ($original !== null && ($aside !== [] || $moves !== [])) {
+            if ($original !== null && ($aside !== [] || $moves !== [] || $displaced !== [])) {
                 try {
                     $this->repo->resetKeep($original);
+                    array_map('unlink', $displaced);
                 } catch (Throwable) {
                 }
             }
@@ -738,6 +785,58 @@ final class GitStore implements Store
     }
 
     /**
+     * Cards origin deleted that were edited here: the rebase would stop on a modify/delete conflict on every sync. The
+     * local copy is saved to displaced/<ID>.<blob>.json for a person to read (doctor lists it), the file goes back to what
+     * it was at the fork and the local commits are squashed, so the rebase applies origin's delete cleanly.
+     *
+     * $displaced is filled once the restore is committed (card id => saved file); a failed commit puts the local edits
+     * back and leaves it empty.
+     *
+     * @param  array<string, string>  $displaced
+     */
+    private function setAsideEditsOfDeletedCards(array &$displaced): void
+    {
+        $fork = $this->repo->mergeBase();
+        if ($fork === null) {
+            return;
+        }
+        $head = $this->repo->headIds();
+        $remote = $this->repo->remoteIds();
+        $found = [];
+        foreach ($this->repo->baseIds() as $id => $path) {
+            if (isset($remote[$id]) || ($head[$id] ?? null) !== $path) {
+                continue;
+            }
+            $ours = $this->repo->show('HEAD', $path);
+            $original = $this->repo->show($fork, $path);
+            if ($ours === null || $original === null || $ours === $original) {
+                continue;
+            }
+            $found[$id] = ['path' => $path, 'ours' => $ours, 'original' => $original,
+                'file' => $this->paths->displaced($id.'.'.substr((string) $this->repo->blob('HEAD', $path), 0, 7).'.json')];
+        }
+        if ($found === []) {
+            return;
+        }
+        @mkdir($this->paths->displaced(), 0775, true);
+        foreach ($found as $entry) {
+            file_put_contents($entry['file'], $entry['ours']);
+            file_put_contents($this->paths->board($entry['path']), $entry['original']);
+        }
+        if (! $this->repo->commit(array_column($found, 'path'), 'Set aside local edits of cards deleted on origin [hook]')) {
+            foreach ($found as $entry) {
+                file_put_contents($this->paths->board($entry['path']), $entry['ours']);
+                @unlink($entry['file']);
+            }
+            $this->repo->git()?->attempt(['reset', '-q', '--', ...array_column($found, 'path')]);
+
+            throw new GitFailed('could not commit the edits set aside for sync');
+        }
+        $displaced = array_map(fn (array $entry) => $entry['file'], $found);
+        $this->repo->squashUnpushed('Local board changes [hook]');
+    }
+
+    /**
      * After a successful rebase the merged card goes to origin's new path.
      *
      * @param  array<string, array{from: string, to: string, ours: string, merged: string}>  $aside
@@ -817,13 +916,8 @@ final class GitStore implements Store
                 $data['log'][] = ['event' => 'renamed', 'from' => $card->id(), 'reason' => 'id taken on '.$this->repo->remote()];
                 $deleted[] = $card->path;
             }
-            foreach (['depends_on', 'supersedes'] as $key) {
-                if (isset($data[$key])) {
-                    $data[$key] = array_map(fn (string $id) => $renamed[$id] ?? $id, $data[$key]);
-                }
-            }
-            if (isset($data['superseded_by'])) {
-                $data['superseded_by'] = $renamed[$data['superseded_by']] ?? $data['superseded_by'];
+            if (isset($data['depends_on'])) {
+                $data['depends_on'] = array_map(fn (string $id) => $renamed[$id] ?? $id, $data['depends_on']);
             }
             if ($data !== $card->data) {
                 [$data] = $this->finalize($card->data, $data, $by, force: true);
@@ -870,7 +964,7 @@ final class GitStore implements Store
                 $log[] = $entry;
                 $new[] = $entry;
             }
-            Transitions::check(CardType::kindOf((string) ($after['type'] ?? '')), (string) $from, (string) $to, $entry['via'] ?? 'move', $by, (bool) ($entry['forced'] ?? false));
+            Transitions::check((string) $from, (string) $to, $entry['via'] ?? 'move', $by, (bool) ($entry['forced'] ?? false));
         }
         $strip = fn (array $d) => array_diff_key($d, ['updated' => 1, 'log' => 1]);
         $changed = array_keys(array_filter($strip($after), fn ($v, $k) => ! array_key_exists($k, $before) || $before[$k] !== $v, ARRAY_FILTER_USE_BOTH));
@@ -962,16 +1056,20 @@ final class GitStore implements Store
      *
      * @param  array<string, array<string, mixed>>  $files  relative path => data
      * @param  list<string>  $deleted  relative paths
+     * @param  array<string, string>  $texts  relative path => bytes, written as they are
      */
-    private function persist(array $files, array $deleted, string $message, Actor $by): bool
+    private function persist(array $files, array $deleted, string $message, Actor $by, array $texts = []): bool
     {
         foreach ($files as $path => $data) {
             Json::write($this->paths->board($path), Json::encode($data, Json::kindOf($path)));
         }
+        foreach ($texts as $path => $bytes) {
+            Json::write($this->paths->board($path), $bytes);
+        }
         foreach ($deleted as $path) {
             @unlink($this->paths->board($path));
         }
-        $paths = array_values(array_unique(array_merge(array_keys($files), $deleted)));
+        $paths = array_values(array_unique(array_merge(array_keys($files), array_keys($texts), $deleted)));
         $this->wrote = true;
         if ($this->repo->commit($paths, $message)) {
             return true;
@@ -1050,6 +1148,20 @@ final class GitStore implements Store
     }
 
     /**
+     * The board for a command, the UI or a hook: an older format is refused with one line. Sync and the upgrade read it
+     * through load().
+     */
+    private function current(): Snapshot
+    {
+        $snapshot = $this->load();
+        if ($snapshot->version() < Snapshot::VERSION) {
+            throw new OldBoard;
+        }
+
+        return $snapshot;
+    }
+
+    /**
      * @param  array<string, mixed>  $data
      * @param  array<string, Card>  $cards
      * @param  array<string, list<string>>  $problems
@@ -1080,16 +1192,10 @@ final class GitStore implements Store
     }
 
     /** @return array<string, mixed> */
-    private function defaults(string $kind): array
+    private function defaults(): array
     {
-        $common = ['id' => null, 'type' => $kind === 'decisions' ? 'decision' : 'feature', 'title' => '', 'stage' => Stage::initial($kind),
-            'priority' => 'normal', 'labels' => [], 'body' => ''];
-
-        return $kind === 'decisions'
-            ? $common + ['why' => '', 'decided_on' => null, 'supersedes' => [], 'superseded_by' => null, 'resolution' => null, 'source' => null,
-                'created' => null, 'updated' => null, 'log' => []]
-            : $common + ['acceptance' => [], 'depends_on' => [], 'blocked' => null, 'claim' => null, 'work' => null,
-                'created' => null, 'updated' => null, 'log' => []];
+        return ['id' => null, 'type' => 'feature', 'title' => '', 'stage' => 'backlog', 'priority' => 'normal', 'labels' => [], 'body' => '',
+            'acceptance' => [], 'depends_on' => [], 'blocked' => null, 'claim' => null, 'work' => null, 'created' => null, 'updated' => null, 'log' => []];
     }
 
     /**

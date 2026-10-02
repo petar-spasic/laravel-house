@@ -10,27 +10,32 @@ beforeEach(function () {
 it('promotes through the ready policy and names every refusal', function () {
     $s = $this->sandbox;
     $bare = $s->card('Bare');
-    $good = $s->card('Good', ['--body=Do it', '--accept=Works']);
-    $blocked = $s->card('Blocked', ['--body=Do it', '--accept=Works']);
+    $good = $s->card('Good', ['--body=Do it', '--accept=Works', '--label=area:api']);
+    $arealess = $s->card('Arealess', ['--body=Do it', '--accept=Works', '--label=ux']);
+    $blocked = $s->card('Blocked', ['--body=Do it', '--accept=Works', '--label=area:ui']);
     $s->ok(['set', $blocked, 'blocked=owner']);
+    $asks = $s->card('Asks', ['--body=Do it', '--accept=Works', '--label=area:billing']);
+    $s->ok(['set', $asks, 'blocked=question: monthly or yearly plans?']);
     $dropped = $s->card('Dropped dep');
     $s->ok(['move', $dropped, 'dropped', '--reason=no']);
-    $proposal = $s->card('Undecided', board: 'project/decisions');
-    $dependent = $s->card('Dependent', ['--body=Do it', '--accept=Works', "--depends={$dropped}", "--depends={$proposal}"]);
+    $dependent = $s->card('Dependent', ['--body=Do it', '--accept=Works', '--label=area:pdf', "--depends={$dropped}"]);
     $ready = $s->readyCard('Already ready');
 
-    $run = $s->kanban(['promote', $bare, $good, $blocked, $dependent, $ready, $proposal]);
+    $run = $s->kanban(['promote', $bare, $good, $arealess, $blocked, $asks, $dependent, $ready]);
 
     expect($run->getExitCode())->toBe(3)
         ->and($run->getOutput())->toBe(implode("\n", [
-            "refused {$bare}: R3 empty body; R4 no acceptance criteria",
+            "refused {$bare}: R1 no area:* label; R3 empty body; R4 no acceptance criteria",
             "promoted {$good}",
+            "refused {$arealess}: R1 no area:* label",
             "refused {$blocked}: R6 blocked: owner",
-            "refused {$dependent}: ".implode('; ', array_map(fn ($id) => $id === $dropped ? "R5 dependency {$id} is dropped" : "R5 decision {$id} is not decided", collect([$dropped, $proposal])->sort()->values()->all())),
+            "refused {$asks}: R6 blocked: question: monthly or yearly plans?",
+            "refused {$dependent}: R5 dependency {$dropped} is dropped",
             "refused {$ready}: R7 in ready, not backlog",
-            "refused {$proposal}: R1 a decision is not work; R3 empty body; R4 no acceptance criteria; R7 in proposed, not backlog",
         ])."\n")
-        ->and($s->read($good)['stage'])->toBe('ready');
+        ->and($s->read($good)['stage'])->toBe('ready')
+        ->and($s->read($arealess)['stage'])->toBe('backlog')
+        ->and($s->read($asks)['stage'])->toBe('backlog');
 });
 
 it('refuses a dependency cycle', function () {
@@ -45,8 +50,8 @@ it('refuses a dependency cycle', function () {
 
 it('fills the ready buffer in pull order with --auto', function () {
     $s = $this->sandbox;
-    $low = $s->card('Low', ['--body=x', '--accept=y', '--priority=low']);
-    $high = $s->card('High', ['--body=x', '--accept=y', '--priority=high']);
+    $low = $s->card('Low', ['--body=x', '--accept=y', '--priority=low', '--label=area:a']);
+    $high = $s->card('High', ['--body=x', '--accept=y', '--priority=high', '--label=area:b']);
     $s->card('Not ready yet');
     file_put_contents($s->root.'/docs/kanban/kanban.json', str_replace('"ready_buffer": 12', '"ready_buffer": 1', file_get_contents($s->root.'/docs/kanban/kanban.json')));
 
@@ -88,11 +93,16 @@ it('orders next by the pull policy', function (Closure $setup, array|string $exp
 
         return ['d' => $s->readyCard('D', ["--depends={$dep}"])];
     }, 'none: no startable ready cards'],
-    'a decided decision satisfies a dependency' => [function (Sandbox $s) {
-        $decision = $s->card('Chosen', ['--stage=decided'], 'project/decisions');
+    'only a done dependency is satisfied' => [function (Sandbox $s) {
+        $done = $s->card('Shipped');
+        $card = $s->read($done);
+        $card['stage'] = 'done';
+        $card['work'] = ['branch' => 'card/shipped'];
+        file_put_contents($s->root."/docs/kanban/project/work/{$done}.json", json_encode($card, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n");
+        $ready = $s->readyCard('Still in ready');
 
-        return ['d' => $s->readyCard('D', ["--depends={$decision}"])];
-    }, ['d']],
+        return ['r' => $ready, 'd' => $s->readyCard('D', ["--depends={$done}"]), 'e' => $s->readyCard('E', ["--depends={$ready}"])];
+    }, ['r', 'd']],
     'blocked cards wait' => [function (Sandbox $s) {
         $id = $s->readyCard('J');
         $s->ok(['set', $id, 'blocked=waiting']);

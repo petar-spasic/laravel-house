@@ -207,7 +207,7 @@ it('merges a card added on both sides (no ancestor: the newer side wins each dif
     $b = baseCard(['title' => 'Same card, other edit']);
     expect(mergeDriver(null, $a, $b)[1])->toMatchArray(['priority' => 'high', 'title' => 'Original']);
 
-    $board = ['title' => 'Work', 'kind' => 'work', 'body' => '', 'order' => 10, 'wip' => ['doing' => 6], 'updated' => '2026-09-28T10:00:00.000+00:00'];
+    $board = ['title' => 'Work', 'body' => '', 'order' => 10, 'wip' => ['doing' => 6], 'updated' => '2026-09-28T10:00:00.000+00:00'];
     [$exit, $merged] = mergeDriver($board,
         array_replace($board, ['order' => 30, 'updated' => '2026-09-28T11:00:00.000+00:00']),
         array_replace($board, ['wip' => ['doing' => 2]]),

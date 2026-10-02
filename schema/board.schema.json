@@ -3,10 +3,9 @@
     "title": "<epic>/<board>/board.json",
     "type": "object",
     "additionalProperties": false,
-    "required": ["title", "kind", "body", "order", "wip", "updated"],
+    "required": ["title", "body", "order", "wip", "updated"],
     "properties": {
         "title": { "type": "string", "minLength": 1, "maxLength": 120 },
-        "kind": { "enum": ["work", "decisions"] },
         "body": { "type": "string", "maxLength": 20000 },
         "order": { "type": "integer" },
         "wip": {

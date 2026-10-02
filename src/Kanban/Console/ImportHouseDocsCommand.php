@@ -31,7 +31,7 @@ class ImportHouseDocsCommand extends Command
     protected $signature = 'kanban:import-house-docs
         {--decisions= : Decisions file, relative to the main checkout (default docs/decisions.md)}
         {--ideas= : Ideas file, relative to the main checkout (default docs/ideas.md)}
-        {--board=project/decisions : Target board (kind decisions)}
+        {--board=project/decisions : Target board}
         {--dry-run : Print what would be imported; write nothing}
         {--strict : Exit 2 when any line cannot be parsed}';
 
@@ -76,13 +76,10 @@ class ImportHouseDocsCommand extends Command
         $ref = BoardRef::parse((string) $this->option('board'));
         $snapshot = $this->store()->snapshot();
         $board = $snapshot->board($ref);
-        if ($board !== null && $board->kind() !== 'decisions') {
-            throw new PolicyRefused("{$ref} is a {$board->kind()} board; import needs a decisions board");
-        }
 
         if ($this->option('dry-run')) {
             if ($board === null) {
-                $this->say("would create board {$ref} (kind decisions)");
+                $this->say("would create board {$ref}");
             }
             $new = $this->fresh($entries, $this->importedHashes($snapshot));
             foreach ($new as $entry) {
@@ -95,7 +92,7 @@ class ImportHouseDocsCommand extends Command
         }
 
         if ($board === null) {
-            $this->store()->saveBoard($ref, ['kind' => 'decisions'], $this->actor());
+            $this->store()->saveBoard($ref, [], $this->actor());
             $this->say("created board {$ref}");
         }
         $created = $this->import($ref, $entries);

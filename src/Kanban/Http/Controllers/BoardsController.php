@@ -7,6 +7,7 @@ use PetarSpasic\LaravelHouse\Kanban\Http\Api;
 use PetarSpasic\LaravelHouse\Kanban\Http\Presenter;
 use PetarSpasic\LaravelHouse\Kanban\Store\BoardRef;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\NotFound;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\OldBoard;
 use PetarSpasic\LaravelHouse\Kanban\Store\Git\SyncStatus;
 use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
 use PetarSpasic\LaravelHouse\Kanban\Store\Store;
@@ -37,7 +38,11 @@ class BoardsController
         }
 
         return $this->cached($request, 'boards', function () {
-            $snapshot = $this->store->snapshot();
+            try {
+                $snapshot = $this->store->snapshot();
+            } catch (OldBoard $e) {
+                return ['key' => null, 'epics' => [], 'notices' => [$e->getMessage()]];
+            }
 
             $presenter = new Presenter($snapshot, $this->paths);
 

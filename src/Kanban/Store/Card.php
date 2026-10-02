@@ -4,6 +4,14 @@ namespace PetarSpasic\LaravelHouse\Kanban\Store;
 
 final class Card
 {
+    /** The prefix of a `blocked` reason that is an open question for the owner. */
+    public const QUESTION = 'question: ';
+
+    public const MAX_CRITERIA = 24;
+
+    /** Characters in one acceptance criterion. */
+    public const MAX_CRITERION = 500;
+
     /**
      * @param  array<string, mixed>  $data  the card file, decoded
      * @param  string  $path  relative to the board root
@@ -40,11 +48,6 @@ final class Card
         return (string) ($this->data['priority'] ?? 'normal');
     }
 
-    public function isDecision(): bool
-    {
-        return $this->type() === 'decision';
-    }
-
     /** @return list<string> */
     public function labels(): array
     {
@@ -66,6 +69,12 @@ final class Card
     public function blocked(): ?string
     {
         return $this->data['blocked'] ?? null;
+    }
+
+    /** Whether the card waits on an answer from the owner (`blocked="question: …"`). */
+    public function asks(): bool
+    {
+        return str_starts_with((string) $this->blocked(), self::QUESTION);
     }
 
     /** @return array{by: string, session: string|null, at: string}|null */

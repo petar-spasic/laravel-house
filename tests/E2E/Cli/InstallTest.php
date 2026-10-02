@@ -14,10 +14,10 @@ it('creates the board on an orphan kanban branch at docs/kanban', function () {
         ->and($sandbox->boardLog())->toBe(['Kanban: initialize'])
         ->and(trim($sandbox->boardGit('rev-parse', '--abbrev-ref', 'HEAD')))->toBe('kanban')
         ->and(trim($sandbox->boardGit('ls-files')))->toBe(implode("\n", [
-            '.gitattributes', 'README.md', 'kanban.json', 'project/decisions/board.json', 'project/epic.json', 'project/work/board.json',
+            '.gitattributes', 'README.md', 'kanban.json', 'project/epic.json', 'project/work/board.json',
         ]))
         ->and(file_get_contents($sandbox->root.'/docs/kanban/.gitattributes'))->toBe("*.json merge=kanban text eol=lf\n")
-        ->and(json_decode(file_get_contents($sandbox->root.'/docs/kanban/kanban.json'), true))->toMatchArray(['key' => 'ACME', 'max_parallel' => 6])
+        ->and(json_decode(file_get_contents($sandbox->root.'/docs/kanban/kanban.json'), true))->toMatchArray(['version' => 2, 'key' => 'ACME', 'max_parallel' => 6, 'locked' => ['doing', 'review', 'done']])
         ->and(file_get_contents($sandbox->root.'/.gitignore'))->toBe("/vendor/\n/docs/kanban/\n/.claude/worktrees\n")
         ->and(trim($sandbox->git('status', '--porcelain')))->toBe("M .gitignore\n?? .claude/\n?? CLAUDE.md")
         ->and(trim($sandbox->git('config', 'merge.kanban.driver')))->toBe("php '{$sandbox->root}/vendor/bin/kanban' merge-driver %O %A %B %P")
@@ -27,7 +27,7 @@ it('creates the board on an orphan kanban branch at docs/kanban', function () {
     $unrelated = new Process(['git', 'merge-base', 'main', 'kanban'], $sandbox->root);
     expect($unrelated->run())->toBe(1);
 
-    expect($sandbox->ok('validate'))->toContain('ok: 0 cards on 2 boards');
+    expect($sandbox->ok('validate'))->toContain('ok: 0 cards on 1 boards');
 });
 
 it('is idempotent', function () {

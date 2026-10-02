@@ -7,9 +7,11 @@ use PetarSpasic\LaravelHouse\Kanban\Code\Stack;
 use PetarSpasic\LaravelHouse\Kanban\Console\Install\Migrate;
 use PetarSpasic\LaravelHouse\Kanban\Console\Install\NextSteps;
 use PetarSpasic\LaravelHouse\Kanban\Console\Install\Steps;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\OldBoard;
 use PetarSpasic\LaravelHouse\Kanban\Store\Git\Bootstrap;
 use PetarSpasic\LaravelHouse\Kanban\Store\Git\DeployKey;
 use PetarSpasic\LaravelHouse\Kanban\Store\Git\SyncStatus;
+use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
 use PetarSpasic\LaravelHouse\Kanban\Support\DotEnv;
 use PetarSpasic\LaravelHouse\Kanban\Support\Git;
 use PetarSpasic\LaravelHouse\Kanban\Support\Sync;
@@ -51,7 +53,9 @@ class DoctorCommand extends Command
         $this->checkRuntime();
         if ($bootstrap->attached()) {
             $this->checkSync();
-            $this->checkOrphans();
+            if (($snapshot = $this->checkBoard()) !== null) {
+                $this->checkOrphans($snapshot);
+            }
         }
         $this->checkStacks();
 
@@ -159,10 +163,24 @@ class DoctorCommand extends Command
         }
     }
 
-    private function checkOrphans(): void
+    /** The board in the format this package reads, or null; and the local edits sync set aside. */
+    private function checkBoard(): ?Snapshot
+    {
+        foreach (glob($this->paths()->displaced('*.json')) ?: [] as $file) {
+            $this->add('warn', 'edits of a card deleted on the remote, kept by sync: '.$this->paths()->relative($file).' (read it, then delete it)');
+        }
+        try {
+            return $this->store()->snapshot();
+        } catch (OldBoard $e) {
+            $this->add('fail', $e->getMessage());
+
+            return null;
+        }
+    }
+
+    private function checkOrphans(Snapshot $snapshot): void
     {
         $paths = $this->paths();
-        $snapshot = $this->store()->snapshot();
         $orphans = 0;
         foreach (glob($paths->worktrees().'/*', GLOB_ONLYDIR) ?: [] as $dir) {
             $card = $snapshot->card(strtoupper(basename($dir)));

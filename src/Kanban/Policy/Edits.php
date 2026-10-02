@@ -222,11 +222,7 @@ final class Edits
      */
     private static function criteria(array $data): array
     {
-        if (! array_key_exists('acceptance', $data)) {
-            throw new Invalid('decisions have no acceptance criteria');
-        }
-
-        return array_values($data['acceptance']);
+        return array_values($data['acceptance'] ?? []);
     }
 
     /** @param  list<array{id: int, text: string, done: bool}>  $items */

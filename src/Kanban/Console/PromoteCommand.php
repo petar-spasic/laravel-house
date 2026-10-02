@@ -50,7 +50,7 @@ class PromoteCommand extends Command
         $buffer = (int) $snapshot->setting('ready_buffer', 12);
         $ready = count($snapshot->cards(fn (Card $c) => $c->stage() === 'ready'));
         $policy = new ReadyPolicy;
-        $candidates = (new PullPolicy)->sort($snapshot, $snapshot->cards(fn (Card $c) => $c->stage() === 'backlog' && ! $c->isDecision()), 'backlog');
+        $candidates = (new PullPolicy)->sort($snapshot, $snapshot->cards(fn (Card $c) => $c->stage() === 'backlog'), 'backlog');
         foreach ($candidates as $card) {
             if ($ready >= $buffer) {
                 break;

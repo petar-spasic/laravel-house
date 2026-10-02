@@ -51,24 +51,12 @@ class ShowCommand extends Command
         if (($agent = $this->agent($card->id(), $snapshot)) !== null) {
             $this->say("agent: {$agent}");
         }
-        foreach (['decided_on', 'superseded_by', 'resolution'] as $key) {
-            if (($data[$key] ?? null) !== null) {
-                $this->say("{$key}: {$data[$key]}");
-            }
-        }
-        if (($data['supersedes'] ?? []) !== []) {
-            $this->say('supersedes: '.implode(', ', $data['supersedes']));
-        }
         foreach ($card->acceptance() as $item) {
             $this->say(($item['done'] ? '[x] ' : '[ ] ').$item['id'].' '.$item['text']);
         }
         if (trim((string) ($data['body'] ?? '')) !== '') {
             $this->say('body:');
             $this->say(rtrim($data['body']));
-        }
-        if (trim((string) ($data['why'] ?? '')) !== '') {
-            $this->say('why:');
-            $this->say(rtrim($data['why']));
         }
         $this->say("created: {$card->created()}");
         $this->say("updated: {$card->updated()}");

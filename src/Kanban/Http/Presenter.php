@@ -6,7 +6,6 @@ use PetarSpasic\LaravelHouse\Kanban\Policy\PullPolicy;
 use PetarSpasic\LaravelHouse\Kanban\Store\Board;
 use PetarSpasic\LaravelHouse\Kanban\Store\BoardRef;
 use PetarSpasic\LaravelHouse\Kanban\Store\Card;
-use PetarSpasic\LaravelHouse\Kanban\Store\CardType;
 use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
 use PetarSpasic\LaravelHouse\Kanban\Store\Stage;
 use PetarSpasic\LaravelHouse\Kanban\Support\AgentStates;
@@ -22,7 +21,7 @@ final class Presenter
 
     private const LOG_SHOWN = 20;
 
-    private const COLLAPSED = ['dropped', 'superseded'];
+    private const COLLAPSED = ['dropped'];
 
     /** @var array<string, array{state: string, since: int, beat: int}>|null read on first use: most requests need no agent */
     private ?array $agents = null;
@@ -63,8 +62,8 @@ final class Presenter
                 $epics[] = ['slug' => $board->ref->epic, 'title' => $board->ref->epic, 'order' => 0, 'boards' => []];
             }
             $epics[$position[$board->ref->epic]]['boards'][] = [
-                'ref' => $ref, 'board' => $board->ref->board, 'title' => $board->title(), 'kind' => $board->kind(),
-                'counts' => array_replace(array_fill_keys(Stage::forKind($board->kind()), 0), $counts[$ref] ?? []),
+                'ref' => $ref, 'board' => $board->ref->board, 'title' => $board->title(),
+                'counts' => array_replace(array_fill_keys(Stage::WORK, 0), $counts[$ref] ?? []),
             ];
         }
 
@@ -88,7 +87,7 @@ final class Presenter
         }
         $pull = new PullPolicy;
         $stages = [];
-        foreach (Stage::forKind($board->kind()) as $stage) {
+        foreach (Stage::WORK as $stage) {
             $cards = $byStage[$stage] ?? [];
             $total = count($cards);
             if ($stage === 'done') {
@@ -114,9 +113,8 @@ final class Presenter
         return [
             'ref' => (string) $ref,
             'title' => $board->title(),
-            'kind' => $board->kind(),
             'epic' => ['slug' => $ref->epic, 'title' => $this->snapshot->epic($ref->epic)?->title() ?? $ref->epic],
-            'moves' => Ui::moves($board->kind()),
+            'moves' => Ui::moves(),
             'locked' => $this->snapshot->lockedStages(),
             'stages' => $stages,
         ];
@@ -154,25 +152,20 @@ final class Presenter
         $board = $this->snapshot->boardOf($card);
         $work = $card->work() ?? [];
         $body = (string) ($card->data['body'] ?? '');
-        $why = (string) ($card->data['why'] ?? '');
         $log = $card->log();
         $fact = fn (string $key) => isset($work[$key]) && is_string($work[$key]) && $work[$key] !== '' ? $work[$key] : null;
 
         return $this->summary($card) + [
             'body' => $body,
             'body_html' => trim($body) === '' ? '' : Markdown::render($body),
-            'why' => $why === '' ? null : $why,
-            'why_html' => trim($why) === '' ? null : Markdown::render($why),
             'acceptance' => $card->acceptance(),
             'depends_on' => array_map(function (string $id) {
                 $dep = $this->snapshot->card($id);
 
                 return ['id' => $id, 'title' => $dep?->title() ?? '', 'stage' => $dep?->stage() ?? 'missing', 'satisfied' => $this->snapshot->isSatisfied($id)];
             }, $card->dependsOn()),
-            'supersedes' => array_map($this->relation(...), array_values($card->data['supersedes'] ?? [])),
-            'superseded_by' => isset($card->data['superseded_by']) ? $this->relation((string) $card->data['superseded_by']) : null,
             'board' => $this->boardInfo($card, $board),
-            'targets' => Ui::moves($card->isDecision() ? 'decisions' : 'work')[$card->stage()] ?? [],
+            'targets' => Ui::moves()[$card->stage()] ?? [],
             'locked' => in_array($card->stage(), $this->snapshot->lockedStages(), true),
             'facts' => [
                 'branch' => $fact('branch'),
@@ -181,8 +174,6 @@ final class Presenter
                 'parked_branch' => $fact('parked_branch'),
                 'claim' => $card->claim(),
                 'host' => $card->host(),
-                'decided_on' => $card->data['decided_on'] ?? null,
-                'resolution' => $card->data['resolution'] ?? null,
                 'created' => $card->created(),
                 'updated' => $card->updated(),
                 'stage_since' => $card->stageSince(),
@@ -190,18 +181,6 @@ final class Presenter
             'log' => array_slice(array_reverse($log), 0, self::LOG_SHOWN),
             'log_total' => count($log),
         ];
-    }
-
-    /**
-     * The card another one points to, as a link.
-     *
-     * @return array{id: string, title: string, stage: string}
-     */
-    private function relation(string $id): array
-    {
-        $other = $this->snapshot->card($id);
-
-        return ['id' => $id, 'title' => $other?->title() ?? '', 'stage' => $other?->stage() ?? 'missing'];
     }
 
     /** Seconds since the epoch of a card timestamp; 0 for one a damaged file holds. */
@@ -219,7 +198,7 @@ final class Presenter
     {
         $parts = [];
         foreach ($this->snapshot->boards() as $board) {
-            $parts[] = $board->ref.'|'.$board->kind().'|'.$board->title().'|'.($this->snapshot->epic($board->ref->epic)?->title() ?? '');
+            $parts[] = $board->ref.'|'.$board->title().'|'.($this->snapshot->epic($board->ref->epic)?->title() ?? '');
         }
 
         return sha1(implode("\n", $parts));
@@ -261,7 +240,7 @@ final class Presenter
     {
         $ref = $card->board;
 
-        return ['ref' => (string) $ref, 'title' => $board?->title() ?? $ref->board, 'kind' => $board?->kind() ?? CardType::kindOf($card->type()),
+        return ['ref' => (string) $ref, 'title' => $board?->title() ?? $ref->board,
             'epic' => $this->snapshot->epic($ref->epic)?->title() ?? $ref->epic];
     }
 }

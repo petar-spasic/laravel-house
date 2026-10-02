@@ -38,7 +38,7 @@ final class Brief
         foreach ($snapshot->cards as $card) {
             $counts[$card->stage()] = ($counts[$card->stage()] ?? 0) + 1;
         }
-        $work = fn (string $stage) => $pull->sort($snapshot, $snapshot->cards(fn (Card $c) => $c->stage() === $stage && ! $c->isDecision()), $stage);
+        $work = fn (string $stage) => $pull->sort($snapshot, $snapshot->cards(fn (Card $c) => $c->stage() === $stage), $stage);
         $blocked = $snapshot->cards(fn (Card $c) => $c->blocked() !== null);
         $unpushed = $repo !== null && $repo->hasRemoteRef() ? $repo->ahead() : null;
 
@@ -54,7 +54,7 @@ final class Brief
         $elsewhere = $capacity['doing'] - $capacity['here'];
         $lines[] = "WIP doing {$capacity['here']}/{$capacity['max_parallel']}".($elsewhere > 0 ? " (+{$elsewhere} elsewhere)" : '').", review {$capacity['review']}/{$capacity['review_limit']}"
             .' · ready '.($counts['ready'] ?? 0).' · backlog '.($counts['backlog'] ?? 0).' · blocked '.count($blocked)
-            .' · proposed decisions '.($counts['proposed'] ?? 0);
+            .' · questions '.count(array_filter($blocked, fn (Card $c) => $c->asks()));
         foreach ($work('doing') as $card) {
             $lines[] = 'doing  '.$this->short($card).': '.implode(', ', $this->flight($card, $runtime, 'kanban-worker'));
         }
@@ -73,13 +73,6 @@ final class Brief
         $lines[] = 'next: '.($next['cards'] === []
             ? 'none: '.$next['reason']
             : implode(', ', array_map(fn (Card $c) => $c->id().' '.Priority::short($c->priority()), $next['cards'])));
-        $decided = $snapshot->cards(fn (Card $c) => $c->stage() === 'decided');
-        usort($decided, fn (Card $a, Card $b) => [$b->data['decided_on'] ?? '', $b->id()] <=> [$a->data['decided_on'] ?? '', $a->id()]);
-        $decided = array_slice($decided, 0, 8);
-        if ($decided !== []) {
-            $lines[] = 'decided (latest '.count($decided).'): '.implode('; ', array_map(
-                fn (Card $c) => ($c->data['decided_on'] ?? '').' '.$c->id().' '.mb_strimwidth($c->title(), 0, 60, '…'), $decided));
-        }
         $lines[] = 'checks: '.implode(' · ', $this->checks($snapshot, $repo?->mergeDriver() !== null, $session));
 
         return $lines;

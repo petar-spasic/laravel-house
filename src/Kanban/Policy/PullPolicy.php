@@ -17,15 +17,12 @@ final class PullPolicy
         $host ??= (string) gethostname();
         $maxParallel = (int) $snapshot->setting('max_parallel', 6);
         $reviewLimit = (int) $snapshot->setting('wip.review', $maxParallel);
-        $doing = $snapshot->cards(fn (Card $c) => ! $c->isDecision() && $c->stage() === 'doing');
-        $review = count($snapshot->cards(fn (Card $c) => ! $c->isDecision() && $c->stage() === 'review'));
+        $doing = $snapshot->cards(fn (Card $c) => $c->stage() === 'doing');
+        $review = count($snapshot->cards(fn (Card $c) => $c->stage() === 'review'));
         $here = count(array_filter($doing, fn (Card $c) => in_array($c->host(), [null, $host], true)));
 
         $boardFree = 0;
         foreach ($snapshot->boards() as $board) {
-            if ($board->kind() !== 'work') {
-                continue;
-            }
             $onBoard = count(array_filter($doing, fn (Card $c) => $c->board->equals($board->ref)));
             $boardFree += $board->wipDoing() === null ? $maxParallel : max(0, $board->wipDoing() - $onBoard);
         }
@@ -49,8 +46,7 @@ final class PullPolicy
         foreach ($snapshot->cards(fn (Card $c) => in_array($c->stage(), ['doing', 'review'], true)) as $card) {
             $busyAreas += array_flip($card->areas());
         }
-        $cards = $snapshot->cards(fn (Card $c) => ! $c->isDecision()
-            && $c->stage() === 'ready'
+        $cards = $snapshot->cards(fn (Card $c) => $c->stage() === 'ready'
             && $c->blocked() === null
             && $c->claim() === null
             && $snapshot->depsSatisfied($c)

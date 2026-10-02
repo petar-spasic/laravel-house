@@ -25,6 +25,15 @@ interface Store
 
     public function relocate(string $id, BoardRef $to, Actor $by): Card;
 
+    /**
+     * Many cards, board files and one root Markdown file in one commit: $plan gets the snapshot under the write lock and
+     * says what changes; the whole board after it is validated before anything is written.
+     *
+     * @param  Closure(Snapshot): Changes  $plan
+     * @return list<Card> the cards written
+     */
+    public function batch(Closure $plan, Actor $by, string $message): array;
+
     /** Creates or updates a board (and its epic when missing). @param  array<string, mixed>  $data */
     public function saveBoard(BoardRef $ref, array $data, Actor $by): void;
 

@@ -35,18 +35,14 @@ it('lists epics and boards with per-stage counts, uncached and unindexed', funct
     $s = $this->sandbox;
     $s->card('Parked');
     $s->readyCard('Next up');
-    $s->card('Workspace per team', board: 'project/decisions');
 
     $response = $this->getJson('/kanban/_api/boards')->assertOk()
         ->assertHeader('X-Robots-Tag', 'noindex, nofollow')
         ->assertJsonPath('key', 'ACME')
         ->assertJsonPath('notices', [])
         ->assertJsonPath('epics.0.slug', 'project')
-        ->assertJsonPath('epics.0.boards.*.ref', ['project/decisions', 'project/work'])
-        ->assertJsonPath('epics.0.boards.0.kind', 'decisions')
-        ->assertJsonPath('epics.0.boards.0.counts', ['proposed' => 1, 'decided' => 0, 'superseded' => 0, 'dropped' => 0])
-        ->assertJsonPath('epics.0.boards.1.kind', 'work')
-        ->assertJsonPath('epics.0.boards.1.counts', ['backlog' => 1, 'ready' => 1, 'doing' => 0, 'review' => 0, 'done' => 0, 'dropped' => 0]);
+        ->assertJsonPath('epics.0.boards.*.ref', ['project/work'])
+        ->assertJsonPath('epics.0.boards.0.counts', ['backlog' => 1, 'ready' => 1, 'doing' => 0, 'review' => 0, 'done' => 0, 'dropped' => 0]);
     expect($response->headers->get('Cache-Control'))->toContain('no-store')->toContain('private');
 });
 
@@ -84,10 +80,9 @@ it('describes a board as columns of card summaries in pull order', function () {
 
     $response = $this->getJson('/kanban/_api/project/work')->assertOk()
         ->assertJsonPath('ref', 'project/work')
-        ->assertJsonPath('kind', 'work')
         ->assertJsonPath('epic.slug', 'project')
         ->assertJsonPath('moves', ['backlog' => ['ready', 'dropped'], 'ready' => ['backlog', 'dropped'], 'doing' => [], 'review' => [], 'done' => [], 'dropped' => ['backlog']])
-        ->assertJsonPath('locked', ['doing', 'review', 'done', 'superseded'])
+        ->assertJsonPath('locked', ['doing', 'review', 'done'])
         ->assertJsonPath('stages.*.stage', ['backlog', 'ready', 'doing', 'review', 'done', 'dropped'])
         ->assertJsonPath('stages.*.collapsed', [false, false, false, false, false, true])
         ->assertJsonPath('stages.0.total', 3)
@@ -144,21 +139,12 @@ it('shows a WIP limit on doing and review', function () {
     expect($stages[2]['limit'])->toBe(2)->and($stages[3]['limit'])->toBeInt()->and($stages[0]['limit'])->toBeNull();
 });
 
-it('lays out the stages of a decisions board', function () {
-    $this->sandbox->card('Workspace per team', board: 'project/decisions');
-
-    $this->getJson('/kanban/_api/project/decisions')->assertOk()
-        ->assertJsonPath('kind', 'decisions')
-        ->assertJsonPath('stages.*.stage', ['proposed', 'decided', 'superseded', 'dropped'])
-        ->assertJsonPath('moves', ['proposed' => ['decided', 'dropped'], 'decided' => ['dropped'], 'superseded' => [], 'dropped' => ['proposed']]);
-});
-
 it('shows only the last 20 done cards unless asked for all', function () {
     $store = app(Store::class);
     $transitions = new Transitions($store);
     $main = new Actor('main', 's1');
     for ($i = 1; $i <= 21; $i++) {
-        $card = $store->create(BoardRef::parse('project/work'), ['title' => "Shipped {$i}", 'body' => 'x', 'stage' => 'ready',
+        $card = $store->create(BoardRef::parse('project/work'), ['title' => "Shipped {$i}", 'body' => 'x', 'stage' => 'ready', 'labels' => ["area:a{$i}"],
             'acceptance' => [['id' => 1, 'text' => 'works', 'done' => false]]], $main);
         $transitions->start($card->id(), $main, null, ['branch' => 'card/'.$card->id(), 'stack' => null]);
         $store->update($card->id(), fn (array $d) => Transitions::stage($d, 'review', 'apply'), $main);
@@ -227,14 +213,14 @@ it('describes a card in full, rendering Markdown escaped and without unsafe link
         'id' => $id, 'title' => 'Rich card', 'stage' => 'backlog', 'labels' => ['area:ui'],
         'acceptance' => [['id' => 1, 'text' => 'First', 'done' => false], ['id' => 2, 'text' => 'Second', 'done' => true]],
         'depends_on' => [['id' => $dep, 'title' => 'Upstream', 'stage' => 'backlog', 'satisfied' => false]],
-        'board' => ['ref' => 'project/work', 'title' => 'Work', 'kind' => 'work', 'epic' => 'Project'],
+        'board' => ['ref' => 'project/work', 'title' => 'Work', 'epic' => 'Project'],
         'targets' => ['ready', 'dropped'],
         'rev' => sha1_file($s->root."/docs/kanban/project/work/{$id}.json"),
     ])
         ->and($card['body'])->toContain('## Context')
         ->and($card['body_html'])->toContain('<h2>Context</h2>')->toContain('&lt;script&gt;')->not->toContain('<script>')->not->toContain('javascript:')
         ->and($card['body_html'])->toContain('<a>click</a> <strong>bold</strong>')
-        ->and($card['why_html'])->toBeNull()
+        ->and($card)->not->toHaveKeys(['why', 'why_html', 'supersedes', 'superseded_by'])
         ->and(collect($card['log'])->firstWhere('event', 'note'))->toMatchArray(['by' => 'owner', 'text' => 'Owner says <b>hi</b>'])
         ->and($card['log_total'])->toBeGreaterThanOrEqual(2)
         ->and($card['facts'])->toHaveKeys(['created', 'updated', 'stage_since']);
@@ -260,14 +246,6 @@ it('lists the stages kanban.json locks', function () {
     $this->getJson('/kanban/_api/project/work')->assertOk()->assertJsonPath('locked', ['backlog']);
 });
 
-it('renders a decision\'s why', function () {
-    $id = $this->sandbox->card('Workspace per team', ['--why=Because <img src=x onerror=alert(1)> **reasons**'], board: 'project/decisions');
-
-    $card = $this->getJson("/kanban/_api/cards/{$id}")->assertOk()->json('card');
-
-    expect($card['why'])->toContain('reasons')->and($card['why_html'])->toContain('<strong>reasons</strong>')->toContain('&lt;img')->not->toContain('<img');
-});
-
 it('lists the newest 20 log entries and the running facts of a started card', function () {
     $s = $this->sandbox;
     $id = $s->readyCard('Busy');
@@ -285,20 +263,6 @@ it('lists the newest 20 log entries and the running facts of a started card', fu
         ->and($card['facts'])->toMatchArray(['branch' => 'card/busy', 'worktree' => '.claude/worktrees/busy'])
         ->and($card['facts']['claim'])->toHaveKeys(['by', 'at'])
         ->and($card['url'])->toBe(stackUrl(21020));
-});
-
-it('links a decision to the ones it replaced and the one that replaced it', function () {
-    $s = $this->sandbox;
-    $old = $s->card('Use polling', ['--stage=decided', '--why=Simple'], 'project/decisions');
-    $new = $s->card('Use webhooks', ['--stage=decided', '--why=Cheaper'], 'project/decisions');
-    $s->ok(['set', $new, "supersedes=+{$old}"]);
-
-    $this->getJson("/kanban/_api/cards/{$new}")->assertOk()
-        ->assertJsonPath('card.supersedes', [['id' => $old, 'title' => 'Use polling', 'stage' => 'superseded']])
-        ->assertJsonPath('card.superseded_by', null);
-    $this->getJson("/kanban/_api/cards/{$old}")->assertOk()
-        ->assertJsonPath('card.superseded_by', ['id' => $new, 'title' => 'Use webhooks', 'stage' => 'decided'])
-        ->assertJsonPath('card.supersedes', []);
 });
 
 it('finds cards by id or title for the dependency picker', function () {
@@ -395,5 +359,5 @@ it('gives a card whose board file is missing a board to show it under', function
 
     $card = $this->getJson("/kanban/_api/cards/{$id}")->assertOk()->json('card');
 
-    expect($card['board'])->toMatchArray(['ref' => 'project/work', 'kind' => 'work'])->and($card['targets'])->toBeArray();
+    expect($card['board'])->toMatchArray(['ref' => 'project/work', 'title' => 'work'])->and($card['targets'])->toBeArray();
 });

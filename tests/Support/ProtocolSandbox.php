@@ -45,7 +45,7 @@ final class ProtocolSandbox
      */
     public function started(string $title, array $accept = ['It renders', 'It is tested']): array
     {
-        $id = $this->sandbox->card($title, ['--body=Build it', '--stage=ready', ...array_map(fn ($a) => "--accept={$a}", $accept)]);
+        $id = $this->sandbox->card($title, Sandbox::withArea(['--body=Build it', '--stage=ready', ...array_map(fn ($a) => "--accept={$a}", $accept)]));
         $out = $this->sandbox->ok(['start', $id]);
         if (preg_match('/^worktree (.+)$/m', $out, $m) !== 1) {
             throw new RuntimeException("no worktree in: {$out}");

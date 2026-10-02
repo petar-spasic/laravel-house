@@ -20,11 +20,8 @@ final class Validator
     public function validate(string $kind, array $data): array
     {
         $root = $this->schema($kind);
-        $schema = $kind === 'card'
-            ? $root['$defs'][($data['type'] ?? null) === 'decision' ? 'decision' : 'work']
-            : $root;
 
-        return $this->check($schema, $data, '', $root);
+        return $this->check($root, $data, '', $root);
     }
 
     /**

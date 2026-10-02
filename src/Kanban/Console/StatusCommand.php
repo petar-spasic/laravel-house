@@ -14,7 +14,7 @@ class StatusCommand extends Command
 {
     protected $signature = 'kanban:status {--json : JSON output}';
 
-    protected $description = 'Board summary: WIP, cards in flight, blocked, next, latest decisions, checks';
+    protected $description = 'Board summary: WIP, cards in flight, blocked, next, checks';
 
     protected function perform(): int
     {
@@ -33,7 +33,7 @@ class StatusCommand extends Command
         $capacity = $pull->capacity($snapshot);
         $next = $pull->next($snapshot, 3);
         $counts = $snapshot->stageCounts();
-        $work = fn (string $stage) => $pull->sort($snapshot, $snapshot->cards(fn (Card $c) => $c->stage() === $stage && ! $c->isDecision()), $stage);
+        $work = fn (string $stage) => $pull->sort($snapshot, $snapshot->cards(fn (Card $c) => $c->stage() === $stage), $stage);
         $blocked = $snapshot->cards(fn (Card $c) => $c->blocked() !== null);
         $unpushed = $repo !== null && $repo->hasRemoteRef() ? $repo->ahead() : null;
         $driver = $repo?->mergeDriver();

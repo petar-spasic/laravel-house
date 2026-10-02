@@ -12,7 +12,6 @@ class BoardCommand extends Command
     protected $signature = 'kanban:board
         {board : epic/board}
         {title? : Board title}
-        {--kind= : work|decisions (new boards)}
         {--order= : Sort order}
         {--wip-doing= : WIP limit for doing}';
 
@@ -26,12 +25,6 @@ class BoardCommand extends Command
         $data = [];
         if ($this->argument('title') !== null) {
             $data['title'] = $this->argument('title');
-        }
-        if ($this->option('kind') !== null) {
-            if ($existing !== null && $existing->kind() !== $this->option('kind')) {
-                throw new Invalid("{$ref} is a {$existing->kind()} board; its kind cannot change");
-            }
-            $data['kind'] = $this->option('kind');
         }
         if ($this->option('order') !== null) {
             $data['order'] = $this->integer('order');

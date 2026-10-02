@@ -24,7 +24,7 @@ final class Context
     public function cardAt(Snapshot $snapshot, string $dir): ?Card
     {
         $dir = realpath($dir) ?: $dir;
-        foreach ($snapshot->cards(fn (Card $c) => ! $c->isDecision() && in_array($c->stage(), ['doing', 'review'], true)) as $card) {
+        foreach ($snapshot->cards(fn (Card $c) => in_array($c->stage(), ['doing', 'review'], true)) as $card) {
             $worktree = $this->worktree($card);
             if ($worktree !== null && ($dir === $worktree || str_starts_with($dir, $worktree.'/'))) {
                 return $card;

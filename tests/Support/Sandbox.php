@@ -101,10 +101,28 @@ final class Sandbox
         return $m[1];
     }
 
-    /** A card that passes the ready policy, created straight into ready. */
+    /** A card that passes the ready policy, created straight into ready; on an area of its own unless $options name one. */
     public function readyCard(string $title, array $options = [], string $board = 'project/work', array $env = []): string
     {
-        return $this->card($title, ['--body=Build it', '--accept=It works', '--stage=ready', ...$options], $board, $env);
+        return $this->card($title, ['--body=Build it', '--accept=It works', '--stage=ready', ...self::withArea($options)], $board, $env);
+    }
+
+    /**
+     * $options plus a fresh `area:*` label when they carry none, so cards made apart never share an area.
+     *
+     * @param  list<string>  $options
+     * @return list<string>
+     */
+    public static function withArea(array $options): array
+    {
+        static $areas = 0;
+        foreach ($options as $option) {
+            if (str_starts_with($option, '--label=area:')) {
+                return $options;
+            }
+        }
+
+        return [...$options, '--label=area:a'.++$areas];
     }
 
     /** @return array<string, mixed> */

@@ -3,7 +3,6 @@
 namespace PetarSpasic\LaravelHouse\Kanban\Schema;
 
 use PetarSpasic\LaravelHouse\Kanban\Store\Card;
-use PetarSpasic\LaravelHouse\Kanban\Store\CardType;
 use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
 use PetarSpasic\LaravelHouse\Kanban\Store\Stage;
 
@@ -41,10 +40,7 @@ final class CrossCardRules
         if ($board === null) {
             return ['card outside a board'];
         }
-        if (CardType::kindOf($card->type()) !== $board->kind()) {
-            $errors[] = "type {$card->type()} does not belong on a {$board->kind()} board";
-        }
-        foreach (array_merge($card->dependsOn(), $card->data['supersedes'] ?? []) as $ref) {
+        foreach ($card->dependsOn() as $ref) {
             if ($ref === $card->id()) {
                 $errors[] = 'refers to itself';
             } elseif ($snapshot->card($ref) === null) {
@@ -60,7 +56,7 @@ final class CrossCardRules
             $errors[] = 'log ids repeat';
         }
 
-        return array_merge($errors, $card->isDecision() ? $this->decision($card, $snapshot) : $this->work($card));
+        return array_merge($errors, $this->work($card));
     }
 
     /** @return list<string> */
@@ -81,28 +77,8 @@ final class CrossCardRules
         if ($work !== null && in_array($stage, ['backlog', 'ready', 'dropped'], true) && array_keys($work) !== ['parked_branch']) {
             $errors[] = "work must be null (or only parked_branch) in {$stage}";
         }
-
-        return $errors;
-    }
-
-    /** @return list<string> */
-    private function decision(Card $card, Snapshot $snapshot): array
-    {
-        $errors = [];
-        $stage = $card->stage();
-        $data = $card->data;
-        if (in_array($stage, ['decided', 'superseded'], true) && empty($data['decided_on'])) {
-            $errors[] = "decided_on is required in {$stage}";
-        }
-        if ($stage === 'dropped' && empty($data['resolution'])) {
-            $errors[] = 'resolution is required for a dropped decision';
-        }
-        $by = $data['superseded_by'] ?? null;
-        if ($stage === 'superseded' && $by === null) {
-            $errors[] = 'superseded_by is required in superseded';
-        }
-        if ($by !== null && ! in_array($card->id(), $snapshot->card($by)?->data['supersedes'] ?? [], true)) {
-            $errors[] = "superseded_by {$by} does not list it in supersedes";
+        if ($stage === 'ready' && $card->asks()) {
+            $errors[] = 'an open question (blocked="'.Card::QUESTION.'…") keeps it out of ready until the owner answers';
         }
 
         return $errors;

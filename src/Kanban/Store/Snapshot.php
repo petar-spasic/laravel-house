@@ -22,6 +22,12 @@ final class Snapshot
         public readonly array $problems = [],
     ) {}
 
+    /** The board format this package reads and writes (`version` in kanban.json). */
+    public const VERSION = 2;
+
+    /** What every board command, the UI and the hooks say about an older board. */
+    public const OLD_BOARD = 'board version 1: the owner runs /implement-kanban';
+
     public const DEFAULT_STALE_MINUTES = 20;
 
     /** Minutes without a heartbeat before an agent counts as stale. */
@@ -37,7 +43,7 @@ final class Snapshot
     }
 
     /** Stages whose cards the owner and the main session can only annotate (a note, a blocked reason, ticks), unless kanban.json lists others. */
-    public const DEFAULT_LOCKED = ['doing', 'review', 'done', 'superseded'];
+    public const DEFAULT_LOCKED = ['doing', 'review', 'done'];
 
     /** @return list<string> */
     public function lockedStages(): array
@@ -153,12 +159,15 @@ final class Snapshot
         return new self($this->kanban, $epics, [(string) $board->ref => $board] + $this->boards, $this->cards, $this->problems);
     }
 
-    /** A dependency is satisfied when its work card is done or its decision is decided. */
+    public function version(): int
+    {
+        return (int) ($this->kanban['version'] ?? 1);
+    }
+
+    /** A dependency is satisfied when its card is done. */
     public function isSatisfied(string $id): bool
     {
-        $dep = $this->card($id);
-
-        return $dep !== null && in_array($dep->stage(), ['done', 'decided'], true);
+        return $this->card($id)?->stage() === 'done';
     }
 
     public function depsSatisfied(Card $card): bool
@@ -172,7 +181,7 @@ final class Snapshot
         return true;
     }
 
-    /** @return array<string, int> stage => count of cards on work boards */
+    /** @return array<string, int> stage => count of cards */
     public function stageCounts(): array
     {
         $counts = [];

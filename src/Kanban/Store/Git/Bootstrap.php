@@ -186,7 +186,6 @@ final class Bootstrap
             '.gitattributes' => '.gitattributes',
             'README.md' => 'README.md',
             'project/epic.json' => 'epic.json',
-            'project/decisions/board.json' => 'board.decisions.json',
             'project/work/board.json' => 'board.work.json',
         ];
         foreach ($files as $target => $stub) {

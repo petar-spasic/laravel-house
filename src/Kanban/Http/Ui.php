@@ -70,15 +70,15 @@ final class Ui
     public const CLI_ONLY = ['doing', 'review', 'done'];
 
     /**
-     * Where the UI may move a card that is in each stage of a board kind (never into doing, review or done).
+     * Where the UI may move a card that is in each stage (never into doing, review or done).
      *
      * @return array<string, list<string>>
      */
-    public static function moves(string $kind): array
+    public static function moves(): array
     {
         $moves = [];
-        foreach (Stage::forKind($kind) as $stage) {
-            $moves[$stage] = array_values(array_diff(Transitions::moveTargets($kind, $stage), self::CLI_ONLY));
+        foreach (Stage::WORK as $stage) {
+            $moves[$stage] = array_values(array_diff(Transitions::moveTargets($stage), self::CLI_ONLY));
         }
 
         return $moves;

@@ -8,16 +8,10 @@ enum CardType: string
     case Bug = 'bug';
     case Chore = 'chore';
     case Spike = 'spike';
-    case Decision = 'decision';
 
     /** @return list<string> */
-    public static function forKind(string $kind): array
+    public static function values(): array
     {
-        return $kind === 'decisions' ? ['decision'] : ['feature', 'bug', 'chore', 'spike'];
-    }
-
-    public static function kindOf(string $type): string
-    {
-        return $type === 'decision' ? 'decisions' : 'work';
+        return array_column(self::cases(), 'value');
     }
 }

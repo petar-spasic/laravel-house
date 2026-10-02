@@ -7,6 +7,7 @@ use PetarSpasic\LaravelHouse\Kanban\Protocol\Context;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Runtime;
 use PetarSpasic\LaravelHouse\Kanban\Store\Actor;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\KanbanException;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\OldBoard;
 use PetarSpasic\LaravelHouse\Kanban\Store\Git\Bootstrap;
 use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
 use PetarSpasic\LaravelHouse\Kanban\Store\Store;
@@ -58,7 +59,11 @@ final class SessionStart
         } catch (KanbanException $e) {
             $stderr[] = 'kanban: '.$e->getMessage();
         }
-        $snapshot = $this->store->snapshot();
+        try {
+            $snapshot = $this->store->snapshot();
+        } catch (OldBoard $e) {
+            return ['stdout' => $e->getMessage()."\n", 'stderr' => self::join($stderr), 'exit' => 0];
+        }
         $runtime = new Runtime($this->paths, $snapshot->staleMinutes());
         $runtime->markStale();
 

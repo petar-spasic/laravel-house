@@ -20,32 +20,22 @@ final class Transitions
 {
     /** "from>to" => vias that may perform it. `move` covers the CLI/UI; `promote` the ready gate. */
     private const ALLOWED = [
-        'work' => [
-            'backlog>ready' => ['move', 'promote'],
-            'ready>backlog' => ['move'],
-            'ready>doing' => ['start'],
-            'doing>review' => ['apply'],
-            'review>doing' => ['reject', 'refresh', 'move'],
-            'review>done' => ['finish'],
-            'doing>ready' => ['stop'], 'doing>backlog' => ['stop'], 'doing>dropped' => ['stop'],
-            'review>ready' => ['stop'], 'review>backlog' => ['stop'], 'review>dropped' => ['stop'],
-            'backlog>dropped' => ['move'], 'ready>dropped' => ['move'],
-            'dropped>backlog' => ['move'],
-        ],
-        'decisions' => [
-            'proposed>decided' => ['move'],
-            'proposed>dropped' => ['move'],
-            'decided>dropped' => ['move'],
-            'decided>superseded' => ['auto'],
-            'dropped>proposed' => ['move'],
-        ],
+        'backlog>ready' => ['move', 'promote'],
+        'ready>backlog' => ['move'],
+        'ready>doing' => ['start'],
+        'doing>review' => ['apply'],
+        'review>doing' => ['reject', 'refresh', 'move'],
+        'review>done' => ['finish'],
+        'doing>ready' => ['stop'], 'doing>backlog' => ['stop'], 'doing>dropped' => ['stop'],
+        'review>ready' => ['stop'], 'review>backlog' => ['stop'], 'review>dropped' => ['stop'],
+        'backlog>dropped' => ['move'], 'ready>dropped' => ['move'],
+        'dropped>backlog' => ['move'],
     ];
 
     private const HINTS = [
         'ready>doing' => 'use `kanban start ID`',
         'doing>review' => 'a worker report moves it (`kanban apply ID`)',
         'review>done' => 'use `kanban finish ID`',
-        'decided>superseded' => 'automatic: `kanban set NEW supersedes=+OLD` on the deciding card',
     ];
 
     public function __construct(
@@ -59,10 +49,10 @@ final class Transitions
      *
      * @return list<string>
      */
-    public static function moveTargets(string $kind, string $from): array
+    public static function moveTargets(string $from): array
     {
         $targets = [];
-        foreach (self::ALLOWED[$kind] ?? [] as $edge => $vias) {
+        foreach (self::ALLOWED as $edge => $vias) {
             [$edgeFrom, $to] = explode('>', $edge);
             if ($edgeFrom === $from && in_array('move', $vias, true)) {
                 $targets[] = $to;
@@ -72,11 +62,11 @@ final class Transitions
         return $targets;
     }
 
-    /** Throws PolicyRefused unless $via may move a card of $kind from $from to $to. */
-    public static function check(string $kind, string $from, string $to, string $via, Actor $by, bool $forced = false): void
+    /** Throws PolicyRefused unless $via may move a card from $from to $to. */
+    public static function check(string $from, string $to, string $via, Actor $by, bool $forced = false): void
     {
-        if (! in_array($to, Stage::forKind($kind), true)) {
-            throw new PolicyRefused("'{$to}' is not a stage of a {$kind} board (".implode(', ', Stage::forKind($kind)).')');
+        if (! in_array($to, Stage::WORK, true)) {
+            throw new PolicyRefused("'{$to}' is not a stage (".implode(', ', Stage::WORK).')');
         }
         if ($from === $to) {
             return;
@@ -88,10 +78,10 @@ final class Transitions
 
             return;
         }
-        $allowed = self::ALLOWED[$kind]["{$from}>{$to}"] ?? [];
+        $allowed = self::ALLOWED["{$from}>{$to}"] ?? [];
         if (! in_array($via, $allowed, true)) {
             $hint = self::HINTS["{$from}>{$to}"]
-                ?? (Stage::isActive($from) && $kind === 'work' ? "use `kanban stop ID --to={$to}`" : null)
+                ?? (Stage::isActive($from) ? "use `kanban stop ID --to={$to}`" : null)
                 ?? ($allowed === [] ? "{$from} → {$to} is not a transition" : 'allowed through '.implode(', ', $allowed));
             throw new PolicyRefused("refused {$from} → {$to}: {$hint}");
         }
@@ -107,18 +97,11 @@ final class Transitions
     {
         $from = $data['stage'];
         $reason = $reason === null || trim($reason) === '' ? null : trim($reason);
-        if ($to === 'dropped' && $reason === null && empty($data['resolution'])) {
+        if ($to === 'dropped' && $reason === null) {
             throw new PolicyRefused('dropping needs a reason (--reason)');
         }
         $data['stage'] = $to;
-        if (($data['type'] ?? null) === 'decision') {
-            if ($to === 'decided') {
-                $data['decided_on'] ??= Clock::today();
-            }
-            if ($to === 'dropped') {
-                $data['resolution'] ??= $reason;
-            }
-        } elseif (Stage::isActive($from) && ! Stage::isActive($to)) {
+        if (Stage::isActive($from) && ! Stage::isActive($to)) {
             $data['claim'] = null;
             $data['work'] = $to === 'done'
                 ? array_intersect_key($data['work'] ?? [], array_flip(['branch', 'base', 'merge', 'started', 'finished']))
@@ -156,12 +139,8 @@ final class Transitions
 
             return $this->sendBack($card->id(), 'move', $by, $reason, $expected ?? $card->rev, $force);
         }
-        $moved = $this->store->update($card->id(), fn (array $data) => self::stage($data, $to, 'move', $reason, $force), $by, $expected ?? $card->rev);
-        if ($moved->stage() === 'decided') {
-            $this->supersede($moved->id(), $by);
-        }
 
-        return $moved;
+        return $this->store->update($card->id(), fn (array $data) => self::stage($data, $to, 'move', $reason, $force), $by, $expected ?? $card->rev);
     }
 
     /** backlog → ready when the ready policy passes; PolicyRefused lists the R-codes otherwise. */
@@ -273,25 +252,5 @@ final class Transitions
 
             return $data;
         }, $by);
-    }
-
-    /** A decided card's `supersedes` list: each decided target becomes superseded_by it. */
-    public function supersede(string $id, Actor $by): void
-    {
-        $card = $this->store->card($id);
-        if ($card->stage() !== 'decided') {
-            return;
-        }
-        foreach ($card->data['supersedes'] ?? [] as $old) {
-            $target = $this->store->card($old);
-            if ($target->stage() !== 'decided') {
-                continue;
-            }
-            $this->store->update($old, function (array $data) use ($card) {
-                $data['superseded_by'] = $card->id();
-
-                return self::stage($data, 'superseded', 'auto');
-            }, $by);
-        }
     }
 }

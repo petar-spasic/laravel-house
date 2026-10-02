@@ -13,16 +13,14 @@ class NewCommand extends Command
     protected $signature = 'kanban:new
         {board : epic/board}
         {title : Card title}
-        {--type= : feature|bug|chore|spike (work) or decision}
+        {--type= : feature|bug|chore|spike}
         {--priority= : urgent|high|normal|low}
         {--label=* : Label (repeatable)}
         {--accept=* : Acceptance criterion (repeatable)}
         {--depends=* : Card id it depends on (repeatable)}
         {--body= : Markdown body}
         {--body-file= : Read the body from a file (- = stdin)}
-        {--why= : Why (decisions)}
-        {--decided-on= : YYYY-MM-DD (decisions)}
-        {--stage= : Initial stage: backlog|ready (work), proposed|decided (decisions)}';
+        {--stage= : Initial stage: backlog|ready}';
 
     protected $description = 'Create a card';
 
@@ -36,8 +34,6 @@ class NewCommand extends Command
             'title' => $this->argument('title'),
             'type' => $this->option('type'),
             'priority' => $this->option('priority'),
-            'why' => $this->option('why'),
-            'decided_on' => $this->option('decided-on'),
             'body' => $body,
             'labels' => $this->option('label'),
             'accept' => $this->option('accept'),

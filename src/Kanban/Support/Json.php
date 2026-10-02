@@ -12,19 +12,18 @@ final class Json
     public const ORDER = [
         'kanban' => ['version', 'key', 'id_length', 'max_parallel', 'ready_buffer', 'wip', 'stale_after_minutes', 'locked', 'guard', 'updated'],
         'epic' => ['title', 'goal', 'done_when', 'body', 'order', 'updated'],
-        'board' => ['title', 'kind', 'body', 'order', 'wip', 'updated'],
-        'card' => ['id', 'type', 'title', 'stage', 'priority', 'labels', 'body', 'why', 'acceptance', 'depends_on', 'blocked',
-            'decided_on', 'supersedes', 'superseded_by', 'resolution', 'source', 'claim', 'work', 'created', 'updated', 'log'],
+        'board' => ['title', 'body', 'order', 'wip', 'updated'],
+        'card' => ['id', 'type', 'title', 'stage', 'priority', 'labels', 'body', 'acceptance', 'depends_on', 'blocked',
+            'claim', 'work', 'created', 'updated', 'log'],
         'guard' => ['strict', 'main_write_paths'],
         'acceptance' => ['id', 'text', 'done'],
         'claim' => ['by', 'session', 'at'],
         'work' => ['branch', 'base', 'worktree', 'host', 'stack', 'attempt', 'head', 'approved', 'merge', 'started', 'finished', 'parked_branch'],
         'stack' => ['project', 'slot', 'ports', 'url'],
-        'source' => ['file', 'line', 'hash'],
         'log' => ['id', 'at', 'by', 'event'],
     ];
 
-    public const SETS = ['labels', 'depends_on', 'supersedes'];
+    public const SETS = ['labels', 'depends_on'];
 
     /** Keys whose value is a JSON object even when empty. */
     private const OBJECTS = ['wip', 'guard', 'ports', 'approved'];
@@ -78,7 +77,7 @@ final class Json
                 in_array($key, self::SETS, true) => self::set($value),
                 $key === 'log' => self::log($value),
                 $key === 'acceptance' => self::acceptance($value),
-                $key === 'guard', $key === 'claim', $key === 'source' => self::ordered($value, self::ORDER[$key]),
+                $key === 'guard', $key === 'claim' => self::ordered($value, self::ORDER[$key]),
                 $key === 'work' => self::work($value),
                 default => $value,
             };

@@ -9,7 +9,6 @@ use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\NotFound;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
 use PetarSpasic\LaravelHouse\Kanban\Store\Rev;
 use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
-use PetarSpasic\LaravelHouse\Kanban\Support\Clock;
 
 /** The fields of a new card, from what the CLI (`new`) or the UI was given. */
 final class Creation
@@ -18,16 +17,15 @@ final class Creation
     public function __construct(private readonly string $stageName = 'stage') {}
 
     /**
-     * @param  array{title: string, type?: ?string, priority?: ?string, why?: ?string, decided_on?: ?string, body?: ?string, labels?: list<string>, accept?: list<string>, depends?: list<string>, stage?: ?string}  $input
+     * @param  array{title: string, type?: ?string, priority?: ?string, body?: ?string, labels?: list<string>, accept?: list<string>, depends?: list<string>, stage?: ?string}  $input
      * @return array<string, mixed>
      */
     public function fields(Snapshot $snapshot, BoardRef $ref, array $input): array
     {
-        $board = $snapshot->board($ref) ?? throw new NotFound("no board {$ref}");
-        $decisions = $board->kind() === 'decisions';
+        $snapshot->board($ref) ?? throw new NotFound("no board {$ref}");
 
         $fields = ['title' => $input['title']];
-        foreach (['type', 'priority', 'why', 'decided_on', 'body'] as $field) {
+        foreach (['type', 'priority', 'body'] as $field) {
             if (($input[$field] ?? null) !== null) {
                 $fields[$field] = $input[$field];
             }
@@ -36,22 +34,20 @@ final class Creation
             $fields['labels'] = $input['labels'];
         }
         $accept = $input['accept'] ?? [];
-        $depends = $input['depends'] ?? [];
-        if (! $decisions) {
-            $fields['acceptance'] = $accept;
-            $fields['depends_on'] = array_map(fn (string $id) => $snapshot->resolve($id)->id(), $depends);
-        } elseif ($accept !== [] || $depends !== []) {
-            throw new Invalid('decisions have no acceptance criteria or dependencies');
+        if (count($accept) > Card::MAX_CRITERIA) {
+            throw new Invalid('at most '.Card::MAX_CRITERIA.' acceptance criteria');
         }
+        foreach ($accept as $criterion) {
+            if (mb_strlen($criterion) > Card::MAX_CRITERION) {
+                throw new Invalid('an acceptance criterion has at most '.Card::MAX_CRITERION.' characters');
+            }
+        }
+        $fields['acceptance'] = $accept;
+        $fields['depends_on'] = array_map(fn (string $id) => $snapshot->resolve($id)->id(), $input['depends'] ?? []);
 
         $stage = $input['stage'] ?? null;
-        $allowed = $decisions ? ['proposed', 'decided'] : ['backlog', 'ready'];
-        if ($stage !== null && ! in_array($stage, $allowed, true)) {
-            throw new Invalid($this->stageName.' must be one of: '.implode(', ', $allowed));
-        }
-        if ($stage === 'decided') {
-            $fields['stage'] = 'decided';
-            $fields['decided_on'] ??= Clock::today();
+        if ($stage !== null && ! in_array($stage, ['backlog', 'ready'], true)) {
+            throw new Invalid($this->stageName.' must be one of: backlog, ready');
         }
         if ($stage === 'ready') {
             $draft = new Card(array_merge(['id' => $snapshot->key().'-DRAFT', 'type' => 'feature', 'stage' => 'backlog', 'blocked' => null, 'body' => ''], $fields), $ref, '', new Rev(''));
