@@ -2,6 +2,7 @@
 
 namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
+use PetarSpasic\LaravelHouse\Kanban\Code\Dependencies;
 use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Lease;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
@@ -82,6 +83,9 @@ class StartCommand extends Command
             $this->say('starting: the worker runs `vendor/bin/kanban stack wait` before using it');
         } else {
             $this->say('stack none (stack.compose_file unset or missing)');
+        }
+        foreach (Dependencies::problems($this->paths()->main, (array) ($this->setting('worktrees.copy') ?? [])) as $problem) {
+            $this->say("warning: {$problem}");
         }
         $this->say("Agent(subagent_type=\"kanban-worker\", description=\"{$id} ".Worktrees::label($card->title())."\", isolation=\"worktree\", prompt=\"Card {$id}. Worktree {$path}\")");
         $this->reportPending();

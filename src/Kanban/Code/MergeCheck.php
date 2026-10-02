@@ -7,8 +7,10 @@ use PetarSpasic\LaravelHouse\Kanban\Support\Git;
 /** Read-only checks before a card branch is merged into main. */
 final class MergeCheck
 {
-    /** Files whose change means a stack must be rebuilt and recreated. */
+    /** Files whose change means a stack must be rebuilt and recreated; a lockfile at any depth. */
     public const REBUILD = ['composer.lock', 'package-lock.json', 'Dockerfile.local', 'docker/'];
+
+    private const LOCKFILES = ['composer.lock', 'package-lock.json'];
 
     public function __construct(private readonly Git $git, private readonly string $main) {}
 
@@ -128,7 +130,8 @@ final class MergeCheck
 
         return array_values(array_filter($files, function (string $file) use ($patterns) {
             foreach ($patterns as $pattern) {
-                if ($file === $pattern || (str_ends_with($pattern, '/') && str_starts_with($file, $pattern))) {
+                if ($file === $pattern || (str_ends_with($pattern, '/') && str_starts_with($file, $pattern))
+                    || (in_array($pattern, self::LOCKFILES, true) && basename($file) === $pattern)) {
                     return true;
                 }
             }

@@ -46,7 +46,8 @@ return [
     'worktrees' => [
         // Not `kanban/`: git cannot hold `refs/heads/kanban` (the board) and `refs/heads/kanban/…` at once.
         'branch_prefix' => 'card/',
-        'copy' => ['vendor', 'node_modules'],
+        // Copied from main into each new worktree when main has them; doctor and `start` warn when one is missing or behind its lockfile.
+        'copy' => ['vendor', 'node_modules', 'frontend/node_modules'],
         // Host part of worktree URLs; null = the host of main's LOCAL_APP_URL, else localhost.
         'host' => env('KANBAN_HOST'),
     ],

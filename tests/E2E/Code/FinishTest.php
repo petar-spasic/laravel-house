@@ -53,6 +53,13 @@ it('prints a rebuild hint when the merge touches lockfiles, docker files or the 
 
     expect($code->ok(['finish', $id]))->toContain('rebuild main: composer.lock changed; run `docker compose -f docker-compose.local.yml up -d --build --force-recreate`');
 
+    $frontend = $code->started('Bump frontend deps');
+    @mkdir($code->worktree($frontend).'/frontend', 0775, true);
+    $code->commit($frontend, 'frontend/package-lock.json', "{}\n");
+    $code->approve($frontend);
+
+    expect($code->ok(['finish', $frontend]))->toContain('rebuild main: frontend/package-lock.json changed');
+
     $compose = $code->started('Publish the web port on IPv4 only');
     $code->commit($compose, 'docker-compose.local.yml', file_get_contents($code->sandbox->root.'/docker-compose.local.yml')."# ipv4\n");
     $code->approve($compose);

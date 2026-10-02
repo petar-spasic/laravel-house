@@ -2,6 +2,7 @@
 
 namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
+use PetarSpasic\LaravelHouse\Kanban\Code\Dependencies;
 use PetarSpasic\LaravelHouse\Kanban\Code\PortRegistry;
 use PetarSpasic\LaravelHouse\Kanban\Code\Stack;
 use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
@@ -61,6 +62,9 @@ class DoctorCommand extends Command
             }
         }
         $this->checkStacks();
+        foreach (Dependencies::problems($this->paths()->main, (array) ($this->setting('worktrees.copy') ?? [])) as $problem) {
+            $this->add('warn', $problem);
+        }
         $this->checkUpstream();
 
         foreach ($this->results as [$level, $text]) {
