@@ -37,7 +37,9 @@ are in `references/protocol.md`; card sizing in depth is `references/planning.md
 - Cards in doing, review and done are locked: `set` takes `note=`, `blocked=`, `tick=`, `untick=`, and
   `accept[N]="…" --reason="…"` (a reworded criterion, logged; the stack and the agent stay). `stop` it for anything
   else; `--force` only when the owner asks.
-- The owner answers questions and sets rules; you record them (see "Questions and rules"). Never pick an answer.
+- Act; do not ask (the root `CLAUDE.md`'s Kanban section). The owner answers product questions and sets rules; you
+  record them ("Questions and rules"). A technical question, a card that makes the app safer or cleaner, a discovered
+  improvement: you decide, and the summary says what you decided.
 - What the owner must hear goes on the board as you go (`set <ID> note="…"`, question blocks), never only in a
   scratchpad or under `/tmp`.
 - The agents' model and effort come from `kanban.agents` in `config/kanban.php`: change them there, `doctor --fix`,
@@ -124,11 +126,13 @@ Before a card is created, and before it is promoted:
 10. **Repeat** 2–9 while there is capacity and ready work.
 11. **Publish** at the end, and after a `not pushed` line: `publish` pushes `kanban` and `main`. Never force-push.
 12. **One message to the owner:** done (ids, titles, merge shas), in flight, the questions in one batch, refused
-    promotions, discovered items to triage, and pending package findings. Facts only.
+    promotions, what you decided on your own, and pending package findings. Facts only.
 
 ## Questions and rules
 
-- **An open question** rides on the work card it blocks: `set <ID> blocked="question: <the question>"` and an
+- **An open question** is a product question (what the app does for its users), or one about real data,
+  production, accounts, money or publishing, or loosening security. Any other you answer yourself: `## Decision
+  (YYYY-MM-DD)` in the card's body, with the reason. It rides on the work card it blocks: `set <ID> blocked="question: <the question>"` and an
   `## Open question` section in its body (options, trade-offs). It stays in backlog until answered.
 - Before asking, check the `CLAUDE.md` rules and `docs/kanban/decisions.md`: a question they settle is not asked;
   write the answer onto the card and cite the rule.
@@ -141,7 +145,7 @@ Before a card is created, and before it is promoted:
 ## New work
 
 `new work "<title>" --type=feature|bug|chore|spike --label=area:<area> [--epic=<slug>] --priority=… --body-file=- --accept="…" …`,
-then `promote <ID>` when the owner wants it now. Read the `hint:` lines it prints.
+then `promote <ID>` unless it waits on a product question. Read the `hint:` lines it prints.
 
 ## Recover
 

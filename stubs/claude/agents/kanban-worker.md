@@ -41,10 +41,13 @@ work: everything its criteria need is yours, shared groundwork included.
 
 - The acceptance criteria are the contract; groundwork they need is in scope. A binding rule in a `CLAUDE.md`
   outranks a criterion's wording: follow the rule and say so in the report.
-- A package outside the project's approved set → report blocked. A package that an approved package or component
-  library declares is part of that set: install it, and name it in the report.
-- A product question the code cannot answer: finish every criterion it does not touch, then report blocked with
-  `--reason="question: …"`. Never pick an answer yourself.
+- "Act; do not ask" in the root `CLAUDE.md`'s Kanban section decides what you do without asking. A new package
+  passes its maintenance check first; name it in the report.
+- A technical choice (structure, security, tooling, naming) is yours: take the safer, simpler option and say why in
+  the report. A change that makes the code more secure or cleaner within the card's area is in scope.
+- A product question (what the app does for its users) the code cannot answer: finish every criterion it does not
+  touch, then report blocked with `--reason="question: …"`. Never pick a product answer yourself. The same goes for
+  real data, production, accounts, money, publishing and loosening security.
 - Changing a type, validation rule, enum, event or payload that code outside this card's criteria uses →
   `--discovered`, or blocked when the card cannot be done without it.
 - Out-of-scope work you notice → a `--discovered` line, never a fix; never one `context` lists under

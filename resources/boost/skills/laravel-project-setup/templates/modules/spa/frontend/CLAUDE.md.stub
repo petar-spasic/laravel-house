@@ -39,8 +39,8 @@ whose).
 
 ## Stack
 
-The packages in step 2, plus what the shadcn-svelte components declare (Components, Add), and nothing else without
-the owner's approval (convention 6): SvelteKit 2 with Svelte 5 runes, adapter-node, TypeScript, Tailwind 4,
+The packages in step 2, plus what the shadcn-svelte components declare (Components, Add); anything else only as
+convention 6 allows: SvelteKit 2 with Svelte 5 runes, adapter-node, TypeScript, Tailwind 4,
 shadcn-svelte, superforms + formsnap on `zod` 4, Playwright. HTTP is SvelteKit's `fetch` only. Icons come from
 `@lucide/svelte` only, never emoji.
 
@@ -108,7 +108,7 @@ shadcn-svelte, superforms + formsnap on `zod` 4, Playwright. HTTP is SvelteKit's
   merges it last), variants through `tv({ extend: buttonVariants, … })`, behaviour through a wrapper component.
 - **Update**: bump the pin, the registry tag and `cn`'s range (the new `utils` item's) together, rerun
   `add <every installed component> --yes --overwrite`, commit `ui/`. Generated code failing `npm run check` means
-  another pin (ask the owner), never an edit.
+  another pin (the newest that passes), never an edit.
 - **The gate is `npm run check:ui`.** It fails unless `components.json` names the pinned tag and sets `style`. Then,
   in a temp dir, it runs `npx shadcn-svelte@<version> add <every directory in ui/> --yes --overwrite --no-deps-install`
   and fails on any diff in `ui/`, printing it. The temp dir holds:

@@ -178,7 +178,7 @@ components inside the app layout, `noindex`:
 Around them:
 - Each is a plain `<form method="post" action="{{ route(…) }}">` with `@csrf` and `hx-boost="false"`: sign-in,
   sign-out and registration regenerate the CSRF token, and a boosted swap would keep the old one in the head meta.
-- Passkeys: `@laravel/passkeys` (owner approval, convention 6) in `resources/js/passkeys.ts`, bound from `app.ts` by
+- Passkeys: `@laravel/passkeys` (convention 6) in `resources/js/passkeys.ts`, bound from `app.ts` by
   delegated listeners on `data-passkey-*` attributes (CSP). It sends `Accept: application/json` and the `csrf-token`
   meta, and on success navigates to the returned `redirect`.
 - A security settings page behind `auth` + `password.confirm`: two-factor enable/confirm/disable with the QR code and
@@ -226,7 +226,7 @@ Around them:
 
 ## Components: shadcn-svelte
 
-The first island that needs a component does the setup, with owner approval for the devDependencies: `shadcn-svelte`
+The first island that needs a component does the setup, with these devDependencies (convention 6): `shadcn-svelte`
 (exact pin), `bits-ui`, `tailwind-variants`, `cn` (at the range the pinned registry's `utils` item declares),
 `tw-animate-css`, `@lucide/svelte`.
 
@@ -251,7 +251,7 @@ The first island that needs a component does the setup, with owner approval for 
   behaviour through a wrapper component there.
 - **Update**: bump the `shadcn-svelte` pin, the registry tag and `cn`'s range (the new `utils` item's) together,
   rerun `add <every installed component> --yes --overwrite`, commit `ui/` as generated. Generated code that fails
-  `npm run check` means another pin (ask the owner), never an edit.
+  `npm run check` means another pin (the newest that passes), never an edit.
 - **The gate is `npm run check:ui`.** In a temp dir holding a minimal `package.json`, the same tsconfig `paths`,
   `components.json` and the same CSS files, it runs the pinned CLI with
   `add <every directory in ui/> --yes --overwrite --no-deps-install` and fails on any diff in `ui/`. It needs the

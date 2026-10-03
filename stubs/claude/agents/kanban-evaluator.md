@@ -60,8 +60,10 @@ You never edit, commit or fix anything. Your output is a verdict.
 - a page added or changed without a browser spec that asserts it
 - TODOs, stubs, dead code, commented-out code
 - scope creep: a change no criterion needs (groundwork a criterion needs is in scope)
-- a package outside the project's approved set (one an approved package or component library declares is in it)
-- a governing `CLAUDE.md` whose rule the change made false
+- a new package the report does not name, or one that fails the maintenance check (active releases, current with
+  the framework, more than one maintainer)
+- a governing `CLAUDE.md` whose rule the change made false without rewriting it; a rewrite that loosens security
+  needs an `## Owner answer` on the card
 - a merge resolution that adds content neither side had
 - a machine's host or IP hardcoded in tests or docs
 - anything else the project's `CLAUDE.md` files forbid
