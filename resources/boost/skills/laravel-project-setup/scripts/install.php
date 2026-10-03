@@ -174,14 +174,15 @@ function fresh(string $repo, array $modules, array $vars, bool $dryRun): void
             'packages' => ['petar-spasic/laravel-house']], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n");
         $say('wrote boost.json');
     }
-    $json = fn (string $file, callable $change, int $indent) => $edit($file, function (string $text) use ($change, $indent) {
+    $json = fn (string $file, callable $change) => $edit($file, function (string $text) use ($change) {
         $data = json_decode($text, true);
         if (! is_array($data)) {
             return null;
         }
         $encoded = json_encode($change($data), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)."\n";
+        $indent = preg_match('/^( +)"/m', $text, $m) ? strlen($m[1]) : 4;
 
-        return $indent === 4 ? $encoded : preg_replace_callback('/^(?: {4})+/m', fn ($m) => str_repeat(' ', strlen($m[0]) / 4 * $indent), $encoded);
+        return preg_replace_callback('/^(?: {4})+/m', fn ($m) => str_repeat(' ', strlen($m[0]) / 4 * $indent), $encoded);
     });
     $json('composer.json', function (array $c) use ($on) {
         $update = (array) ($c['scripts']['post-update-cmd'] ?? []);
@@ -197,13 +198,13 @@ function fresh(string $repo, array $modules, array $vars, bool $dryRun): void
         }
 
         return $c;
-    }, 4);
+    });
     if ($on('htmx')) {
         $json('package.json', function (array $p) use ($on) {
             $p['scripts']['check'] = $on('islands') ? 'svelte-check --tsconfig ./tsconfig.json' : 'tsc';
 
             return $p;
-        }, 2);
+        });
     }
 
     $ignore = (string) @file_get_contents("{$repo}/.gitignore");
