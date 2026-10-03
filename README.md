@@ -623,8 +623,8 @@ the project.
 <a name="joining-an-existing-board"></a>
 ### Joining an Existing Board
 
-Each other machine, and each fresh clone, needs the board checked out and git configured. Run the following after
-cloning:
+Each other machine, and each fresh clone, needs the board checked out, git configured, and the permissions that name
+its own path in `.claude/settings.local.json`. Run the following after cloning:
 
 ```shell
 composer install

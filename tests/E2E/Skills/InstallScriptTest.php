@@ -273,7 +273,7 @@ it('makes the fixed edits to a fresh htmx skeleton before writing the templates'
     (new Process(['git', '-c', 'user.name=Acme', '-c', 'user.email=dev@acme.test', 'commit', '-q', '--allow-empty', '-m', 'init'], $repo))->mustRun();
 
     expect(fresh($repo, 'htmx')->getErrorOutput())->toContain('--fresh is for a fresh skeleton')
-        ->and(fresh(skeleton(), 'htmx', ['--dry-run'])->getOutput())->toContain("would: deleted AGENTS.md\n");
+        ->and(fresh(skeleton(), 'htmx', ['--dry-run'])->getOutput())->toContain("would: deleted AGENTS.md\n")->not->toContain('skipped, already exists');
 });
 
 it('drops the root Node toolchain for spa, and names a known line it cannot find', function () {

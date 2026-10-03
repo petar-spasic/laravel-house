@@ -86,7 +86,7 @@ final class PortRegistry
             foreach ($data['stacks'] as $slot => $entry) {
                 if ($entry['worktree'] === $worktree && ! in_array((int) $slot, $avoid, true)) {
                     $data['stacks'][$slot] = array_replace($entry, array_filter($meta, fn ($v) => $v !== null));
-                    $data['stacks'][$slot]['ports'] = ($entry['ports'] ?? []) + $this->ports($data['pool'], (int) $slot);
+                    $data['stacks'][$slot]['ports'] = $this->grow($data['pool'], (int) $slot, (array) ($entry['ports'] ?? []));
 
                     return [$data, $data['stacks'][$slot]];
                 }
@@ -188,6 +188,30 @@ final class PortRegistry
         }
 
         return $ports;
+    }
+
+    /**
+     * A reused stack keeps its ports; a variable it lacks takes its own offset, or the lowest one the stack leaves free.
+     *
+     * @param  array<string, int>  $stored
+     * @return array<string, int>
+     */
+    private function grow(array $pool, int $slot, array $stored): array
+    {
+        $first = $pool['base'] + $pool['block'] * $slot;
+        $used = array_flip(array_map(fn (int $port) => $port - $first, $stored));
+        foreach ($this->ports($pool, $slot) as $key => $port) {
+            if (isset($stored[$key])) {
+                continue;
+            }
+            for ($offset = isset($used[$port - $first]) ? 0 : $port - $first; isset($used[$offset]); $offset++);
+            if ($offset < $pool['block']) {
+                $stored[$key] = $first + $offset;
+                $used[$offset] = true;
+            }
+        }
+
+        return $stored;
     }
 
     /** First port of the slot's block that cannot be bound or is published by a container, or null. */

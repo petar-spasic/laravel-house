@@ -95,6 +95,13 @@ it('gives every host port variable of the compose file a port of the slot, also 
 
     expect(file_get_contents($code->worktree($early).'/.env'))->toContain('MAIL_PORT='.($code->base + 13)."\n")
         ->and($code->kanban(['doctor'])->getOutput())->toContain("ok docker-compose.local.yml is worktree-safe\n");
+
+    // ADMINER_PORT sorts before MAIL_PORT, so a new stack would put it at +3; the early stack keeps MAIL_PORT there.
+    $code->commitMain('docker-compose.local.yml', str_replace('ports: [', 'ports: ["127.0.0.1:${ADMINER_PORT:-8081}:8080", ', file_get_contents($code->root().'/docker-compose.local.yml')));
+    $code->ok(['stack', 'up'], cwd: $code->worktree($early));
+    $env = file_get_contents($code->worktree($early).'/.env');
+
+    expect($env)->toContain('MAIL_PORT='.($code->base + 13)."\n")->toContain('ADMINER_PORT='.($code->base + 14)."\n");
 });
 
 it('skips a slot whose ports are taken on the host or by a container', function () {

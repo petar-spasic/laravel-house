@@ -29,28 +29,37 @@ final class ClaudeSettings extends Step
 
     public function run(bool $dryRun = false, bool $force = false): array
     {
-        $lines = [];
-        foreach ([self::FILE => $this->merge(...), self::LOCAL => $this->mergeLocal(...)] as $file => $merge) {
-            $current = $this->read($file);
-            try {
-                $settings = $this->decode($current);
-            } catch (JsonException $e) {
-                $lines[] = 'skipped '.$file.': not valid JSON ('.$e->getMessage().'); fix it and run again';
+        return [$this->apply(self::FILE, $this->merge(...), $dryRun), ...$this->local($dryRun)];
+    }
 
-                continue;
-            }
-            $changes = $merge($settings);
-            if ($changes === []) {
-                $lines[] = $file.' ok';
-            } elseif ($dryRun) {
-                $lines[] = 'would update '.$file.': '.implode(', ', $changes);
-            } else {
-                $this->write($file, self::json($settings, $current));
-                $lines[] = ($current === null ? 'created ' : 'updated ').$file.': '.implode(', ', $changes);
-            }
+    /**
+     * Only this checkout's `settings.local.json`: what `attach` gives a fresh clone, whose `settings.json` is committed.
+     *
+     * @return list<string>
+     */
+    public function local(bool $dryRun = false): array
+    {
+        return [$this->apply(self::LOCAL, $this->mergeLocal(...), $dryRun)];
+    }
+
+    private function apply(string $file, callable $merge, bool $dryRun): string
+    {
+        $current = $this->read($file);
+        try {
+            $settings = $this->decode($current);
+        } catch (JsonException $e) {
+            return 'skipped '.$file.': not valid JSON ('.$e->getMessage().'); fix it and run again';
         }
+        $changes = $merge($settings);
+        if ($changes === []) {
+            return $file.' ok';
+        }
+        if ($dryRun) {
+            return 'would update '.$file.': '.implode(', ', $changes);
+        }
+        $this->write($file, self::json($settings, $current));
 
-        return $lines;
+        return ($current === null ? 'created ' : 'updated ').$file.': '.implode(', ', $changes);
     }
 
     public function check(): array

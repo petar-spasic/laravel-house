@@ -2,6 +2,7 @@
 
 namespace PetarSpasic\LaravelHouse\Kanban\Hooks;
 
+use PetarSpasic\LaravelHouse\Kanban\Console\Install\ClaudeSettings;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Brief;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Context;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Runtime;
@@ -40,6 +41,7 @@ final class SessionStart
         if (! $this->paths->hasBoard()) {
             try {
                 (new Bootstrap($this->paths, $this->config))->attach();
+                (new ClaudeSettings($this->paths, $this->config))->local();
             } catch (KanbanException) {
                 return ['stdout' => "kanban: not installed\n", 'stderr' => '', 'exit' => 0];
             }

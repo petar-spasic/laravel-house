@@ -29,6 +29,7 @@ $force = false;
 $dryRun = false;
 $renderTo = null;
 $fresh = false;
+$replaced = [];
 $templates = dirname(__DIR__).'/templates';
 $args = array_slice($argv, 1);
 
@@ -86,11 +87,15 @@ if ($fresh) {
     }
     $commits = shell_exec('git -C '.escapeshellarg($repo).' rev-parse --verify -q HEAD 2>/dev/null');
     trim((string) $commits) === '' || fail('--fresh is for a fresh skeleton, and this repo has commits: make these edits by hand (references/adopt.md)');
-    fresh($repo, $modules, $vars, $dryRun);
+    $replaced = fresh($repo, $modules, $vars, $dryRun);
 }
 
-/** Every fixed edit of SKILL.md steps 3 and 6 to a fresh skeleton. */
-function fresh(string $repo, array $modules, array $vars, bool $dryRun): void
+/**
+ * Every fixed edit of SKILL.md steps 3 and 6 to a fresh skeleton.
+ *
+ * @return list<string> the files it deleted (on a dry run, would delete)
+ */
+function fresh(string $repo, array $modules, array $vars, bool $dryRun): array
 {
     $on = fn (string $m) => in_array($m, $modules, true);
     $say = fn (string $line) => print(($dryRun ? 'would: ' : 'fresh: ').$line."\n");
@@ -131,10 +136,12 @@ function fresh(string $repo, array $modules, array $vars, bool $dryRun): void
         array_push($delete, 'package.json', 'package-lock.json', 'vite.config.js', 'resources/js', 'resources/css',
             'resources/views/welcome.blade.php', 'public/favicon.ico', 'public/robots.txt');
     }
+    $deleted = [];
     foreach ($delete as $relative) {
         if (file_exists("{$repo}/{$relative}")) {
             $dryRun || remove("{$repo}/{$relative}");
             $say("deleted {$relative}");
+            $deleted[] = $relative;
         }
     }
 
@@ -218,6 +225,8 @@ function fresh(string $repo, array $modules, array $vars, bool $dryRun): void
         $dryRun || file_put_contents("{$repo}/.gitignore", rtrim($ignore, "\n").($ignore === '' ? '' : "\n").implode("\n", $missing)."\n");
         $say('.gitignore += '.implode(' ', $missing));
     }
+
+    return $deleted;
 }
 
 function remove(string $path): void
@@ -286,7 +295,7 @@ foreach ($sources as $source => $prefix) {
         if (preg_match_all('/\{\{([a-z_]+)\}\}/', $text, $m)) {
             $left[$relative] = array_values(array_unique($m[1]));
         }
-        if ($renderTo === null && file_exists($target) && ! $force) {
+        if ($renderTo === null && file_exists($target) && ! $force && ! in_array($relative, $replaced, true)) {
             $skipped[] = $relative;
 
             continue;

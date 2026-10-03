@@ -114,7 +114,9 @@ final class Prerequisites
         $ssh = new Process(['ssh', '-G', $m[1]], null, null, null, 10);
         $ssh->run();
         if ($ssh->isSuccessful() && preg_match('/^hostname (\S+)$/m', $ssh->getOutput(), $h) === 1 && strtolower($h[1]) !== strtolower($m[1])) {
-            $results[] = ['fail', "{$m[1]} is an alias in ~/.ssh/config for {$h[1]}; the container has no ssh config: put {$h[1]} in {$remote}'s URL"];
+            $results[] = gethostbyname($m[1]) === $m[1]
+                ? ['fail', "{$m[1]} is an alias in ~/.ssh/config for {$h[1]}; the container has no ssh config: put {$h[1]} in {$remote}'s URL"]
+                : ['warn', "~/.ssh/config sends {$m[1]} to {$h[1]}; the container has no ssh config and connects to {$m[1]} itself"];
         }
 
         return $results;
