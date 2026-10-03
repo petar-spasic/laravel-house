@@ -65,7 +65,6 @@ it('merges settings, writes agents, .gitignore and the CLAUDE.md block, and is i
     expect($worker)->toStartWith("---\nname: kanban-worker\n")
         ->toContain('<!-- laravel-house:kanban-agent')
         ->toContain('a relative path')->not->toContain('isolation:')
-        ->and(file_get_contents($sandbox->root.'/.claude/agents/kanban-evaluator.md'))->toContain("tools: Read, Grep, Glob, LSP, Bash, TodoWrite, Monitor, TaskStop, WebFetch, mcp__laravel-boost__search-docs\n")
         ->and(file_get_contents($sandbox->root.'/.claude/agents/reviewer.md'))->toBe("---\nname: reviewer\n---\nmine\n")
         ->and(file_get_contents($sandbox->root.'/.gitignore'))->toBe("/vendor/\n/docs/kanban/\n/.claude/worktrees\n/.claude/settings.local.json\n");
 
@@ -83,6 +82,16 @@ it('merges settings, writes agents, .gitignore and the CLAUDE.md block, and is i
         ->toContain('.gitignore ok')
         ->and(array_map(fn (string $f) => file_get_contents($sandbox->root.'/'.$f), ['.claude/settings.json', '.claude/settings.local.json', 'CLAUDE.md', '.gitignore', '.claude/agents/kanban-worker.md']))->toBe($before);
 });
+
+it('gives the agents only built-in tools and Boost\'s docs search', function (string $role) {
+    $sandbox = Sandbox::create();
+    $sandbox->install('ACME');
+
+    preg_match('/^tools: (.+)$/m', file_get_contents($sandbox->root."/.claude/agents/kanban-{$role}.md"), $m);
+    $builtIn = ['Read', 'Grep', 'Glob', 'LSP', 'Bash', 'Edit', 'Write', 'TodoWrite', 'Skill', 'Monitor', 'TaskStop', 'WebFetch', 'WebSearch'];
+    expect(array_values(array_diff(explode(', ', $m[1]), $builtIn)))->toBe(['mcp__laravel-boost__search-docs'])
+        ->and(explode(', ', $m[1]))->toContain('TaskStop', 'Monitor', 'Bash');
+})->with(['worker', 'evaluator']);
 
 it('replaces an outdated CLAUDE.md block in place, never twice', function () {
     $sandbox = Sandbox::create();
