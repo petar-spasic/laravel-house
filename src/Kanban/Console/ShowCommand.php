@@ -28,6 +28,9 @@ class ShowCommand extends Command
 
         $this->say("{$card->id()} {$card->title()}");
         $this->say("board: {$card->board}");
+        if ($card->epic() !== null) {
+            $this->say("epic: {$card->epic()}".(($epic = $snapshot->epicOf($card)) !== null ? " ({$epic->title()})" : ''));
+        }
         $this->say("type: {$card->type()}");
         $this->say("stage: {$card->stage()} since {$card->stageSince()} (".Clock::human(Clock::seconds($card->stageSince())).')');
         $this->say("priority: {$card->priority()}");

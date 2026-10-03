@@ -3,10 +3,10 @@ import { openSwitcher, pick, switchTo } from '../lib.mjs';
 
 export default async (t) => {
     const { a, b } = t.seed.ids;
-    t.cli(['board', 'platform/infra', 'Infra']);
-    t.cli(['new', 'platform/infra', 'Move the queue to Redis']);
+    t.cli(['board', 'infra', 'Infra']);
+    t.cli(['new', 'infra', 'Move the queue to Redis']);
     const page = await t.open();
-    await page.goto(t.url + '/project/work', { waitUntil: 'networkidle' });
+    await page.goto(t.url + '/work', { waitUntil: 'networkidle' });
     t.ok('no card animates on first paint', (await page.locator('.card.is-new').count()) === 0);
     await switchTo(page, 'Infra');
     t.ok('nor after a board switch', (await page.locator('.card.is-new').count()) === 0);
@@ -184,15 +184,15 @@ export default async (t) => {
     await page.waitForTimeout(900);
     t.ok('the history names removed criteria', (await page.locator('.drawer .log', { hasText: 'removed criteria' }).count()) === 1);
 
-    await page.goto(t.url + '/project/nothing', { waitUntil: 'networkidle' });
+    await page.goto(t.url + '/nothing', { waitUntil: 'networkidle' });
     for (const key of ['j', 'ArrowLeft', 'p']) await page.keyboard.press(key);
     await page.waitForTimeout(200);
 
-    await page.goto(t.url + '/project/work', { waitUntil: 'networkidle' });
+    await page.goto(t.url + '/work', { waitUntil: 'networkidle' });
     await openSwitcher(page);
     t.ok('two boards in the switcher, and all boards', (await page.locator('.menu [role=menuitem]').count()) === 3);
     await page.keyboard.press('Escape');
-    t.cli(['board', 'project/extra', 'Extra board']);
+    t.cli(['board', 'extra', 'Extra board']);
     await page.waitForTimeout(500);
     t.cli(['set', b, 'priority=low']);
     await page.waitForTimeout(4500);

@@ -22,7 +22,7 @@ it('prints the brief and exports KANBAN_SESSION into CLAUDE_ENV_FILE', function 
     $lines = explode("\n", rtrim($start->getOutput()));
     expect($lines[0])->toMatch('/^Kanban ACME: branch kanban @[0-9a-f]{7}, not published, sync off, \d{4}-\d\d-\d\d \d\d:\d\dZ$/')
         ->and($lines[1])->toBe('WIP doing 1/6, review 0/6 · ready 1 · backlog 1 · blocked 1 · questions 1')
-        ->and($lines[2])->toMatch("/^doing  {$id} norm project\/work Conditional clauses: worker a4d2 live \d+s, wt ".basename($wt).'$/')
+        ->and($lines[2])->toMatch("/^doing  {$id} norm work Conditional clauses: worker a4d2 live \d+s, wt ".basename($wt).'$/')
         ->and($lines[3])->toBe("blocked {$blocked} Waiting on owner: \"question: one workspace per team?\"")
         ->and($lines[4])->toBe("next: {$next} high")
         ->and($lines[5])->toBe('checks: merge driver ok · journal 0 · guard ok · hooksPath ok · 0 orphan worktrees · lease: free')
@@ -41,7 +41,7 @@ it('gives a session in a card worktree the card context and a session title', fu
         ->and($json['hookSpecificOutput']['hookEventName'])->toBe('SessionStart')
         ->and($json['hookSpecificOutput']['sessionTitle'])->toBe("{$id} Conditional clauses")
         ->and($json['hookSpecificOutput']['additionalContext'])
-        ->toStartWith("{$id} doing normal feature project/work Conditional clauses\nworktree {$wt} branch card/".strtolower($id).'-conditional-clauses base ')
+        ->toStartWith("{$id} doing normal feature work Conditional clauses\nworktree {$wt} branch card/".strtolower($id).'-conditional-clauses base ')
         ->toContain("acceptance:\n  [ ] 1. It renders\n  [ ] 2. It is tested")
         ->toContain("commits not on main: 1\n  ")
         ->toContain("{$id}: first step")
@@ -81,7 +81,7 @@ it('marks agents with a stale heartbeat as stopped', function () {
 
     expect($p->agent('a4d2c0ffee'))->toMatchArray(['card' => $id, 'stop_reason' => 'stale'])
         ->and($p->agent('a4d2c0ffee')['stopped_at'])->not->toBeNull()
-        ->and($out)->toContain("doing  {$id} norm project/work Conditional clauses: worker a4d2 stopped, wt ");
+        ->and($out)->toContain("doing  {$id} norm work Conditional clauses: worker a4d2 stopped, wt ");
 });
 
 it('reports orphan card worktrees and the lease holder in the status checks', function () {
@@ -182,7 +182,7 @@ it('shows a body of wide characters whole while it is under the limit', function
 it('shows a card claimed on another machine as running there, not as agentless', function () {
     $p = ProtocolSandbox::create();
     [$id] = $p->started('Conditional clauses');
-    $file = $p->main."/docs/kanban/project/work/{$id}.json";
+    $file = $p->main."/docs/kanban/work/{$id}.json";
     $card = json_decode(file_get_contents($file), true);
     $card['work']['host'] = 'alice-laptop';
     $card['claim']['by'] = 'alice@alice-laptop';
@@ -215,7 +215,7 @@ it('counts the doing cards of this machine against max_parallel, and names the o
     $p = ProtocolSandbox::create();
     [$here] = $p->started('Runs here');
     [$away] = $p->started('Runs on another machine');
-    $file = glob($p->main.'/docs/kanban/*/*/'.$away.'.json')[0];
+    $file = glob($p->main.'/docs/kanban/*/'.$away.'.json')[0];
     $card = json_decode(file_get_contents($file), true);
     $card['work']['host'] = 'another-machine';
     $card['claim']['by'] = 'main@another-machine';

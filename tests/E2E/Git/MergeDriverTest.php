@@ -8,7 +8,7 @@ use Symfony\Component\Process\Process;
  *
  * @return array{0: int, 1: array<string, mixed>|string}
  */
-function mergeDriver(?array $o, array|string $a, array|string $b, string $path = 'project/work/ACME-7K2M9Q.json'): array
+function mergeDriver(?array $o, array|string $a, array|string $b, string $path = 'work/ACME-7K2M9Q.json'): array
 {
     $dir = Sandbox::tmp();
     $files = [];
@@ -211,7 +211,7 @@ it('merges a card added on both sides (no ancestor: the newer side wins each dif
     [$exit, $merged] = mergeDriver($board,
         array_replace($board, ['order' => 30, 'updated' => '2026-09-28T11:00:00.000+00:00']),
         array_replace($board, ['wip' => ['doing' => 2]]),
-        'project/work/board.json');
+        'work/board.json');
     expect($exit)->toBe(0)->and($merged)->toBe(array_replace($board, ['order' => 30, 'wip' => ['doing' => 2], 'updated' => '2026-09-28T11:00:00.000+00:00']));
 });
 

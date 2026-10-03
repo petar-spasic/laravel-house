@@ -1,6 +1,6 @@
 {
     "$id": "board.schema.json",
-    "title": "<epic>/<board>/board.json",
+    "title": "<board>/board.json",
     "type": "object",
     "additionalProperties": false,
     "required": ["title", "body", "order", "wip", "updated"],

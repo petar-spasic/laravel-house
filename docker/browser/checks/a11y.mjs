@@ -147,12 +147,12 @@ export default async (t) => {
             const page = await t.open({ w: width, h: height, scheme, reducedMotion: 'reduce', touch });
             if (!touch) {
                 // two quick boards in the bar, so that they are measured too
-                await page.goto(t.url + '/project/work', { waitUntil: 'networkidle' });
+                await page.goto(t.url + '/work', { waitUntil: 'networkidle' });
                 await page.keyboard.press('Shift+1');
-                await page.goto(t.url + '/platform/infra', { waitUntil: 'networkidle' });
+                await page.goto(t.url + '/infra', { waitUntil: 'networkidle' });
                 await page.keyboard.press('Shift+2');
             }
-            for (const [view, path] of [['index', ''], ['work board', '/project/work'], ['drawer', `/cards/${w1}`], ['drawer with links', `/cards/${blocked}`], ['question drawer', `/cards/${question}`]]) {
+            for (const [view, path] of [['index', ''], ['work board', '/work'], ['drawer', `/cards/${w1}`], ['drawer with links', `/cards/${blocked}`], ['question drawer', `/cards/${question}`]]) {
                 await page.goto(t.url + path, { waitUntil: 'networkidle' });
                 await page.evaluate(() => document.fonts.ready);
                 await page.waitForTimeout(300);
@@ -184,7 +184,7 @@ export default async (t) => {
             }
 
             // keyboard: Tab reaches search, then New, then a filter chip, then a card, in that order
-            await page.goto(t.url + '/project/work', { waitUntil: 'networkidle' });
+            await page.goto(t.url + '/work', { waitUntil: 'networkidle' });
             const seen = [];
             for (let i = 0; i < 30; i++) {
                 await page.keyboard.press('Tab');

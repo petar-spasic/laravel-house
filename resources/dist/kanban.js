@@ -6,7 +6,7 @@
     const BASE = body.dataset.base ?? '/kanban';
     const POLL = Math.max(1000, Number(body.dataset.pollMs) || 3000);
     const root = document.getElementById('app');
-    const SUMMARY = ['id', 'short', 'title', 'stage', 'priority', 'type', 'labels', 'blocked', 'question', 'blocks', 'deps', 'progress', 'agent', 'url', 'since', 'rev'];
+    const SUMMARY = ['id', 'short', 'title', 'stage', 'priority', 'type', 'labels', 'epic', 'blocked', 'question', 'blocks', 'deps', 'progress', 'agent', 'url', 'since', 'rev'];
     const PRIORITIES = ['urgent', 'high', 'normal', 'low'];
     const MAX = { body: 20000, criteria: Number(body.dataset.maxCriteria), criterion: Number(body.dataset.maxCriterion), labels: 10 };
     // what an empty lane says
@@ -61,6 +61,7 @@
         note: 'M3 3.5h10v7H8l-3 2.5v-2.5H3z',
         'arrow-right': 'M3.5 8h9M9 4.5L12.5 8 9 11.5',
         pencil: 'M10.5 3.5l2 2M4 12l.5-2.5 6-6 2 2-6 6L4 12z',
+        flag: 'M4.5 13.5V2.75M4.5 3h7l-1.75 2.75L11.5 8.5h-7',
         more: { d: 'M3 8a1 1 0 1 0 2 0 1 1 0 0 0-2 0zM7 8a1 1 0 1 0 2 0 1 1 0 0 0-2 0zM11 8a1 1 0 1 0 2 0 1 1 0 0 0-2 0z' },
         board: { d: 'M3.2 2h1.1c.66 0 1.2.54 1.2 1.2v9.6c0 .66-.54 1.2-1.2 1.2H3.2c-.66 0-1.2-.54-1.2-1.2V3.2C2 2.54 2.54 2 3.2 2zM7.45 2h1.1c.66 0 1.2.54 1.2 1.2v5.6c0 .66-.54 1.2-1.2 1.2h-1.1c-.66 0-1.2-.54-1.2-1.2V3.2C6.25 2.54 6.79 2 7.45 2zM11.7 2h1.1c.66 0 1.2.54 1.2 1.2v7.6c0 .66-.54 1.2-1.2 1.2h-1.1c-.66 0-1.2-.54-1.2-1.2V3.2c0-.66.54-1.2 1.2-1.2z' },
     };
@@ -185,7 +186,7 @@
         failures: 0,
         collapsed: new Set(storedList('collapsed', ['dropped'])),
         pins: storedPins(),
-        filter: { q: '', priority: new Set(), type: new Set(), label: new Set(), flag: new Set() },
+        filter: { q: '', priority: new Set(), type: new Set(), label: new Set(), epic: new Set(), flag: new Set() },
         composer: null,
     };
 
@@ -296,7 +297,7 @@
             // php -S answers 400 to bad percent sequences, but a reverse proxy may pass them on: a throw here would leave the page blank and unpolled
             try { return { name: 'card', id: decodeURIComponent(parts[1]) }; } catch { return { name: 'missing' }; }
         }
-        if (parts.length === 2) return { name: 'board', ref: path };
+        if (parts.length === 1 && parts[0] !== 'cards') return { name: 'board', ref: path };
         return { name: 'missing' };
     }
     function go(url, replace = false) {
@@ -394,7 +395,8 @@
         renderNotices();
         renderSwitcher();
     }
-    const flatBoards = () => (S.boards ? S.boards.epics.flatMap((e) => e.boards) : []);
+    const flatBoards = () => (S.boards ? S.boards.boards : []);
+    const epicList = () => (S.boards ? S.boards.epics : []);
 
     async function showBoard(ref) {
         if (S.ref !== ref) { S.ref = ref; S.board = null; S.all = false; S.etags.board = null; ui.main.replaceChildren(); }
@@ -470,7 +472,7 @@
     function renderSwitcher() {
         ui.switcher.hidden = !flatBoards().length;
         const named = S.route.name !== 'boards' && S.board;
-        ui.switcher.replaceChildren(...(named ? [h('span', { class: 'sw-epic', text: S.board.epic.title }), h('span', { class: 'sw-sep', text: '/' }), h('span', { class: 'sw-name', text: S.board.title })] : [h('span', { class: 'sw-name', text: 'Boards' })]), svg('chevron-down'));
+        ui.switcher.replaceChildren(h('span', { class: 'sw-name', text: named ? S.board.title : 'Boards' }), svg('chevron-down'));
     }
     let pinsSig = '';
     /** The quick boards, in slot order, in the middle of the bar. */
@@ -512,12 +514,12 @@
     async function toggleSwitcher() {
         if (menu && menu.trigger === ui.switcher) { closeMenu(); return; }
         try { await loadBoards(true); } catch { /* the list on hand will do */ }
-        const groups = S.boards ? S.boards.epics.filter((e) => e.boards.length) : [];
+        const boards = flatBoards();
         openList(ui.switcher, [
-            ...groups.flatMap((epic) => [{ heading: epic.title }, ...epic.boards.map((board) => ({ value: BASE + '/' + board.ref, label: board.title, hint: openCount(board), checked: board.ref === S.ref, current: board.ref === S.ref, search: epic.title + ' ' + board.title }))]),
+            ...boards.map((board) => ({ value: BASE + '/' + board.ref, label: board.title, hint: openCount(board), checked: board.ref === S.ref, current: board.ref === S.ref, search: board.title })),
             { separator: true },
-            { value: BASE, label: 'All boards', keys: 'B' },
-        ], { kind: 'menu', title: 'Boards', trigger: ui.switcher, numbered: true, minWidth: 280, search: groups.reduce((n, epic) => n + epic.boards.length, 0) > SEARCH_ABOVE, onPick: (item) => go(item.value) });
+            { value: BASE, label: 'All boards and epics', keys: 'B' },
+        ], { kind: 'menu', title: 'Boards', trigger: ui.switcher, numbered: true, minWidth: 280, search: boards.length > SEARCH_ABOVE, onPick: (item) => go(item.value) });
     }
 
     /* ---------- view ---------- */
@@ -534,19 +536,29 @@
 
     function renderBoards() {
         ui.main.dataset.view = 'boards';
-        const epics = S.boards ? S.boards.epics.filter((e) => e.boards.length) : [];
-        if (!epics.length) {
-            const command = S.boards && S.boards.key ? 'vendor/bin/kanban board project/work "Work"' : 'vendor/bin/kanban attach';
+        const boards = flatBoards();
+        if (!boards.length) {
+            const command = S.boards && S.boards.key ? 'vendor/bin/kanban board work "Work"' : 'vendor/bin/kanban attach';
             ui.main.replaceChildren(h('div', { class: 'empty' }, h('div', {}, svg('board', 'empty-i'), h('p', { text: S.boards && S.boards.key ? 'No boards yet.' : 'No board on this machine.' }),
                 h('div', { class: 'command' }, h('code', { text: command }), h('button', { class: 'btn small', type: 'button', onclick: () => copyText(command) }, svg('copy'), 'Copy')))));
             return;
         }
-        const boards = epics.reduce((n, epic) => n + epic.boards.length, 0);
+        const epics = epicList();
         ui.main.replaceChildren(h('div', { class: 'index' },
-            h('header', { class: 'index-h' }, h('h1', { text: 'Boards' }), h('span', { class: 'muted', text: boards + (boards === 1 ? ' board' : ' boards') + ' · ' + epics.length + (epics.length === 1 ? ' epic' : ' epics') })),
-            ...epics.map((epic) => h('section', { class: 'epic' },
-                h('h2', { text: epic.title }),
-                h('div', { class: 'tiles' }, ...epic.boards.map(boardTile))))));
+            h('header', { class: 'index-h' }, h('h1', { text: 'Boards' }), h('span', { class: 'muted', text: boards.length + (boards.length === 1 ? ' board' : ' boards') + ' · ' + epics.length + (epics.length === 1 ? ' epic' : ' epics') })),
+            h('section', { class: 'index-sec' }, h('div', { class: 'tiles' }, ...boards.map(boardTile))),
+            epics.length ? h('section', { class: 'index-sec' }, h('h2', { text: 'Epics' }), h('div', { class: 'tiles' }, ...epics.map((epic) => epicTile(epic, boards[0])))) : null));
+    }
+    /** An epic on the index: its goal and how many of its cards are done; it opens the board showing only its cards. */
+    function epicTile(epic, board) {
+        const bar = h('div', { class: 'dist' + (epic.total ? '' : ' is-empty'), 'aria-hidden': 'true' });
+        if (epic.done) { const seg = h('span', { class: 'seg', data: { stage: 'done' } }); seg.style.flexGrow = String(epic.done); bar.append(seg); }
+        if (epic.total - epic.done) { const seg = h('span', { class: 'seg', data: { stage: 'backlog' } }); seg.style.flexGrow = String(epic.total - epic.done); bar.append(seg); }
+        return h('a', { class: 'board-tile epic-tile', href: BASE + '/' + board.ref + '?e=' + encodeURIComponent(epic.slug), onclick: nav },
+            h('div', { class: 'tile-top' }, svg('flag', 'tile-i'), h('h3', { text: epic.title })),
+            epic.goal ? h('p', { class: 'tile-goal', text: epic.goal }) : null,
+            bar,
+            h('div', { class: 'tile-foot' }, h('span', {}, h('b', { text: epic.done }), ' of ' + epic.total + ' done'), h('span', { text: epic.done_when.length ? epic.done_when.length + ' done-when' : '' })));
     }
     /** A board on the index: what it is, how its cards are spread over the stages, and the numbers. */
     function boardTile(board) {
@@ -722,7 +734,7 @@
 
     function fillCard(el, c) {
         const moves = hasMoves(c);
-        const signature = JSON.stringify([c.rev, c.deps, c.blocks, c.agent && [c.agent.state, c.agent.since, c.agent.beat], moves]);
+        const signature = JSON.stringify([c.rev, c.deps, c.blocks, c.agent && [c.agent.state, c.agent.since, c.agent.beat], moves, [...S.filter.epic], [...S.filter.label]]);
         if (el._sig === signature) return;
         el._sig = signature;
         if (el._rev !== undefined && el._rev !== c.rev && S.fromPoll && S.loaded) flash(el);
@@ -744,10 +756,13 @@
         if (reason) facts.push(h('span', { class: 'fact reason', title: reason, text: reason }));
         if (c.progress.total) facts.push(h('span', { class: 'fact', title: 'Acceptance criteria' }, ring(c.progress.done, c.progress.total), c.progress.done + '/' + c.progress.total));
         if (c.type === 'bug' || c.type === 'spike') facts.push(h('span', { class: 'fact type-' + c.type }, h('i', { class: 'dot' }), c.type));
-        // the area comes first: it says what the card is about
-        const labels = [...c.labels.filter((l) => l.startsWith('area:')), ...c.labels.filter((l) => !l.startsWith('area:'))];
-        for (const label of labels.slice(0, 2)) facts.push(h('span', { class: 'fact plain', text: label }));
-        if (labels.length > 2) facts.push(h('span', { class: 'fact plain', title: labels.slice(2).join(', '), text: '+' + (labels.length - 2) }));
+        // the epic and the area come first: they say what the card is about, and a click shows only their cards
+        if (c.epic) facts.push(filterChip('epic', c.epic.slug, c.epic.title, 'fact epic', svg('flag')));
+        const areas = c.labels.filter((l) => l.startsWith('area:'));
+        for (const area of areas) facts.push(filterChip('label', area, area.slice(5), 'fact area ' + areaClass(area), h('i', { class: 'dot' })));
+        const labels = c.labels.filter((l) => !l.startsWith('area:'));
+        for (const label of labels.slice(0, 1)) facts.push(h('span', { class: 'fact plain', text: label }));
+        if (labels.length > 1) facts.push(h('span', { class: 'fact plain', title: labels.slice(1).join(', '), text: '+' + (labels.length - 1) }));
         if (c.url && /^https?:\/\//i.test(c.url)) facts.push(h('a', { class: 'fact link', href: c.url, target: '_blank', rel: 'noopener noreferrer', draggable: 'false', title: c.url }, svg('external'), hostOf(c.url)));
         el.replaceChildren(
             h('div', { class: 'c-top' },
@@ -757,6 +772,21 @@
                 moves ? (el._more ||= h('button', { class: 'icon-btn c-more', type: 'button', draggable: 'false', 'aria-label': 'Move card…', 'aria-haspopup': 'menu', 'aria-expanded': 'false', title: 'Move… (m)', onclick: (e) => { e.stopPropagation(); select(el.dataset.id); moveMenu(el.dataset.id, e.currentTarget); } }, svg('more'))) : null),
             h('a', { class: 'c-title', href: BASE + '/cards/' + c.id, draggable: 'false', title: c.title, text: c.title }),
             ...(tags.length || facts.length ? [h('div', { class: 'c-meta' }, tags, facts)] : []));
+    }
+
+    const AREA_COLORS = 10;
+    /** The colour slot of an area: the same name gives the same colour on every machine. */
+    function areaClass(area) {
+        let hash = 0;
+        for (const ch of area) hash = (Math.imul(hash, 31) + ch.codePointAt(0)) >>> 0;
+        return 'area-' + (hash % AREA_COLORS);
+    }
+    /** A chip on a card that toggles the filter it names; it stays a button, so the card under it does not open. */
+    function filterChip(key, value, text, cls, mark) {
+        const on = S.filter[key].has(value);
+        return h('button', { class: cls + (on ? ' is-on' : ''), type: 'button', draggable: 'false', 'aria-pressed': String(on),
+            title: (on ? 'Show all cards again' : 'Show only these cards') + ' (' + (key === 'epic' ? 'epic ' : '') + value + ')',
+            onclick: (e) => { e.stopPropagation(); toggleFilter(key, value); } }, mark, h('span', { text }));
     }
 
     /** An agent on a card: working (with how long), stale (no heartbeat) or stopped. */
@@ -1270,7 +1300,7 @@
             if (!value) return;
             title.disabled = true;
             try {
-                const { data } = await writing(() => api('/' + S.ref + '/cards', { method: 'POST', body: { title: value, priority: priority.value, type: type.value } }));
+                const { data } = await writing(() => api('/' + S.ref + '/cards', { method: 'POST', body: { title: value, priority: priority.value, type: type.value, ...(S.filter.epic.size === 1 ? { epic: [...S.filter.epic][0] } : {}) } }));
                 place(data.card);
                 title.value = '';
                 renderView();
@@ -1297,7 +1327,7 @@
 
     /* ---------- filters ---------- */
 
-    const filterOn = () => !!(S.filter.q || S.filter.priority.size || S.filter.type.size || S.filter.label.size || S.filter.flag.size);
+    const filterOn = () => !!(S.filter.q || S.filter.priority.size || S.filter.type.size || S.filter.label.size || S.filter.epic.size || S.filter.flag.size);
     function matches(c) {
         const f = S.filter;
         if (f.q) {
@@ -1307,6 +1337,7 @@
         if (f.priority.size && !f.priority.has(c.priority)) return false;
         if (f.type.size && !f.type.has(c.type)) return false;
         if (f.label.size && !c.labels.some((l) => f.label.has(l))) return false;
+        if (f.epic.size && !(c.epic && f.epic.has(c.epic.slug))) return false;
         if (f.flag.has('blocked') && !c.blocked) return false;
         if (f.flag.has('agent') && !(c.agent && c.agent.state === 'working')) return false;
         if (f.flag.has('waiting') && !c.deps.open) return false;
@@ -1315,7 +1346,7 @@
     function filtersChanged() {
         const p = new URLSearchParams();
         if (S.filter.q) p.set('q', S.filter.q);
-        for (const [key, short] of [['priority', 'p'], ['type', 't'], ['label', 'l'], ['flag', 'f']]) if (S.filter[key].size) p.set(short, [...S.filter[key]].join(','));
+        for (const [key, short] of [['priority', 'p'], ['type', 't'], ['label', 'l'], ['epic', 'e'], ['flag', 'f']]) if (S.filter[key].size) p.set(short, [...S.filter[key]].join(','));
         const under = new URLSearchParams(location.search).get('from');
         if (under) p.set('from', under);
         history.replaceState(history.state, '', location.pathname + (p.toString() ? '?' + p : ''));
@@ -1325,11 +1356,11 @@
     function readFilterFromUrl() {
         const p = new URLSearchParams(location.search);
         const list = (key) => new Set((p.get(key) || '').split(',').filter(Boolean));
-        S.filter = { q: p.get('q') || '', priority: list('p'), type: list('t'), label: list('l'), flag: list('f') };
+        S.filter = { q: p.get('q') || '', priority: list('p'), type: list('t'), label: list('l'), epic: list('e'), flag: list('f') };
         if (ui.q && document.activeElement !== ui.q) ui.q.value = S.filter.q;
     }
     function clearFilters() {
-        S.filter = { q: '', priority: new Set(), type: new Set(), label: new Set(), flag: new Set() };
+        S.filter = { q: '', priority: new Set(), type: new Set(), label: new Set(), epic: new Set(), flag: new Set() };
         ui.q.value = '';
         filtersChanged();
     }
@@ -1355,11 +1386,14 @@
         const counts = { blocked: live.filter((c) => c.blocked).length, waiting: live.filter((c) => c.deps.open).length, agent: live.filter((c) => c.agent && c.agent.state === 'working').length };
         const labels = [...new Set(all.flatMap((c) => c.labels))].sort();
         const types = [...new Set(all.map((c) => c.type))].sort();
+        const titles = new Map(epicList().map((e) => [e.slug, e.title]));
+        for (const c of all) if (c.epic) titles.set(c.epic.slug, c.epic.title);
+        const epics = [...titles].filter(([slug]) => all.some((c) => c.epic && c.epic.slug === slug) || f.epic.has(slug)).map(([value, label]) => ({ value, label }));
         const shown = all.filter(matches).length;
 
         ui.result.textContent = filterOn() ? 'Showing ' + shown + ' of ' + all.length : '';
         ui.clear.hidden = !filterOn();
-        const sig = JSON.stringify([counts, labels, types, [...f.priority], [...f.type], [...f.label], [...f.flag]]);
+        const sig = JSON.stringify([counts, labels, types, epics, [...f.priority], [...f.type], [...f.label], [...f.epic], [...f.flag]]);
         if (sig === toolbarSig) return;
         toolbarSig = sig;
 
@@ -1369,16 +1403,18 @@
                 onclick: () => { if (counts[flag] || f.flag.has(flag)) toggleFilter('flag', flag); } },
                 icon ? svg(icon) : h('span', { class: 'pulse' }), name, h('span', { class: 'n', text: counts[flag] }));
         };
-        const dropdown = (key, name, options) => {
+        const dropdown = (key, name, values) => {
+            const options = values.map((o) => (typeof o === 'string' ? { value: o, label: o } : o));
             const chosen = [...f[key]];
+            const first = chosen.length ? (options.find((o) => o.value === chosen[0]) || { label: chosen[0] }).label : '';
             const chip = h('button', { class: 'tgl' + (chosen.length ? ' is-active' : ''), type: 'button', data: { filter: key }, 'aria-haspopup': 'listbox', 'aria-expanded': 'false', onclick: () => filterMenu(chip, key, name, options) },
-                chosen.length ? name + ': ' + chosen[0] + (chosen.length > 1 ? ' +' + (chosen.length - 1) : '') : name, svg('chevron-down'));
+                chosen.length ? name + ': ' + first + (chosen.length > 1 ? ' +' + (chosen.length - 1) : '') : name, svg('chevron-down'));
             return chip;
         };
         const held = ui.chips.contains(document.activeElement) ? document.activeElement : null;
         const heldKey = held && (held.dataset.flag ? '[data-flag="' + held.dataset.flag + '"]' : '[data-filter="' + held.dataset.filter + '"]');
         ui.chips.replaceChildren(...FLAGS.map(toggle), h('span', { class: 'divider' }),
-            ...[dropdown('priority', 'Priority', PRIORITIES), types.length > 1 ? dropdown('type', 'Type', types) : null, labels.length ? dropdown('label', 'Label', labels) : null].filter(Boolean));
+            ...[epics.length ? dropdown('epic', 'Epic', epics) : null, dropdown('priority', 'Priority', PRIORITIES), types.length > 1 ? dropdown('type', 'Type', types) : null, labels.length ? dropdown('label', 'Label', labels) : null].filter(Boolean));
         if (heldKey) { const again = ui.chips.querySelector(heldKey); if (again) again.focus({ preventScroll: true }); }
 
         // an open filter menu keeps pointing at its chip, which was just rebuilt
@@ -1390,7 +1426,7 @@
 
     function filterMenu(chip, key, name, options) {
         if (menu && menu.trigger === chip) { closeMenu(); return; }
-        openList(chip, options.map((value) => ({ value, label: value, checked: S.filter[key].has(value) })), { kind: 'listbox', multi: true, title: name, trigger: chip, limit: 20, onPick: (item) => toggleFilter(key, item.value) });
+        openList(chip, options.map((o) => ({ ...o, checked: S.filter[key].has(o.value) })), { kind: 'listbox', multi: true, title: name, trigger: chip, limit: 20, onPick: (item) => toggleFilter(key, item.value) });
     }
 
     /* ---------- cards: layered panels ---------- */
@@ -1619,8 +1655,9 @@
         P.stage = selectPill('Stage', [], '', (to) => moveCard(P.id, to, P.stage.el), stageMark);
         P.priority = selectPill('Priority', PRIORITIES.map((p) => ({ value: p, label: p })), 'normal', (priority) => save(P.id, { priority }), priorityMark);
         P.type = selectPill('Type', TYPES.map((t) => ({ value: t, label: t })), 'feature', (type) => save(P.id, { type }));
+        P.epic = selectPill('Epic', [], '', (epic) => save(P.id, { epic: epic || null }));
         P.block = h('button', { class: 'btn danger', type: 'button', text: 'Block…', onclick: () => editBlocked(P) });
-        P.controls = h('div', { class: 'controls' }, P.stage.el, P.priority.el, P.type.el, P.block);
+        P.controls = h('div', { class: 'controls' }, P.stage.el, P.priority.el, P.type.el, P.epic.el, P.block);
         P.blocked = h('div');
 
         P.labelList = h('span', { class: 'chips' });
@@ -1699,13 +1736,17 @@
             return;
         }
         if (!P.shown) { P.shown = true; P.note.value = drafts.get(P.id + ':note') || ''; growNote(P); }
-        P.board.textContent = c.board.epic + ' / ' + c.board.title;
+        P.board.textContent = c.board.title;
         P.board.href = BASE + '/' + c.board.ref;
         if (document.activeElement !== P.title) P.title.value = c.title;
         grow(P);
         P.stage.set(c.stage, [...new Set([c.stage, ...c.targets])].map((s) => ({ value: s, label: s, disabled: !c.targets.includes(s) })));
         P.priority.set(c.priority);
         P.type.set(c.type);
+        const epics = epicList().map((e) => ({ value: e.slug, label: e.title }));
+        if (c.epic && !epics.some((e) => e.value === c.epic.slug)) epics.push({ value: c.epic.slug, label: c.epic.title });
+        P.epic.set(c.epic ? c.epic.slug : '', [{ value: '', label: 'No epic' }, ...epics]);
+        P.epic.el.hidden = !epics.length;
         // a card in a locked stage takes a note, a block and ticks: the rest is shown, not offered
         P.el.classList.toggle('is-locked', !!c.locked);
         P.lockNote.hidden = !c.locked;

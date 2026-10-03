@@ -55,6 +55,14 @@ final class Card
         return (string) ($this->data['priority'] ?? 'normal');
     }
 
+    /** The slug of the card's epic, or null. */
+    public function epic(): ?string
+    {
+        $epic = $this->data['epic'] ?? null;
+
+        return is_string($epic) && $epic !== '' ? $epic : null;
+    }
+
     /** @return list<string> */
     public function labels(): array
     {

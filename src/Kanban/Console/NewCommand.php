@@ -12,10 +12,11 @@ use Symfony\Component\Console\Attribute\AsCommand;
 class NewCommand extends Command
 {
     protected $signature = 'kanban:new
-        {board : epic/board}
+        {board : The board, such as work}
         {title : Card title}
         {--type= : feature|bug|chore|spike}
         {--priority= : urgent|high|normal|low}
+        {--epic= : The epic the card belongs to (its slug)}
         {--label=* : Label (repeatable)}
         {--accept=* : Acceptance criterion (repeatable)}
         {--depends=* : Card id it depends on (repeatable)}
@@ -35,6 +36,7 @@ class NewCommand extends Command
             'title' => $this->argument('title'),
             'type' => $this->option('type'),
             'priority' => $this->option('priority'),
+            'epic' => $this->option('epic'),
             'body' => $body,
             'labels' => $this->option('label'),
             'accept' => $this->option('accept'),

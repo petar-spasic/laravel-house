@@ -5,7 +5,7 @@ export const seed = 'rich';
 export default async function (t) {
     const { question, blocked, schema, job, labels } = t.seed.ids;
     const page = await t.open();
-    await page.goto(t.url + '/project/work', { waitUntil: 'networkidle' });
+    await page.goto(t.url + '/work', { waitUntil: 'networkidle' });
     const face = (id) => page.locator(`.card[data-id="${id}"]`);
     const spine = (id) => face(id).evaluate((el) => getComputedStyle(el, '::before').backgroundColor);
 
@@ -16,7 +16,7 @@ export default async function (t) {
     t.ok('the two have different spines', (await spine(question)) !== (await spine(blocked)));
 
     t.ok('a card three open cards wait on says so', (await face(schema).locator('.tag', { hasText: 'Blocks 3' }).count()) === 1 && (await face(job).locator('.tag', { hasText: 'Blocks' }).count()) === 0);
-    t.ok('the area is the first label on a card', (await face(labels).locator('.fact.plain').first().innerText()) === 'area:sync' && (await face(question).locator('.fact.plain').first().innerText()) === 'area:print');
+    t.ok('the area is a chip before the other labels, named without its prefix', (await face(labels).locator('.fact').filter({ hasText: /^sync$/ }).count()) === 1 && (await face(labels).locator('.fact.area + .fact.plain').count()) === 1 && (await face(question).locator('.fact.area').innerText()) === 'print');
 
     await face(question).locator('.c-title').click();
     await page.waitForSelector('.panel.is-top .banner');

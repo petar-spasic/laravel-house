@@ -4,7 +4,7 @@ export const seed = 'rich';
 export default async (t) => {
     const { blocked } = t.seed.ids;
     const page = await t.open({ forcedColors: 'active' });
-    await page.goto(t.url + '/project/work', { waitUntil: 'networkidle' });
+    await page.goto(t.url + '/work', { waitUntil: 'networkidle' });
     t.ok('the browser is in forced colours', await page.evaluate(() => matchMedia('(forced-colors: active)').matches));
     const style = (selector, pseudo, ...props) => page.evaluate(([selector, pseudo, props]) => {
         const el = document.querySelector(selector);

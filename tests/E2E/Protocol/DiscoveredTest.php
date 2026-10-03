@@ -10,7 +10,7 @@ beforeEach(function () {
 /** @return list<array<string, mixed>> the cards labelled `discovered` */
 function discoveredCards(ProtocolSandbox $p): array
 {
-    return array_values(array_filter(array_map(fn (string $f) => json_decode((string) file_get_contents($f), true), glob($p->main.'/docs/kanban/*/*/*.json') ?: []),
+    return array_values(array_filter(array_map(fn (string $f) => json_decode((string) file_get_contents($f), true), glob($p->main.'/docs/kanban/*/*.json') ?: []),
         fn (array $c) => in_array('discovered', $c['labels'] ?? [], true)));
 }
 

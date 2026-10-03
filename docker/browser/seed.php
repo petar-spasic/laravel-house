@@ -6,8 +6,8 @@
  * The server replaces this process (exec), so the sandbox's shutdown cleanup never runs while it is served.
  *
  * With --rich the board also holds every state the UI draws (agents working, stale and stopped, review and done cards,
- * blocked and waiting cards, an open question, a card three others wait on, long titles, many labels, a stack link, a
- * second epic) and realistic ages; the default seed stays small so the checks' counts do not move.
+ * blocked and waiting cards, an open question, a card three others wait on, long titles, many labels, a stack link, two
+ * epics and a second board) and realistic ages; the default seed stays small so the checks' counts do not move.
  *
  * With --perf it holds 300 more chores in the backlog (first-render timing).
  *
@@ -75,13 +75,13 @@ if ($rich || $perf) {
     $host = CodeSandbox::lanHost();
     $ages = [];
 
-    $make = function (string $title, array $input = [], string $board = 'project/work') use ($store): string {
+    $make = function (string $title, array $input = [], string $board = 'work') use ($store): string {
         $ref = BoardRef::parse($board);
         $fields = (new Creation)->fields($store->snapshot(), $ref, ['title' => $title] + $input);
 
         return $store->create($ref, $fields, Actor::owner())->id();
     };
-    $ready = fn (string $title, array $input = [], string $board = 'project/work') => $make($title, ['body' => 'Build it', 'accept' => ['It works'], 'stage' => 'ready'] + $input, $board);
+    $ready = fn (string $title, array $input = [], string $board = 'work') => $make($title, ['body' => 'Build it', 'accept' => ['It works'], 'stage' => 'ready'] + $input, $board);
 }
 
 if ($perf) {
@@ -115,10 +115,14 @@ if ($rich) {
     // attention states and stress shapes
     $ids['blocked'] = $make('Rotate the signing keys before the audit', ['priority' => 'urgent', 'type' => 'bug']);
     $s->ok(['set', $ids['blocked'], 'blocked=Waiting for the security team to approve the new key length and the rollout window before anything else can move']);
+    $s->ok(['epic', 'exports', 'Exports', '--goal=Notebooks leave the app in the formats people use', '--done-when=CSV, Markdown and nightly exports ship']);
+    $s->ok(['epic', 'billing', 'Billing']);
     $ids['schema'] = $make('Define the export schema', ['priority' => 'high', 'labels' => ['area:export'], 'accept' => ['Schema documented', 'Sample export attached']]);
-    $ids['job'] = $make('Build the export job', ['depends' => [$ids['schema']]]);
-    $ids['csv'] = $make('Export a notebook as CSV', ['depends' => [$ids['schema']]]);
-    $ids['md'] = $make('Export a notebook as Markdown', ['depends' => [$ids['schema']]]);
+    $ids['job'] = $make('Build the export job', ['depends' => [$ids['schema']], 'epic' => 'exports']);
+    $ids['csv'] = $make('Export a notebook as CSV', ['depends' => [$ids['schema']], 'epic' => 'exports']);
+    $ids['md'] = $make('Export a notebook as Markdown', ['depends' => [$ids['schema']], 'epic' => 'exports']);
+    $s->ok(['set', $ids['schema'], 'epic=exports']);
+    $s->ok(['set', $ids['w1'], 'epic=billing']);
     $ids['question'] = $make('Print notes as PDF', ['labels' => ['area:print'], 'body' => "## Goal\n\nA printable PDF of one note.\n\n## Open question\n\nRender with a headless browser, or with a PDF library on the server?"]);
     $s->ok(['set', $ids['question'], 'blocked=question: headless browser or a server-side PDF library?']);
     $ids['nightly'] = $make('Schedule nightly exports', ['depends' => [$ids['job']], 'labels' => ['ops']]);
@@ -141,16 +145,16 @@ if ($rich) {
     // the blocked card also depends on something already shipped, so its panel shows the banner and a dependency (nothing waits on it)
     $s->ok(['set', $ids['blocked'], 'depends_on=+'.$id]);
 
-    // a second epic, so the switcher shows groups
-    $s->ok(['board', 'platform/infra', 'Infra']);
+    // a second board, so the switcher lists two
+    $s->ok(['board', 'infra', 'Infra']);
     foreach (['Move the queue to Redis', 'Rotate database credentials', 'Add a staging environment'] as $title) {
-        $make($title, [], 'platform/infra');
+        $make($title, [], 'infra');
     }
-    $ready('Enable nightly backups', ['labels' => ['area:backups']], 'platform/infra');
+    $ready('Enable nightly backups', ['labels' => ['area:backups']], 'infra');
 
     // backdate: every timestamp of a card moves back by its age, keeping the file's formatting
     foreach ($ages as $id => $seconds) {
-        foreach (glob($s->root."/docs/kanban/*/*/{$id}.json") as $file) {
+        foreach (glob($s->root."/docs/kanban/*/{$id}.json") as $file) {
             file_put_contents($file, preg_replace_callback('/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}[+-]\d{2}:\d{2}/', fn (array $m) => (new DateTimeImmutable($m[0]))->modify("-{$seconds} seconds")->format('Y-m-d\TH:i:s.vP'), (string) file_get_contents($file)));
         }
     }

@@ -4,7 +4,7 @@ import { pick, valueOf } from '../lib.mjs';
 export default async (t) => {
     const { a, b, c } = t.seed.ids;
     const page = await t.open();
-    await page.goto(t.url + '/project/work', { waitUntil: 'networkidle' });
+    await page.goto(t.url + '/work', { waitUntil: 'networkidle' });
 
     await page.dragAndDrop(`.card[data-id="${c}"]`, '.col[data-stage=ready]');
     await page.waitForSelector('.toast.err');
@@ -26,7 +26,7 @@ export default async (t) => {
     t.ok('a card URL opens the drawer over its board', (await page.locator('.drawer:not([hidden]) .d-title').count()) === 1 && (await page.locator('.col').count()) === 6);
 
     const phone = await t.open({ w: 390, h: 800 });
-    await phone.goto(t.url + '/project/work', { waitUntil: 'networkidle' });
+    await phone.goto(t.url + '/work', { waitUntil: 'networkidle' });
     await t.shot(phone, 'phone-board');
     await phone.click(`.card[data-id="${a}"] .c-title`);
     await phone.waitForSelector('.drawer:not([hidden]) .md');
@@ -35,9 +35,9 @@ export default async (t) => {
     t.ok('a phone-width page does not scroll sideways', await phone.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
 
     // another board: n adds there, and a board whose cards carry no labels shows no stray text in its filters
-    t.cli(['board', 'platform/infra', 'Infra']);
+    t.cli(['board', 'infra', 'Infra']);
     const other = await t.open();
-    await other.goto(t.url + '/platform/infra', { waitUntil: 'networkidle' });
+    await other.goto(t.url + '/infra', { waitUntil: 'networkidle' });
     await other.keyboard.press('n');
     await other.keyboard.type('Move the queue to Redis');
     await other.keyboard.press('Enter');

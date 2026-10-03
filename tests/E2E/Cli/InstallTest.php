@@ -14,10 +14,10 @@ it('creates the board on an orphan kanban branch at docs/kanban', function () {
         ->and($sandbox->boardLog())->toBe(['Kanban: initialize'])
         ->and(trim($sandbox->boardGit('rev-parse', '--abbrev-ref', 'HEAD')))->toBe('kanban')
         ->and(trim($sandbox->boardGit('ls-files')))->toBe(implode("\n", [
-            '.gitattributes', 'README.md', 'kanban.json', 'project/epic.json', 'project/work/board.json',
+            '.gitattributes', 'README.md', 'kanban.json', 'work/board.json',
         ]))
         ->and(file_get_contents($sandbox->root.'/docs/kanban/.gitattributes'))->toBe("*.json merge=kanban text eol=lf\n")
-        ->and(json_decode(file_get_contents($sandbox->root.'/docs/kanban/kanban.json'), true))->toMatchArray(['version' => 2, 'key' => 'ACME', 'max_parallel' => 6, 'locked' => ['doing', 'review', 'done']])
+        ->and(json_decode(file_get_contents($sandbox->root.'/docs/kanban/kanban.json'), true))->toMatchArray(['version' => 3, 'key' => 'ACME', 'max_parallel' => 6, 'locked' => ['doing', 'review', 'done']])
         ->and(file_get_contents($sandbox->root.'/.gitignore'))->toBe("/vendor/\n/docs/kanban/\n/.claude/worktrees\n/.claude/settings.local.json\n")
         ->and(trim($sandbox->git('status', '--porcelain')))->toBe("M .gitignore\n?? .claude/\n?? CLAUDE.md")
         ->and(trim($sandbox->git('config', 'merge.kanban.driver')))->toBe("php '{$sandbox->root}/vendor/bin/kanban' merge-driver %O %A %B %P")
@@ -70,7 +70,7 @@ it('runs the same command classes standalone and under artisan', function () {
     $prefixed = $sandbox->ok('kanban:list');
     Artisan::call('kanban:list');
 
-    expect($standalone)->toContain("{$id} ready normal feature project/work Shared command classes")
+    expect($standalone)->toContain("{$id} ready normal feature work Shared command classes")
         ->and($prefixed)->toBe($standalone)
         ->and(Artisan::output())->toBe($standalone);
 });
@@ -84,7 +84,7 @@ it('finds the main checkout from a subdirectory and from a linked worktree', fun
 
     expect($sandbox->kanban(['show', $id], cwd: $sandbox->root.'/app/Models')->getOutput())->toContain('Found from anywhere')
         ->and($sandbox->kanban(['show', $id], cwd: $sandbox->root.'/.claude/worktrees/x')->getOutput())->toContain('Found from anywhere')
-        ->and($sandbox->kanban(['show', $id], cwd: $sandbox->root.'/docs/kanban/project')->getOutput())->toContain('Found from anywhere');
+        ->and($sandbox->kanban(['show', $id], cwd: $sandbox->root.'/docs/kanban/work')->getOutput())->toContain('Found from anywhere');
 });
 
 it('reads the project config and .env without booting the app', function () {

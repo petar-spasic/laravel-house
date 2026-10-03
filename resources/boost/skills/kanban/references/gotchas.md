@@ -57,8 +57,8 @@ re-applied after; when origin moved it too, origin's board wins and both sets of
 SessionStart removes clean ones (up to ten an hour) once they have had no git activity and no running stack for a day.
 Uncommitted work is never touched; commit or keep the worktree busy to keep it.
 
-**`board cards/…` or `board assets/…` is refused.** → The local UI serves `/kanban/cards/…` and `/kanban/assets/…`
-itself; pick another epic name.
+**`board cards`, `board boards` or `board assets` is refused.** → The local UI serves those paths under `/kanban`
+itself; pick another board name.
 
 **The UI or a script gets 403 ("Kanban writes need the X-Kanban header" / "Cross-site requests … are refused").** → The
 UI has no session to hold a CSRF token, so its API refuses requests other sites cause and writes without the custom

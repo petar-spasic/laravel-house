@@ -80,14 +80,15 @@ it('orders next by the pull policy', function (Closure $setup, array|string $exp
         'b' => $s->readyCard('B'),
     ], ['a', 'b']],
     'epic order before board order' => [function (Sandbox $s) {
-        $s->ok(['board', 'platform/tooling', 'Tooling', '--order=1']);
+        $s->ok(['board', 'tooling', 'Tooling', '--order=1']);
+        $s->ok(['epic', 'later', 'Later', '--order=5']);
 
-        return ['t' => $s->readyCard('T', board: 'platform/tooling'), 'p' => $s->readyCard('P')];
+        return ['t' => $s->readyCard('T', ['--epic=later'], board: 'tooling'), 'p' => $s->readyCard('P')];
     }, ['p', 't']],
-    'board order within an epic' => [function (Sandbox $s) {
-        $s->ok(['board', 'project/first', 'First', '--order=5']);
+    'board order' => [function (Sandbox $s) {
+        $s->ok(['board', 'first', 'First', '--order=5']);
 
-        return ['w' => $s->readyCard('W'), 'f' => $s->readyCard('F', board: 'project/first')];
+        return ['w' => $s->readyCard('W'), 'f' => $s->readyCard('F', board: 'first')];
     }, ['f', 'w']],
     'unsatisfied dependencies wait' => [function (Sandbox $s) {
         $dep = $s->card('Dep');
@@ -99,7 +100,7 @@ it('orders next by the pull policy', function (Closure $setup, array|string $exp
         $card = $s->read($done);
         $card['stage'] = 'done';
         $card['work'] = ['branch' => 'card/shipped'];
-        file_put_contents($s->root."/docs/kanban/project/work/{$done}.json", json_encode($card, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n");
+        file_put_contents($s->root."/docs/kanban/work/{$done}.json", json_encode($card, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n");
         $ready = $s->readyCard('Still in ready');
 
         return ['r' => $ready, 'd' => $s->readyCard('D', ["--depends={$done}"]), 'e' => $s->readyCard('E', ["--depends={$ready}"])];
@@ -129,13 +130,13 @@ it('orders next by the pull policy', function (Closure $setup, array|string $exp
     ], ['g', 'i']],
     'board WIP full' => [function (Sandbox $s) {
         $s->ok(['claim', $s->readyCard('K')], ['KANBAN_SESSION' => 's1']);
-        $s->ok(['board', 'project/work', '--wip-doing=1']);
+        $s->ok(['board', 'work', '--wip-doing=1']);
 
         return ['l' => $s->readyCard('L')];
     }, 'none: board WIP limits reached'],
     'urgent expedites by one' => [function (Sandbox $s) {
         $s->ok(['claim', $s->readyCard('K')], ['KANBAN_SESSION' => 's1']);
-        $s->ok(['board', 'project/work', '--wip-doing=1']);
+        $s->ok(['board', 'work', '--wip-doing=1']);
 
         return ['l' => $s->readyCard('L'), 'm' => $s->readyCard('M', ['--priority=urgent']), 'n' => $s->readyCard('N', ['--priority=urgent'])];
     }, ['m']],
@@ -149,7 +150,7 @@ it('stops starting when review is full', function () {
     $card = $s->read($id);
     $card['stage'] = 'review';
     $card['work'] = ['branch' => 'card/x'];
-    file_put_contents($s->root."/docs/kanban/project/work/{$id}.json", json_encode($card, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n");
+    file_put_contents($s->root."/docs/kanban/work/{$id}.json", json_encode($card, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n");
     $s->readyCard('Waiting');
 
     expect($s->ok('next'))->toBe("none: review 1/1 (stop starting)\n")
@@ -158,7 +159,7 @@ it('stops starting when review is full', function () {
 
 it('claims only within capacity unless urgent or forced', function () {
     $s = $this->sandbox;
-    $s->ok(['board', 'project/work', '--wip-doing=1']);
+    $s->ok(['board', 'work', '--wip-doing=1']);
     $first = $s->readyCard('First');
     $second = $s->readyCard('Second');
     $main = ['KANBAN_SESSION' => 's1'];
@@ -209,7 +210,7 @@ it('fills the ready buffer with startable cards only, and names each backlog car
     $main = ['KANBAN_SESSION' => 's1'];
     $busy = $s->readyCard('Busy', ['--label=area:pdf']);
     $s->ok(['claim', $busy], $main);
-    $s->ok(['board', 'project/work', '--wip-doing=1']);
+    $s->ok(['board', 'work', '--wip-doing=1']);
     $waiting = $s->readyCard('Waits too', ["--depends={$busy}"]);
     $later = $s->card('After busy', ['--body=x', '--accept=y', '--label=area:a1x', "--depends={$busy}", '--priority=high']);
     $pdf = $s->card('More pdf', ['--body=x', '--accept=y', '--label=area:pdf', '--priority=high']);

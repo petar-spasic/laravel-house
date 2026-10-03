@@ -24,15 +24,15 @@ class BoardsController
         return Api::run(fn () => $this->boards($request));
     }
 
-    public function show(Request $request, string $epic, string $board): Response
+    public function show(Request $request, string $board): Response
     {
-        return Api::run(fn () => $this->board($request, $epic, $board));
+        return Api::run(fn () => $this->board($request, $board));
     }
 
     private function boards(Request $request): Response
     {
         if (! $this->paths->hasBoard()) {
-            return Api::json(['key' => null, 'epics' => [], 'notices' => [
+            return Api::json(['key' => null, 'boards' => [], 'epics' => [], 'notices' => [
                 'No board at docs/kanban on this machine: run `vendor/bin/kanban attach` (or `php artisan kanban:install` in a new project).',
             ]]);
         }
@@ -41,18 +41,19 @@ class BoardsController
             try {
                 $snapshot = $this->store->snapshot();
             } catch (OldBoard $e) {
-                return ['key' => null, 'epics' => [], 'notices' => [$e->getMessage()]];
+                return ['key' => null, 'boards' => [], 'epics' => [], 'notices' => [$e->getMessage()]];
             }
 
             $presenter = new Presenter($snapshot, $this->paths);
 
-            return ['key' => $snapshot->key(), 'layout' => $presenter->layout(), 'notices' => $this->notices($snapshot), 'epics' => $presenter->epics()];
+            return ['key' => $snapshot->key(), 'layout' => $presenter->layout(), 'notices' => $this->notices($snapshot),
+                'boards' => $presenter->boards(), 'epics' => $presenter->epics()];
         });
     }
 
-    private function board(Request $request, string $epic, string $board): Response
+    private function board(Request $request, string $board): Response
     {
-        $ref = new BoardRef($epic, $board);
+        $ref = new BoardRef($board);
         if (! $this->paths->hasBoard()) {
             throw new NotFound("no board {$ref}");
         }

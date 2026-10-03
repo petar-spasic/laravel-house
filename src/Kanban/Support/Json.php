@@ -13,7 +13,7 @@ final class Json
         'kanban' => ['version', 'key', 'id_length', 'max_parallel', 'ready_buffer', 'wip', 'stale_after_minutes', 'locked', 'guard', 'updated'],
         'epic' => ['title', 'goal', 'done_when', 'body', 'order', 'updated'],
         'board' => ['title', 'body', 'order', 'wip', 'updated'],
-        'card' => ['id', 'type', 'title', 'stage', 'priority', 'labels', 'body', 'acceptance', 'depends_on', 'blocked',
+        'card' => ['id', 'type', 'title', 'stage', 'priority', 'epic', 'labels', 'body', 'acceptance', 'depends_on', 'blocked',
             'claim', 'work', 'created', 'updated', 'log'],
         'guard' => ['strict', 'main_write_paths'],
         'acceptance' => ['id', 'text', 'done'],
@@ -56,7 +56,7 @@ final class Json
 
         return match (true) {
             $relative === 'kanban.json' => 'kanban',
-            $base === 'epic.json' => 'epic',
+            $base === 'epic.json', str_starts_with($relative, '_epics/') => 'epic',
             $base === 'board.json' => 'board',
             default => 'card',
         };

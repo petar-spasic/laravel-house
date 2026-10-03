@@ -72,9 +72,9 @@ export default async (t) => {
     t.ok('and then the one below it', (await panels()) === 1 && url().pathname.endsWith('/cards/' + nightly) && !url().searchParams.has('from'));
     await page.keyboard.press('Alt+w');
     await settle();
-    t.ok('the last one closes the drawer and lands on the board', url().pathname.endsWith('/project/work') && (await page.locator('.drawer[hidden]').count()) === 1);
+    t.ok('the last one closes the drawer and lands on the board', url().pathname.endsWith('/work') && (await page.locator('.drawer[hidden]').count()) === 1);
     await page.keyboard.press('Alt+w');
-    t.ok('Alt+W with nothing open does nothing', url().pathname.endsWith('/project/work'));
+    t.ok('Alt+W with nothing open does nothing', url().pathname.endsWith('/work'));
 
     // a strip goes back to its card and closes what was opened after it
     await page.goto(t.url + `/cards/${nightly}`, { waitUntil: 'networkidle' });
@@ -119,7 +119,7 @@ export default async (t) => {
     t.ok('a click on the board opens that card alone', (await panels()) === 1 && url().pathname.endsWith('/cards/' + job) && !url().searchParams.has('from'));
 
     // the first card fades in beside the board
-    await page.goto(t.url + '/project/work', { waitUntil: 'networkidle' });
+    await page.goto(t.url + '/work', { waitUntil: 'networkidle' });
     const fades = page.waitForFunction(() => {
         const panel = document.querySelector('.panel.is-top');
         return !!panel && panel.getAnimations().some((a) => a.effect.getKeyframes().some((k) => String(k.opacity) === '0'));
@@ -162,5 +162,5 @@ export default async (t) => {
     t.ok('a single card has a back button that says Board', (await phone.locator('.panel.is-top .d-back').innerText()).trim() === 'Board' && (await phone.locator('.panel.is-top .d-back').getAttribute('aria-label')) === 'Back to the board');
     await phone.locator('.panel.is-top .d-back').click();
     await phone.waitForTimeout(500);
-    t.ok('and it leads there', new URL(phone.url()).pathname.endsWith('/project/work') && (await phone.locator('.drawer[hidden]').count()) === 1);
+    t.ok('and it leads there', new URL(phone.url()).pathname.endsWith('/work') && (await phone.locator('.drawer[hidden]').count()) === 1);
 };

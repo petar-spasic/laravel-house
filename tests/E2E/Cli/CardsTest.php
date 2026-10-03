@@ -15,7 +15,7 @@ it('creates a card as one canonical file and one commit', function () {
         ->and($this->sandbox->boardLog()[0])->toBe("{$id} created [owner]")
         ->and(trim($this->sandbox->boardGit('status', '--porcelain')))->toBe('');
 
-    $file = file_get_contents($this->sandbox->root."/docs/kanban/project/work/{$id}.json");
+    $file = file_get_contents($this->sandbox->root."/docs/kanban/work/{$id}.json");
     $card = json_decode($file, true);
     expect(array_keys($card))->toBe(['id', 'type', 'title', 'stage', 'priority', 'labels', 'body', 'acceptance', 'depends_on', 'blocked', 'claim', 'work', 'created', 'updated', 'log'])
         ->and($card)->toMatchArray(['type' => 'bug', 'stage' => 'backlog', 'priority' => 'high', 'labels' => ['area:engine'],
@@ -53,8 +53,8 @@ it('lists ready, doing, review and blocked by default, everything with --all', f
 
     $default = $this->sandbox->ok('list');
     expect($default)->toBe(implode("\n", [
-        "{$ready} ready high feature project/work Next up",
-        "{$blocked} backlog normal feature project/work Waiting on owner [blocked: question: which plan names?]",
+        "{$ready} ready high feature work Next up",
+        "{$blocked} backlog normal feature work Waiting on owner [blocked: question: which plan names?]",
     ])."\n");
 
     $all = $this->sandbox->ok(['list', '--all']);
@@ -62,9 +62,9 @@ it('lists ready, doing, review and blocked by default, everything with --all', f
 
     $json = json_decode($this->sandbox->ok(['list', '--type=chore', '--json']), true);
     expect($json)->toHaveCount(1)
-        ->and($json[0])->toMatchArray(['id' => $other, 'type' => 'chore', 'stage' => 'backlog', 'board' => 'project/work']);
+        ->and($json[0])->toMatchArray(['id' => $other, 'type' => 'chore', 'stage' => 'backlog', 'board' => 'work']);
 
-    expect($this->sandbox->ok(['list', '--board=project/work', '--label=nope']))->toBe("no cards\n");
+    expect($this->sandbox->ok(['list', '--board=work', '--label=nope']))->toBe("no cards\n");
 });
 
 it('sets fields with the key=value syntax', function () {
@@ -107,7 +107,7 @@ it('rejects invalid values with exit 2 and changes nothing', function () {
     $bad = $this->sandbox->kanban(['set', $id, 'priority=someday']);
     $twoStdin = $this->sandbox->kanban(['set', $id, 'body=@-', 'title=@-'], input: 'Text');
     expect($bad->getExitCode())->toBe(2)
-        ->and($bad->getErrorOutput())->toContain("project/work/{$id}.json: priority: must be one of")
+        ->and($bad->getErrorOutput())->toContain("work/{$id}.json: priority: must be one of")
         ->and($this->sandbox->kanban(['set', $id, 'colour=red'])->getExitCode())->toBe(2)
         ->and($this->sandbox->kanban(['set', $id, 'labels=+Not Valid'])->getExitCode())->toBe(2)
         ->and($this->sandbox->kanban(['set', $id, 'title='.str_repeat('x', 121)])->getExitCode())->toBe(2)
@@ -115,8 +115,8 @@ it('rejects invalid values with exit 2 and changes nothing', function () {
         ->and($this->sandbox->kanban(['set', $id, 'tick=9'])->getExitCode())->toBe(4)
         ->and($twoStdin->getExitCode())->toBe(2)
         ->and($twoStdin->getErrorOutput())->toContain('set body, title in separate runs')
-        ->and($this->sandbox->kanban(['new', 'project/nope', 'X'])->getExitCode())->toBe(4)
-        ->and($this->sandbox->kanban(['new', 'project/work', 'X', '--stage=doing'])->getExitCode())->toBe(2)
+        ->and($this->sandbox->kanban(['new', 'nope', 'X'])->getExitCode())->toBe(4)
+        ->and($this->sandbox->kanban(['new', 'work', 'X', '--stage=doing'])->getExitCode())->toBe(2)
         ->and(count($this->sandbox->boardLog()))->toBe($commits)
         ->and(trim($this->sandbox->boardGit('status', '--porcelain')))->toBe('');
 });
@@ -168,27 +168,26 @@ it('lets only the main session force a move, and logs it', function () {
 });
 
 it('creates and updates boards', function () {
-    expect($this->sandbox->ok(['board', 'platform/tooling', 'Tooling', '--wip-doing=2']))->toBe("created board platform/tooling\n")
-        ->and(json_decode(file_get_contents($this->sandbox->root.'/docs/kanban/platform/tooling/board.json'), true))
-        ->toMatchArray(['title' => 'Tooling', 'order' => 10, 'wip' => ['doing' => 2]])
-        ->and(json_decode(file_get_contents($this->sandbox->root.'/docs/kanban/platform/epic.json'), true))
-        ->toMatchArray(['title' => 'Platform', 'order' => 20]);
+    expect($this->sandbox->ok(['board', 'tooling', 'Tooling', '--wip-doing=2']))->toBe("created board tooling\n")
+        ->and(json_decode(file_get_contents($this->sandbox->root.'/docs/kanban/tooling/board.json'), true))
+        ->toMatchArray(['title' => 'Tooling', 'order' => 30, 'wip' => ['doing' => 2]])
+        ->and($this->sandbox->kanban(['board', 'platform/tooling'])->getErrorOutput())->toContain('expected a board slug');
 
-    $this->sandbox->ok(['board', 'platform/tooling', '--order=5']);
-    expect(json_decode(file_get_contents($this->sandbox->root.'/docs/kanban/platform/tooling/board.json'), true))->not->toHaveKey('kind')
-        ->and(json_decode(file_get_contents($this->sandbox->root.'/docs/kanban/platform/tooling/board.json'), true)['order'])->toBe(5);
+    $this->sandbox->ok(['board', 'tooling', '--order=5']);
+    expect(json_decode(file_get_contents($this->sandbox->root.'/docs/kanban/tooling/board.json'), true))->not->toHaveKey('kind')
+        ->and(json_decode(file_get_contents($this->sandbox->root.'/docs/kanban/tooling/board.json'), true)['order'])->toBe(5);
 
     $id = $this->sandbox->card('Moves boards');
-    expect($this->sandbox->ok(['move', $id, '--board=platform/tooling']))->toBe("{$id} moved to platform/tooling\n")
-        ->and(is_file($this->sandbox->root."/docs/kanban/platform/tooling/{$id}.json"))->toBeTrue()
-        ->and(is_file($this->sandbox->root."/docs/kanban/project/work/{$id}.json"))->toBeFalse()
+    expect($this->sandbox->ok(['move', $id, '--board=tooling']))->toBe("{$id} moved to tooling\n")
+        ->and(is_file($this->sandbox->root."/docs/kanban/tooling/{$id}.json"))->toBeTrue()
+        ->and(is_file($this->sandbox->root."/docs/kanban/work/{$id}.json"))->toBeFalse()
         ->and(trim($this->sandbox->boardGit('status', '--porcelain')))->toBe('')
-        ->and($this->sandbox->kanban(['move', $id, '--board=project/nope'])->getExitCode())->toBe(4);
+        ->and($this->sandbox->kanban(['move', $id, '--board=nope'])->getExitCode())->toBe(4);
 });
 
 it('validates the board and fixes what it can', function () {
     $id = $this->sandbox->card('Valid');
-    $path = $this->sandbox->root."/docs/kanban/project/work/{$id}.json";
+    $path = $this->sandbox->root."/docs/kanban/work/{$id}.json";
     file_put_contents($path, json_encode(json_decode(file_get_contents($path), true)));
     expect($this->sandbox->ok('validate'))->toContain('ok: 1 cards');
 
@@ -196,22 +195,22 @@ it('validates the board and fixes what it can', function () {
     $broken['colour'] = 'red';
     $broken['stage'] = 'doing';
     file_put_contents($path, json_encode($broken));
-    mkdir($this->sandbox->root.'/docs/kanban/project/stray');
-    $copy = $this->sandbox->root.'/docs/kanban/project/stray/'.$id.'.json';
+    mkdir($this->sandbox->root.'/docs/kanban/stray');
+    $copy = $this->sandbox->root.'/docs/kanban/stray/'.$id.'.json';
     file_put_contents($copy, '{not json');
 
     $invalid = $this->sandbox->kanban('validate');
     expect($invalid->getExitCode())->toBe(2)
-        ->and($invalid->getOutput())->toContain("project/work/{$id}.json: colour: unknown key")
-        ->toContain("project/work/{$id}.json: claim is required in doing")
-        ->toContain("project/stray/{$id}.json: invalid JSON");
+        ->and($invalid->getOutput())->toContain("work/{$id}.json: colour: unknown key")
+        ->toContain("work/{$id}.json: claim is required in doing")
+        ->toContain("stray/{$id}.json: invalid JSON");
 
     unlink($copy);
     $broken['stage'] = 'backlog';
     unset($broken['colour']);
     file_put_contents($path, json_encode($broken));
     $fixed = $this->sandbox->ok(['validate', '--fix']);
-    expect($fixed)->toContain("fixed canonical project/work/{$id}.json")
+    expect($fixed)->toContain("fixed canonical work/{$id}.json")
         ->toContain('ok: 1 cards')
         ->and(file_get_contents($path))->toContain("\n    \"id\": ")
         ->and($this->sandbox->boardLog()[0])->toBe("{$id} created [owner]")
@@ -220,18 +219,18 @@ it('validates the board and fixes what it can', function () {
 
 it('re-ids duplicate ids with validate --fix', function () {
     $id = $this->sandbox->card('Original');
-    $copy = json_decode(file_get_contents($this->sandbox->root."/docs/kanban/project/work/{$id}.json"), true);
-    $this->sandbox->ok(['board', 'project/later', 'Later']);
+    $copy = json_decode(file_get_contents($this->sandbox->root."/docs/kanban/work/{$id}.json"), true);
+    $this->sandbox->ok(['board', 'later', 'Later']);
     $copy['created'] = '2099-01-01T00:00:00.000+00:00';
-    file_put_contents($this->sandbox->root."/docs/kanban/project/later/{$id}.json", json_encode($copy, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n");
+    file_put_contents($this->sandbox->root."/docs/kanban/later/{$id}.json", json_encode($copy, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n");
 
     expect($this->sandbox->kanban('validate')->getOutput())->toContain("duplicate id {$id}");
 
     $fixed = $this->sandbox->ok(['validate', '--fix']);
-    expect($fixed)->toMatch("/fixed renamed {$id} → ACME-\\w{6} \\(project\\/later\\/{$id}\\.json\\)/")
+    expect($fixed)->toMatch("/fixed renamed {$id} → ACME-\\w{6} \\(later\\/{$id}\\.json\\)/")
         ->toContain('ok: 2 cards')
-        ->and(is_file($this->sandbox->root."/docs/kanban/project/work/{$id}.json"))->toBeTrue()
-        ->and(glob($this->sandbox->root.'/docs/kanban/project/later/ACME-*.json'))->toHaveCount(1);
+        ->and(is_file($this->sandbox->root."/docs/kanban/work/{$id}.json"))->toBeTrue()
+        ->and(glob($this->sandbox->root.'/docs/kanban/later/ACME-*.json'))->toHaveCount(1);
 });
 
 it('prints the board summary', function () {
@@ -284,15 +283,15 @@ it('accepts and keeps the guard setting an older install wrote to kanban.json', 
         ->and($this->sandbox->read($id)['title'])->toBe('After the upgrade');
 });
 
-it('refuses an epic named like a UI route', function (string $epic) {
+it('refuses a board named like a UI route', function (string $name) {
     $before = $this->sandbox->boardLog();
 
-    $board = $this->sandbox->kanban(['board', "{$epic}/work", 'Shadowed']);
+    $board = $this->sandbox->kanban(['board', $name, 'Shadowed']);
 
     expect($board->getExitCode())->toBe(2)
-        ->and($board->getErrorOutput())->toContain("epic '{$epic}' is reserved")
+        ->and($board->getErrorOutput())->toContain("board '{$name}' is reserved")
         ->and($this->sandbox->boardLog())->toBe($before);
-})->with(['cards', 'assets']);
+})->with(['cards', 'assets', 'boards']);
 
 it('refuses to delete a criterion of a started card before it looks the criterion up', function () {
     $code = CodeSandbox::create();
@@ -304,7 +303,7 @@ it('refuses to delete a criterion of a started card before it looks the criterio
 });
 
 it('names the --stage flag when a card is created in a stage it cannot start in', function () {
-    $refused = $this->sandbox->kanban(['new', 'project/work', 'Odd stage', '--stage=doing']);
+    $refused = $this->sandbox->kanban(['new', 'work', 'Odd stage', '--stage=doing']);
 
     expect($refused->getExitCode())->toBe(2)->and($refused->getErrorOutput())->toContain('--stage must be one of: backlog, ready');
 });
@@ -365,15 +364,15 @@ it('locks the stages kanban.json lists, and none when it lists none', function (
 });
 
 it('does not send a card in a locked stage to another board', function () {
-    $this->sandbox->ok(['board', 'project/other', 'Other']);
+    $this->sandbox->ok(['board', 'other', 'Other']);
     $id = $this->sandbox->readyCard('Picked up');
     $this->sandbox->ok(['claim', $id], ['KANBAN_SESSION' => 's1']);
 
-    $refused = $this->sandbox->kanban(['move', $id, '--board=project/other']);
+    $refused = $this->sandbox->kanban(['move', $id, '--board=other']);
     expect($refused->getExitCode())->toBe(3)->and($refused->getErrorOutput())->toContain('a locked stage: it cannot move to another board');
 
-    $this->sandbox->ok(['move', $id, '--board=project/other', '--force'], ['KANBAN_SESSION' => 's1']);
-    expect(glob($this->sandbox->root."/docs/kanban/project/other/{$id}.json"))->toHaveCount(1);
+    $this->sandbox->ok(['move', $id, '--board=other', '--force'], ['KANBAN_SESSION' => 's1']);
+    expect(glob($this->sandbox->root."/docs/kanban/other/{$id}.json"))->toHaveCount(1);
 });
 
 it('names the person beside the role in the log: KANBAN_USER, then git user.name, then an explicit author, else nothing', function () {
@@ -405,8 +404,8 @@ it('takes up to 24 acceptance criteria of up to 500 characters', function () {
     $full = array_map(fn (int $i) => "--accept={$i} ".substr($long, strlen("{$i} ")), range(1, 24));
 
     $id = $s->card('Grouped', ['--body=All pages', '--label=area:pages', ...$full, '--stage=ready']);
-    $more = $s->kanban(['new', 'project/work', 'Too many', ...$full, '--accept=one more']);
-    $wide = $s->kanban(['new', 'project/work', 'Too wide', '--accept='.$long.'x']);
+    $more = $s->kanban(['new', 'work', 'Too many', ...$full, '--accept=one more']);
+    $wide = $s->kanban(['new', 'work', 'Too wide', '--accept='.$long.'x']);
     $added = $s->kanban(['set', $id, 'accept+=one more']);
 
     expect($s->read($id)['acceptance'])->toHaveCount(24)
@@ -435,7 +434,7 @@ it('keeps a card with an open question out of ready', function () {
 it('checks a new card before it draws an id, naming the option and no card', function (array $args, string $error) {
     $commits = count($this->sandbox->boardLog());
 
-    $refused = $this->sandbox->kanban(['new', 'project/work', ...$args]);
+    $refused = $this->sandbox->kanban(['new', 'work', ...$args]);
 
     expect($refused->getExitCode())->toBe(2)
         ->and($refused->getOutput())->toBe('')
@@ -477,4 +476,40 @@ it('refuses accept=@- on a started card', function () {
     $refused = $code->sandbox->kanban(['set', $id, 'accept=@-'], ['KANBAN_SESSION' => 's1'], input: "New\n");
 
     expect($refused->getExitCode())->toBe(3)->and($refused->getErrorOutput())->toContain('never deleted once work started');
+});
+
+it('keeps epics in _epics, and gives a card at most one, settable even in a locked stage', function () {
+    $s = $this->sandbox;
+
+    expect($s->ok('epic'))->toBe("no epics\n")
+        ->and($s->ok(['epic', 'passkey-login', 'Passkey login', '--goal=Sign in without a password', '--done-when=Passkeys on every account page']))
+        ->toBe("created epic passkey-login: Passkey login\n")
+        ->and(json_decode(file_get_contents($s->root.'/docs/kanban/_epics/passkey-login.json'), true))
+        ->toMatchArray(['title' => 'Passkey login', 'goal' => 'Sign in without a password', 'done_when' => ['Passkeys on every account page'], 'order' => 10]);
+
+    $created = $s->kanban(['new', 'work', 'Register a passkey', '--epic=passkey-login', '--label=area:auth']);
+    preg_match('/^created (ACME-\w+)/', $created->getOutput(), $m);
+    $id = $m[1];
+    $refused = $s->kanban(['new', 'work', 'Elsewhere', '--epic=nope']);
+    $other = $s->card('Not in it');
+
+    expect($s->read($id)['epic'])->toBe('passkey-login')
+        ->and($refused->getExitCode())->toBe(4)
+        ->and($refused->getErrorOutput())->toContain('--epic nope: no such epic (`vendor/bin/kanban epic nope` creates it)')
+        ->and($s->kanban(['set', $other, 'epic=nope'])->getErrorOutput())->toContain('unknown epic nope')
+        ->and($s->ok(['list', '--epic=passkey-login']))->toContain($id)->not->toContain($other)
+        ->and($s->ok(['list', '--epic=passkey-login']))->toContain('[epic passkey-login]')
+        ->and($s->ok(['show', $id]))->toContain("epic: passkey-login (Passkey login)\n")
+        ->and($s->ok('epic'))->toBe("passkey-login 0/1 done Passkey login — Sign in without a password\n");
+
+    $s->ok(['set', $other, 'epic=passkey-login']);
+    $s->ok(['set', $id, 'epic=']);
+    expect($s->read($other)['epic'])->toBe('passkey-login')
+        ->and($s->read($id))->not->toHaveKey('epic');
+
+    $locked = $s->readyCard('Locked one');
+    $s->ok(['claim', $locked], ['KANBAN_SESSION' => 'session-1']);
+    expect($s->kanban(['set', $locked, 'epic=passkey-login'])->getExitCode())->toBe(0)
+        ->and($s->read($locked)['epic'])->toBe('passkey-login')
+        ->and($s->ok('validate'))->toContain('ok: 3 cards');
 });

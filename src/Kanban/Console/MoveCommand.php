@@ -14,7 +14,7 @@ class MoveCommand extends Command
     protected $signature = 'kanban:move
         {id : Card id or unique prefix}
         {stage? : Target stage}
-        {--board= : Move the card to another board (epic/board) instead}
+        {--board= : Move the card to another board instead}
         {--reason= : Why (required for dropped and for sending review back to doing)}
         {--force : Bypass the transition table (main session only; logged)}';
 

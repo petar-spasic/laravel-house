@@ -6,7 +6,7 @@ it('serializes 20 parallel writers: 20 distinct ids, 20 commits, a clean tree', 
     $sandbox = Sandbox::create();
     $sandbox->install('ACME');
 
-    $processes = array_map(fn (int $i) => $sandbox->start(['new', 'project/work', "Parallel {$i}"]), range(1, 20));
+    $processes = array_map(fn (int $i) => $sandbox->start(['new', 'work', "Parallel {$i}"]), range(1, 20));
     $ids = [];
     foreach ($processes as $process) {
         $process->wait();
@@ -17,7 +17,7 @@ it('serializes 20 parallel writers: 20 distinct ids, 20 commits, a clean tree', 
 
     expect(array_unique($ids))->toHaveCount(20)
         ->and($sandbox->boardLog())->toHaveCount(21)
-        ->and(glob($sandbox->root.'/docs/kanban/project/work/ACME-*.json'))->toHaveCount(20)
+        ->and(glob($sandbox->root.'/docs/kanban/work/ACME-*.json'))->toHaveCount(20)
         ->and(trim($sandbox->boardGit('status', '--porcelain')))->toBe('')
         ->and($sandbox->ok('validate'))->toContain('ok: 20 cards');
 });

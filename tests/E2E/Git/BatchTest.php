@@ -12,7 +12,7 @@ use PetarSpasic\LaravelHouse\Tests\Support\Sandbox;
 beforeEach(function () {
     $this->sandbox = Sandbox::create();
     $this->sandbox->install('ACME');
-    $this->sandbox->ok(['board', 'project/later', 'Later']);
+    $this->sandbox->ok(['board', 'later', 'Later']);
 });
 
 /** @return array<string, string> every board file => its bytes */
@@ -39,7 +39,7 @@ it('writes many cards, a move, a removal and a root Markdown file in one commit'
 
     $written = app(Store::class)->batch(fn (Snapshot $board) => (new Changes)
         ->put($board->card($noted), Edits::note($board->card($noted)->data, 'Folded in'))
-        ->put($board->card($moved), $board->card($moved)->data, BoardRef::parse('project/later'))
+        ->put($board->card($moved), $board->card($moved)->data, BoardRef::parse('later'))
         ->remove($board->card($removed)->path)
         ->text('decisions.md', "# Decisions\n"), new Actor('main', 's1'), 'Batch of three');
 
@@ -47,8 +47,8 @@ it('writes many cards, a move, a removal and a root Markdown file in one commit'
         ->and($s->boardLog())->toHaveCount($before + 1)
         ->and($s->boardLog()[0])->toBe('Batch of three [main]')
         ->and(explode("\n", trim($s->boardGit('show', '--name-status', '--format=', 'HEAD'))))->toEqualCanonicalizing([
-            "M\tproject/work/{$noted}.json", "R100\tproject/work/{$moved}.json\tproject/later/{$moved}.json",
-            "D\tproject/work/{$removed}.json", "A\tdecisions.md",
+            "M\twork/{$noted}.json", "R100\twork/{$moved}.json\tlater/{$moved}.json",
+            "D\twork/{$removed}.json", "A\tdecisions.md",
         ])
         ->and(end($s->read($noted)['log']))->toMatchArray(['by' => 'main', 'event' => 'note', 'text' => 'Folded in'])
         ->and(file_get_contents($s->root.'/docs/kanban/decisions.md'))->toBe("# Decisions\n")

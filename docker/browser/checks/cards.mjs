@@ -4,7 +4,7 @@ export const seed = 'rich';
 export default async (t) => {
     const { blocked, w1, w2, r1, nightly, low, long, labels } = t.seed.ids;
     const page = await t.open();
-    await page.goto(t.url + '/project/work', { waitUntil: 'networkidle' });
+    await page.goto(t.url + '/work', { waitUntil: 'networkidle' });
     const card = (id) => page.locator(`.card[data-id="${id}"]`);
 
     // priority is a mark, colour is kept for what needs attention

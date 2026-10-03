@@ -4,7 +4,7 @@ import { choices, pick, switchTo } from '../lib.mjs';
 
 export default async (t) => {
     const { a, c, d, f, g } = t.seed.ids;
-    t.cli(['board', 'platform/infra', 'Infra']);
+    t.cli(['board', 'infra', 'Infra']);
     const page = await t.open();
     await page.addInitScript(() => { if (!sessionStorage.getItem('seeded')) { localStorage.setItem('kanban.collapsed', '{broken'); sessionStorage.setItem('seeded', '1'); } });
     await page.goto(t.url + '/cards/' + g, { waitUntil: 'networkidle' });
@@ -20,11 +20,11 @@ export default async (t) => {
     t.ok('a stage a card cannot move to is no drop target', (await page.locator(`.col[data-stage=backlog] .card[data-id="${c}"]`).count()) === 1 && (await page.locator('.toast.err').count()) === 0);
 
     await page.goto(t.url, { waitUntil: 'networkidle' });
-    await page.focus('.board-tile[href$="/project/work"]');
+    await page.focus('.board-tile[href$="/work"]');
     await page.keyboard.press('Enter');
     await page.waitForTimeout(500);
-    t.ok('Enter follows a board link', page.url().includes('/project/'));
-    await page.goto(t.url + '/project/work', { waitUntil: 'networkidle' });
+    t.ok('Enter follows a board link', page.url().endsWith('/work'));
+    await page.goto(t.url + '/work', { waitUntil: 'networkidle' });
     await page.focus(`.card[data-id="${a}"] .c-title`);
     await page.keyboard.press('Enter');
     await page.waitForTimeout(600);
@@ -36,7 +36,7 @@ export default async (t) => {
     await switchTo(page, 'All boards');
     t.ok('"All boards" in the switcher goes to the boards', page.url().endsWith('/kanban') && (await page.locator('.board-tile').count()) === 2);
 
-    await page.goto(t.url + '/project/work', { waitUntil: 'networkidle' });
+    await page.goto(t.url + '/work', { waitUntil: 'networkidle' });
     await page.route('**/_api/cards/' + a, async (route) => { await new Promise((r) => setTimeout(r, 1200)); await route.continue(); });
     await page.click(`.card[data-id="${a}"] .c-title`);
     await page.keyboard.press('Escape');
@@ -44,7 +44,7 @@ export default async (t) => {
     t.ok('a card that loads after it was closed does not reopen', (await page.locator('.drawer[hidden]').count()) === 1 && !page.url().includes('/cards/'));
     await page.unroute('**/_api/cards/' + a);
 
-    await page.goto(t.url + '/project/work', { waitUntil: 'networkidle' });
+    await page.goto(t.url + '/work', { waitUntil: 'networkidle' });
     const width = (stage) => page.locator(`.col[data-stage=${stage}]`).evaluate((el) => Math.round(el.getBoundingClientRect().width));
     t.ok('a folded column is a narrow strip', (await width('dropped')) <= 50);
     await page.click('.col[data-stage=dropped] .col-h');
@@ -54,22 +54,22 @@ export default async (t) => {
     await page.waitForTimeout(300);
     t.ok('and another folds it again', (await width('dropped')) <= 50);
 
-    await page.goto(t.url + '/project/work?p=high', { waitUntil: 'networkidle' });
+    await page.goto(t.url + '/work?p=high', { waitUntil: 'networkidle' });
     await page.click(`.card[data-id="${a}"] .c-title`);
     await page.waitForSelector('.drawer:not([hidden])');
     t.ok('opening a card keeps the filters', page.url().includes('p=high') && (await page.locator('.tgl[data-filter=priority].is-active').count()) === 1);
     await page.keyboard.press('Escape');
 
-    await page.goto(t.url + '/project/work', { waitUntil: 'networkidle' });
+    await page.goto(t.url + '/work', { waitUntil: 'networkidle' });
     await page.click('.col[data-stage=backlog] .add');
     await switchTo(page, 'Infra');
     t.ok('a new-card box does not follow to another board', (await page.locator('.composer').count()) === 0);
 
-    await page.goto(t.url + '/project/nothing', { waitUntil: 'networkidle' });
+    await page.goto(t.url + '/nothing', { waitUntil: 'networkidle' });
     await page.waitForTimeout(7000);
     t.ok('an unknown board is not shown as an outage', (await page.locator('.live.is-off').count()) === 0);
 
-    await page.goto(t.url + '/project/work', { waitUntil: 'networkidle' });
+    await page.goto(t.url + '/work', { waitUntil: 'networkidle' });
     await page.click(`.card[data-id="${f}"] .c-title`);
     await page.waitForSelector('.drawer:not([hidden]) .chip a');
     await page.click('.drawer .chip a');
@@ -80,7 +80,7 @@ export default async (t) => {
     t.ok('Esc closes the one on top and leaves the first', page.url().includes('/cards/' + f) && !page.url().includes('from=') && (await page.locator('.panel').count()) === 1);
     await page.keyboard.press('Escape');
     await page.waitForTimeout(600);
-    t.ok('Esc again ends on the board, not the first card', page.url().endsWith('/project/work') && (await page.locator('.drawer[hidden]').count()) === 1);
+    t.ok('Esc again ends on the board, not the first card', page.url().endsWith('/work') && (await page.locator('.drawer[hidden]').count()) === 1);
 
     await page.click(`.card[data-id="${a}"] .c-title`);
     await page.waitForSelector('.drawer:not([hidden]) .md');
@@ -97,16 +97,16 @@ export default async (t) => {
     t.ok('and its first edit does not conflict', (await page.locator('.toast.err').count()) === 0);
     await page.keyboard.press('Escape');
 
-    const file = `${t.seed.root}/docs/kanban/project/work/${c}.json`;
+    const file = `${t.seed.root}/docs/kanban/work/${c}.json`;
     const good = fs.readFileSync(file, 'utf8');
     fs.writeFileSync(file, '{not json');
-    await page.goto(t.url + '/project/work', { waitUntil: 'networkidle' });
+    await page.goto(t.url + '/work', { waitUntil: 'networkidle' });
     t.ok('a broken board file is announced', (await page.locator('.notice', { hasText: 'files have problems' }).count()) === 1);
     fs.writeFileSync(file, good);
     await page.waitForTimeout(4500);
     t.ok('and the notice goes once it is fixed', (await page.locator('.notice', { hasText: 'files have problems' }).count()) === 0);
 
-    const boardFile = `${t.seed.root}/docs/kanban/project/work/board.json`;
+    const boardFile = `${t.seed.root}/docs/kanban/work/board.json`;
     fs.renameSync(boardFile, boardFile + '.off');
     await page.goto(t.url + '/cards/' + a, { waitUntil: 'networkidle' });
     await page.waitForTimeout(800);

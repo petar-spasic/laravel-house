@@ -16,7 +16,7 @@ class SetCommand extends Command
 {
     protected $signature = 'kanban:set
         {id : Card id or unique prefix}
-        {changes* : title= priority= type= labels=+a,-b depends_on=+ID accept+="…" accept[2]="…" accept-=3 accept=@- tick=1 untick=2 blocked="…" body=@- note="…"}
+        {changes* : title= priority= type= epic=slug labels=+a,-b depends_on=+ID accept+="…" accept[2]="…" accept-=3 accept=@- tick=1 untick=2 blocked="…" body=@- note="…"}
         {--reason= : Why criteria are reworded (accept[N]=); lets a card in doing or review take it, unticked, and sends a review card back to doing}
         {--force : Change a card in a locked stage (main session only)}';
 
@@ -85,7 +85,7 @@ class SetCommand extends Command
             throw new Invalid("cannot parse '{$pair}' (expected key=value)");
         }
         [, $key, $index, $op, $value] = $m;
-        $known = [...self::SCALARS, ...array_keys(self::SETS), 'accept', 'tick', 'untick', 'note'];
+        $known = [...self::SCALARS, ...array_keys(self::SETS), 'epic', 'accept', 'tick', 'untick', 'note'];
         if (! in_array($key, $known, true)) {
             throw new Invalid("unknown key '{$key}' (".implode(' ', $known).')');
         }
@@ -113,6 +113,12 @@ class SetCommand extends Command
      */
     private function apply(array $data, string $key, ?int $index, string $op, string $value, array &$removed, ?string $head): array
     {
+        if ($key === 'epic') {
+            $this->expect($key, $op === '=' && $index === null);
+            unset($data['epic']);
+
+            return trim($value) === '' ? $data : $data + ['epic' => trim($value)];
+        }
         if (in_array($key, self::SCALARS, true)) {
             $this->expect($key, $op === '=' && $index === null);
             $data[$key] = $value === '' && $key === 'blocked' ? null : $value;

@@ -2,32 +2,32 @@
 export const seed = 'rich';
 
 export default async (t) => {
-    t.cli(['board', 'project/ops', 'Ops']);
+    t.cli(['board', 'ops', 'Ops']);
     const page = await t.open({ w: 1440, h: 900 });
     const pins = () => page.locator('.pins .pin');
     const shown = () => pins().evaluateAll((all) => all.map((el) => `${el.querySelector('kbd').textContent} ${el.querySelector('.pin-name').textContent}`).join(', '));
     const path = () => new URL(page.url()).pathname;
-    await page.goto(t.url + '/project/work', { waitUntil: 'networkidle' });
+    await page.goto(t.url + '/work', { waitUntil: 'networkidle' });
 
     t.ok('nothing is pinned to begin with', (await pins().count()) === 0);
     await page.keyboard.press('Shift+1');
     t.ok('Shift+1 puts the board you are on in slot 1, and the bar shows it', (await shown()) === '1 Work' && (await pins().first().getAttribute('aria-current')) === 'page');
     t.ok('with a message saying what happened', (await page.locator('.toast.ok').innerText()).includes('Work is on Alt+1'));
 
-    await page.goto(t.url + '/project/ops', { waitUntil: 'networkidle' });
+    await page.goto(t.url + '/ops', { waitUntil: 'networkidle' });
     await page.keyboard.press('Shift+2');
     t.ok('another board goes in another slot, in slot order', (await shown()) === '1 Work, 2 Ops' && (await pins().nth(1).getAttribute('aria-current')) === 'page' && (await pins().first().getAttribute('aria-current')) === null);
 
     await page.keyboard.press('Alt+1');
     await page.waitForTimeout(500);
-    t.ok('Alt+1 goes to the board in slot 1', path().endsWith('/project/work'));
+    t.ok('Alt+1 goes to the board in slot 1', path().endsWith('/work'));
     await page.keyboard.press('Alt+2');
     await page.waitForTimeout(500);
-    t.ok('Alt+2 to the one in slot 2', path().endsWith('/project/ops'));
+    t.ok('Alt+2 to the one in slot 2', path().endsWith('/ops'));
     await page.keyboard.press('/');
     await page.keyboard.press('Alt+1');
     await page.waitForTimeout(500);
-    t.ok('also while typing in the search box, where Shift+2 is only a character', path().endsWith('/project/work'));
+    t.ok('also while typing in the search box, where Shift+2 is only a character', path().endsWith('/work'));
     await page.fill('input[type=search]', '');
     await page.keyboard.press('Shift+2');
     t.ok('Shift+2 in the search box types a character and pins nothing', (await page.inputValue('input[type=search]')).length === 1 && (await shown()) === '1 Work, 2 Ops');
@@ -37,14 +37,14 @@ export default async (t) => {
     t.ok('the slots are on the boards page too, and survive a reload', (await shown()) === '1 Work, 2 Ops');
     await page.keyboard.press('Alt+2');
     await page.waitForTimeout(500);
-    t.ok('Alt+2 goes from the boards page to slot 2', path().endsWith('/project/ops'));
+    t.ok('Alt+2 goes from the boards page to slot 2', path().endsWith('/ops'));
     await page.goto(t.url, { waitUntil: 'networkidle' });
     await page.keyboard.press('Shift+3');
     t.ok('Shift+3 on the boards page has no board to pin and says so', (await page.locator('.toast').innerText()).includes('Open a board first') && (await shown()) === '1 Work, 2 Ops');
 
-    await page.goto(t.url + '/project/work', { waitUntil: 'networkidle' });
+    await page.goto(t.url + '/work', { waitUntil: 'networkidle' });
     await page.keyboard.press('Alt+5');
-    t.ok('an empty slot says how to fill it and stays where it is', (await page.locator('.toast').last().innerText()).includes('Shift+5') && path().endsWith('/project/work'));
+    t.ok('an empty slot says how to fill it and stays where it is', (await page.locator('.toast').last().innerText()).includes('Shift+5') && path().endsWith('/work'));
     await page.keyboard.press('Shift+3');
     t.ok('a board is in one slot only: pinning Work again moves it', (await shown()) === '2 Ops, 3 Work');
     await page.keyboard.press('Shift+3');
@@ -52,9 +52,9 @@ export default async (t) => {
 
     // in the middle of the bar, where they stay: whichever board is open, however long its name, whatever else the bar holds
     await page.keyboard.press('Shift+1');
-    await page.goto(t.url + '/platform/infra', { waitUntil: 'networkidle' });
+    await page.goto(t.url + '/infra', { waitUntil: 'networkidle' });
     await page.keyboard.press('Shift+3');
-    t.cli(['board', 'platform/cost', 'Quarterly reliability and cost review across every region']);
+    t.cli(['board', 'cost', 'Quarterly reliability and cost review across every region']);
     const spot = () => page.evaluate(async () => {
         await document.fonts.ready;
         const rect = (selector) => { const el = document.querySelector(selector); return el && el.checkVisibility() ? el.getBoundingClientRect() : null; };
@@ -76,7 +76,7 @@ export default async (t) => {
     for (const width of [1180, 1000, 800, 1440]) {
         await page.setViewportSize({ width, height: 900 });
         const at = [];
-        for (const path of ['/project/work', '/project/ops', '/platform/infra', '/platform/cost', '']) {
+        for (const path of ['/work', '/ops', '/infra', '/cost', '']) {
             await page.goto(t.url + path, { waitUntil: 'networkidle' });
             at.push(await spot());
         }
@@ -90,7 +90,7 @@ export default async (t) => {
         t.ok(`the board name stays readable and the buttons on the right keep their size (${width}px)`, whole(at));
         if (width === 1440) t.ok('they sit in the middle of the bar', Math.abs((at[0].left + at[0].right) / 2 - at[0].middle) <= 2);
     }
-    await page.goto(t.url + '/project/work', { waitUntil: 'networkidle' });
+    await page.goto(t.url + '/work', { waitUntil: 'networkidle' });
     const resting = await spot();
     const narrow = (await page.locator('.search input').boundingBox()).width;
     await page.keyboard.press('/');
@@ -100,13 +100,13 @@ export default async (t) => {
     await page.keyboard.press('Escape');
 
     // nine slots with long names are more than the bar can show: the slots give way, never the board name, the search box or the buttons
-    const refs = ['project/work', 'project/ops', 'platform/infra', 'platform/cost'];
-    for (let i = 1; i <= 5; i++) { t.cli(['board', `platform/team${i}`, `Team ${i} planning and delivery`]); refs.push(`platform/team${i}`); }
+    const refs = ['work', 'ops', 'infra', 'cost'];
+    for (let i = 1; i <= 5; i++) { t.cli(['board', `team${i}`, `Team ${i} planning and delivery`]); refs.push(`team${i}`); }
     await page.evaluate((all) => localStorage.setItem('kanban.pins', JSON.stringify(Object.fromEntries(all.map((ref, i) => [i + 1, ref])))), refs);
     for (const width of [1000, 1280, 1440]) {
         await page.setViewportSize({ width, height: 900 });
         const crowd = [];
-        for (const path of ['/platform/cost', '']) {
+        for (const path of ['/cost', '']) {
             await page.goto(t.url + path, { waitUntil: 'networkidle' });
             crowd.push(await spot());
         }
@@ -117,20 +117,20 @@ export default async (t) => {
         if (width >= 1100) t.ok(`and each still shows its number and the start of its name (${width}px)`, board.thinnest >= 60);
     }
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto(t.url + '/project/work', { waitUntil: 'networkidle' });
-    await page.evaluate(() => localStorage.setItem('kanban.pins', JSON.stringify({ 1: 'project/work', 2: 'project/ops', 3: 'platform/infra' })));
-    await page.goto(t.url + '/project/work', { waitUntil: 'networkidle' });
+    await page.goto(t.url + '/work', { waitUntil: 'networkidle' });
+    await page.evaluate(() => localStorage.setItem('kanban.pins', JSON.stringify({ 1: 'work', 2: 'ops', 3: 'infra' })));
+    await page.goto(t.url + '/work', { waitUntil: 'networkidle' });
     await page.locator('.pins .pin', { hasText: 'Ops' }).click();
     await page.waitForTimeout(500);
-    t.ok('a slot in the bar is a link to its board', path().endsWith('/project/ops'));
+    t.ok('a slot in the bar is a link to its board', path().endsWith('/ops'));
     await page.locator('.pins .pin', { hasText: 'Work' }).focus();
     await page.keyboard.press('Enter');
     await page.waitForTimeout(500);
-    t.ok('used from the keyboard, a slot keeps the focus when the bar is drawn again', path().endsWith('/project/work') && (await page.evaluate(() => document.activeElement.classList.contains('pin') && document.activeElement.textContent.includes('Work'))));
+    t.ok('used from the keyboard, a slot keeps the focus when the bar is drawn again', path().endsWith('/work') && (await page.evaluate(() => document.activeElement.classList.contains('pin') && document.activeElement.textContent.includes('Work'))));
     await t.shot(page, 'pins');
 
     // a phone has no keyboard for them, and the bar has no room
     const phone = await t.open({ w: 390, h: 844, touch: true });
-    await phone.goto(t.url + '/project/work', { waitUntil: 'networkidle' });
+    await phone.goto(t.url + '/work', { waitUntil: 'networkidle' });
     t.ok('the bar of a phone does not show them', (await phone.locator('.pins .pin:visible').count()) === 0);
 };

@@ -10,12 +10,12 @@ use Symfony\Component\Console\Attribute\AsCommand;
 class BoardCommand extends Command
 {
     protected $signature = 'kanban:board
-        {board : epic/board}
+        {board : The board slug, such as work}
         {title? : Board title}
         {--order= : Sort order}
         {--wip-doing= : WIP limit for doing}';
 
-    protected $description = 'Create or update a board (its epic is created when missing)';
+    protected $description = 'Create or update a board';
 
     protected function perform(): int
     {

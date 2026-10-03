@@ -7,7 +7,7 @@ export default async (t) => {
     const { a, b } = t.seed.ids;
     t.allow(/status of 401/);
     const page = await t.open();
-    await page.goto(t.url + '/project/work', { waitUntil: 'networkidle' });
+    await page.goto(t.url + '/work', { waitUntil: 'networkidle' });
     const input = page.locator('form input[name=token][type=password]');
     t.ok('without the token the page asks for it', (await input.count()) === 1 && (await page.locator('#app').count()) === 0);
     t.ok('the token box has a label and the focus', (await input.evaluate((el) => el.labels.length === 1 && document.activeElement === el)));
@@ -20,7 +20,7 @@ export default async (t) => {
     await input.fill(t.seed.token);
     await input.press('Enter');
     await page.waitForSelector('.col');
-    t.ok('the right token opens the board it was asked on', new URL(page.url()).pathname.endsWith('/project/work'));
+    t.ok('the right token opens the board it was asked on', new URL(page.url()).pathname.endsWith('/work'));
     t.ok('the token is not left in the address bar', !page.url().includes('token'));
     await page.reload({ waitUntil: 'networkidle' });
     t.ok('the browser remembers the token', (await page.locator('.col').count()) > 0);

@@ -4,7 +4,7 @@ import { pick } from '../lib.mjs';
 export default async (t) => {
     const { a } = t.seed.ids;
     const page = await t.open();
-    await page.goto(t.url + '/project/work', { waitUntil: 'networkidle' });
+    await page.goto(t.url + '/work', { waitUntil: 'networkidle' });
     const card = page.locator(`.card[data-id="${a}"]`);
     await card.locator('.c-title').click();
     await page.waitForSelector('.drawer:not([hidden]) .d-title');
@@ -166,7 +166,7 @@ export default async (t) => {
     await page.locator('.d-title').focus();
     await page.keyboard.press('Escape');
     await page.waitForTimeout(300);
-    t.ok('Esc closes the drawer', (await page.locator('.drawer[hidden]').count()) === 1 && page.url().endsWith('/project/work'));
+    t.ok('Esc closes the drawer', (await page.locator('.drawer[hidden]').count()) === 1 && page.url().endsWith('/work'));
 
     // on an address that is not a secure context (the LAN over http) there is no clipboard API: the id is copied through a selected field
     const lan = await t.open();

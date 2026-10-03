@@ -7,7 +7,7 @@ export default async (t) => {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     const record = (state, extra = {}) => fs.writeFileSync(file, JSON.stringify({ state, kind: state === 'ok' ? null : 'remote', attempt_at: '2026-09-30T10:00:00.000+00:00', ok_at: null, error: state === 'ok' ? null : 'RemoteFailed: fetch failed', ahead: 0, behind: 0, failures: 0, ...extra }));
     const page = await t.open({ w: 1440, h: 900 });
-    await page.goto(t.url + '/project/work', { waitUntil: 'networkidle' });
+    await page.goto(t.url + '/work', { waitUntil: 'networkidle' });
     const notice = page.locator('.notice');
 
     t.ok('there is no notice while the last sync was fine', (await notice.count()) === 0);
@@ -31,7 +31,7 @@ export default async (t) => {
 
     // a merge that kept the other person's version leaves what it replaced in the card's log
     const { a } = t.seed.ids;
-    const cardFile = path.join(t.seed.root, 'docs/kanban/project/work', `${a}.json`);
+    const cardFile = path.join(t.seed.root, 'docs/kanban/work', `${a}.json`);
     const card = JSON.parse(fs.readFileSync(cardFile, 'utf8'));
     card.log.push({ id: '7K2M9Q3X', at: new Date().toISOString().replace('Z', '+00:00'), by: 'hook', event: 'conflict', field: 'body', lost: 'Text the merge replaced <b>not markup</b>' });
     fs.writeFileSync(cardFile, JSON.stringify(card, null, 4) + '\n');

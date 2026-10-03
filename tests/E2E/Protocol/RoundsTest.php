@@ -140,7 +140,7 @@ it('names the gate that refused a new report beside the staged one in status, co
 it('keeps why the stop hook failed beside the staged report', function () {
     $this->p->commit($this->wt, 'app.php', "<?php\n", "{$this->id}: clauses");
     $this->p->in($this->wt, ['report', $this->id, '--status=review', '--tick=1', '--summary=Done'])->mustRun();
-    $file = glob($this->p->main.'/docs/kanban/*/*/'.$this->id.'.json')[0];
+    $file = glob($this->p->main.'/docs/kanban/*/'.$this->id.'.json')[0];
     $card = file_get_contents($file);
     file_put_contents($file, '{');
 

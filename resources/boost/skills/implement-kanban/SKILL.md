@@ -7,13 +7,13 @@ description: >-
   Code restart with the lease takeover, the card-ready stack checked by
   `kanban doctor`, a first real card through the agent loop and the first
   publish. Also upgrades a board: consolidating several boards and a decisions
-  board into one work board with `fold-boards`, and judging which archived
+  board into one work board with epics on its cards (`fold-boards`), and judging which archived
   decisions become CLAUDE.md rules. Cases: an existing project whose decisions
   live in docs/decisions.md, a new project fresh from laravel-project-setup, a
   board on an older house version, and the separate kanban package. Use when
   the owner types /implement-kanban, to adopt the board or to upgrade it.
   Triggers — implement kanban, adopt the kanban board, upgrade the kanban
-  board, fold-boards, board version 1, kanban:install, import-house-docs.
+  board, fold-boards, an older board format, kanban:install, import-house-docs.
 disable-model-invocation: true
 ---
 
@@ -36,7 +36,7 @@ package met on the way goes upstream (the `kanban` skill, "Package findings").
 |---|---|---|
 | (a) An existing project | `docs/decisions.md` (and `docs/ideas.md`) hold its decisions | 1–9 |
 | (b) A new project | laravel-project-setup just ran; its choices live only in this chat and the files it wrote | 1–9 |
-| (c) A board on an older house version | `docs/kanban` exists, no separate kanban package; the house is behind, or `board version 1` | "Upgrading a board", (c) |
+| (c) A board on an older house version | `docs/kanban` exists, no separate kanban package; the house is behind, or `an older board format` | "Upgrading a board", (c) |
 | (d) A board on the separate kanban package | `composer.json` requires the board as a package of its own | "Upgrading a board", (d) |
 | (e) The separate package, no board | `composer.json` requires it, but there is no `kanban` branch, local or on `origin` | (e), then (a) or (b) |
 
@@ -100,7 +100,7 @@ row:
 | `docs/kanban/` (branch `kanban`) | The board: one work board, cards grouped by `area:*`, open questions on their cards; `decisions.md` archives older decisions. Use only `vendor/bin/kanban` |
 ```
 
-Bugs the owner names become cards on `project/work`, each on an area.
+Bugs the owner names become cards on `work`, each on an area.
 
 ## 4. Restart Claude Code
 
@@ -181,7 +181,7 @@ Both cases first:
 2. **The board page** has no login. Ask whether the stack is visible beyond this machine (step 1, "The board page").
 
 **(c) On an older house version:** update the house as the README's "Updating" says (a `^0.x` caret never crosses a
-minor), then "Consolidating" when `status` says `board version 1`, step 6, the commit (step 7) and a restart (step 4).
+minor), then "Consolidating" when `status` says `an older board format`, step 6, the commit (step 7) and a restart (step 4).
 
 **(d) On the separate package.** Every clone does this. Upgrade every project on a machine before starting new
 worktree stacks there: the port registry is machine-wide.
@@ -209,7 +209,7 @@ worktree stacks there: the port registry is machine-wide.
    laravel-deployment's Procedure, step 2 (`doctor --fix` adds the card-stack lines).
    Then rebuild and recreate with `docker compose -f docker-compose.local.yml up -d --build --wait`. Without
    `--build` the container has no ssh.
-5. **Consolidate:** "Consolidating" below (the board is version 1 until then, so `doctor` fails).
+5. **Consolidate:** "Consolidating" below (the board is in the older format until then, so `doctor` fails).
 6. **Finish:** step 6's container check, the commit (step 7), restart (step 4).
 
 **(e) The separate package, no board.** Swap the packages, with no `doctor`, then adopt the board by path (a) or (b):
@@ -220,18 +220,22 @@ composer remove --dev petar-spasic/laravel-kanban && composer require --dev peta
 
 ## Consolidating
 
-A board from before version 2 (`board version 1: the owner runs /implement-kanban`) has several boards and a decisions
-board. Every command but `sync`, `doctor`, `attach` and `kanban:install` refuses until it is consolidated.
+A board from before version 3 (`an older board format: the owner runs /implement-kanban`) keeps its boards inside
+epic directories, and maybe a decisions board. Every command but `sync`, `doctor`, `attach` and `kanban:install` refuses
+until it is consolidated.
 
 1. **Drain:** no card in doing or review (`finish` or `stop` them with the owner).
 2. **Every clone runs the new house** before anyone writes: the merge driver must write the same bytes everywhere.
 3. `vendor/bin/kanban fold-boards --dry-run`, and show the owner every line: the moves, the archived decisions, each
-   open question and the cards it lands on, the cards with no area, and the startable areas against `max_parallel`.
+   epic and its card count, each open question and the cards it lands on, the cards with no area, and the startable
+   areas against `max_parallel`. Each old epic directory becomes an epic on its cards; the installer's `project` gives
+   none.
 4. `vendor/bin/kanban fold-boards`. It runs the stored-name migration first, then makes one commit and pushes it. With
    sync off, `vendor/bin/kanban sync` once it is on.
 5. Cards that got the same question are usually one piece of work: `kanban fold A B --into=C`.
 6. Give every open card an `area:*` label (`set ID labels=+area:…`), with areas sized as the `kanban` skill's "Planning
-   cards" says; then re-plan with the owner: fold enabler cards, group small ones.
+   cards" says; then re-plan with the owner: fold enabler cards, group small ones. An epic that is really a permanent
+   part of the product (UI, Backend) becomes an area instead: `set ID labels=+area:… epic=` on its cards.
 7. "Judging decisions", then `vendor/bin/kanban validate` and `doctor`.
 
 ## Judging decisions

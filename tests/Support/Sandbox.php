@@ -91,7 +91,7 @@ final class Sandbox
     }
 
     /** Creates a card and returns its id. */
-    public function card(string $title, array $options = [], string $board = 'project/work', array $env = []): string
+    public function card(string $title, array $options = [], string $board = 'work', array $env = []): string
     {
         $out = $this->ok(['new', $board, $title, ...$options], $env);
         if (preg_match('/^created (\S+)/m', $out, $m) !== 1) {
@@ -102,7 +102,7 @@ final class Sandbox
     }
 
     /** A card that passes the ready policy, created straight into ready; on an area of its own unless $options name one. */
-    public function readyCard(string $title, array $options = [], string $board = 'project/work', array $env = []): string
+    public function readyCard(string $title, array $options = [], string $board = 'work', array $env = []): string
     {
         return $this->card($title, ['--body=Build it', '--accept=It works', '--stage=ready', ...self::withArea($options)], $board, $env);
     }
@@ -128,7 +128,7 @@ final class Sandbox
     /** @return array<string, mixed> */
     public function read(string $id): array
     {
-        $files = glob($this->root.'/docs/kanban/*/*/'.$id.'.json');
+        $files = glob($this->root.'/docs/kanban/*/'.$id.'.json');
         if (count($files) !== 1) {
             throw new RuntimeException("card file {$id}: ".count($files).' matches');
         }

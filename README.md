@@ -732,22 +732,29 @@ and `docs/` by default); otherwise `finish` asks for a refresh and a new review.
 <a name="boards-and-cards"></a>
 ### Boards and Cards
 
-The installer creates one board, `project/work`. On disk, each card is a JSON file under `docs/kanban`:
+The installer creates one board, `work`. On disk, each card is a JSON file under `docs/kanban`:
 
 ```text
 docs/kanban/
 ├── kanban.json                 # Board-wide settings: key, WIP limits, locked stages
 ├── decisions.md                # Decisions recorded before questions moved onto cards (read-only)
-└── project/
-    ├── epic.json
-    └── work/                   # The board
-        ├── board.json
-        └── ACME-7K2QF9.json    # A card
+├── _epics/
+│   └── passkey-login.json      # An epic: title, goal, done-when
+└── work/                       # The board
+    ├── board.json
+    └── ACME-7K2QF9.json        # A card
 ```
 
 A card has a type (`feature`, `bug`, `chore` or `spike`), a priority (`urgent`, `high`, `normal` or `low`), labels,
-a description in Markdown, acceptance criteria and, optionally, other cards it depends on. One label is its area,
-such as `area:billing`. Areas group the cards, so one board is enough.
+a description in Markdown, acceptance criteria and, optionally, other cards it depends on. Two things group cards:
+
+- **The area** is a label such as `area:billing`: a permanent part of the product. Every card has one, and two cards
+  on the same area never run at the same time. The board gives each area its own colour.
+- **The epic** is a finite goal, such as `passkey-login`, with a title, a goal and the conditions that finish it. A
+  card belongs to at most one epic. `kanban epic` lists the epics and how many of their cards are done.
+
+Click an area or an epic on a card to show only its cards; click it again to show all of them. The filter stays in
+the page address, so you can share a filtered board.
 
 > [!WARNING]
 > Never edit the files in `docs/kanban` by hand. Use the UI, the `kanban` command or Claude. Each of them validates the
@@ -1151,13 +1158,14 @@ The [protocol reference](resources/boost/skills/kanban/references/protocol.md) l
 
 | Command | Description |
 |---|---|
-| `new project/work "Title"` | Adds a card. |
+| `new work "Title"` | Adds a card. `--epic=SLUG` puts it in an epic. |
+| `epic SLUG "Title"` | Adds or updates an epic: `--goal=` and `--done-when=`. Without a slug, lists the epics. |
 | `fold ID --into=ID` | Merges cards into one. |
-| `set ID key=value` | Changes a card, such as `priority=high` or `note="…"`. |
-| `move ID STAGE` | Moves a card to another stage, or `--board=EPIC/BOARD` to another board. |
+| `set ID key=value` | Changes a card, such as `priority=high`, `epic=passkey-login` or `note="…"`. |
+| `move ID STAGE` | Moves a card to another stage, or `--board=BOARD` to another board. |
 | `promote ID` | Moves a card from `backlog` to `ready`. `--auto` fills `ready` with complete cards, up to 12 by default. |
-| `board EPIC/BOARD "Title"` | Adds or updates a board. |
-| `fold-boards` | Moves an older board onto one work board. `/implement-kanban` runs it. |
+| `board BOARD "Title"` | Adds or updates a board. |
+| `fold-boards` | Moves an older board onto one work board, with each card's epic taken from where it was. `/implement-kanban` runs it. |
 
 **Working on cards** (usually run by Claude)
 
@@ -1183,7 +1191,8 @@ cause and its fix. The most common ones are:
 - **`set` exits with "a locked stage".** The card is in a locked stage: `doing`, `review` or `done`.
   See [Locked Stages](#locked-stages).
 - **Several cards are ready but only one starts.** They share an area. `vendor/bin/kanban next -v` says so.
-- **Every command says "board version 1".** The board predates one work board. Run `/implement-kanban`.
+- **Every command says "an older board format".** The board predates version 3: boards inside epic directories.
+  Run `/implement-kanban`.
 - **Compose fails after about six stacks.** Widen the [Docker address pools](#docker-address-pools).
 - **Tests in a worktree hit your main database.** Remove `DB_HOST` and `DB_PORT` from `phpunit.xml`.
 - **The board page answers 403 for a host name.** Add that name to `ui.hosts` in `config/kanban.php`.
@@ -1239,9 +1248,10 @@ Skip the `doctor` line in a project without the board. Then restart Claude Code.
 > then runs `composer install` and `vendor/bin/kanban doctor --fix`.
 
 > [!WARNING]
-> Version 0.6 moves a board onto one work board and turns decision cards into an archive. Finish or stop every card in
-> progress, update every clone, then run `/implement-kanban`. Until then, board commands refuse with
-> `board version 1`. In spa projects, `validation:export --check` now also fails a form without its parity spec.
+> Version 0.7 moves a board onto one work board: each card takes its epic from the directory it was in, and decision
+> cards become an archive. Finish or stop every card in progress, update every clone, then run `/implement-kanban`.
+> Until then, board commands refuse with `an older board format`. In spa projects, `validation:export --check` now
+> also fails a form without its parity spec.
 
 <a name="adopting-the-current-core"></a>
 ### Adopting the Current Core

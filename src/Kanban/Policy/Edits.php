@@ -73,7 +73,7 @@ final class Edits
         }
         $frozen = [];
         foreach (array_unique([...array_keys($before), ...array_keys($after)]) as $key) {
-            if (in_array($key, ['blocked', 'log', 'updated'], true)) {
+            if (in_array($key, ['blocked', 'epic', 'log', 'updated'], true)) {
                 continue;
             }
             $was = $before[$key] ?? null;
@@ -88,7 +88,7 @@ final class Edits
         }
         if ($frozen !== []) {
             sort($frozen);
-            self::locked($before, $stage, implode(', ', $frozen).' cannot change; a note, a blocked reason, ticks and a criterion reworded with --reason can');
+            self::locked($before, $stage, implode(', ', $frozen).' cannot change; a note, a blocked reason, the epic, ticks and a criterion reworded with --reason can');
         }
     }
 

@@ -50,7 +50,7 @@ export default async (t) => {
     t.ok('and the first Tab still goes into its name', await page.evaluate(() => document.activeElement.classList.contains('d-title')));
 
     // a finished card
-    await page.goto(t.url + '/project/work', { waitUntil: 'networkidle' });
+    await page.goto(t.url + '/work', { waitUntil: 'networkidle' });
     await page.locator('.col[data-stage=done] .c-title').first().click();
     await page.waitForFunction(() => document.activeElement === document.querySelector('.panel.is-top .d-body'));
     const finished = await page.locator(`${panel} .lock-note`).innerText();
@@ -58,7 +58,7 @@ export default async (t) => {
     await t.shot(page, 'locked-done');
 
     // the priority key follows the same rule: on a locked card it says why and sends nothing, on any other it cycles
-    await page.goto(t.url + '/project/work', { waitUntil: 'networkidle' });
+    await page.goto(t.url + '/work', { waitUntil: 'networkidle' });
     let writes = 0;
     page.on('request', (request) => { if (request.method() !== 'GET') writes++; });
     const level = (id) => page.locator(`.card[data-id="${id}"]`).evaluate((el) => [...el.classList].find((c) => c.startsWith('p-')));

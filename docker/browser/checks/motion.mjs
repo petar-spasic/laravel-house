@@ -6,7 +6,7 @@ export default async (t) => {
 
     // dropped into ready, the card belongs below the higher priorities: the server's order arrives within a moment, not a poll later
     const page = await t.open({ reducedMotion: 'reduce' });
-    await page.goto(t.url + '/project/work', { waitUntil: 'networkidle' });
+    await page.goto(t.url + '/work', { waitUntil: 'networkidle' });
     await page.dragAndDrop(`.card[data-id="${cand}"]`, '.col[data-stage=ready]');
     const settled = await page.waitForFunction((id) => {
         const cards = [...document.querySelectorAll('.col[data-stage=ready] .card')];
@@ -21,7 +21,7 @@ export default async (t) => {
     t.ok('with reduced motion nothing on the board animates', await page.evaluate(() => document.getAnimations().filter((a) => a.effect && a.effect.target && a.effect.target.closest && a.effect.target.closest('.card') && !a.effect.target.closest('.pulse')).length === 0));
 
     const lively = await t.open();
-    await lively.goto(t.url + '/project/work', { waitUntil: 'networkidle' });
+    await lively.goto(t.url + '/work', { waitUntil: 'networkidle' });
     t.cli(['set', labels, 'title=Changed by someone else']);
     const flashed = await lively.waitForFunction((id) => {
         const el = document.querySelector(`.card[data-id="${id}"]`);
@@ -48,7 +48,7 @@ export default async (t) => {
     t.ok('with reduced motion the same card takes its new place without sliding', moved !== null && moved.slides === 0);
 
     // opening a lane that was folded away does not fly its cards in from the corner
-    await lively.goto(t.url + '/project/work', { waitUntil: 'networkidle' });
+    await lively.goto(t.url + '/work', { waitUntil: 'networkidle' });
     t.ok('the dropped lane starts folded and holds a card', (await lively.locator('.col[data-stage=dropped].is-collapsed').count()) === 1 && (await lively.locator('.col[data-stage=dropped] .card').count()) > 0);
     await lively.click('.col[data-stage=dropped] .col-h');
     const flown = await lively.evaluate(() => document.getAnimations().filter((a) => a.effect && a.effect.target && a.effect.target.closest && a.effect.target.closest('.col[data-stage=dropped] .card') && a.effect.getKeyframes().some((k) => k.transform && k.transform !== 'none')).length);

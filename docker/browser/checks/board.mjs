@@ -3,7 +3,7 @@ export default async (t) => {
     const { a, b, c, d } = t.seed.ids;
     const page = await t.open();
     const inColumn = (stage, id) => page.locator(`.col[data-stage=${stage}] .card[data-id="${id}"]`).count();
-    await page.goto(t.url + '/project/work', { waitUntil: 'networkidle' });
+    await page.goto(t.url + '/work', { waitUntil: 'networkidle' });
     t.ok('an empty lane says what belongs in it', await page.evaluate(() => getComputedStyle(document.querySelector('.col[data-stage=doing] .col-b'), '::before').content.includes('Started by agents')));
 
     await page.keyboard.press('/');
@@ -67,7 +67,7 @@ export default async (t) => {
     t.ok('Esc in a field of the card puts the field down and leaves the new-card box alone', (await page.evaluate(() => document.activeElement.tagName)) !== 'TEXTAREA' && (await page.locator('.composer input[type=text]').inputValue()) === 'Kept title');
     await page.keyboard.press('Escape');
     t.ok('and the next Esc closes the new-card box', (await page.locator('.composer').count()) === 0);
-    await page.goto(t.url + '/project/work', { waitUntil: 'networkidle' });
+    await page.goto(t.url + '/work', { waitUntil: 'networkidle' });
     await page.click('.btn.new');
     t.ok('the New button opens the composer', (await page.locator('.composer').count()) === 1);
     await page.fill('.composer input[type=text]', 'Opened at once');
@@ -185,12 +185,12 @@ export default async (t) => {
     const landing = await t.open();
     await landing.goto(t.url, { waitUntil: 'networkidle' });
     await landing.waitForTimeout(500);
-    t.ok('a page that opens on the boards of a one-board project shows that board', new URL(landing.url()).pathname.endsWith('/project/work'));
+    t.ok('a page that opens on the boards of a one-board project shows that board', new URL(landing.url()).pathname.endsWith('/work'));
     const retried = await t.open();
     await retried.route('**/_api/boards', (route) => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ message: 'The board is busy', details: [] }) }));
     await retried.goto(t.url, { waitUntil: 'networkidle' });
     await retried.unroute('**/_api/boards');
     await retried.click('.empty button:has-text("Retry")');
     await retried.waitForTimeout(800);
-    t.ok('and so does Retry after that first load failed', new URL(retried.url()).pathname.endsWith('/project/work'));
+    t.ok('and so does Retry after that first load failed', new URL(retried.url()).pathname.endsWith('/work'));
 };

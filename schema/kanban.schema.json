@@ -5,7 +5,7 @@
     "additionalProperties": false,
     "required": ["version", "key", "id_length", "max_parallel", "ready_buffer", "wip", "stale_after_minutes", "updated"],
     "properties": {
-        "version": { "const": 2 },
+        "version": { "const": 3 },
         "key": { "type": "string", "pattern": "^[A-Z][A-Z0-9]{1,9}$" },
         "id_length": { "type": "integer", "minimum": 4, "maximum": 12 },
         "max_parallel": { "type": "integer", "minimum": 1, "maximum": 64 },

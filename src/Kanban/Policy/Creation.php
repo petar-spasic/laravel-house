@@ -19,13 +19,13 @@ use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
 final class Creation
 {
     /** The names `kanban new` gives the fields. */
-    public const CLI = ['title' => 'the title', 'type' => '--type', 'priority' => '--priority', 'body' => '--body', 'labels' => '--label', 'accept' => '--accept', 'stage' => '--stage'];
+    public const CLI = ['title' => 'the title', 'type' => '--type', 'priority' => '--priority', 'epic' => '--epic', 'body' => '--body', 'labels' => '--label', 'accept' => '--accept', 'stage' => '--stage'];
 
     /** @param  array<string, string>  $names  how the caller names a field in a refusal, by field */
     public function __construct(private readonly array $names = []) {}
 
     /**
-     * @param  array{title: string, type?: ?string, priority?: ?string, body?: ?string, labels?: list<string>, accept?: list<string>, depends?: list<string>, stage?: ?string}  $input
+     * @param  array{title: string, type?: ?string, priority?: ?string, epic?: ?string, body?: ?string, labels?: list<string>, accept?: list<string>, depends?: list<string>, stage?: ?string}  $input
      * @return array<string, mixed>
      */
     public function fields(Snapshot $snapshot, BoardRef $ref, array $input): array
@@ -41,6 +41,10 @@ final class Creation
         }
         if (($input['labels'] ?? []) !== []) {
             $fields['labels'] = $input['labels'];
+        }
+        if (($epic = trim((string) ($input['epic'] ?? ''))) !== '') {
+            $snapshot->epic($epic) ?? throw new NotFound($this->name('epic')." {$epic}: no such epic (`vendor/bin/kanban epic {$epic}` creates it)");
+            $fields['epic'] = $epic;
         }
         $fields['acceptance'] = $input['accept'] ?? [];
         $fields['depends_on'] = array_map(fn (string $id) => $snapshot->resolve($id)->id(), $input['depends'] ?? []);

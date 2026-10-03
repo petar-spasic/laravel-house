@@ -19,6 +19,9 @@ function multiBoard(Sandbox $s, array $overrides = []): void
     $at = fn (int $day) => sprintf('2026-09-%02dT10:00:00.000+00:00', $day);
     $kanban = json_decode(file_get_contents($root.'kanban.json'), true);
     $put('kanban.json', ['version' => 1, 'locked' => ['doing', 'review', 'done', 'superseded']] + $kanban);
+    // an older release kept every board inside an epic directory, the installer's being project/work
+    unlink($root.'work/board.json');
+    $put('project/epic.json', ['title' => 'Project', 'goal' => '', 'done_when' => [], 'body' => '', 'order' => 10, 'updated' => $at(1)]);
     $put('project/work/board.json', ['title' => 'Work', 'kind' => 'work', 'body' => '', 'order' => 20, 'wip' => ['doing' => 6], 'updated' => $at(1)]);
     $put('project/decisions/board.json', ['title' => 'Decisions', 'kind' => 'decisions', 'body' => 'Owner decisions, newest first.', 'order' => 10, 'wip' => (object) [], 'updated' => $at(1)]);
     $put('app/epic.json', ['title' => 'App', 'goal' => 'Ship the notes app.', 'done_when' => ['Notes sync between devices'], 'body' => '', 'order' => 20, 'updated' => $at(1)]);
@@ -110,38 +113,42 @@ function sharedOldBoard(): array
 
 const SYNC_ON = ['KANBAN_SYNC' => 'on'];
 
-it('folds every board into one, archives the decisions and puts open questions on the cards they hold up', function () {
+it('folds every board into one, gives each card the epic it sat in, archives the decisions and puts open questions on the cards they hold up', function () {
     $s = oldBoard();
-    $raw = file_get_contents($s->root.'/docs/kanban/app/frontend/ACME-FE0003.json');
     $commits = count($s->boardLog());
 
     $out = $s->ok('fold-boards');
 
     expect(count($s->boardLog()))->toBe($commits + 1)
-        ->and($s->boardLog()[0])->toBe('Kanban: fold boards into project/work (6 cards moved, 4 archived, 1 spikes) [owner]')
+        ->and($s->boardLog()[0])->toBe('Kanban: fold boards into work (7 cards moved, 4 archived, 1 spikes) [owner]')
         ->and(trim($s->boardGit('status', '--porcelain')))->toBe('')
-        ->and($out)->toContain("moved ACME-FE0003 app/frontend → project/work\n")
+        ->and($out)->toContain("moved ACME-FE0003 app/frontend → work\n")
         ->toContain("archived ACME-DEC0D1 decided Search is a Postgres index\n")
         ->toContain('spike ACME-DEC0P2 Should exports include comments')
-        ->toContain('folded into project/work: 6 moved, 4 archived, 1 spikes');
+        ->toContain("epic app: 5 cards\n")
+        ->toContain('folded into work: 7 moved, 4 archived, 1 spikes');
 
-    // one board, version 2
+    // one board and an epic, version 3
     $files = array_map(fn (string $f) => substr($f, strlen($s->root.'/docs/kanban/')), glob($s->root.'/docs/kanban/{*,*/*,*/*/*}.{json,md}', GLOB_BRACE));
     sort($files);
-    expect($files)->toBe(['README.md', 'decisions.md', 'kanban.json', 'project/epic.json', 'project/work/ACME-BE0001.json', 'project/work/ACME-BE0002.json',
-        'project/work/ACME-DEC0P2.json', 'project/work/ACME-FE0001.json', 'project/work/ACME-FE0002.json', 'project/work/ACME-FE0003.json',
-        'project/work/ACME-WK0001.json', 'project/work/board.json'])
-        ->and(boardFile($s, 'kanban.json'))->toMatchArray(['version' => 2, 'locked' => ['doing', 'review', 'done']])
+    expect($files)->toBe(['README.md', '_epics/app.json', 'decisions.md', 'kanban.json', 'work/ACME-BE0001.json', 'work/ACME-BE0002.json',
+        'work/ACME-DEC0P2.json', 'work/ACME-FE0001.json', 'work/ACME-FE0002.json', 'work/ACME-FE0003.json',
+        'work/ACME-WK0001.json', 'work/board.json'])
+        ->and(boardFile($s, 'kanban.json'))->toMatchArray(['version' => 3, 'locked' => ['doing', 'review', 'done']])
         // no empty directory of a folded board or epic stays behind
-        ->and(array_map('basename', glob($s->root.'/docs/kanban/*', GLOB_ONLYDIR)))->toBe(['project'])
-        ->and(array_map('basename', glob($s->root.'/docs/kanban/project/*', GLOB_ONLYDIR)))->toBe(['work']);
-    $board = boardFile($s, 'project/work/board.json');
+        ->and(array_map('basename', glob($s->root.'/docs/kanban/*', GLOB_ONLYDIR)))->toBe(['_epics', 'work']);
+    $board = boardFile($s, 'work/board.json');
     expect($board)->not->toHaveKey('kind')
         ->and($board['wip'])->toBe([])
-        ->and($board['body'])->toBe("## app/frontend — Frontend\n\nPages and components.\n\n## app — App\n\nShip the notes app.\n\nDone when:\n\n- Notes sync between devices");
+        ->and($board['body'])->toBe('')
+        ->and(boardFile($s, '_epics/app.json'))->toMatchArray(['title' => 'App', 'goal' => 'Ship the notes app.',
+            'done_when' => ['Notes sync between devices'], 'body' => "## Frontend\n\nPages and components."]);
 
-    // an unchanged card moves byte for byte
-    expect(file_get_contents($s->root.'/docs/kanban/project/work/ACME-FE0003.json'))->toBe($raw);
+    // the epic comes from the directory a card sat in; the installer's project epic gives none
+    expect(array_map(fn (string $id) => $s->read($id)['epic'] ?? null, ['ACME-FE0001', 'ACME-FE0003', 'ACME-BE0002', 'ACME-WK0001', 'ACME-DEC0P2']))
+        ->toBe(['app', 'app', 'app', null, null])
+        ->and($s->ok(['list', '--epic=app']))->toContain('ACME-FE0003')->not->toContain('ACME-WK0001')
+        ->and($s->ok('epic'))->toBe("app 1/5 done App — Ship the notes app.\n");
 
     // proposed with open dependents: a question on each, ready goes back to backlog, a block of another kind stays
     $toolbar = $s->read('ACME-FE0001');
@@ -210,7 +217,7 @@ it('folds every board into one, archives the decisions and puts open questions o
 
         MD);
 
-    // the version 1 gate is lifted
+    // the gate on older formats is lifted
     expect($s->ok('validate'))->toContain('ok: 7 cards on 1 boards')
         ->and($s->ok('list'))->toContain('ACME-FE0001')
         ->and($s->kanban(['promote', 'ACME-WK0001'])->getOutput())->toBe("refused ACME-WK0001: R1 no area:* label\n");
@@ -222,13 +229,13 @@ it('prints the plan on a dry run and writes nothing', function () {
 
     $out = $s->ok(['fold-boards', '--dry-run']);
 
-    expect($out)->toContain("moved ACME-FE0001 app/frontend → project/work\n")
+    expect($out)->toContain("moved ACME-FE0001 app/frontend → work\n")
         ->toContain("folded board app/frontend\n")->toContain("folded board project/decisions\n")
         ->toContain("archived ACME-DEC0P1 proposed Which editor library\n")
         ->toContain("question ACME-DEC0P1 Which editor library: on ACME-FE0001, ACME-FE0002 (2 cards: one piece of work? fold them into one after this)\n")
         ->toContain("no area: ACME-DEC0P2, ACME-WK0001 (promote refuses a card without an area:* label)\n")
         ->toContain("startable areas: 2 of max_parallel 6\n")
-        ->toContain('would fold into project/work: 6 moved, 4 archived, 1 spikes; nothing written')
+        ->toContain('would fold into work: 7 moved, 4 archived, 1 spikes; nothing written')
         ->and($s->boardLog())->toBe($commits)
         ->and(trim($s->boardGit('status', '--porcelain')))->toBe('')
         ->and(is_file($s->root.'/docs/kanban/decisions.md'))->toBeFalse()
@@ -241,12 +248,12 @@ it('changes nothing when run again, and folds a decision card pushed by a clone 
     $commits = $s->boardLog();
     $archive = file_get_contents($s->root.'/docs/kanban/decisions.md');
 
-    expect($s->ok('fold-boards'))->toBe("nothing to fold: one board, project/work, at version 2\n")
-        ->and($s->ok(['fold-boards', '--dry-run']))->toBe("nothing to fold: one board, project/work, at version 2\n")
+    expect($s->ok('fold-boards'))->toBe("nothing to fold: the board is at version 3\n")
+        ->and($s->ok(['fold-boards', '--dry-run']))->toBe("nothing to fold: the board is at version 3\n")
         ->and($s->boardLog())->toBe($commits);
 
-    $straggler = boardFile($s, 'project/work/ACME-BE0002.json');
-    file_put_contents($s->root.'/docs/kanban/project/work/ACME-DEC0D2.json', json_encode([
+    $straggler = boardFile($s, 'work/ACME-BE0002.json');
+    file_put_contents($s->root.'/docs/kanban/work/ACME-DEC0D2.json', json_encode([
         'id' => 'ACME-DEC0D2', 'type' => 'decision', 'title' => 'Tags are lowercase', 'stage' => 'decided', 'priority' => 'normal', 'labels' => [],
         'body' => 'One spelling per tag.', 'why' => '', 'decided_on' => '2026-09-10', 'supersedes' => [], 'superseded_by' => null, 'resolution' => null,
         'source' => null, 'created' => $straggler['created'], 'updated' => $straggler['created'], 'log' => [],
@@ -288,15 +295,15 @@ it('waits while the runtime of the separate package is still in use', function (
         ->and($s->boardLog())->toBe($commits);
 
     unlink($s->root.'/.git/laravel-kanban/agents/a2.json');
-    expect($s->ok('fold-boards'))->toContain('moved .git/laravel-kanban')->toContain('folded into project/work')
+    expect($s->ok('fold-boards'))->toContain('moved .git/laravel-kanban')->toContain('folded into work')
         ->and($s->root.'/.git/laravel-kanban')->not->toBeDirectory();
 });
 
 it('lands one fold on origin when two clones run it', function () {
     [$origin, $a, $b] = sharedOldBoard();
 
-    expect($a->ok('fold-boards', SYNC_ON))->toContain('folded into project/work')
-        ->and($b->ok('fold-boards', SYNC_ON))->toBe("nothing to fold: one board, project/work, at version 2\n")
+    expect($a->ok('fold-boards', SYNC_ON))->toContain('folded into work')
+        ->and($b->ok('fold-boards', SYNC_ON))->toBe("nothing to fold: the board is at version 3\n")
         ->and(array_values(array_filter($origin->log('kanban'), fn (string $s) => str_starts_with($s, 'Kanban: fold boards'))))->toHaveCount(1)
         ->and(file_get_contents($b->root.'/docs/kanban/decisions.md'))->toBe(file_get_contents($a->root.'/docs/kanban/decisions.md'))
         ->and($b->ok('validate'))->toContain('ok: 7 cards on 1 boards');
@@ -334,7 +341,7 @@ it('keeps unpushed edits of a folded clone: a moved card merged at its new path,
         ->and($displaced)->toHaveCount(1)
         ->and(file_get_contents($displaced[0]))->toBe($edited)
         ->and($b->read('ACME-FE0003')['body'])->toBe('Build Note list page, sorted by date.')
-        ->and(is_file($b->root.'/docs/kanban/project/work/ACME-FE0003.json'))->toBeTrue()
+        ->and(is_file($b->root.'/docs/kanban/work/ACME-FE0003.json'))->toBeTrue()
         ->and(trim($b->boardGit('status', '--porcelain')))->toBe('')
         ->and($b->ok('validate'))->toContain('ok: 7 cards on 1 boards');
 
@@ -343,17 +350,13 @@ it('keeps unpushed edits of a folded clone: a moved card merged at its new path,
     expect($a->read('ACME-FE0003')['body'])->toBe('Build Note list page, sorted by date.');
 });
 
-it('folds into a board it creates, and never into a decisions board', function () {
+it('folds into a board it names', function () {
     $s = oldBoard();
 
-    $refused = $s->kanban(['fold-boards', '--into=project/decisions']);
-    expect($refused->getExitCode())->toBe(2)
-        ->and($refused->getErrorOutput())->toContain('project/decisions is a decisions board; fold into a work board');
-
-    expect($s->ok(['fold-boards', '--into=core/main']))->toContain('folded into core/main: 7 moved')
-        ->and(boardFile($s, 'core/epic.json')['title'])->toBe('Core')
-        ->and(boardFile($s, 'core/main/board.json'))->toMatchArray(['title' => 'Main', 'wip' => []])
-        ->and(glob($s->root.'/docs/kanban/core/main/ACME-*.json'))->toHaveCount(7)
-        ->and(glob($s->root.'/docs/kanban/{project,app}/{*,*/*}.json', GLOB_BRACE))->toBe([])
+    expect($s->ok(['fold-boards', '--into=main']))->toContain('folded into main: 7 moved')
+        ->and(boardFile($s, 'main/board.json'))->toMatchArray(['title' => 'Main', 'wip' => []])
+        ->and(glob($s->root.'/docs/kanban/main/ACME-*.json'))->toHaveCount(7)
+        ->and(glob($s->root.'/docs/kanban/{project,app}', GLOB_BRACE))->toBe([])
+        ->and($s->kanban(['fold-boards', '--into=core/main'])->getErrorOutput())->toContain('expected a board slug')
         ->and($s->ok('validate'))->toContain('ok: 7 cards on 1 boards');
 });

@@ -49,7 +49,7 @@ it('journals writes when git is unusable and commits them on the next host write
     $s = $this->sandbox;
     $noGit = ['PATH' => pathWithoutGit()];
 
-    $first = $s->kanban(['new', 'project/work', 'Offline one'], $noGit);
+    $first = $s->kanban(['new', 'work', 'Offline one'], $noGit);
     expect($first->getExitCode())->toBe(0, $first->getErrorOutput())
         ->and($first->getOutput())->toContain('journaled: 1 write(s) not committed');
     preg_match('/created (\S+)/', $first->getOutput(), $m);
@@ -58,7 +58,7 @@ it('journals writes when git is unusable and commits them on the next host write
 
     $journal = array_map(fn ($l) => json_decode($l, true), array_filter(explode("\n", file_get_contents($s->root.'/.git/laravel-house/journal.jsonl'))));
     expect($journal)->toHaveCount(2)
-        ->and($journal[1])->toMatchArray(['by' => 'owner', 'message' => "{$id} set priority [owner]", 'paths' => ["project/work/{$id}.json"]])
+        ->and($journal[1])->toMatchArray(['by' => 'owner', 'message' => "{$id} set priority [owner]", 'paths' => ["work/{$id}.json"]])
         ->and($s->boardLog())->toBe(['Kanban: initialize'])
         ->and($s->read($id)['priority'])->toBe('high');
 
@@ -73,7 +73,7 @@ it('flushes the journal before the next write', function () {
     simulateContainer($s);
     rename($s->root.'/.git/worktrees/kanban', $s->root.'/.git/worktrees/kanban-hidden');
 
-    $offline = $s->kanban(['new', 'project/work', 'Container without git access']);
+    $offline = $s->kanban(['new', 'work', 'Container without git access']);
     expect($offline->getOutput())->toContain('journaled: 1 write(s)');
     preg_match('/created (\S+)/', $offline->getOutput(), $m);
 

@@ -75,7 +75,7 @@ it('keeps the slot and the worktree when the stack does not go down', function (
 it('refuses to stop a card another machine is working on unless forced', function () {
     $code = $this->code;
     $id = $code->started('Elsewhere');
-    $file = $code->root()."/docs/kanban/project/work/{$id}.json";
+    $file = $code->root()."/docs/kanban/work/{$id}.json";
     $card = json_decode(file_get_contents($file), true);
     $card['work']['host'] = 'alice-laptop';
     $card['claim']['by'] = 'alice@alice-laptop';

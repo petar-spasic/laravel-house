@@ -20,7 +20,7 @@ Consumers read `README.md` and the skills. This file is for working **on** the p
 | `.claude-plugin/plugin.json` | The plugin; `"skills": "./resources/boost/skills/"` makes the same directory its skills |
 | `src/LaravelHouseServiceProvider.php`, `src/Validation/*` | The `validation:export` command |
 | `src/Kanban/KanbanServiceProvider.php` | The board's provider: config, the `kanban:*` commands, the `/kanban` routes and views |
-| `src/Kanban/Store/**`, `src/Kanban/Schema/*`, `schema/*.json` | Store contract, git driver (writes, batches, merge driver, sync and its status, claims, the version 1 upgrade), validation |
+| `src/Kanban/Store/**`, `src/Kanban/Schema/*`, `schema/*.json` | Store contract, git driver (writes, batches, merge driver, sync and its status, claims, the upgrade of older formats to version 3), validation |
 | `src/Kanban/Policy/*` | Transitions, ready policy, pull order, edits and creation, fold, shape (the card-cutting hints) |
 | `src/Kanban/Console/*`, `src/Kanban/Console/Install/*` | CLI commands; install steps (stored-name migration, settings hooks, agents, the `CLAUDE.md` block and Boost entry, `.gitignore`) |
 | `src/Kanban/Code/*` | Card clones and worktrees, their `.env`, machine-wide port registry, compose stacks, merge checks, main check and push, dependency checks |
@@ -285,9 +285,10 @@ A release that changes the core is a new minor. A 0.x caret never crosses a mino
 `composer require --dev petar-spasic/laravel-house` and no constraint (README, Updating).
 
 `src/Kanban/Console/Install/Migrate.php` moves projects off the old stored names, and `fold-boards`
-(`FoldBoardsCommand`, `Store/Git/Upgrade.php`, `Archive.php`) moves version 1 boards onto one work board. Delete them,
-their tests, the README warnings about `petar-spasic/laravel-kanban` and board version 1, and implement-kanban's cases
-(d) and (e) and "Consolidating", in the first minor after every project runs v0.6.0 or later.
+(`FoldBoardsCommand`, `Store/Git/Upgrade.php`, `Archive.php`, the legacy layout in `GitStore::load()` and
+`BoardRef::$legacyEpic`) moves older boards onto version 3. Delete them, their tests, the README warnings about
+`petar-spasic/laravel-kanban` and older board formats, and implement-kanban's cases (d) and (e) and "Consolidating", in
+the first minor after every project runs v0.7.0 or later.
 
 Before tagging a release that touches `src/`, `bin/` or `composer.json`, smoke-install it on the host into a scratch
 Laravel app outside the repo, with `house` set to this repository's path. Export `XDG_STATE_HOME` to a scratch

@@ -7,6 +7,7 @@ use PetarSpasic\LaravelHouse\Kanban\Policy\Shape;
 use PetarSpasic\LaravelHouse\Kanban\Store\Board;
 use PetarSpasic\LaravelHouse\Kanban\Store\BoardRef;
 use PetarSpasic\LaravelHouse\Kanban\Store\Card;
+use PetarSpasic\LaravelHouse\Kanban\Store\Epic;
 use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
 use PetarSpasic\LaravelHouse\Kanban\Store\Stage;
 use PetarSpasic\LaravelHouse\Kanban\Support\AgentStates;
@@ -46,32 +47,34 @@ final class Presenter
         return Snapshot::staleMinutesOf(is_array($settings) ? $settings : []);
     }
 
-    /** @return list<array<string, mixed>> epics with their boards and the number of cards in each stage */
-    public function epics(): array
+    /** @return list<array<string, mixed>> the boards with the number of cards in each stage */
+    public function boards(): array
     {
         $counts = [];
         foreach ($this->snapshot->cards as $card) {
             $counts[(string) $card->board][$card->stage()] = ($counts[(string) $card->board][$card->stage()] ?? 0) + 1;
         }
-        $epics = [];
-        foreach ($this->snapshot->epics as $slug => $epic) {
-            $epics[] = ['slug' => $slug, 'title' => $epic->title(), 'order' => $epic->order(), 'boards' => []];
-        }
-        usort($epics, fn (array $a, array $b) => [$a['order'], $a['slug']] <=> [$b['order'], $b['slug']]);
-        $position = array_flip(array_column($epics, 'slug'));
-        foreach ($this->snapshot->boards() as $board) {
-            $ref = (string) $board->ref;
-            if (! isset($position[$board->ref->epic])) {
-                $position[$board->ref->epic] = count($epics);
-                $epics[] = ['slug' => $board->ref->epic, 'title' => $board->ref->epic, 'order' => 0, 'boards' => []];
+
+        return array_map(fn (Board $board) => [
+            'ref' => (string) $board->ref, 'title' => $board->title(),
+            'counts' => array_replace(array_fill_keys(Stage::WORK, 0), $counts[(string) $board->ref] ?? []),
+        ], $this->snapshot->boards());
+    }
+
+    /** @return list<array<string, mixed>> the epics with their goal and how many of their cards are done */
+    public function epics(): array
+    {
+        $cards = [];
+        foreach ($this->snapshot->cards as $card) {
+            if ($card->epic() !== null && $card->stage() !== 'dropped') {
+                $cards[$card->epic()][] = $card->stage();
             }
-            $epics[$position[$board->ref->epic]]['boards'][] = [
-                'ref' => $ref, 'board' => $board->ref->board, 'title' => $board->title(),
-                'counts' => array_replace(array_fill_keys(Stage::WORK, 0), $counts[$ref] ?? []),
-            ];
         }
 
-        return array_map(fn (array $epic) => array_diff_key($epic, ['order' => 1]), $epics);
+        return array_map(fn (Epic $epic) => [
+            'slug' => $epic->slug, 'title' => $epic->title(), 'goal' => $epic->goal(), 'done_when' => $epic->doneWhen(),
+            'done' => count(array_keys($cards[$epic->slug] ?? [], 'done', true)), 'total' => count($cards[$epic->slug] ?? []),
+        ], $this->snapshot->epics());
     }
 
     /**
@@ -117,7 +120,6 @@ final class Presenter
         return [
             'ref' => (string) $ref,
             'title' => $board->title(),
-            'epic' => ['slug' => $ref->epic, 'title' => $this->snapshot->epic($ref->epic)?->title() ?? $ref->epic],
             'moves' => Ui::moves(),
             'locked' => $this->snapshot->lockedStages(),
             'stages' => $stages,
@@ -140,6 +142,7 @@ final class Presenter
             'priority' => $card->priority(),
             'type' => $card->type(),
             'labels' => $card->labels(),
+            'epic' => $card->epic() === null ? null : ['slug' => $card->epic(), 'title' => $this->snapshot->epicOf($card)?->title() ?? $card->epic()],
             'blocked' => $card->blocked(),
             'question' => $card->asks() ? substr((string) $card->blocked(), strlen(Card::QUESTION)) : null,
             'blocks' => count(($this->hubs ??= Shape::hubs($this->snapshot))[$card->id()] ?? []),
@@ -199,12 +202,15 @@ final class Presenter
         }
     }
 
-    /** Changes when a board or epic appears, disappears or is renamed: the page reloads its board list then. */
+    /** Changes when a board or an epic appears, disappears or is renamed: the page reloads its board list then. */
     public function layout(): string
     {
         $parts = [];
         foreach ($this->snapshot->boards() as $board) {
-            $parts[] = $board->ref.'|'.$board->title().'|'.($this->snapshot->epic($board->ref->epic)?->title() ?? '');
+            $parts[] = $board->ref.'|'.$board->title();
+        }
+        foreach ($this->snapshot->epics() as $epic) {
+            $parts[] = '_epic|'.$epic->slug.'|'.$epic->title();
         }
 
         return sha1(implode("\n", $parts));
@@ -246,7 +252,6 @@ final class Presenter
     {
         $ref = $card->board;
 
-        return ['ref' => (string) $ref, 'title' => $board?->title() ?? $ref->board,
-            'epic' => $this->snapshot->epic($ref->epic)?->title() ?? $ref->epic];
+        return ['ref' => (string) $ref, 'title' => $board?->title() ?? $ref->board];
     }
 }

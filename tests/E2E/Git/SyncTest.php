@@ -174,7 +174,7 @@ it('claims with push-or-abort when sync is on: the loser exits 8', function () {
 
     $on = ['KANBAN_SYNC' => 'on'];
     expect($a->ok(['claim', $id], $on + ['KANBAN_SESSION' => 'session-a']))->toStartWith("claimed {$id}")
-        ->and($origin->show("kanban:project/work/{$id}.json"))->toContain('"session": "session-a"');
+        ->and($origin->show("kanban:work/{$id}.json"))->toContain('"session": "session-a"');
 
     $lost = $b->kanban(['claim', $id], $on + ['KANBAN_SESSION' => 'session-b']);
     expect($lost->getExitCode())->toBe(8)
@@ -207,7 +207,7 @@ it('loses a claim whose push is rejected because the card changed on origin', fu
 
     expect($lost->getExitCode())->toBe(8, $lost->getErrorOutput())
         ->and($lost->getErrorOutput())->toContain('is already claimed by')
-        ->and($origin->show("kanban:project/work/{$id}.json"))->toContain('"session": "session-a"')
+        ->and($origin->show("kanban:work/{$id}.json"))->toContain('"session": "session-a"')
         ->and($b->read($id)['claim']['session'])->toBe('session-a')
         ->and(trim($b->boardGit('rev-parse', 'HEAD')))->toBe(trim($b->boardGit('rev-parse', 'origin/kanban')));
 });
@@ -232,12 +232,12 @@ it('keeps a claim whose push is rejected only because somebody pushed something 
     $b->ok(['set', $id, 'body=Edited on B, not pushed yet']);
     $php = PHP_BINARY;
     $bin = Sandbox::package().'/bin/kanban';
-    racingPush($b, "cd \"{$a->root}\" && export KANBAN_SYNC=off XDEBUG_MODE=off && \"{$php}\" \"{$bin}\" new project/work 'Pushed meanwhile' >/dev/null 2>&1 && \"{$php}\" \"{$bin}\" sync >/dev/null 2>&1");
+    racingPush($b, "cd \"{$a->root}\" && export KANBAN_SYNC=off XDEBUG_MODE=off && \"{$php}\" \"{$bin}\" new work 'Pushed meanwhile' >/dev/null 2>&1 && \"{$php}\" \"{$bin}\" sync >/dev/null 2>&1");
 
     $claim = $b->kanban(['claim', $id], ['KANBAN_SYNC' => 'on', 'KANBAN_SESSION' => 'session-b']);
 
     expect($claim->getExitCode())->toBe(0, $claim->getErrorOutput())
-        ->and($origin->show("kanban:project/work/{$id}.json"))->toContain('"session": "session-b"')->toContain('Edited on B, not pushed yet')
+        ->and($origin->show("kanban:work/{$id}.json"))->toContain('"session": "session-b"')->toContain('Edited on B, not pushed yet')
         ->and(trim($b->boardGit('rev-parse', 'HEAD')))->toBe(trim($b->boardGit('rev-parse', 'origin/kanban')));
 });
 
@@ -256,8 +256,8 @@ it('checks the area again after a lost push race, so two schedulers cannot both 
 
     expect($lost->getExitCode())->toBe(3, $lost->getErrorOutput())
         ->and($lost->getErrorOutput())->toContain('refused')
-        ->and($origin->show("kanban:project/work/{$first}.json"))->toContain('"stage": "doing"')
-        ->and($origin->show("kanban:project/work/{$second}.json"))->toContain('"stage": "ready"')
+        ->and($origin->show("kanban:work/{$first}.json"))->toContain('"stage": "doing"')
+        ->and($origin->show("kanban:work/{$second}.json"))->toContain('"stage": "ready"')
         ->and($b->read($second)['claim'])->toBeNull()
         ->and(trim($b->boardGit('rev-list', '--count', 'origin/kanban..HEAD')))->toBe('0');
 });
@@ -269,7 +269,7 @@ it('gives up a claim after three rejected pushes and leaves no claim commit behi
     $b->ok('sync');
     $php = PHP_BINARY;
     $bin = Sandbox::package().'/bin/kanban';
-    racingPush($b, "cd \"{$a->root}\" && export KANBAN_SYNC=off XDEBUG_MODE=off && \"{$php}\" \"{$bin}\" new project/work \"Pushed meanwhile \$(date +%s%N)\" >/dev/null 2>&1 && \"{$php}\" \"{$bin}\" sync >/dev/null 2>&1", every: true);
+    racingPush($b, "cd \"{$a->root}\" && export KANBAN_SYNC=off XDEBUG_MODE=off && \"{$php}\" \"{$bin}\" new work \"Pushed meanwhile \$(date +%s%N)\" >/dev/null 2>&1 && \"{$php}\" \"{$bin}\" sync >/dev/null 2>&1", every: true);
 
     $gave = $b->kanban(['claim', $id], ['KANBAN_SYNC' => 'on', 'KANBAN_SESSION' => 'session-b']);
 
@@ -311,7 +311,7 @@ it('keeps a write that is already committed when the host cannot start the backg
     mkdir($dir);
     file_put_contents("{$dir}/no-exec.ini", "disable_functions=exec\n");
 
-    $made = $a->kanban(['new', 'project/work', 'Committed anyway'], ['KANBAN_SYNC' => 'on', 'PHP_INI_SCAN_DIR' => ":{$dir}"]);
+    $made = $a->kanban(['new', 'work', 'Committed anyway'], ['KANBAN_SYNC' => 'on', 'PHP_INI_SCAN_DIR' => ":{$dir}"]);
 
     expect($made->getExitCode())->toBe(0, $made->getOutput().$made->getErrorOutput())
         ->and($a->boardLog()[0])->toContain('created');
@@ -352,15 +352,15 @@ it('treats 1, true and yes like on for KANBAN_SYNC and reports it as on', functi
 
     $a->ok(['claim', $id], $env);
 
-    expect($origin->show("kanban:project/work/{$id}.json"))->toContain('"session": "session-a"')
+    expect($origin->show("kanban:work/{$id}.json"))->toContain('"session": "session-a"')
         ->and($a->ok(['status', '--json'], $env))->toContain('"sync": "on"');
 })->with(['1', 'true', 'yes']);
 
-/** A synced card on project/work and an empty second board, on two clones. */
+/** A synced card on work and an empty second board, on two clones. */
 function movable(): array
 {
     [$origin, $a, $b] = published();
-    $a->ok(['board', 'platform/tooling', 'Tooling']);
+    $a->ok(['board', 'tooling', 'Tooling']);
     $id = $a->card('Movable card', ['--accept=One']);
     $a->ok('sync');
     $b->ok('sync');
@@ -371,14 +371,14 @@ function movable(): array
 it('keeps the id of a card that was moved to another board and edited a lot before syncing', function () {
     [$origin, $a, $b, $id] = movable();
     $a->ok(['set', $id, 'body=@-'], [], implode("\n", array_map(fn (int $n) => "Paragraph {$n} of a long rewritten body that rename detection cannot pair with the short original.", range(1, 40))));
-    $a->ok(['move', $id, '--board=platform/tooling']);
+    $a->ok(['move', $id, '--board=tooling']);
 
     $sync = $a->ok('sync');
 
     expect($sync)->not->toContain('renamed')
-        ->and($origin->show("kanban:platform/tooling/{$id}.json"))->toContain($id)
-        ->and($a->root."/docs/kanban/platform/tooling/{$id}.json")->toBeFile()
-        ->and($a->root."/docs/kanban/project/work/{$id}.json")->not->toBeFile()
+        ->and($origin->show("kanban:tooling/{$id}.json"))->toContain($id)
+        ->and($a->root."/docs/kanban/tooling/{$id}.json")->toBeFile()
+        ->and($a->root."/docs/kanban/work/{$id}.json")->not->toBeFile()
         ->and($a->ok('validate'))->toContain('ok: 1 cards');
 });
 
@@ -386,7 +386,7 @@ it('syncs a card moved on one machine and edited on another, whichever syncs fir
     [$origin, $a, $b, $id] = movable();
     $b->ok(['set', $id, 'priority=high']);
     $a->ok(['set', $id, 'body=@-'], [], implode("\n", array_map(fn (int $n) => "Paragraph {$n} of a long rewritten body.", range(1, 40))));
-    $a->ok(['move', $id, '--board=platform/tooling']);
+    $a->ok(['move', $id, '--board=tooling']);
     [$first, $second] = $mover ? [$a, $b] : [$b, $a];
 
     $first->ok('sync');
@@ -396,8 +396,8 @@ it('syncs a card moved on one machine and edited on another, whichever syncs fir
     $first->ok('sync');
     $merged = $a->read($id);
     expect($merged)->toBe($b->read($id))
-        ->and($a->root."/docs/kanban/platform/tooling/{$id}.json")->toBeFile()
-        ->and($a->root."/docs/kanban/project/work/{$id}.json")->not->toBeFile()
+        ->and($a->root."/docs/kanban/tooling/{$id}.json")->toBeFile()
+        ->and($a->root."/docs/kanban/work/{$id}.json")->not->toBeFile()
         ->and($merged['priority'])->toBe('high')
         ->and($merged['body'])->toContain('Paragraph 40')
         ->and($a->ok('validate'))->toContain('ok: 1 cards')
@@ -406,13 +406,13 @@ it('syncs a card moved on one machine and edited on another, whichever syncs fir
 
 it('lets origin win when both machines moved the same card, and keeps both machines\' edits', function () {
     [$origin, $a, $b, $id] = movable();
-    $a->ok(['board', 'platform/ops', 'Ops']);
+    $a->ok(['board', 'ops', 'Ops']);
     $a->ok('sync');
     $b->ok('sync');
     $a->ok(['set', $id, 'priority=high']);
-    $a->ok(['move', $id, '--board=platform/tooling']);
+    $a->ok(['move', $id, '--board=tooling']);
     $b->ok(['set', $id, 'labels=+area:pdf']);
-    $b->ok(['move', $id, '--board=platform/ops']);
+    $b->ok(['move', $id, '--board=ops']);
 
     $a->ok('sync');
     $sync = $b->kanban('sync');
@@ -421,8 +421,8 @@ it('lets origin win when both machines moved the same card, and keeps both machi
     $a->ok('sync');
     $merged = $a->read($id);
     expect($merged)->toBe($b->read($id))
-        ->and($a->root."/docs/kanban/platform/tooling/{$id}.json")->toBeFile()
-        ->and($a->root."/docs/kanban/platform/ops/{$id}.json")->not->toBeFile()
+        ->and($a->root."/docs/kanban/tooling/{$id}.json")->toBeFile()
+        ->and($a->root."/docs/kanban/ops/{$id}.json")->not->toBeFile()
         ->and($merged['priority'])->toBe('high')
         ->and($merged['labels'])->toBe(['area:pdf'])
         ->and($a->ok('validate'))->toContain('ok: 1 cards');
@@ -483,7 +483,7 @@ it('drops its claim commit when the fetch after a rejected claim push fails', fu
         #!/bin/sh
         [ -f "{$hooks}/done" ] && exit 0
         touch "{$hooks}/done"
-        cd "{$a->root}" && "{$php}" "{$bin}" new project/work "Moved origin" >/dev/null 2>&1 && "{$php}" "{$bin}" sync >/dev/null 2>&1
+        cd "{$a->root}" && "{$php}" "{$bin}" new work "Moved origin" >/dev/null 2>&1 && "{$php}" "{$bin}" sync >/dev/null 2>&1
         touch "{$b->root}/.git/refs/remotes/origin/kanban.lock"
         exit 0
         SH);
@@ -511,14 +511,14 @@ it('starts a card origin has since unblocked, even though this clone has not syn
     $claim = $b->kanban(['claim', $id], $on);
 
     expect($claim->getExitCode())->toBe(0, $claim->getErrorOutput())
-        ->and($origin->show("kanban:project/work/{$id}.json"))->toContain('"session": "session-b"');
+        ->and($origin->show("kanban:work/{$id}.json"))->toContain('"session": "session-b"');
 });
 
 it('leaves a moved card where it is when the undo commit before a sync fails, and syncs cleanly afterwards', function () {
     [$origin, $a, $b, $id] = movable();
     $b->ok(['set', $id, 'priority=high']);
     $b->ok('sync');
-    $a->ok(['move', $id, '--board=platform/tooling']);
+    $a->ok(['move', $id, '--board=tooling']);
     $gitdir = trim($a->boardGit('rev-parse', '--absolute-git-dir'));
     $a->boardGit('fetch', '-q');
     touch($gitdir.'/index.lock');
@@ -527,20 +527,20 @@ it('leaves a moved card where it is when the undo commit before a sync fails, an
     unlink($gitdir.'/index.lock');
 
     expect($failed->getExitCode())->not->toBe(0)
-        ->and($a->root."/docs/kanban/platform/tooling/{$id}.json")->toBeFile()
-        ->and($a->root."/docs/kanban/project/work/{$id}.json")->not->toBeFile()
+        ->and($a->root."/docs/kanban/tooling/{$id}.json")->toBeFile()
+        ->and($a->root."/docs/kanban/work/{$id}.json")->not->toBeFile()
         ->and(trim($a->boardGit('status', '--porcelain')))->toBe('');
 
     $ok = $a->kanban('sync');
     expect($ok->getExitCode())->toBe(0, $ok->getErrorOutput())
-        ->and($a->root."/docs/kanban/platform/tooling/{$id}.json")->toBeFile()
+        ->and($a->root."/docs/kanban/tooling/{$id}.json")->toBeFile()
         ->and($a->read($id)['priority'])->toBe('high')
         ->and($a->ok('validate'))->toContain('ok: 1 cards');
 });
 
 it('keeps a local edit of a card origin moved when setting it aside for the merge fails', function () {
     [$origin, $a, $b, $id] = movable();
-    $b->ok(['move', $id, '--board=platform/tooling']);
+    $b->ok(['move', $id, '--board=tooling']);
     $b->ok(['set', $id, 'body=@-'], [], implode("\n", array_map(fn (int $n) => "Paragraph {$n} rewritten so rename detection cannot pair it.", range(1, 40))));
     $b->ok('sync');
     $a->ok(['set', $id, 'priority=high']);
@@ -559,7 +559,7 @@ it('keeps a local edit of a card origin moved when setting it aside for the merg
     expect($ok->getExitCode())->toBe(0, $ok->getErrorOutput())
         ->and($a->read($id)['priority'])->toBe('high')
         ->and($a->read($id)['body'])->toContain('Paragraph 40')
-        ->and($a->root."/docs/kanban/platform/tooling/{$id}.json")->toBeFile()
+        ->and($a->root."/docs/kanban/tooling/{$id}.json")->toBeFile()
         ->and($a->ok('validate'))->toContain('ok: 1 cards');
 });
 
@@ -571,7 +571,7 @@ it('keeps its separate local board commits when a sync that had to undo a move f
     $b->ok(['set', $other, 'title=Title from B']);
     $b->ok('sync');
     // origin's copy of the card carries another creation time: the merge driver refuses to merge two different cards
-    $file = "{$b->root}/docs/kanban/project/work/{$other}.json";
+    $file = "{$b->root}/docs/kanban/work/{$other}.json";
     $card = json_decode(file_get_contents($file), true);
     $card['created'] = '2020-01-01T00:00:00.000+00:00';
     file_put_contents($file, json_encode($card, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n");
@@ -579,14 +579,14 @@ it('keeps its separate local board commits when a sync that had to undo a move f
     $b->boardGit('push', '-q', 'origin', 'kanban');
     $a->ok(['set', $other, 'title=Title from A']);
     $a->ok(['set', $other, 'priority=high']);
-    $a->ok(['move', $id, '--board=platform/tooling']);
+    $a->ok(['move', $id, '--board=tooling']);
     $history = $a->boardLog();
 
     $failed = $a->kanban('sync');
 
     expect($failed->getExitCode())->toBe(5)
         ->and($a->boardLog())->toBe($history)
-        ->and($a->root."/docs/kanban/platform/tooling/{$id}.json")->toBeFile()
+        ->and($a->root."/docs/kanban/tooling/{$id}.json")->toBeFile()
         ->and($a->read($other)['title'])->toBe('Title from A')
         ->and(trim($a->boardGit('status', '--porcelain')))->toBe('');
 });
@@ -665,7 +665,7 @@ it('keeps saying a pulled board is invalid, on a clone that has nothing of its o
     $b->ok('sync');
     // pushed around the validation, as an older version or a hand edit could
     foreach ([[$one, $two], [$two, $one]] as [$card, $on]) {
-        $file = glob($a->root."/docs/kanban/*/*/{$card}.json")[0];
+        $file = glob($a->root."/docs/kanban/*/{$card}.json")[0];
         $data = json_decode(file_get_contents($file), true);
         $data['depends_on'] = [$on];
         file_put_contents($file, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n");
@@ -1009,19 +1009,19 @@ it('keeps local edits of a card deleted on origin aside, so the sync goes on and
     $kept = $a->card('Still here');
     $a->ok('sync');
     $b->ok('sync');
-    $b->boardGit('rm', '-q', "project/work/{$gone}.json");
+    $b->boardGit('rm', '-q', "work/{$gone}.json");
     $b->boardGit('commit', '-q', '-m', "{$gone} deleted");
     $b->ok('sync');
     $a->ok(['set', $gone, 'body=Edited here']);
     $a->ok(['set', $kept, 'body=Also edited here']);
-    $edited = file_get_contents($a->root."/docs/kanban/project/work/{$gone}.json");
+    $edited = file_get_contents($a->root."/docs/kanban/work/{$gone}.json");
 
     $sync = $a->kanban('sync');
 
     $displaced = glob($a->root."/.git/laravel-house/displaced/{$gone}.*.json");
     expect($sync->getExitCode())->toBe(0, $sync->getErrorOutput())
         ->and($sync->getOutput())->toContain("warning: {$gone} was deleted on origin; the edits made here are kept in .git/laravel-house/displaced/{$gone}.")
-        ->and(is_file($a->root."/docs/kanban/project/work/{$gone}.json"))->toBeFalse()
+        ->and(is_file($a->root."/docs/kanban/work/{$gone}.json"))->toBeFalse()
         ->and($displaced)->toHaveCount(1)
         ->and(file_get_contents($displaced[0]))->toBe($edited)
         ->and($a->read($kept)['body'])->toBe('Also edited here')
@@ -1046,4 +1046,23 @@ it('refuses a pulled kanban.json that cannot be read, rather than taking it for 
         ->and($pulled->getErrorOutput())->toContain('invalid after the pull')->toContain('kanban.json: invalid JSON')
         ->and($validate->getExitCode())->toBe(2)
         ->and($validate->getOutput().$validate->getErrorOutput())->toContain('kanban.json: invalid JSON')->not->toContain('board version 1');
+});
+
+it('syncs an epic and the epic of a card set on one machine while the other edits the card', function () {
+    [$origin, $a, $b] = published();
+    $id = $a->card('Register a passkey');
+    $a->ok('sync');
+    $b->ok('sync');
+
+    $a->ok(['epic', 'passkey-login', 'Passkey login']);
+    $a->ok(['set', $id, 'epic=passkey-login']);
+    $b->ok(['set', $id, 'priority=high']);
+    $a->ok('sync');
+    $b->ok('sync');
+    $a->ok('sync');
+
+    expect($b->read($id))->toBe($a->read($id))
+        ->and($b->read($id))->toMatchArray(['epic' => 'passkey-login', 'priority' => 'high'])
+        ->and($b->ok('epic'))->toBe("passkey-login 0/1 done Passkey login\n")
+        ->and($b->ok('validate'))->toContain('ok: 1 cards');
 });

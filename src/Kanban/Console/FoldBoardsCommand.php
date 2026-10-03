@@ -4,17 +4,19 @@ namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
 use PetarSpasic\LaravelHouse\Kanban\Console\Install\Migrate;
 use PetarSpasic\LaravelHouse\Kanban\Store\BoardRef;
+use PetarSpasic\LaravelHouse\Kanban\Store\Epic;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\NotFound;
+use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
 use Symfony\Component\Console\Attribute\AsCommand;
 
 #[AsCommand(name: 'kanban:fold-boards')]
 class FoldBoardsCommand extends Command
 {
     protected $signature = 'kanban:fold-boards
-        {--into=project/work : The one work board every card ends on}
+        {--into=work : The one work board every card ends on}
         {--dry-run : Print the plan; write nothing}';
 
-    protected $description = 'Fold every board into one work board and archive the decision cards (board version 1 to 2)';
+    protected $description = 'Move an older board to version 3: one work board, each card\'s epic from the directory it sat in, decision cards archived';
 
     protected function perform(): int
     {
@@ -35,7 +37,7 @@ class FoldBoardsCommand extends Command
             $this->say("warning: {$warning}");
         }
         if ($plan->isEmpty()) {
-            $this->say("nothing to fold: one board, {$plan->into}, at version 2");
+            $this->say('nothing to fold: the board is at version '.Snapshot::VERSION);
 
             return self::SUCCESS;
         }
@@ -45,6 +47,11 @@ class FoldBoardsCommand extends Command
         foreach ($plan->removed as $path) {
             if (basename($path) === 'board.json') {
                 $this->say('folded board '.dirname($path));
+            }
+        }
+        foreach ($plan->files as $path => $data) {
+            if (str_starts_with($path, Epic::DIR.'/')) {
+                $this->say('epic '.basename($path, '.json').': '.count(array_filter($plan->after->cards, fn ($card) => $card->epic() === basename($path, '.json'))).' cards');
             }
         }
         foreach ($plan->archived as $id => $what) {

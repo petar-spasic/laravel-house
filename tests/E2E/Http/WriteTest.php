@@ -17,7 +17,7 @@ beforeEach(function () {
 
 function cardFile(Sandbox $s, string $id): string
 {
-    return (string) file_get_contents(glob($s->root."/docs/kanban/*/*/{$id}.json")[0]);
+    return (string) file_get_contents(glob($s->root."/docs/kanban/*/{$id}.json")[0]);
 }
 
 function rev(Sandbox $s, string $id): string
@@ -326,7 +326,7 @@ it('adds a note as owner and escapes it in the log', function () {
 it('creates a card in the backlog with just a title', function () {
     $s = $this->sandbox;
 
-    $response = send($this, 'POST', '/project/work/cards', ['title' => 'Quick idea'])->assertCreated();
+    $response = send($this, 'POST', '/work/cards', ['title' => 'Quick idea'])->assertCreated();
 
     $id = $response->json('card.id');
     expect($id)->toStartWith('ACME-')->and($response->json('card.stage'))->toBe('backlog')
@@ -338,7 +338,7 @@ it('creates a card with every field, straight into ready when it passes the poli
     $s = $this->sandbox;
     $dep = $s->card('Upstream');
 
-    $response = send($this, 'POST', '/project/work/cards', [
+    $response = send($this, 'POST', '/work/cards', [
         'title' => 'Full card', 'type' => 'bug', 'priority' => 'high', 'labels' => ['area:api'], 'body' => 'Fix it',
         'acceptance' => ['It is fixed', 'It is tested'], 'depends_on' => [$dep], 'stage' => 'ready',
     ])->assertCreated();
@@ -352,28 +352,28 @@ it('creates a card with 24 criteria of 500 characters and no more', function () 
     $s = $this->sandbox;
     $criteria = array_map(fn (int $i) => str_pad("Criterion {$i} ", 500, 'x'), range(1, 24));
 
-    $id = send($this, 'POST', '/project/work/cards', ['title' => 'Grouped', 'acceptance' => $criteria])->assertCreated()->json('card.id');
-    send($this, 'POST', '/project/work/cards', ['title' => 'Too many', 'acceptance' => [...$criteria, 'one more']])->assertStatus(422);
-    send($this, 'POST', '/project/work/cards', ['title' => 'Too wide', 'acceptance' => [str_repeat('x', 501)]])->assertStatus(422);
+    $id = send($this, 'POST', '/work/cards', ['title' => 'Grouped', 'acceptance' => $criteria])->assertCreated()->json('card.id');
+    send($this, 'POST', '/work/cards', ['title' => 'Too many', 'acceptance' => [...$criteria, 'one more']])->assertStatus(422);
+    send($this, 'POST', '/work/cards', ['title' => 'Too wide', 'acceptance' => [str_repeat('x', 501)]])->assertStatus(422);
 
-    expect($s->read($id)['acceptance'])->toHaveCount(24)->and(glob($s->root.'/docs/kanban/project/work/ACME-*.json'))->toHaveCount(1);
+    expect($s->read($id)['acceptance'])->toHaveCount(24)->and(glob($s->root.'/docs/kanban/work/ACME-*.json'))->toHaveCount(1);
 });
 
 it('refuses a new card the ready policy rejects, creating nothing', function () {
     $s = $this->sandbox;
     $commits = count($s->boardLog());
 
-    $response = send($this, 'POST', '/project/work/cards', ['title' => 'Too early', 'stage' => 'ready'])->assertStatus(422);
+    $response = send($this, 'POST', '/work/cards', ['title' => 'Too early', 'stage' => 'ready'])->assertStatus(422);
 
     expect($response->json('message'))->toContain('R3 empty body')->and(count($s->boardLog()))->toBe($commits)
-        ->and(glob($s->root.'/docs/kanban/project/work/ACME-*.json'))->toBe([]);
+        ->and(glob($s->root.'/docs/kanban/work/ACME-*.json'))->toBe([]);
 });
 
 it('refuses to create on an unknown board or without a title', function () {
-    send($this, 'POST', '/project/nothing/cards', ['title' => 'x'])->assertNotFound();
-    send($this, 'POST', '/project/work/cards', ['title' => ''])->assertStatus(422);
-    send($this, 'POST', '/project/work/cards', ['title' => 'x', 'priority' => 'asap'])->assertStatus(422);
-    send($this, 'POST', '/project/work/cards', ['title' => 'x', 'depends_on' => ['ACME-NOPE99']])->assertStatus(422);
+    send($this, 'POST', '/nothing/cards', ['title' => 'x'])->assertNotFound();
+    send($this, 'POST', '/work/cards', ['title' => ''])->assertStatus(422);
+    send($this, 'POST', '/work/cards', ['title' => 'x', 'priority' => 'asap'])->assertStatus(422);
+    send($this, 'POST', '/work/cards', ['title' => 'x', 'depends_on' => ['ACME-NOPE99']])->assertStatus(422);
 });
 
 it('stores a blocked reason of "0" as a reason', function () {
@@ -422,7 +422,7 @@ it('stores criteria without the whitespace around them, as when creating', funct
 });
 
 it('words a refused initial stage for the UI, not the CLI', function () {
-    send($this, 'POST', '/project/work/cards', ['title' => 'Bad stage', 'stage' => 'doing'])->assertStatus(422)
+    send($this, 'POST', '/work/cards', ['title' => 'Bad stage', 'stage' => 'doing'])->assertStatus(422)
         ->assertJsonPath('message', 'stage must be one of: backlog, ready');
 });
 
@@ -443,8 +443,8 @@ it('leaves a card alone when asked to move it to the stage it is in', function (
 it('refuses a blank acceptance criterion when creating, and stores criteria trimmed', function () {
     $s = $this->sandbox;
 
-    send($this, 'POST', '/project/work/cards', ['title' => 'Blank', 'acceptance' => ['  ']])->assertStatus(422);
-    $id = send($this, 'POST', '/project/work/cards', ['title' => 'Padded', 'acceptance' => ['  works  ']])->assertCreated()->json('card.id');
+    send($this, 'POST', '/work/cards', ['title' => 'Blank', 'acceptance' => ['  ']])->assertStatus(422);
+    $id = send($this, 'POST', '/work/cards', ['title' => 'Padded', 'acceptance' => ['  works  ']])->assertCreated()->json('card.id');
 
     expect($s->read($id)['acceptance'][0]['text'])->toBe('works');
 });
@@ -458,14 +458,14 @@ it('reports a rebase in progress as such, not as a card that changed', function 
     $response = send($this, 'PATCH', "/cards/{$id}", ['rev' => rev($s, $id), 'priority' => 'high'])->assertStatus(503);
 
     expect($response->json('message'))->toContain('rebase is in progress')->and($response->json())->not->toHaveKey('card');
-    send($this, 'POST', '/project/work/cards', ['title' => 'Nope'])->assertStatus(503);
+    send($this, 'POST', '/work/cards', ['title' => 'Nope'])->assertStatus(503);
 });
 
 it('refuses the decision type', function () {
     $s = $this->sandbox;
     $id = $s->card('Typed');
 
-    send($this, 'POST', '/project/work/cards', ['title' => 'Wrong', 'type' => 'decision'])->assertStatus(422);
+    send($this, 'POST', '/work/cards', ['title' => 'Wrong', 'type' => 'decision'])->assertStatus(422);
     send($this, 'PATCH', "/cards/{$id}", ['rev' => rev($s, $id), 'type' => 'decision'])->assertStatus(422);
     expect($s->read($id)['type'])->toBe('feature');
 });
@@ -490,7 +490,7 @@ it('reads an empty string in the body as no value, whether or not the host conve
     send($this, 'PATCH', "/cards/{$id}", ['rev' => rev($s, $id), 'priority' => ''])->assertStatus(422);
     send($this, 'PATCH', "/cards/{$id}", ['rev' => rev($s, $id), 'acceptance' => [['id' => 1, 'text' => 'First', 'done' => false], ['id' => '', 'text' => 'Second']]])->assertOk();
     send($this, 'POST', "/cards/{$id}/stage", ['rev' => rev($s, $id), 'to' => 'ready', 'reason' => ''])->assertOk();
-    $made = send($this, 'POST', '/project/work/cards', ['title' => 'Blank stage', 'stage' => '', 'type' => '', 'priority' => ''])->assertStatus(201);
+    $made = send($this, 'POST', '/work/cards', ['title' => 'Blank stage', 'stage' => '', 'type' => '', 'priority' => ''])->assertStatus(201);
 
     $card = $s->read($id);
     expect(array_column($card['acceptance'], 'id'))->toBe([1, 2])

@@ -1,6 +1,6 @@
 {
     "$id": "card.schema.json",
-    "title": "<epic>/<board>/<ID>.json",
+    "title": "<board>/<ID>.json",
     "type": "object",
     "additionalProperties": false,
     "required": ["id", "type", "title", "stage", "priority", "labels", "body", "acceptance", "depends_on", "blocked", "claim", "work", "created", "updated", "log"],
@@ -10,6 +10,7 @@
         "title": { "$ref": "#/$defs/title" },
         "stage": { "enum": ["backlog", "ready", "doing", "review", "done", "dropped"] },
         "priority": { "$ref": "#/$defs/priority" },
+        "epic": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
         "labels": { "$ref": "#/$defs/labels" },
         "body": { "type": "string", "maxLength": 20000 },
         "acceptance": { "type": "array", "maxItems": 24, "items": { "$ref": "#/$defs/criterion" } },

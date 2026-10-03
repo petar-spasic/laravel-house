@@ -81,6 +81,9 @@ final class Context
         $base = is_string($work['base'] ?? null) ? $work['base'] : null;
 
         $lines = ["{$card->id()} {$card->stage()} {$card->priority()} {$card->type()} {$card->board} {$card->title()}"];
+        if (($epic = $snapshot->epicOf($card)) !== null) {
+            $lines[] = "epic {$epic->slug}: {$epic->title()}".($epic->goal() !== '' ? " — {$epic->goal()}" : '');
+        }
         if ($card->blocked() !== null) {
             $lines[] = 'blocked: '.$card->blocked();
         }

@@ -167,10 +167,13 @@ abstract class Command extends IlluminateCommand
         return $store instanceof GitStore ? $store : null;
     }
 
-    /** `KEY-7K2M9Q doing high feature platform/tooling Title [agent 4m] [deps ok]` */
+    /** `KEY-7K2M9Q doing high feature work Title [epic billing] [agent 4m] [deps ok]` */
     protected function cardLine(Card $card, Snapshot $snapshot): string
     {
         $line = "{$card->id()} {$card->stage()} {$card->priority()} {$card->type()} {$card->board} {$card->title()}";
+        if ($card->epic() !== null) {
+            $line .= " [epic {$card->epic()}]";
+        }
         if (($agent = $this->agent($card->id(), $snapshot)) !== null) {
             $line .= " [agent {$agent}]";
         }
@@ -185,7 +188,7 @@ abstract class Command extends IlluminateCommand
         return $line;
     }
 
-    /** Short status line: `KEY-7K2M9Q high epic/board Title`. */
+    /** Short status line: `KEY-7K2M9Q high work Title`. */
     protected function shortLine(Card $card): string
     {
         return "{$card->id()} ".Priority::short($card->priority())." {$card->board} {$card->title()}";

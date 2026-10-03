@@ -185,8 +185,7 @@ final class Bootstrap
             'kanban.json' => 'kanban.json',
             '.gitattributes' => '.gitattributes',
             'README.md' => 'README.md',
-            'project/epic.json' => 'epic.json',
-            'project/work/board.json' => 'board.work.json',
+            'work/board.json' => 'board.work.json',
         ];
         foreach ($files as $target => $stub) {
             $content = strtr((string) file_get_contents("{$stubs}/{$stub}"), ['{{key}}' => $key, '{{now}}' => $now]);

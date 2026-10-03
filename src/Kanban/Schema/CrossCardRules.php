@@ -40,6 +40,10 @@ final class CrossCardRules
         if ($board === null) {
             return ['card outside a board'];
         }
+        // a card loaded without its epic is already among the snapshot's problems
+        if ($card->epic() !== null && $snapshot->epic($card->epic()) === null && ! isset($snapshot->problems[$card->path])) {
+            $errors[] = "unknown epic {$card->epic()} (`vendor/bin/kanban epic {$card->epic()}` creates it)";
+        }
         foreach ($card->dependsOn() as $ref) {
             if ($ref === $card->id()) {
                 $errors[] = 'refers to itself';

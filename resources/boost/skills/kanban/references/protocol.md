@@ -34,7 +34,7 @@ text, one fact per line; errors go to stderr. Card ids accept a unique prefix of
 | Command | Does |
 |---|---|
 | `status [--json]` | The brief: branch, unpushed, WIP, doing/review with agents and URLs, blocked, questions, why ready cards wait, hubs, pending upstream findings, checks |
-| `list [--board=E/B --stage= --type= --label= --all --json]` | Default: ready, doing, review, plus blocked anywhere |
+| `list [--board= --epic= --stage= --type= --label= --all --json]` | Default: ready, doing, review, plus blocked anywhere |
 | `show ID [--json --log=10]` | Header, body, criteria, deps with stages, claim, work, agent state, log; in doing or review the agent's spawn line, after a reject the message for the worker |
 | `context [ID] [--evaluate]` | For agents; card from the cwd: notes (with the commit they were taken at), the diff's findings (new packages, TODOs, skipped tests, private addresses), the gates (`{main_branch}` resolved) and the database commands; `--evaluate` adds every report of the attempt, the diff stat and the merge resolutions to read |
 | `next [--count=1 --json] [-v]` | Pull order, or `none: <reason>`; `-v` names why each ready card waits |
@@ -48,13 +48,14 @@ text, one fact per line; errors go to stderr. Card ids accept a unique prefix of
 
 | Command | Does |
 |---|---|
-| `new E/B "Title" [--type --priority --label=* --accept=* --depends=* --body= --body-file=- --stage=backlog\|ready]` | Create a card; the input is checked before an id exists. `hint:` lines name an open card on the same area and a hub to fold into |
-| `board E/B ["Title"] [--order= --wip-doing=]` | Create or update a board (one board is the norm) |
-| `set ID k=v… [--reason=]` | `title= priority= type= labels=+a,-b depends_on=+ID accept+="…" accept[2]="…" accept-=3 accept=@- tick=1 untick=2 blocked="…"/"" body=@- note="…"`; one `@-` per run. In a locked stage (doing, review, done) only `note= blocked= tick= untick=`, and `accept[N]=` with `--reason` (logged, unticked, a review card back to doing), are taken (exit 3); `--force` (main) overrides |
+| `new BOARD "Title" [--type --priority --epic= --label=* --accept=* --depends=* --body= --body-file=- --stage=backlog\|ready]` | Create a card; the input is checked before an id exists. `hint:` lines name an open card on the same area and a hub to fold into |
+| `board BOARD ["Title"] [--order= --wip-doing=]` | Create or update a board (one board, `work`, is the norm) |
+| `epic [SLUG "Title" --goal= --done-when=* --order=]` | Without a slug: every epic with its done count. With one: create or update `_epics/<slug>.json`; cards join with `epic=<slug>` |
+| `set ID k=v… [--reason=]` | `title= priority= type= epic=slug labels=+a,-b depends_on=+ID accept+="…" accept[2]="…" accept-=3 accept=@- tick=1 untick=2 blocked="…"/"" body=@- note="…"`; one `@-` per run. In a locked stage (doing, review, done) only `note= blocked= epic= tick= untick=`, and `accept[N]=` with `--reason` (logged, unticked, a review card back to doing), are taken (exit 3); `--force` (main) overrides |
 | `fold FROM… --into=ID` | Backlog or ready cards into one: bodies as `## Folded from` sections, criteria, labels and dependencies joined, the higher priority; FROM dropped, its dependents repointed; one commit |
-| `fold-boards [--into=project/work --dry-run]` | A version 1 board onto one work board: decision cards into `decisions.md`, open questions onto the cards that waited on them, boards folded; runs `Migrate` first, refuses while a card is in doing or review |
+| `fold-boards [--into=work --dry-run]` | An older board (boards inside epic directories) onto one work board, version 3: each card's epic from its old directory (not `project`), decision cards into `decisions.md`, open questions onto the cards that waited on them; runs `Migrate` first, refuses while a card is in doing or review |
 | `upstream file ID:logid [--new\|--comment=N]` · `upstream dismiss ID:logid --reason=` | With `KANBAN_UPSTREAM` on: a finding filed on the package's repository after an issue search (a match exits 3), text that names the project refused; or dismissed |
-| `move ID STAGE [--reason= --force]` · `move ID --board=E/B` | Transitions below; a board move is a `git mv` |
+| `move ID STAGE [--reason= --force]` · `move ID --board=BOARD` | Transitions below; a board move is a `git mv` |
 | `promote [ID…] [--auto]` | Backlog → ready by the ready policy; `refused ID: R1 …` lines. `--auto` takes cards whose dependencies are done, until `ready_buffer` ready cards could start |
 | `import-house-docs [--decisions= --ideas= --dry-run --strict --remove-sources]` | decisions.md / ideas.md → decided and dropped entries into `decisions.md`, floated ideas as backlog spikes with a question; idempotent. `--remove-sources` then deletes the files when every entry is on the board and none warned |
 

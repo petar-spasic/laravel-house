@@ -81,7 +81,7 @@ it('refuses nothing for a stock Laravel name', function () {
 });
 
 it('applies findings as upstream log entries and never as cards', function () {
-    $cards = count(glob($this->p->main.'/docs/kanban/*/*/*.json'));
+    $cards = count(glob($this->p->main.'/docs/kanban/*/*.json'));
     ($this->report)(['Stack wait ignores the health path — it polls / instead', 'Gates run twice'])->mustRun();
     ($this->apply)();
 
@@ -89,7 +89,7 @@ it('applies findings as upstream log entries and never as cards', function () {
     expect($findings)->toHaveCount(2)
         ->and($findings['Stack wait ignores the health path'])->toMatchArray(['event' => 'upstream', 'by' => 'worker', 'body' => 'it polls / instead'])
         ->and($findings['Gates run twice'])->not->toHaveKey('body')
-        ->and(count(glob($this->p->main.'/docs/kanban/*/*/*.json')))->toBe($cards)
+        ->and(count(glob($this->p->main.'/docs/kanban/*/*.json')))->toBe($cards)
         ->and($this->p->card($this->id)['stage'])->toBe('review');
 
     $verdict = $this->p->in($this->wt, ['verdict', $this->id, 'reject', '--check=1:fail:no', '--check=2:pass:ok', '--upstream=Verdict needs a retry flag'], $this->off);

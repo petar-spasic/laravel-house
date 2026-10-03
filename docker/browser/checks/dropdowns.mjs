@@ -6,7 +6,7 @@ export const seed = 'rich';
 export default async (t) => {
     const { a, b, c } = t.seed.ids;
     const page = await t.open();
-    await page.goto(t.url + '/project/work', { waitUntil: 'networkidle' });
+    await page.goto(t.url + '/work', { waitUntil: 'networkidle' });
 
     // four choices: no search box, the arrows and Enter pick
     await page.click('.tgl[data-filter=priority]');
@@ -44,14 +44,14 @@ export default async (t) => {
     t.ok('the row for all boards shows its key', (await page.locator('.menu-item:has-text("All boards") kbd').innerText()).trim() === 'B');
     await page.keyboard.press('b');
     await page.waitForTimeout(500);
-    t.ok('and b, pressed in the open switcher, goes there', new URL(page.url()).pathname === '/kanban' && (await page.locator('.board-tile').count()) === 2);
-    await page.goto(t.url + '/project/work', { waitUntil: 'networkidle' });
+    t.ok('and b, pressed in the open switcher, goes there', new URL(page.url()).pathname === '/kanban' && (await page.locator('.board-tile:not(.epic-tile)').count()) === 2);
+    await page.goto(t.url + '/work', { waitUntil: 'networkidle' });
     await openSwitcher(page);
     await page.keyboard.press(numbered.find(([name]) => name === 'Infra')[1]);
     await page.waitForTimeout(500);
-    t.ok('the digit of a board goes to it', page.url().endsWith('/platform/infra'));
-    await page.goto(t.url + '/project/work', { waitUntil: 'networkidle' });
-    for (const name of ['one', 'two', 'three', 'four']) t.cli(['board', `project/${name}`, `Extra ${name}`]);
+    t.ok('the digit of a board goes to it', page.url().endsWith('/infra'));
+    await page.goto(t.url + '/work', { waitUntil: 'networkidle' });
+    for (const name of ['one', 'two', 'three', 'four']) t.cli(['board', name, `Extra ${name}`]);
     await openSwitcher(page);
     t.ok('six boards do', (await page.locator('.menu .menu-search-input').count()) === 1);
     t.ok('and then the letters are for the search: the row shows no key', (await page.locator('.menu-item:has-text("All boards") kbd').count()) === 0);
@@ -59,17 +59,17 @@ export default async (t) => {
     t.ok('the boards are numbered here too, and the row for all boards is not', seventh.slice(0, -1).every(([, number], i) => number === String(i + 1)) && seventh.at(-1)[1] === null);
     await page.keyboard.type('e');
     await page.keyboard.press('2');
-    t.ok('a digit typed after a letter belongs to the search', (await page.inputValue('.menu .menu-search-input')) === 'e2' && new URL(page.url()).pathname.endsWith('/project/work'));
+    t.ok('a digit typed after a letter belongs to the search', (await page.inputValue('.menu .menu-search-input')) === 'e2' && new URL(page.url()).pathname.endsWith('/work'));
     await page.fill('.menu .menu-search-input', '');
     await page.keyboard.press('3');
     await page.waitForTimeout(500);
     t.ok('but while the search is empty a digit picks the board with that number', (await page.locator('.switcher .sw-name').innerText()) === seventh[2][0] && (await page.locator('.menu').count()) === 0);
     await openSwitcher(page);
     await page.keyboard.type('infra');
-    t.ok('and the search finds a board by its epic too', (await page.locator('.menu [role=menuitem]:not([hidden])').allTextContents()).length === 1);
+    t.ok('and the search finds a board by its name', (await page.locator('.menu [role=menuitem]:not([hidden])').allTextContents()).length === 1);
     await page.keyboard.press('Enter');
     await page.waitForTimeout(600);
-    t.ok('Enter goes there', page.url().endsWith('/platform/infra'));
+    t.ok('Enter goes there', page.url().endsWith('/infra'));
 
     // the drawer's dropdowns: keyboard from the button, values follow the choice
     await page.goto(t.url + `/cards/${a}`, { waitUntil: 'networkidle' });
@@ -115,7 +115,7 @@ export default async (t) => {
     t.cli(['set', a, `labels=${tags.slice(0, 8).map((tag) => '+' + tag).join(',')}`]);
     t.cli(['set', b, `labels=${tags.slice(8, 17).map((tag) => '+' + tag).join(',')}`]);
     t.cli(['set', c, `labels=${[...tags.slice(17), 'zz-last'].map((tag) => '+' + tag).join(',')}`]);
-    await page.goto(t.url + '/project/work', { waitUntil: 'networkidle' });
+    await page.goto(t.url + '/work', { waitUntil: 'networkidle' });
     await page.click('.tgl[data-filter=label]');
     const visible = () => page.locator('.menu [role=option]:not([hidden])').count();
     t.ok('the label list shows twenty labels', (await visible()) === 20);

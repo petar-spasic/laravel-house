@@ -1,6 +1,6 @@
 ## Kanban
 
-- The plan of record is the board: branch `kanban`, checked out at docs/kanban, one work board. Cards group by `area:*` labels; an open question rides on its card as `blocked="question: …"`. Binding rules live in the `CLAUDE.md` files, never on the board.
+- The plan of record is the board: branch `kanban`, checked out at docs/kanban, one work board. Cards group by `area:*` labels (where the work is) and an optional epic (the finite goal it serves); an open question rides on its card as `blocked="question: …"`. Binding rules live in the `CLAUDE.md` files, never on the board.
 - Read: `vendor/bin/kanban status|list|show <ID>|context`. Change only via `vendor/bin/kanban …` (each change is a commit); never edit docs/kanban.
 - Code work happens only in a card's directory under `.claude/worktrees/` (a clone of main) with its own stack (`kanban stack wait`), never in the main checkout.
 - A card's agents work in that directory and in the card's container; `vendor/bin/kanban` runs on this machine as a command of its own. Merging and pushing are the main session's (`finish`, `publish`).

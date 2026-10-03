@@ -1,5 +1,5 @@
 {
-    "version": 2,
+    "version": 3,
     "key": "{{key}}",
     "id_length": 6,
     "max_parallel": 6,

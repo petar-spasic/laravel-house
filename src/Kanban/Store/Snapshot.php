@@ -10,7 +10,7 @@ final class Snapshot
     /**
      * @param  array<string, mixed>  $kanban  kanban.json
      * @param  array<string, Epic>  $epics  slug => epic
-     * @param  array<string, Board>  $boards  "epic/board" => board
+     * @param  array<string, Board>  $boards  slug => board
      * @param  array<string, Card>  $cards  id => card
      * @param  array<string, list<string>>  $problems  relative path => load problems (unreadable, duplicate id, misplaced)
      */
@@ -23,10 +23,10 @@ final class Snapshot
     ) {}
 
     /** The board format this package reads and writes (`version` in kanban.json). */
-    public const VERSION = 2;
+    public const VERSION = 3;
 
     /** What every board command, the UI and the hooks say about an older board. */
-    public const OLD_BOARD = 'board version 1: the owner runs /implement-kanban';
+    public const OLD_BOARD = 'an older board format: the owner runs /implement-kanban';
 
     public const DEFAULT_STALE_MINUTES = 20;
 
@@ -129,12 +129,26 @@ final class Snapshot
         return $this->epics[$slug] ?? null;
     }
 
-    /** @return list<Board> ordered by epic order, board order, ref */
+    /** The card's epic, or null when it has none. */
+    public function epicOf(Card $card): ?Epic
+    {
+        return $card->epic() === null ? null : $this->epic($card->epic());
+    }
+
+    /** @return list<Epic> ordered by order, slug */
+    public function epics(): array
+    {
+        $epics = array_values($this->epics);
+        usort($epics, fn (Epic $a, Epic $b) => [$a->order(), $a->slug] <=> [$b->order(), $b->slug]);
+
+        return $epics;
+    }
+
+    /** @return list<Board> ordered by board order, ref */
     public function boards(): array
     {
         $boards = array_values($this->boards);
-        usort($boards, fn (Board $a, Board $b) => [$this->epic($a->ref->epic)?->order() ?? 0, $a->order(), (string) $a->ref]
-            <=> [$this->epic($b->ref->epic)?->order() ?? 0, $b->order(), (string) $b->ref]);
+        usort($boards, fn (Board $a, Board $b) => [$a->order(), (string) $a->ref] <=> [$b->order(), (string) $b->ref]);
 
         return $boards;
     }
@@ -152,11 +166,14 @@ final class Snapshot
         return new self($this->kanban, $this->epics, $this->boards, $cards, $this->problems);
     }
 
-    public function withBoard(Board $board, ?Epic $epic = null): self
+    public function withBoard(Board $board): self
     {
-        $epics = $epic === null ? $this->epics : [$epic->slug => $epic] + $this->epics;
+        return new self($this->kanban, $this->epics, [(string) $board->ref => $board] + $this->boards, $this->cards, $this->problems);
+    }
 
-        return new self($this->kanban, $epics, [(string) $board->ref => $board] + $this->boards, $this->cards, $this->problems);
+    public function withEpic(Epic $epic): self
+    {
+        return new self($this->kanban, [$epic->slug => $epic] + $this->epics, $this->boards, $this->cards, $this->problems);
     }
 
     /** An older format, by kanban.json's own `version`; a file without one is left to validation. */

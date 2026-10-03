@@ -1,6 +1,6 @@
 {
     "$id": "epic.schema.json",
-    "title": "<epic>/epic.json",
+    "title": "_epics/<epic>.json",
     "type": "object",
     "additionalProperties": false,
     "required": ["title", "goal", "done_when", "body", "order", "updated"],

@@ -10,7 +10,7 @@ $slug = '[a-z0-9]+(?:-[a-z0-9]+)*';
 
 Route::get('/assets/{asset}', AssetController::class)->name('asset');
 
-// `_api` is not a slug, so no epic or board can collide with it.
+// `_api` is not a slug, so no board can collide with it.
 Route::prefix('_api')->name('api.')->group(function () use ($slug) {
     Route::get('/boards', [BoardsController::class, 'index'])->name('boards');
     Route::get('/cards', [CardsController::class, 'index'])->name('cards');
@@ -18,11 +18,11 @@ Route::prefix('_api')->name('api.')->group(function () use ($slug) {
     Route::patch('/cards/{card}', [CardsController::class, 'patch'])->name('card.patch');
     Route::post('/cards/{card}/stage', [CardsController::class, 'stage'])->name('card.stage');
     Route::post('/cards/{card}/notes', [CardsController::class, 'notes'])->name('card.notes');
-    Route::post('/{epic}/{board}/cards', [CardsController::class, 'store'])->name('card.store')->where(['epic' => $slug, 'board' => $slug]);
-    Route::get('/{epic}/{board}', [BoardsController::class, 'show'])->name('board')->where(['epic' => $slug, 'board' => $slug]);
+    Route::post('/{board}/cards', [CardsController::class, 'store'])->name('card.store')->where(['board' => $slug]);
+    Route::get('/{board}', [BoardsController::class, 'show'])->name('board')->where(['board' => $slug]);
     Route::any('/{path?}', fn () => abort(404, 'Not found'))->where('path', '.*')->fallback()->name('missing');
 });
 
 Route::get('/', ShellController::class)->name('index');
 Route::get('/cards/{card}', ShellController::class)->name('card');
-Route::get('/{epic}/{board}', ShellController::class)->name('board')->where(['epic' => $slug, 'board' => $slug]);
+Route::get('/{board}', ShellController::class)->name('board')->where(['board' => $slug]);

@@ -4,7 +4,7 @@ use PetarSpasic\LaravelHouse\Tests\Support\Origin;
 use PetarSpasic\LaravelHouse\Tests\Support\Sandbox;
 use PetarSpasic\LaravelHouse\Tests\Support\UiSandbox;
 
-const OLD_BOARD = 'board version 1: the owner runs /implement-kanban';
+const OLD_BOARD = 'an older board format: the owner runs /implement-kanban';
 
 /** Turns an installed board into one an older release wrote: version 1, board kinds, a decisions board with a decision card. */
 function olderBoard(Sandbox $s, string $card = 'ACME-0LDDEC'): void
@@ -12,7 +12,14 @@ function olderBoard(Sandbox $s, string $card = 'ACME-0LDDEC'): void
     $put = fn (string $path, array $data) => file_put_contents($s->root.'/docs/kanban/'.$path, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n");
     $kanban = json_decode(file_get_contents($s->root.'/docs/kanban/kanban.json'), true);
     $put('kanban.json', ['version' => 1, 'locked' => ['doing', 'review', 'done', 'superseded']] + $kanban);
-    $work = json_decode(file_get_contents($s->root.'/docs/kanban/project/work/board.json'), true);
+    // an older release kept every board inside an epic directory, the installer's being project/work
+    $work = json_decode(file_get_contents($s->root.'/docs/kanban/work/board.json'), true);
+    @mkdir($s->root.'/docs/kanban/project/work', 0775, true);
+    rename($s->root.'/docs/kanban/work/board.json', $s->root.'/docs/kanban/project/work/board.json');
+    foreach (glob($s->root.'/docs/kanban/work/*.json') ?: [] as $card) {
+        rename($card, $s->root.'/docs/kanban/project/work/'.basename($card));
+    }
+    $put('project/epic.json', ['title' => 'Project', 'goal' => '', 'done_when' => [], 'body' => '', 'order' => 10, 'updated' => '2026-09-01T10:00:00.000+00:00']);
     $put('project/work/board.json', ['kind' => 'work'] + $work);
     @mkdir($s->root.'/docs/kanban/project/decisions');
     $put('project/decisions/board.json', ['title' => 'Decisions', 'kind' => 'decisions', 'body' => '', 'order' => 10, 'wip' => (object) [], 'updated' => '2026-09-01T10:00:00.000+00:00']);
@@ -40,11 +47,11 @@ it('refuses every board command on a version 1 board with one line', function (a
 })->with([
     'list' => [['list']],
     'show' => [['show', 'ACME-0LDDEC']],
-    'new' => [['new', 'project/work', 'Fresh card']],
+    'new' => [['new', 'work', 'Fresh card']],
     'next' => [['next']],
     'status' => [['status']],
     'validate' => [['validate']],
-    'board' => [['board', 'project/work', 'Renamed']],
+    'board' => [['board', 'work', 'Renamed']],
 ]);
 
 it('says so at session start and in the UI, and doctor reports it among its checks', function () {
@@ -68,7 +75,7 @@ it('says so at session start and in the UI, and doctor reports it among its chec
 
     UiSandbox::boot($s->root);
     $this->getJson('/kanban/_api/boards')->assertOk()->assertJsonPath('epics', [])->assertJsonPath('notices', [OLD_BOARD]);
-    $this->getJson('/kanban/_api/project/work')->assertStatus(422)->assertJsonPath('message', OLD_BOARD);
+    $this->getJson('/kanban/_api/work')->assertStatus(422)->assertJsonPath('message', OLD_BOARD);
     $this->getJson('/kanban/_api/cards/ACME-0LDDEC')->assertStatus(422)->assertJsonPath('message', OLD_BOARD);
 });
 

@@ -34,8 +34,11 @@ interface Store
      */
     public function batch(Closure $plan, Actor $by, string $message): array;
 
-    /** Creates or updates a board (and its epic when missing). @param  array<string, mixed>  $data */
+    /** Creates or updates a board. @param  array<string, mixed>  $data */
     public function saveBoard(BoardRef $ref, array $data, Actor $by): void;
+
+    /** Creates or updates an epic (`_epics/<slug>.json`). @param  array<string, mixed>  $data */
+    public function saveEpic(string $slug, array $data, Actor $by): Epic;
 
     /**
      * ready → doing with a claim; with sync=on the claim is pushed or the card is lost (LostClaim). $verify gets the

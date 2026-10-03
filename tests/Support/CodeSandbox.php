@@ -208,7 +208,7 @@ final class CodeSandbox
         $card['stage'] = 'review';
         $card['work']['head'] = $head;
         $card['work']['approved'] = ['head' => $head, 'base' => $base ?? trim($this->sandbox->git('rev-parse', 'refs/heads/main')), 'at' => $at ?? $card['updated']];
-        $files = glob($this->root().'/docs/kanban/*/*/'.$id.'.json');
+        $files = glob($this->root().'/docs/kanban/*/'.$id.'.json');
         Json::write($files[0], Json::encode($card, 'card'));
         $this->sandbox->boardGit('commit', '-q', '-am', "{$id} approved (test)");
     }

@@ -42,9 +42,6 @@ use Throwable;
  */
 final class GitStore implements Store
 {
-    /** Epic slugs the local UI already uses as its own URL prefixes. */
-    private const RESERVED_EPICS = ['cards', 'assets'];
-
     private const WRITE_TIMEOUT = 10.0;
 
     private const CLAIM_TIMEOUT = 20.0;
@@ -251,30 +248,39 @@ final class GitStore implements Store
     {
         $this->write(function () use ($ref, $data, $by) {
             $snapshot = $this->current();
-            $now = Clock::now();
-            $files = [];
-            $epic = $snapshot->epic($ref->epic);
-            if ($epic === null) {
-                if (in_array($ref->epic, self::RESERVED_EPICS, true)) {
-                    throw new Invalid("epic '{$ref->epic}' is reserved: the local UI serves /kanban/{$ref->epic}/… itself");
-                }
-                $orders = array_map(fn (Epic $e) => $e->order(), $snapshot->epics);
-                $epic = new Epic($ref->epic, ['title' => Str::headline($ref->epic), 'goal' => '', 'done_when' => [], 'body' => '',
-                    'order' => ($orders === [] ? 0 : max($orders)) + 10, 'updated' => $now], new Rev(''));
-                $files[$epic->path()] = ['epic', $epic->data];
-            }
             $existing = $snapshot->board($ref);
             if ($existing === null) {
-                $orders = array_map(fn (Board $b) => $b->order(), array_filter($snapshot->boards, fn (Board $b) => $b->ref->epic === $ref->epic));
+                if (in_array($ref->board, BoardRef::RESERVED, true)) {
+                    throw new Invalid("board '{$ref->board}' is reserved: the local UI serves /kanban/{$ref->board} itself");
+                }
+                $orders = array_map(fn (Board $b) => $b->order(), $snapshot->boards);
                 $base = ['title' => Str::headline($ref->board), 'body' => '', 'order' => ($orders === [] ? 0 : max($orders)) + 10,
                     'wip' => ['doing' => (int) $snapshot->setting('max_parallel', 6)]];
             } else {
                 $base = $existing->data;
             }
-            $board = new Board($ref, Json::canonical(array_replace($base, $data, ['updated' => $now]), 'board'), new Rev(''));
-            $files[$board->path()] = ['board', $board->data];
-            $this->validate($snapshot, $snapshot->withBoard($board, $epic), $files);
-            $this->persist(array_map(fn (array $file) => $file[1], $files), [], "Board {$ref} saved [{$by->role}]", $by);
+            $board = new Board($ref, Json::canonical(array_replace($base, $data, ['updated' => Clock::now()]), 'board'), new Rev(''));
+            $this->validate($snapshot, $snapshot->withBoard($board), [$board->path() => ['board', $board->data]]);
+            $this->persist([$board->path() => $board->data], [], "Board {$ref} saved [{$by->role}]", $by);
+        });
+    }
+
+    public function saveEpic(string $slug, array $data, Actor $by): Epic
+    {
+        return $this->write(function () use ($slug, $data, $by) {
+            if (preg_match(BoardRef::SLUG, $slug) !== 1) {
+                throw new Invalid("invalid epic '{$slug}' (expected lowercase words joined by '-')");
+            }
+            $snapshot = $this->current();
+            $existing = $snapshot->epic($slug);
+            $orders = array_map(fn (Epic $e) => $e->order(), $snapshot->epics);
+            $base = $existing?->data ?? ['title' => Str::headline($slug), 'goal' => '', 'done_when' => [], 'body' => '',
+                'order' => ($orders === [] ? 0 : max($orders)) + 10];
+            $epic = new Epic($slug, Json::canonical(array_replace($base, $data, ['updated' => Clock::now()]), 'epic'), new Rev(''));
+            $this->validate($snapshot, $snapshot->withEpic($epic), [$epic->path() => ['epic', $epic->data]]);
+            $this->persist([$epic->path() => $epic->data], [], "Epic {$slug} saved [{$by->role}]", $by);
+
+            return $epic;
         });
     }
 
@@ -655,8 +661,10 @@ final class GitStore implements Store
     public function fingerprint(?BoardRef $board = null): string
     {
         $root = $this->paths->board();
-        $files = array_merge([$root.'/kanban.json'], glob($root.'/*/epic.json') ?: [],
-            glob($root.'/'.($board === null ? '*/*' : (string) $board).'/*.json') ?: []);
+        $files = $this->legacy()
+            ? array_merge([$root.'/kanban.json'], glob($root.'/*/epic.json') ?: [], glob($root.'/*/*/*.json') ?: [])
+            : array_merge([$root.'/kanban.json'], glob($root.'/'.Epic::DIR.'/*.json') ?: [],
+                glob($root.'/'.($board === null ? '*' : $board->board).'/*.json') ?: []);
         sort($files);
         $parts = [];
         foreach ($files as $file) {
@@ -1232,12 +1240,22 @@ final class GitStore implements Store
         }
     }
 
+    /** Whether the board on disk is in a format before version 3 (boards inside epic directories). */
+    private function legacy(): bool
+    {
+        $kanban = json_decode((string) @file_get_contents($this->paths->board('kanban.json')), true);
+        $version = is_array($kanban) ? ($kanban['version'] ?? null) : null;
+
+        return is_int($version) && $version < 3;
+    }
+
     /** @return array<string, string> relative path => bytes of every board JSON file */
     private function files(): array
     {
         $root = $this->paths->board();
         $files = [];
-        foreach (array_merge([$root.'/kanban.json'], glob($root.'/*/epic.json') ?: [], glob($root.'/*/*/*.json') ?: []) as $file) {
+        $globs = $this->legacy() ? ['/*/epic.json', '/*/*/*.json'] : ['/*/*.json'];
+        foreach (array_merge([$root.'/kanban.json'], ...array_map(fn (string $glob) => glob($root.$glob) ?: [], $globs)) as $file) {
             if (is_file($file)) {
                 $files[substr($file, strlen($root) + 1)] = (string) file_get_contents($file);
             }
@@ -1251,6 +1269,7 @@ final class GitStore implements Store
         if (! $this->paths->hasBoard()) {
             throw new NotFound('no board at '.Paths::BOARD.': run `php artisan kanban:install`, or `vendor/bin/kanban attach` on a clone');
         }
+        $legacy = $this->legacy();
         $problems = [];
         $kanban = [];
         $epics = [];
@@ -1267,19 +1286,22 @@ final class GitStore implements Store
             $rev = Rev::of($bytes);
             $segments = explode('/', $path);
             try {
-                match (Json::kindOf($path)) {
-                    'kanban' => $kanban = $data,
-                    'epic' => $epics[$segments[0]] = new Epic($segments[0], $data, $rev),
-                    'board' => $boards[$segments[0].'/'.$segments[1]] = new Board(new BoardRef($segments[0], $segments[1]), $data, $rev),
-                    'card' => $this->loadCard($data, $path, $rev, $cards, $problems),
+                match (true) {
+                    $path === 'kanban.json' => $kanban = $data,
+                    $legacy && $segments[1] === 'epic.json' => $epics[$segments[0]] = new Epic($segments[0], $data, $rev, legacy: true),
+                    $legacy && $segments[2] === 'board.json' => $boards[$segments[0].'/'.$segments[1]] = new Board(new BoardRef($segments[1], $segments[0]), $data, $rev),
+                    $segments[0] === Epic::DIR => $epics[basename($path, '.json')] = new Epic(basename($path, '.json'), $data, $rev),
+                    $segments[1] === 'board.json' => $boards[$segments[0]] = new Board(new BoardRef($segments[0]), $data, $rev),
+                    default => $this->loadCard($data, $path, $rev, $cards, $problems),
                 };
             } catch (Invalid $e) {
                 $problems[$path][] = $e->getMessage();
             }
         }
-        foreach ($boards as $board) {
-            if (! isset($epics[$board->ref->epic])) {
-                $problems[$board->ref->epic.'/epic.json'][] = 'missing (a board needs its epic)';
+
+        foreach ($legacy ? [] : $cards as $card) {
+            if ($card->epic() !== null && ! isset($epics[$card->epic()])) {
+                $problems[$card->path][] = "unknown epic {$card->epic()} (`vendor/bin/kanban epic {$card->epic()}` creates it)";
             }
         }
 
@@ -1307,8 +1329,8 @@ final class GitStore implements Store
      */
     private function loadCard(array $data, string $path, Rev $rev, array &$cards, array &$problems): void
     {
-        [$epic, $board, $file] = explode('/', $path);
-        $id = basename($file, '.json');
+        $segments = explode('/', $path);
+        $id = basename($path, '.json');
         if (($data['id'] ?? null) !== $id) {
             $problems[$path][] = 'id must equal the file name';
 
@@ -1319,7 +1341,7 @@ final class GitStore implements Store
 
             return;
         }
-        $cards[$id] = new Card($data, new BoardRef($epic, $board), $path, $rev);
+        $cards[$id] = new Card($data, count($segments) === 3 ? new BoardRef($segments[1], $segments[0]) : new BoardRef($segments[0]), $path, $rev);
     }
 
     /** @param  array<string, mixed>  $data */

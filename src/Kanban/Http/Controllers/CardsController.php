@@ -52,19 +52,20 @@ class CardsController
         });
     }
 
-    public function store(Request $request, string $epic, string $board): JsonResponse
+    public function store(Request $request, string $board): JsonResponse
     {
-        return Api::run(function () use ($request, $epic, $board) {
+        return Api::run(function () use ($request, $board) {
             $input = self::input($request, $this->fieldRules(new: true) + [
                 'acceptance' => ['array', 'max:'.Card::MAX_CRITERIA], 'acceptance.*' => ['required', 'string', 'max:'.Card::MAX_CRITERION],
                 'stage' => ['nullable', Rule::in(Stage::WORK)],
             ]);
-            $ref = new BoardRef($epic, $board);
+            $ref = new BoardRef($board);
             $snapshot = $this->store->snapshot();
             $fields = (new Creation)->fields($snapshot, $ref, [
                 'title' => trim($input['title']),
                 'type' => $input['type'] ?? null,
                 'priority' => $input['priority'] ?? null,
+                'epic' => $input['epic'] ?? null,
                 'body' => $input['body'] ?? null,
                 'labels' => $input['labels'] ?? [],
                 'accept' => array_map('trim', $input['acceptance'] ?? []),
@@ -105,6 +106,10 @@ class CardsController
                 }
                 if (array_key_exists('labels', $input)) {
                     $data['labels'] = array_values(array_unique($input['labels'] ?? []));
+                }
+                if (array_key_exists('epic', $input)) {
+                    unset($data['epic']);
+                    $data += ($input['epic'] ?? '') === '' ? [] : ['epic' => $input['epic']];
                 }
                 if (array_key_exists('blocked', $input)) {
                     $reason = trim((string) $input['blocked']);
@@ -214,6 +219,7 @@ class CardsController
             'type' => [$new ? 'nullable' : 'sometimes', Rule::in(CardType::values())],
             'priority' => [$new ? 'nullable' : 'sometimes', Rule::in(array_column(Priority::cases(), 'value'))],
             'labels' => ['array', 'max:10'], 'labels.*' => self::LABEL,
+            'epic' => ['nullable', 'string', 'regex:'.BoardRef::SLUG],
             'body' => ['nullable', 'string', 'max:20000'],
             'depends_on' => ['array'], 'depends_on.*' => ['string'],
         ];

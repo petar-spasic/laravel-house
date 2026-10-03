@@ -343,7 +343,7 @@ final class Guard
     private static function cards(string $main): array
     {
         $cards = [];
-        foreach (glob($main.'/docs/kanban/*/*/*.json') ?: [] as $file) {
+        foreach ([...glob($main.'/docs/kanban/*/*.json') ?: [], ...glob($main.'/docs/kanban/*/*/*.json') ?: []] as $file) {
             $card = basename($file) === 'board.json' ? null : json_decode((string) file_get_contents($file), true);
             if (is_array($card) && isset($card['id'])) {
                 $cards[strtoupper($card['id'])] = $card;

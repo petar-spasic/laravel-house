@@ -90,7 +90,7 @@ final class PullPolicy
     {
         $key = fn (Card $c) => [
             Priority::rank($c->priority()),
-            $snapshot->epic($c->board->epic)?->order() ?? 0,
+            $snapshot->epicOf($c)?->order() ?? 0,
             $snapshot->boardOf($c)?->order() ?? 0,
             $c->stage() === $stage ? $c->stageSince() : $c->created(),
             $c->id(),

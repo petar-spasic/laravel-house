@@ -32,7 +32,7 @@ function archivedSections(Sandbox $sandbox): array
 function importedSpikes(Sandbox $sandbox): array
 {
     $spikes = [];
-    foreach (glob($sandbox->root.'/docs/kanban/project/work/*-*.json') as $file) {
+    foreach (glob($sandbox->root.'/docs/kanban/work/*-*.json') as $file) {
         $card = json_decode((string) file_get_contents($file), true);
         $spikes[$card['log'][0]['source']] = $card;
     }
@@ -59,7 +59,7 @@ it('archives what was decided or dropped and makes each floated idea a backlog s
         ->and(trim($this->sandbox->boardGit('status', '--porcelain')))->toBe('')
         ->and(archivedSections($this->sandbox))->toHaveCount(10)
         ->and(importedSpikes($this->sandbox))->toHaveCount(10)
-        ->and(glob($this->sandbox->root.'/docs/kanban/*/*/*.json'))->toHaveCount(11);
+        ->and(glob($this->sandbox->root.'/docs/kanban/*/*.json'))->toHaveCount(11);
 
     $line = file($this->sandbox->root.'/docs/decisions.md', FILE_IGNORE_NEW_LINES)[7];
     $search = archivedSections($this->sandbox)['docs/decisions.md:8'];
@@ -125,7 +125,7 @@ it('writes nothing on a dry run and lists what it would import', function () {
     $out = $this->sandbox->ok(['import-house-docs', '--dry-run']);
 
     expect($out)->toMatch('/^docs\/decisions\.md:7 decided 2026-09-28 A workspace has exactly one owner → archive ACME-[0-9A-Z]{6}$/m')
-        ->and($out)->toContain("docs/ideas.md:8 proposed 2026-09-27 Offline-first editing → backlog spike on project/work\n")
+        ->and($out)->toContain("docs/ideas.md:8 proposed 2026-09-27 Offline-first editing → backlog spike on work\n")
         ->and($out)->toContain('would import 20: 10 archived (9 decided, 1 dropped), 10 backlog spikes')
         ->and($this->sandbox->boardLog())->toBe($commits)
         ->and(archived($this->sandbox))->toBe('')

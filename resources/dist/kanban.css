@@ -43,6 +43,17 @@
     --purple: light-dark(#7c4dff, #a78bfa);
     --purple-soft: light-dark(#f2eeff, #2a2148);
     --purple-text: light-dark(#5b2fd0, #c6b4ff);
+    /* areas: a card's area dot takes one of these by the hash of its name */
+    --area-0: light-dark(#2563eb, #60a5fa);
+    --area-1: light-dark(#0d9488, #2dd4bf);
+    --area-2: light-dark(#16a34a, #4ade80);
+    --area-3: light-dark(#ca8a04, #facc15);
+    --area-4: light-dark(#ea580c, #fb923c);
+    --area-5: light-dark(#dc2626, #f87171);
+    --area-6: light-dark(#db2777, #f472b6);
+    --area-7: light-dark(#9333ea, #c084fc);
+    --area-8: light-dark(#4f46e5, #818cf8);
+    --area-9: light-dark(#64748b, #94a3b8);
     /* elevation */
     --sh-1: 0 1px 1px light-dark(rgb(16 24 40 / 0.04), transparent), 0 1px 2px light-dark(rgb(16 24 40 / 0.06), transparent);
     --sh-2: 0 2px 4px -1px light-dark(rgb(16 24 40 / 0.06), rgb(0 0 0 / 0.3)), 0 4px 12px -2px light-dark(rgb(16 24 40 / 0.1), rgb(0 0 0 / 0.35));
@@ -256,12 +267,11 @@ input.field { width: 100%; }
 .bar-end { justify-content: flex-end; }
 .bar-end > :not(.search) { flex: none; }
 .is-index .search, .is-index .new { visibility: hidden; }
-@container (width < 300px) { .brand-text, .sw-epic, .sw-sep { display: none; } }
+@container (width < 300px) { .brand-text { display: none; } }
 .brand { display: flex; align-items: center; flex: none; gap: var(--sp-2); height: var(--h-lg); min-width: var(--h-lg); font-size: var(--fs-md); font-weight: 600; letter-spacing: -0.01em; }
 .brand .i { width: 18px; height: 18px; color: var(--accent); }
 .switcher { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 340px; height: var(--h-lg); padding: 0 var(--sp-2); border: 1px solid transparent; border-radius: var(--r-sm); background: transparent; font-weight: 500; transition: background var(--dur-1); }
 .switcher:hover, .switcher[aria-expanded="true"] { background: var(--lane); }
-.switcher .sw-epic, .switcher .sw-sep { color: var(--text-3); }
 .switcher .sw-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .switcher .i { width: 14px; height: 14px; color: var(--text-3); }
 .spacer { flex: 1; }
@@ -302,13 +312,14 @@ input.field { width: 100%; }
 .index { flex: 1; overflow: auto; padding: var(--sp-6) var(--sp-5) 48px; }
 .index-h { display: flex; align-items: baseline; gap: var(--sp-3); max-width: 1120px; margin-bottom: var(--sp-5); }
 .index-h h1 { font-size: var(--fs-xl); font-weight: 600; letter-spacing: -0.01em; }
-.epic { max-width: 1120px; margin-bottom: var(--sp-5); }
-.epic h2 { margin-bottom: var(--sp-2); color: var(--text-3); font-size: var(--fs-xs); font-weight: 600; }
+.index-sec { max-width: 1120px; margin-bottom: var(--sp-5); }
+.index-sec h2 { margin-bottom: var(--sp-2); color: var(--text-3); font-size: var(--fs-xs); font-weight: 600; }
 .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: var(--sp-3); }
 .board-tile { display: flex; flex-direction: column; gap: var(--sp-3); padding: var(--sp-4); background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); box-shadow: var(--sh-1); transition: border-color var(--dur-1), box-shadow var(--dur-1); }
 .board-tile:hover { border-color: var(--border-strong); box-shadow: var(--sh-2); }
 .tile-top { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; }
 .tile-top .tile-i { color: var(--accent); }
+.tile-goal { color: var(--text-2); font-size: var(--fs-sm); }
 .tile-top h3 { min-width: 0; overflow: hidden; font-size: var(--fs-lg); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .dist { display: flex; gap: 2px; height: 6px; border-radius: var(--r-full); overflow: hidden; }
 .dist.is-empty { border: 1px dashed var(--border-strong); }
@@ -402,6 +413,21 @@ input.field { width: 100%; }
 .fact.type-bug .dot { background: var(--red); }
 .fact.type-spike .dot { background: var(--purple); }
 .fact.reason, .fact.plain { display: block; flex: 0 1 auto; }
+.fact.area, .fact.epic { height: var(--h-sm); padding: 0 var(--sp-2); border: 1px solid var(--border); border-radius: var(--r-full); background: var(--surface); color: var(--text-2); font-family: inherit; cursor: pointer; transition: border-color var(--dur-1), color var(--dur-1); }
+.fact.area:hover, .fact.epic:hover { border-color: var(--border-strong); color: var(--text); }
+.fact.area span, .fact.epic span { overflow: hidden; text-overflow: ellipsis; }
+.fact.is-on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-text); }
+.fact.area .dot { width: 8px; height: 8px; background: var(--area); }
+.area-0 { --area: var(--area-0); }
+.area-1 { --area: var(--area-1); }
+.area-2 { --area: var(--area-2); }
+.area-3 { --area: var(--area-3); }
+.area-4 { --area: var(--area-4); }
+.area-5 { --area: var(--area-5); }
+.area-6 { --area: var(--area-6); }
+.area-7 { --area: var(--area-7); }
+.area-8 { --area: var(--area-8); }
+.area-9 { --area: var(--area-9); }
 
 /* Composer */
 .composer { display: flex; flex-direction: column; gap: 6px; flex: none; padding: var(--sp-2) var(--sp-3); background: var(--surface); border-radius: var(--r-md); box-shadow: 0 0 0 2px var(--accent), var(--sh-2); }
@@ -624,7 +650,7 @@ dialog.help h2 { margin-bottom: var(--sp-4); font-size: var(--fs-lg); font-weigh
     .bar-end { flex: none; }
     .is-index .search, .is-index .new { display: none; }
     .pins { display: none; }
-    .brand-text, .search kbd, .new kbd, .new-text, .sw-epic, .sw-sep, .help-btn { display: none; }
+    .brand-text, .search kbd, .new kbd, .new-text, .help-btn { display: none; }
     .new { width: var(--h-lg); padding: 0; }
     .search, .search:focus-within { flex: none; width: 104px; min-width: 0; }
     .search input { padding-right: var(--sp-2); }
@@ -653,7 +679,8 @@ dialog.help h2 { margin-bottom: var(--sp-4); font-size: var(--fs-lg); font-weigh
 
 /* Forced colours (Windows high contrast): the browser drops fills and shadows, so boundaries, state and focus are drawn with borders, outlines and system colours */
 @media (forced-colors: active) {
-    .col, .tag, .menu, .toast, .board-tile, .lock-note, .conflict, .d-mark { border: 1px solid CanvasText; }
+    .col, .tag, .menu, .toast, .board-tile, .lock-note, .conflict, .d-mark, .fact.area, .fact.epic { border: 1px solid CanvasText; }
+    .fact.is-on { outline: 2px solid Highlight; outline-offset: -2px; }
     .card.is-waiting::before, .card.is-stale::before, .card.is-working::before, .card.is-blocked::before, .card.is-question::before, .toast::before { width: 0; border-left: 3px solid CanvasText; background: none; }
     .col.is-over, .pin[aria-current="page"] { outline: 2px solid Highlight; outline-offset: -2px; }
     .composer { outline: 2px solid Highlight; }

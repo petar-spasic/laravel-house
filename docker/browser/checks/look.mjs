@@ -12,8 +12,8 @@ export default async (t) => {
     const { w1, question, nightly, job, schema, blocked } = t.seed.ids;
     const views = [
         ['index', ''],
-        ['work', '/project/work'],
-        ['infra', '/platform/infra'],
+        ['work', '/work'],
+        ['infra', '/infra'],
         ['drawer', `/cards/${w1}`],
         ['drawer-blocked', `/cards/${blocked}`],
         ['drawer-question', `/cards/${question}`],
@@ -68,7 +68,7 @@ export default async (t) => {
 
     // lanes are one width, however long a card's text is
     const lanes = await t.open({ w: 1440, h: 900 });
-    await lanes.goto(t.url + '/project/work', { waitUntil: 'networkidle' });
+    await lanes.goto(t.url + '/work', { waitUntil: 'networkidle' });
     const widths = await lanes.evaluate(() => [...document.querySelectorAll('.col:not(.is-collapsed)')].map((el) => Math.round(el.getBoundingClientRect().width)));
     t.ok('every open lane is the same width', widths.length >= 5 && new Set(widths).size === 1);
 
@@ -92,7 +92,7 @@ export default async (t) => {
 
 // menus, composer, toast, dialog, offline: light desktop only
 async function oneOffs(t, page) {
-    await page.goto(t.url + '/project/work', { waitUntil: 'networkidle' });
+    await page.goto(t.url + '/work', { waitUntil: 'networkidle' });
     await page.keyboard.press('j');
     await page.keyboard.press('m');
     await page.waitForSelector('.menu');

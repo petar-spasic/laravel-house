@@ -76,7 +76,7 @@ final class GuardSandbox
         $this->json('docs/kanban/kanban.json', array_replace_recursive([
             'version' => 2, 'key' => 'ACME', 'id_length' => 6, 'stale_after_minutes' => 20,
         ], $kanban));
-        $this->json('docs/kanban/project/work/board.json', ['title' => 'Work']);
+        $this->json('docs/kanban/work/board.json', ['title' => 'Work']);
         $this->card(self::DOING, 'doing', '.claude/worktrees/acme-7k2m9q');
         $this->card(self::REVIEW, 'review', '.claude/worktrees/acme-a1b2c3');
         $this->card(self::READY, 'ready', null);
@@ -127,7 +127,7 @@ final class GuardSandbox
 
     public function card(string $id, string $stage, ?string $worktree): void
     {
-        $this->json("docs/kanban/project/work/{$id}.json", [
+        $this->json("docs/kanban/work/{$id}.json", [
             'id' => $id, 'type' => 'feature', 'title' => "Card {$id}", 'stage' => $stage,
             'work' => $worktree === null ? null : ['branch' => 'kanban/'.strtolower($id), 'worktree' => $worktree],
         ]);

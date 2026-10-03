@@ -15,8 +15,10 @@ use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
 use PetarSpasic\LaravelHouse\Kanban\Store\Stage;
 
 /**
- * The plan of `kanban fold-boards`: every board folded into one work board, and every decision card of a version 1
- * board either archived in `decisions.md` or turned into a backlog spike. A pure function of the board as loaded, the
+ * The plan of `kanban fold-boards`: an older board (boards inside epic directories) becomes version 3. Every card moves
+ * to one work board and takes the epic directory it sat in as its `epic` (the installer's `project` epic gives none);
+ * each epic moves to `_epics/<slug>.json`, carrying its boards' texts. Every decision card of a version 1 board is
+ * either archived in `decisions.md` or turned into a backlog spike. A pure function of the board as loaded, the
  * archive and the target board; `GitStore::upgrade()` completes the log entries, validates and commits it. On a board
  * with nothing left to fold the plan is empty.
  *
@@ -38,6 +40,9 @@ final class Upgrade
     private const BLOCKED_MAX = 500;
 
     private const OPEN = ['backlog', 'ready', 'doing', 'review'];
+
+    /** The epic directory the installer made: its cards get no epic, and its boards' texts go to the work board. */
+    public const DEFAULT_EPIC = 'project';
 
     /** @var array<string, array{data: array<string, mixed>, path: string, raw: bool}> id => the card after the fold; raw: moved as it is */
     public array $cards = [];
@@ -87,11 +92,12 @@ final class Upgrade
     public static function plan(Snapshot $board, ?string $archive, BoardRef $into, string $now): self
     {
         $plan = new self($into);
-        $target = $board->board($into);
-        if ($target !== null && ($target->data['kind'] ?? null) === 'decisions') {
-            throw new Invalid("{$into} is a decisions board; fold into a work board");
-        }
+        $plan->after = $board;
         $decisions = array_filter($board->cards, fn (Card $card) => $card->type() === 'decision');
+        // a version 3 board has nothing to fold but the decision cards a clone on an older release may still push
+        if (! $board->isOld() && $decisions === []) {
+            return $plan;
+        }
         $work = array_diff_key($board->cards, $decisions);
         ksort($decisions);
         ksort($work);
@@ -133,6 +139,10 @@ final class Upgrade
         }
         foreach ($work as $id => $card) {
             $path = "{$into}/{$id}.json";
+            $epic = $card->board->legacyEpic;
+            if ($epic !== null && $epic !== self::DEFAULT_EPIC && ($data[$id]['epic'] ?? null) === null) {
+                $data[$id]['epic'] = $epic;
+            }
             if ($data[$id] !== $card->data) {
                 $plan->cards[$id] = ['data' => $data[$id], 'path' => $path, 'raw' => false];
             } elseif ($card->path !== $path) {
@@ -180,67 +190,57 @@ final class Upgrade
     }
 
     /**
-     * The epics and boards after the fold (the target board, its epic) and the text of the folded decisions boards.
+     * The epics and the work board after the fold, and the text of the folded decisions boards. A folded board's text
+     * goes to its epic, or to the work board when it sat in the installer's epic.
      *
      * @return array{0: array<string, Epic>, 1: array<string, Board>, 2: list<string>}
      */
     private function boards(Snapshot $board, string $now): array
     {
+        if (! $board->isOld()) {
+            return [$board->epics, $board->boards, []];
+        }
         $into = $this->into;
-        $target = $board->board($into)?->data ?? ['title' => Str::headline($into->board), 'body' => '', 'order' => 10, 'wip' => [], 'updated' => $now];
-        $before = $target;
+        $same = $board->board(new BoardRef($into->board, self::DEFAULT_EPIC));
+        $target = $same?->data ?? ['title' => Str::headline($into->board), 'body' => '', 'order' => 10, 'wip' => [], 'updated' => $now];
         unset($target['kind']);
-        $texts = [];
+        // a limit set for one of several boards would cap the whole project
+        $target['wip'] = count($board->boards) > 1 ? [] : ($target['wip'] ?? []);
+        $epics = [];
+        foreach ($board->epics as $slug => $epic) {
+            $this->removed[] = $epic->path();
+            if ($slug !== self::DEFAULT_EPIC) {
+                $data = $epic->data;
+                $data['updated'] = $now;
+                $epics[$slug] = $data;
+            }
+        }
         $preamble = [];
         foreach ($board->boards() as $folded) {
-            if ($folded->ref->equals($into)) {
-                continue;
-            }
             $this->removed[] = $folded->path();
-            // a limit set for one of several boards would cap the whole project
-            $target['wip'] = [];
             $body = trim((string) ($folded->data['body'] ?? ''));
-            if ($body === '') {
+            if ($folded === $same || $body === '') {
                 continue;
             }
+            $text = "## {$folded->title()}\n\n{$body}";
+            $epic = $folded->ref->legacyEpic;
             if (($folded->data['kind'] ?? null) === 'decisions') {
                 $preamble[] = "## {$folded->ref} — {$folded->title()}\n\n{$body}";
+            } elseif ($epic !== null && isset($epics[$epic])) {
+                $epics[$epic]['body'] = self::fits("epic {$epic}", self::append((string) ($epics[$epic]['body'] ?? ''), $text));
             } else {
-                $texts[] = "## {$folded->ref} — {$folded->title()}\n\n{$body}";
+                $target['body'] = self::fits((string) $into, self::append((string) $target['body'], $text));
             }
         }
-        $epic = $board->epic($into->epic)?->data ?? ['title' => Str::headline($into->epic), 'goal' => '', 'done_when' => [], 'body' => '', 'order' => 10, 'updated' => $now];
-        $epics = [];
-        foreach ($board->epics as $slug => $other) {
-            if ($slug === $into->epic) {
-                continue;
-            }
-            $this->removed[] = $other->path();
-            $text = array_filter([trim((string) ($other->data['goal'] ?? '')),
-                ($other->data['done_when'] ?? []) === [] ? '' : "Done when:\n\n".implode("\n", array_map(fn ($item) => "- {$item}", (array) $other->data['done_when'])),
-                trim((string) ($other->data['body'] ?? ''))]);
-            if ($text !== []) {
-                $texts[] = "## {$slug} — {$other->title()}\n\n".implode("\n\n", $text);
-            }
+        $target['updated'] = $now;
+        $this->files[$into->board.'/board.json'] = $target;
+        $after = [];
+        foreach ($epics as $slug => $data) {
+            $this->files[Epic::pathOf($slug)] = $data;
+            $after[$slug] = new Epic($slug, $data, new Rev(''));
         }
-        foreach ($texts as $text) {
-            if (! str_contains((string) $target['body'], $text)) {
-                $target['body'] = self::append((string) $target['body'], $text);
-            }
-        }
-        if (mb_strlen($target['body']) > self::BODY_MAX) {
-            throw new Invalid("{$into}: the texts of the folded boards and epics would pass ".self::BODY_MAX.' characters in its body; shorten them first');
-        }
-        if ($board->epic($into->epic) === null) {
-            $this->files["{$into->epic}/epic.json"] = $epic;
-        }
-        if (self::differs($target, $before) || $board->board($into) === null) {
-            $target['updated'] = $now;
-            $this->files["{$into}/board.json"] = $target;
-        }
-        $epics[$into->epic] = new Epic($into->epic, $epic, new Rev(''));
 
-        return [$epics, [(string) $into => new Board($into, $target, new Rev(''))], $preamble];
+        return [$after, [(string) $into => new Board($into, $target, new Rev(''))], $preamble];
     }
 
     /** A proposed decision as a backlog spike on the target board: the same id, its question as a block. */

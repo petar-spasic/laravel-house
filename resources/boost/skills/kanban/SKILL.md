@@ -20,7 +20,7 @@ description: >-
 
 No `docs/kanban` in the project: if the root `CLAUDE.md` has the `laravel-house:kanban:start` block, this clone is
 not attached yet: run `vendor/bin/kanban attach`, then `doctor`. Without the block, the board is not adopted: offer
-the owner `/implement-kanban`, and stop. `board version 1: the owner runs /implement-kanban` means the same.
+the owner `/implement-kanban`, and stop. `an older board format: the owner runs /implement-kanban` means the same.
 
 You plan the cards and drive the board; agents do the card work. Exact flags, every exit code and the rarer failures
 are in `references/protocol.md`; card sizing in depth is `references/planning.md`. All commands below are
@@ -50,6 +50,9 @@ Before a card is created, and before it is promoted:
 - **One area, one open card.** Every card carries an `area:*` label (`promote` refuses one without). Cards that share
   an area never run at once, so related work on one surface is one card. Areas are surface or directory sized, and
   there are enough of them to fill `max_parallel`.
+- **One board; epics for goals.** Cards live on the `work` board. A finite goal the owner names (a feature, a
+  migration) is an epic: `epic <slug> "Title" --goal=… --done-when=…`, and each of its cards gets `--epic=<slug>`. An
+  area is where work happens and decides what runs at once; an epic is why, and finishes. Never one per area or phase.
 - **No enabler cards.** A card whose only job is to unblock others is folded into them; `hubs:` in the brief and the
   `hint:` lines of `new` and `set` point at candidates. `fold <FROM>… --into=<ID>` merges them in one commit.
 - **Split only to run in parallel**, on different areas, and only when each part is worth an agent of its own.
@@ -131,7 +134,7 @@ Before a card is created, and before it is promoted:
 
 ## New work
 
-`new project/work "<title>" --type=feature|bug|chore|spike --label=area:<area> --priority=… --body-file=- --accept="…" …`,
+`new work "<title>" --type=feature|bug|chore|spike --label=area:<area> [--epic=<slug>] --priority=… --body-file=- --accept="…" …`,
 then `promote <ID>` when the owner wants it now. Read the `hint:` lines it prints.
 
 ## Recover

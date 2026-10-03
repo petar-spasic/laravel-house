@@ -13,12 +13,12 @@ beforeEach(function () {
     $this->sandbox = Sandbox::create();
     $this->sandbox->install('ACME');
     UiSandbox::boot($this->sandbox->root);
-    Route::post('/kanban/_api/probe', fn () => response()->json(['ok' => true]))->middleware('kanban')->name('kanban.api.probe');
-    Route::get('/kanban/_api/probe', fn () => response()->json(['ok' => true]))->middleware('kanban')->name('kanban.api.probe.read');
+    Route::post('/kanban/_api/probe/it', fn () => response()->json(['ok' => true]))->middleware('kanban')->name('kanban.api.probe');
+    Route::get('/kanban/_api/probe/it', fn () => response()->json(['ok' => true]))->middleware('kanban')->name('kanban.api.probe.read');
 });
 
 it('runs outside the host web middleware group: no session, cookie or token is created', function () {
-    foreach (['/kanban', '/kanban/project/work', '/kanban/cards/ACME-1', '/kanban/_api/probe'] as $url) {
+    foreach (['/kanban', '/kanban/work', '/kanban/cards/ACME-1', '/kanban/_api/probe/it'] as $url) {
         $response = $this->get($url)->assertOk();
         expect($response->headers->getCookies())->toBe([], $url)
             ->and($response->getContent())->not->toContain('csrf-token');
@@ -30,48 +30,48 @@ it('runs outside the host web middleware group: no session, cookie or token is c
 it('serves the same shell page for the boards, a board and a card', function () {
     $index = $this->get('http://localhost/kanban')->assertOk()->getContent();
 
-    expect($this->get('/kanban/project/work')->getContent())->toBe($index)
+    expect($this->get('/kanban/work')->getContent())->toBe($index)
         ->and($this->get('/kanban/cards/ACME-1')->getContent())->toBe($index)
         ->and($index)->toContain('data-base="/kanban"')->toContain('data-poll-ms="3000"')
         ->toContain('data-max-criteria="'.Card::MAX_CRITERIA.'"')->toContain('data-max-criterion="'.Card::MAX_CRITERION.'"');
 });
 
 it('answers API calls as JSON even when the client does not ask for it', function () {
-    $this->get('/kanban/_api/nothing', ['Accept' => 'text/html'])->assertNotFound()->assertJson(['message' => 'Not found']);
+    $this->get('/kanban/_api/nothing/here', ['Accept' => 'text/html'])->assertNotFound()->assertJson(['message' => 'Not found']);
 });
 
 it('refuses cross-site requests, except a plain navigation to the shell page', function () {
-    $this->get('/kanban/_api/probe', ['Sec-Fetch-Site' => 'cross-site', 'Sec-Fetch-Mode' => 'cors'])->assertForbidden();
-    $this->get('/kanban/_api/probe', ['Sec-Fetch-Site' => 'same-origin', 'Sec-Fetch-Mode' => 'cors'])->assertOk();
-    $this->get('/kanban/project/work', ['Sec-Fetch-Site' => 'cross-site', 'Sec-Fetch-Mode' => 'navigate'])->assertOk();
-    $this->get('/kanban/project/work', ['Sec-Fetch-Site' => 'cross-site', 'Sec-Fetch-Mode' => 'no-cors'])->assertForbidden();
-    $this->post('/kanban/_api/probe', [], ['X-Kanban' => '1', 'Sec-Fetch-Site' => 'cross-site', 'Sec-Fetch-Mode' => 'navigate'])->assertForbidden();
+    $this->get('/kanban/_api/probe/it', ['Sec-Fetch-Site' => 'cross-site', 'Sec-Fetch-Mode' => 'cors'])->assertForbidden();
+    $this->get('/kanban/_api/probe/it', ['Sec-Fetch-Site' => 'same-origin', 'Sec-Fetch-Mode' => 'cors'])->assertOk();
+    $this->get('/kanban/work', ['Sec-Fetch-Site' => 'cross-site', 'Sec-Fetch-Mode' => 'navigate'])->assertOk();
+    $this->get('/kanban/work', ['Sec-Fetch-Site' => 'cross-site', 'Sec-Fetch-Mode' => 'no-cors'])->assertForbidden();
+    $this->post('/kanban/_api/probe/it', [], ['X-Kanban' => '1', 'Sec-Fetch-Site' => 'cross-site', 'Sec-Fetch-Mode' => 'navigate'])->assertForbidden();
 });
 
 it('needs the X-Kanban header on writes, which a cross-site form cannot send', function () {
-    $this->post('/kanban/_api/probe')->assertForbidden()->assertJson(['message' => 'Kanban writes need the X-Kanban header']);
-    $this->post('/kanban/_api/probe', [], ['X-Kanban' => '1'])->assertOk();
+    $this->post('/kanban/_api/probe/it')->assertForbidden()->assertJson(['message' => 'Kanban writes need the X-Kanban header']);
+    $this->post('/kanban/_api/probe/it', [], ['X-Kanban' => '1'])->assertOk();
 });
 
 it('answers only to the machine\'s own names, so a page that rebinds its DNS name to this machine gets nothing', function () {
-    $this->get('http://rebind.example/kanban/_api/probe')->assertForbidden();
+    $this->get('http://rebind.example/kanban/_api/probe/it')->assertForbidden();
     $this->get('http://rebind.example/kanban')->assertForbidden();
-    $this->post('http://rebind.example/kanban/_api/probe', [], ['X-Kanban' => '1', 'Origin' => 'http://rebind.example'])->assertForbidden();
+    $this->post('http://rebind.example/kanban/_api/probe/it', [], ['X-Kanban' => '1', 'Origin' => 'http://rebind.example'])->assertForbidden();
     foreach (['localhost', '198.18.0.7', '[2001:db8::1]', 'acme-notes.test', 'app.localhost'] as $host) {
-        $this->get("http://{$host}/kanban/_api/probe")->assertOk();
+        $this->get("http://{$host}/kanban/_api/probe/it")->assertOk();
     }
 
     config(['app.url' => 'http://acme.dev-box.lan:8080', 'kanban.ui.hosts' => ['worktree.example']]);
 
-    $this->get('http://acme.dev-box.lan:8080/kanban/_api/probe')->assertOk();
-    $this->get('http://worktree.example/kanban/_api/probe')->assertOk();
-    $this->get('http://rebind.example/kanban/_api/probe')->assertForbidden();
+    $this->get('http://acme.dev-box.lan:8080/kanban/_api/probe/it')->assertOk();
+    $this->get('http://worktree.example/kanban/_api/probe/it')->assertOk();
+    $this->get('http://rebind.example/kanban/_api/probe/it')->assertForbidden();
 });
 
 it('reads the Host the client sent, not the one a proxy header claims', function () {
     TrustProxies::at('*');
     try {
-        $this->get('http://rebind.example/kanban/_api/probe', ['X-Forwarded-Host' => 'localhost'])->assertForbidden();
+        $this->get('http://rebind.example/kanban/_api/probe/it', ['X-Forwarded-Host' => 'localhost'])->assertForbidden();
     } finally {
         TrustProxies::flushState();
         Request::setTrustedProxies([], 0);
@@ -83,15 +83,15 @@ it('answers to the LOCAL_APP_URL host even when a published config predates the 
     try {
         UiSandbox::boot($this->sandbox->root, config: ['kanban.ui.hosts' => null]);
 
-        $this->get('http://worktree-b.example:8011/kanban/_api/probe')->assertOk();
-        $this->get('http://rebind.example/kanban/_api/probe')->assertForbidden();
+        $this->get('http://worktree-b.example:8011/kanban/_api/probe/it')->assertOk();
+        $this->get('http://rebind.example/kanban/_api/probe/it')->assertForbidden();
     } finally {
         Env::getRepository()->clear('LOCAL_APP_URL');
     }
 });
 
 it('sends a policy that lets the page load nothing from elsewhere, be framed or leak a Referer', function () {
-    foreach (['/kanban', '/kanban/_api/probe', '/kanban/assets/kanban.js'] as $path) {
+    foreach (['/kanban', '/kanban/_api/probe/it', '/kanban/assets/kanban.js'] as $path) {
         $response = $this->get($path)->assertOk();
         expect($response->headers->get('Content-Security-Policy'))->toContain("default-src 'self'")->toContain("frame-ancestors 'none'")
             ->and($response->headers->get('Referrer-Policy'))->toBe('no-referrer');
@@ -99,7 +99,7 @@ it('sends a policy that lets the page load nothing from elsewhere, be framed or 
 });
 
 it('accepts a write from the page when a proxy hides the scheme or the port', function () {
-    $write = fn (string $uri, string $origin) => $this->post($uri.'/kanban/_api/probe', [], ['X-Kanban' => '1', 'Origin' => $origin]);
+    $write = fn (string $uri, string $origin) => $this->post($uri.'/kanban/_api/probe/it', [], ['X-Kanban' => '1', 'Origin' => $origin]);
 
     $write('http://localhost', 'https://localhost')->assertOk();
     $write('http://localhost', 'http://localhost:8080')->assertOk();
@@ -111,12 +111,12 @@ it('accepts a write from the page when a proxy hides the scheme or the port', fu
 it('keeps the token gate without a session', function () {
     UiSandbox::boot($this->sandbox->root, config: ['kanban.ui.token' => 's3cret']);
 
-    $this->get('/kanban/_api/probe')->assertUnauthorized();
-    $this->get('/kanban/_api/probe', ['X-Kanban-Token' => 's3cret'])->assertOk();
+    $this->get('/kanban/_api/probe/it')->assertUnauthorized();
+    $this->get('/kanban/_api/probe/it', ['X-Kanban-Token' => 's3cret'])->assertOk();
     $response = $this->get('/kanban?token=s3cret')->assertRedirect('/kanban');
     $cookie = $response->headers->getCookies()[0];
     expect($cookie->getName())->toBe('kanban_token')->and($cookie->getValue())->toBe('s3cret')->and($cookie->isHttpOnly())->toBeTrue()->and($cookie->getExpiresTime())->toBeGreaterThan(time() + 300 * 86400);
-    $this->withUnencryptedCookie('kanban_token', 's3cret')->get('/kanban/_api/probe')->assertOk();
+    $this->withUnencryptedCookie('kanban_token', 's3cret')->get('/kanban/_api/probe/it')->assertOk();
 });
 
 it('drops `web` from a published config that still lists it, so writes need no CSRF token', function () {

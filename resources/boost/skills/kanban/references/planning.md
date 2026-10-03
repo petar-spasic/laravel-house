@@ -8,7 +8,7 @@ one, so a card is sized to what one agent finishes in one session, and no smalle
 
 - **One area, one open card.** Every card carries an `area:*` label (`promote` refuses one without). Cards sharing an
   area never run at once, so splitting work on one area buys nothing but cost. Name areas after surfaces or
-  directories (`area:auth`, `area:catalogue-import`, `area:public-pages`), never after old boards or epics, and keep
+  directories (`area:auth`, `area:catalogue-import`, `area:public-pages`), never after old boards or epics (an epic is a finite goal; `--epic=` on the card), and keep
   enough of them for every slot of `max_parallel`.
 - **No enabler cards.** Groundwork (a component set, a shared table, a helper) is part of the first card that needs
   it. A card only others wait on is folded into them.

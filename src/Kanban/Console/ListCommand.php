@@ -11,7 +11,8 @@ use Symfony\Component\Console\Attribute\AsCommand;
 class ListCommand extends Command
 {
     protected $signature = 'kanban:list
-        {--board= : Only this board (epic/board)}
+        {--board= : Only this board}
+        {--epic= : Only the cards of this epic}
         {--stage= : Only this stage}
         {--type= : Only this card type}
         {--label= : Only cards with this label}
@@ -25,11 +26,12 @@ class ListCommand extends Command
         $snapshot = $this->store()->snapshot();
         $board = $this->option('board') ? BoardRef::parse($this->option('board')) : null;
         $stage = $this->option('stage');
-        $explicit = $this->option('all') || $stage || $this->option('type') || $this->option('label');
+        $explicit = $this->option('all') || $stage || $this->option('type') || $this->option('label') || $this->option('epic');
         $cards = $snapshot->cards(fn (Card $c) => ($board === null || $c->board->equals($board))
             && ($stage === null || $c->stage() === $stage)
             && ($this->option('type') === null || $c->type() === $this->option('type'))
             && ($this->option('label') === null || in_array($this->option('label'), $c->labels(), true))
+            && ($this->option('epic') === null || $c->epic() === $this->option('epic'))
             && ($explicit || in_array($c->stage(), ['ready', 'doing', 'review'], true) || $c->blocked() !== null));
 
         $order = array_flip(['doing', 'review', 'ready', 'backlog', 'done', 'dropped']);

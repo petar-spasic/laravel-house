@@ -5,7 +5,7 @@ import path from 'node:path';
 
 export default async (t) => {
     const { a } = t.seed.ids;
-    const cardFile = path.join(t.seed.root, 'docs/kanban/project/work', `${a}.json`);
+    const cardFile = path.join(t.seed.root, 'docs/kanban/work', `${a}.json`);
     const append = (...entries) => {
         const card = JSON.parse(fs.readFileSync(cardFile, 'utf8'));
         const at = new Date().toISOString().replace('Z', '+00:00');

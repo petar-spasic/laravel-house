@@ -4,7 +4,7 @@ export const seed = 'perf';
 export default async (t) => {
     const page = await t.open();
     const started = Date.now();
-    await page.goto(t.url + '/project/work', { waitUntil: 'domcontentloaded' });
+    await page.goto(t.url + '/work', { waitUntil: 'domcontentloaded' });
     await page.waitForSelector('.card');
     const first = Date.now() - started;
     await page.waitForLoadState('networkidle');

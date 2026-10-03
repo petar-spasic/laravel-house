@@ -8,7 +8,7 @@ export default async (t) => {
     const { a, b } = t.seed.ids;
     const ben = { root: t.seed.peer, env: { KANBAN_USER: 'Ben' } };
     const page = await t.open({ w: 1440, h: 900 });
-    await page.goto(t.url + '/project/work', { waitUntil: 'networkidle' });
+    await page.goto(t.url + '/work', { waitUntil: 'networkidle' });
 
     t.cli(['set', a, 'title=Renamed by Ben'], ben);
     t.cli(['sync'], ben);
@@ -34,7 +34,7 @@ export default async (t) => {
     for (let i = 0; i < 60 && !arrived; i++) {
         await t.sleep(500);
         t.cli(['sync'], ben);
-        arrived = JSON.parse(fs.readFileSync(fs.readdirSync(`${t.seed.peer}/docs/kanban/project/work`).map((f) => `${t.seed.peer}/docs/kanban/project/work/${f}`).find((f) => f.includes(b)), 'utf8')).log.some((e) => e.text === 'Note from Ana');
+        arrived = JSON.parse(fs.readFileSync(fs.readdirSync(`${t.seed.peer}/docs/kanban/work`).map((f) => `${t.seed.peer}/docs/kanban/work/${f}`).find((f) => f.includes(b)), 'utf8')).log.some((e) => e.text === 'Note from Ana');
     }
     t.ok('and what is written here reaches the other clone by itself', arrived);
     await page.keyboard.press('Escape');
