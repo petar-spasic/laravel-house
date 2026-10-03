@@ -2,13 +2,14 @@
 
 namespace PetarSpasic\LaravelHouse\Kanban\Console\Install;
 
-/** Main's `.gitignore` keeps the board worktree and the code worktrees out of main. */
+/** Main's `.gitignore` keeps the board worktree, the code worktrees and this checkout's Claude Code settings out of main. */
 final class GitIgnore extends Step
 {
     /** Entry => the spellings that count as present. */
     public const ENTRIES = [
         '/docs/kanban/' => ['/docs/kanban/', '/docs/kanban', 'docs/kanban/', 'docs/kanban'],
         '/.claude/worktrees' => ['/.claude/worktrees', '/.claude/worktrees/', '.claude/worktrees', '.claude/worktrees/'],
+        '/.claude/settings.local.json' => ['/.claude/settings.local.json', '.claude/settings.local.json'],
     ];
 
     public function run(bool $dryRun = false, bool $force = false): array

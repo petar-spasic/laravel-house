@@ -8,14 +8,20 @@ use PetarSpasic\LaravelHouse\Kanban\Store\Git\Bootstrap;
 use stdClass;
 
 /**
- * Merges `.claude/settings.json`: our hooks (identified by the `vendor/bin/kanban` / `kanban-guard` path) are replaced
- * in place and foreign hooks kept; `permissions.allow` gets the kanban CLI and, unless `agents.shell` is host, this
- * checkout's absolute `vendor/bin/kanban-exec`, which Guard routes card agents' shells through; commit/PR attribution
- * is turned off while commit-msg rejects Co-Authored-By trailers.
+ * Merges `.claude/settings.json`, which is committed: our hooks (identified by the `vendor/bin/kanban` /
+ * `kanban-guard` path) are replaced in place and foreign hooks kept; `permissions.allow` gets the kanban CLI; commit/PR
+ * attribution is turned off while commit-msg rejects Co-Authored-By trailers. This checkout's absolute rules (main's
+ * `vendor/bin/kanban` and, unless `agents.shell` is host, `vendor/bin/kanban-exec`, the commands Guard routes card
+ * agents through) go to the uncommitted `.claude/settings.local.json`, and leave `settings.json`.
  */
 final class ClaudeSettings extends Step
 {
     public const FILE = '.claude/settings.json';
+
+    public const LOCAL = '.claude/settings.local.json';
+
+    /** An absolute kanban or kanban-exec rule, any checkout's. */
+    private const ABSOLUTE = "#^Bash\\('?/.*/vendor/bin/kanban(-exec)?'? \\*\\)$#";
 
     public const PERMISSION = 'Bash(vendor/bin/kanban *)';
 
@@ -23,22 +29,28 @@ final class ClaudeSettings extends Step
 
     public function run(bool $dryRun = false, bool $force = false): array
     {
-        $current = $this->read(self::FILE);
-        try {
-            $settings = $this->decode($current);
-        } catch (JsonException $e) {
-            return ['skipped '.self::FILE.': not valid JSON ('.$e->getMessage().'); fix it and run again'];
-        }
-        $changes = $this->merge($settings);
-        if ($changes === []) {
-            return [self::FILE.' ok'];
-        }
-        if ($dryRun) {
-            return ['would update '.self::FILE.': '.implode(', ', $changes)];
-        }
-        $this->write(self::FILE, self::json($settings, $current));
+        $lines = [];
+        foreach ([self::FILE => $this->merge(...), self::LOCAL => $this->mergeLocal(...)] as $file => $merge) {
+            $current = $this->read($file);
+            try {
+                $settings = $this->decode($current);
+            } catch (JsonException $e) {
+                $lines[] = 'skipped '.$file.': not valid JSON ('.$e->getMessage().'); fix it and run again';
 
-        return [($current === null ? 'created ' : 'updated ').self::FILE.': '.implode(', ', $changes)];
+                continue;
+            }
+            $changes = $merge($settings);
+            if ($changes === []) {
+                $lines[] = $file.' ok';
+            } elseif ($dryRun) {
+                $lines[] = 'would update '.$file.': '.implode(', ', $changes);
+            } else {
+                $this->write($file, self::json($settings, $current));
+                $lines[] = ($current === null ? 'created ' : 'updated ').$file.': '.implode(', ', $changes);
+            }
+        }
+
+        return $lines;
     }
 
     public function check(): array
@@ -59,6 +71,14 @@ final class ClaudeSettings extends Step
             : ['fail', self::FILE.' hooks missing or outdated: '.implode(', ', $hooks).' (run `vendor/bin/kanban doctor --fix`)']];
         foreach (array_diff($changes, $hooks) as $change) {
             $results[] = ['warn', self::FILE.' '.$change.' not set'];
+        }
+        try {
+            $local = $this->mergeLocal($this->decode($this->read(self::LOCAL)));
+        } catch (JsonException $e) {
+            $local = ['is not valid JSON: '.$e->getMessage()];
+        }
+        foreach ($local as $change) {
+            $results[] = ['warn', self::LOCAL.' '.$change.' (run `vendor/bin/kanban doctor --fix`)'];
         }
         foreach (['vendor/bin/kanban', 'vendor/bin/kanban-exec', self::GUARD] as $handler) {
             $results[] = is_executable($this->path($handler))
@@ -110,20 +130,7 @@ final class ClaudeSettings extends Step
         }
         $settings->hooks = $hooks;
 
-        $permissions = ($settings->permissions ?? null) instanceof stdClass ? $settings->permissions : new stdClass;
-        $allow = is_array($permissions->allow ?? null) ? $permissions->allow : [];
-        $rules = [self::PERMISSION, 'Bash('.Guard::kanban(realpath($this->paths->main) ?: $this->paths->main).' *)'];
-        if (($this->config['agents']['shell'] ?? null) !== 'host') {
-            $rules[] = self::execPermission($this->paths->main);
-        }
-        foreach ($rules as $rule) {
-            if (! in_array($rule, $allow, true)) {
-                $allow[] = $rule;
-                $permissions->allow = $allow;
-                $settings->permissions = $permissions;
-                $changes[] = 'permissions.allow '.$rule;
-            }
-        }
+        $changes = [...$changes, ...self::allow($settings, [self::PERMISSION], drop: self::ABSOLUTE)];
 
         if (Bootstrap::rejectsCoAuthored($this->config) && ($settings->attribution ?? null) !== false) {
             $attribution = ($settings->attribution ?? null) instanceof stdClass ? $settings->attribution : new stdClass;
@@ -135,6 +142,52 @@ final class ClaudeSettings extends Step
                 $settings->attribution = $attribution;
                 $changes[] = 'attribution off';
             }
+        }
+
+        return $changes;
+    }
+
+    /**
+     * Gives `settings.local.json` this checkout's absolute rules.
+     *
+     * @return list<string>
+     */
+    private function mergeLocal(stdClass $settings): array
+    {
+        $rules = ['Bash('.Guard::kanban(realpath($this->paths->main) ?: $this->paths->main).' *)'];
+        if (($this->config['agents']['shell'] ?? null) !== 'host') {
+            $rules[] = self::execPermission($this->paths->main);
+        }
+
+        return self::allow($settings, $rules);
+    }
+
+    /**
+     * Adds $rules to `permissions.allow` and removes the other rules matching $drop.
+     *
+     * @param  list<string>  $rules
+     * @return list<string>
+     */
+    private static function allow(stdClass $settings, array $rules, ?string $drop = null): array
+    {
+        $permissions = ($settings->permissions ?? null) instanceof stdClass ? $settings->permissions : new stdClass;
+        $allow = is_array($permissions->allow ?? null) ? $permissions->allow : [];
+        $changes = [];
+        foreach ($allow as $i => $rule) {
+            if ($drop !== null && is_string($rule) && ! in_array($rule, $rules, true) && preg_match($drop, $rule)) {
+                unset($allow[$i]);
+                $changes[] = 'permissions.allow -'.$rule;
+            }
+        }
+        foreach ($rules as $rule) {
+            if (! in_array($rule, $allow, true)) {
+                $allow[] = $rule;
+                $changes[] = 'permissions.allow '.$rule;
+            }
+        }
+        if ($changes !== []) {
+            $permissions->allow = array_values($allow);
+            $settings->permissions = $permissions;
         }
 
         return $changes;

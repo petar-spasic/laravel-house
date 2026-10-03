@@ -115,7 +115,7 @@ it('allows in the project settings exactly the command Guard routes an agent\'s 
         'agent_id' => 'w1', 'agent_type' => 'kanban-worker']));
     $guard->run();
 
-    $rules = array_values(array_filter(json_decode(file_get_contents($code->root().'/.claude/settings.json'), true)['permissions']['allow'],
+    $rules = array_values(array_filter(json_decode(file_get_contents($code->root().'/.claude/settings.local.json'), true)['permissions']['allow'],
         fn (string $rule) => str_contains($rule, 'kanban-exec')));
     $command = json_decode($guard->getOutput(), true)['hookSpecificOutput']['updatedInput']['command'];
     expect($rules)->toHaveCount(1)

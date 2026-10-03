@@ -19,7 +19,7 @@ function settingsFixture(): string
             ]],
             'PreToolUse' => [['matcher' => 'Bash', 'hooks' => [['type' => 'command', 'command' => 'echo foreign-guard']]]],
         ],
-        'permissions' => ['allow' => ['Bash(npm run check)']],
+        'permissions' => ['allow' => ['Bash(npm run check)', 'Bash(/srv/ben/acme/vendor/bin/kanban-exec *)']],
     ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n";
 }
 
@@ -33,7 +33,8 @@ it('merges settings, writes agents, .gitignore and the CLAUDE.md block, and is i
     $output = $sandbox->install('ACME');
 
     expect($output)
-        ->toContain("updated .claude/settings.json: hooks.SessionStart, hooks.SubagentStart, hooks.SubagentStop, hooks.PreToolUse, hooks.WorktreeCreate, hooks.WorktreeRemove, permissions.allow Bash(vendor/bin/kanban *), permissions.allow Bash({$sandbox->root}/vendor/bin/kanban *), permissions.allow Bash({$sandbox->root}/vendor/bin/kanban-exec *), attribution off")
+        ->toContain('updated .claude/settings.json: hooks.SessionStart, hooks.SubagentStart, hooks.SubagentStop, hooks.PreToolUse, hooks.WorktreeCreate, hooks.WorktreeRemove, permissions.allow -Bash(/srv/ben/acme/vendor/bin/kanban-exec *), permissions.allow Bash(vendor/bin/kanban *), attribution off')
+        ->toContain("created .claude/settings.local.json: permissions.allow Bash({$sandbox->root}/vendor/bin/kanban *), permissions.allow Bash({$sandbox->root}/vendor/bin/kanban-exec *)")
         ->toContain('wrote .claude/agents/kanban-worker.md')
         ->toContain('wrote .claude/agents/kanban-evaluator.md')
         ->toContain('added the kanban block to CLAUDE.md')
@@ -56,7 +57,8 @@ it('merges settings, writes agents, .gitignore and the CLAUDE.md block, and is i
         ])
         ->and($settings['hooks']['SubagentStop'])->toBe([['matcher' => 'kanban-worker|kanban-evaluator', 'hooks' => [$kanban('subagent-stop') + ['timeout' => 300]]]])
         ->and($settings['hooks']['WorktreeCreate'][0]['hooks'][0])->toBe($kanban('worktree-create') + ['timeout' => 120])
-        ->and($settings['permissions']['allow'])->toBe(['Bash(npm run check)', 'Bash(vendor/bin/kanban *)', "Bash({$sandbox->root}/vendor/bin/kanban *)", "Bash({$sandbox->root}/vendor/bin/kanban-exec *)"])
+        ->and($settings['permissions']['allow'])->toBe(['Bash(npm run check)', 'Bash(vendor/bin/kanban *)'])
+        ->and(json_decode(file_get_contents($sandbox->root.'/.claude/settings.local.json'), true)['permissions']['allow'])->toBe(["Bash({$sandbox->root}/vendor/bin/kanban *)", "Bash({$sandbox->root}/vendor/bin/kanban-exec *)"])
         ->and($settings['attribution'])->toBe(['commit' => '', 'pr' => '', 'sessionUrl' => false]);
 
     $worker = file_get_contents($sandbox->root.'/.claude/agents/kanban-worker.md');
@@ -65,20 +67,21 @@ it('merges settings, writes agents, .gitignore and the CLAUDE.md block, and is i
         ->toContain('a relative path')->not->toContain('isolation:')
         ->and(file_get_contents($sandbox->root.'/.claude/agents/kanban-evaluator.md'))->toContain("tools: Read, Grep, Glob, LSP, Bash, TodoWrite, Monitor, TaskStop, WebFetch, mcp__laravel-boost__search-docs\n")
         ->and(file_get_contents($sandbox->root.'/.claude/agents/reviewer.md'))->toBe("---\nname: reviewer\n---\nmine\n")
-        ->and(file_get_contents($sandbox->root.'/.gitignore'))->toBe("/vendor/\n/docs/kanban/\n/.claude/worktrees\n");
+        ->and(file_get_contents($sandbox->root.'/.gitignore'))->toBe("/vendor/\n/docs/kanban/\n/.claude/worktrees\n/.claude/settings.local.json\n");
 
     $claude = file_get_contents($sandbox->root.'/CLAUDE.md');
     expect($claude)->toStartWith("# App\n\nHouse rules.\n\n<!-- laravel-house:kanban:start -->\n## Kanban\n")
         ->toContain("<!-- laravel-house:kanban:end -->\n\n<laravel-boost-guidelines>\n");
 
-    $before = array_map(fn (string $f) => file_get_contents($sandbox->root.'/'.$f), ['.claude/settings.json', 'CLAUDE.md', '.gitignore', '.claude/agents/kanban-worker.md']);
+    $before = array_map(fn (string $f) => file_get_contents($sandbox->root.'/'.$f), ['.claude/settings.json', '.claude/settings.local.json', 'CLAUDE.md', '.gitignore', '.claude/agents/kanban-worker.md']);
     $again = $sandbox->install('ACME');
 
     expect($again)->toContain('.claude/settings.json ok')
+        ->toContain('.claude/settings.local.json ok')
         ->toContain('.claude/agents/kanban-worker.md ok')
         ->toContain('CLAUDE.md kanban block ok')
         ->toContain('.gitignore ok')
-        ->and(array_map(fn (string $f) => file_get_contents($sandbox->root.'/'.$f), ['.claude/settings.json', 'CLAUDE.md', '.gitignore', '.claude/agents/kanban-worker.md']))->toBe($before);
+        ->and(array_map(fn (string $f) => file_get_contents($sandbox->root.'/'.$f), ['.claude/settings.json', '.claude/settings.local.json', 'CLAUDE.md', '.gitignore', '.claude/agents/kanban-worker.md']))->toBe($before);
 });
 
 it('replaces an outdated CLAUDE.md block in place, never twice', function () {
@@ -139,7 +142,7 @@ it('prints what would change on a dry run and writes nothing', function () {
     expect($output)->toContain('would update .claude/settings.json: hooks.SessionStart')
         ->toContain('would write .claude/agents/kanban-worker.md')
         ->toContain('would create CLAUDE.md with the kanban block')
-        ->toContain('would add to .gitignore: /docs/kanban/ /.claude/worktrees')
+        ->toContain('would add to .gitignore: /docs/kanban/ /.claude/worktrees /.claude/settings.local.json')
         ->not->toContain('restart Claude Code')
         ->and(is_dir($sandbox->root.'/.claude'))->toBeFalse()
         ->and(is_file($sandbox->root.'/CLAUDE.md'))->toBeFalse()

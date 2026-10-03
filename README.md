@@ -585,9 +585,10 @@ The installer makes the following changes:
   with your code.
 - It configures git on this machine: a merge driver for the board's files, and the package's git hooks. The hooks
   reject `Co-Authored-By` trailers, and pushes from a card's worktree.
-- It adds hooks and permissions for `vendor/bin/kanban` and `vendor/bin/kanban-exec` to `.claude/settings.json`. Hooks
-  that are already there are kept. It also turns off Claude Code's commit and PR attribution, because the hooks would
-  reject those trailers.
+- It adds hooks and a permission for `vendor/bin/kanban` to `.claude/settings.json`. Hooks that are already there are
+  kept. It also turns off Claude Code's commit and PR attribution, because the hooks would reject those trailers.
+- It adds the permissions that name this checkout's path, for its `vendor/bin/kanban` and `vendor/bin/kanban-exec`, to
+  `.claude/settings.local.json`. That file stays out of git, so each machine gets its own.
 - It writes the two agents to `.claude/agents/kanban-worker.md` and `.claude/agents/kanban-evaluator.md`.
 - It writes a marked `## Kanban` block into the root `CLAUDE.md`, before Boost's guidelines when they are there. The
   block points Claude at the `kanban` skill.
@@ -596,7 +597,7 @@ The installer makes the following changes:
   skill inside `vendor/petar-spasic/laravel-house`.
 - With an ssh `origin` and a local compose file, it creates a deploy key for this clone at
   `.git/laravel-house/deploy_key`. See [Syncing From a Container](#syncing-from-a-container).
-- It adds `/docs/kanban/` and `/.claude/worktrees` to `.gitignore`.
+- It adds `/docs/kanban/`, `/.claude/worktrees` and `/.claude/settings.local.json` to `.gitignore`.
 - It adds the card-stack lines to a local compose file written before them. See
   [Where Agents Run](#where-agents-run).
 

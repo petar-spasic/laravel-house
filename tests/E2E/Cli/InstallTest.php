@@ -18,7 +18,7 @@ it('creates the board on an orphan kanban branch at docs/kanban', function () {
         ]))
         ->and(file_get_contents($sandbox->root.'/docs/kanban/.gitattributes'))->toBe("*.json merge=kanban text eol=lf\n")
         ->and(json_decode(file_get_contents($sandbox->root.'/docs/kanban/kanban.json'), true))->toMatchArray(['version' => 2, 'key' => 'ACME', 'max_parallel' => 6, 'locked' => ['doing', 'review', 'done']])
-        ->and(file_get_contents($sandbox->root.'/.gitignore'))->toBe("/vendor/\n/docs/kanban/\n/.claude/worktrees\n")
+        ->and(file_get_contents($sandbox->root.'/.gitignore'))->toBe("/vendor/\n/docs/kanban/\n/.claude/worktrees\n/.claude/settings.local.json\n")
         ->and(trim($sandbox->git('status', '--porcelain')))->toBe("M .gitignore\n?? .claude/\n?? CLAUDE.md")
         ->and(trim($sandbox->git('config', 'merge.kanban.driver')))->toBe("php '{$sandbox->root}/vendor/bin/kanban' merge-driver %O %A %B %P")
         ->and(trim($sandbox->git('config', 'core.hooksPath')))->toBe('vendor/petar-spasic/laravel-house/githooks')
@@ -41,7 +41,7 @@ it('is idempotent', function () {
         ->toContain('core.hooksPath kept: .githooks')
         ->not->toContain('.gitignore +=')
         ->and($sandbox->boardLog())->toBe(['Kanban: initialize'])
-        ->and(file_get_contents($sandbox->root.'/.gitignore'))->toBe("/vendor/\n/docs/kanban/\n/.claude/worktrees\n");
+        ->and(file_get_contents($sandbox->root.'/.gitignore'))->toBe("/vendor/\n/docs/kanban/\n/.claude/worktrees\n/.claude/settings.local.json\n");
 });
 
 it('changes nothing on a dry run', function () {

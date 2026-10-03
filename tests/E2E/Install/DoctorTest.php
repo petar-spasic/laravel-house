@@ -20,7 +20,7 @@ it('passes on a correctly wired project', function () {
         ->toContain("ok vendor/petar-spasic/laravel-house/bin/kanban-guard executable\n")
         ->toContain("ok .claude/agents/kanban-worker.md\n")
         ->toContain("ok CLAUDE.md kanban block\n")
-        ->toContain("ok .gitignore /docs/kanban/ /.claude/worktrees\n")
+        ->toContain("ok .gitignore /docs/kanban/ /.claude/worktrees /.claude/settings.local.json\n")
         ->toContain("ok runtime .git/laravel-house writable\n")
         ->toContain("ok no orphan worktrees or stack slots\n")
         ->toContain("ok docker-compose.local.yml is worktree-safe\n")
@@ -92,7 +92,7 @@ it('reports missing wiring and repairs it with --fix', function () {
         ->toContain("fail merge driver not configured (run `vendor/bin/kanban attach`)\n")
         ->toContain("fail .claude/settings.json missing (run `vendor/bin/kanban doctor --fix`)\n")
         ->toContain("fail .claude/agents/kanban-worker.md missing (run `vendor/bin/kanban doctor --fix`)\n")
-        ->toContain("fail .gitignore lacks /.claude/worktrees (run `vendor/bin/kanban doctor --fix`)\n");
+        ->toContain("fail .gitignore lacks /.claude/worktrees /.claude/settings.local.json (run `vendor/bin/kanban doctor --fix`)\n");
 
     $fixed = doctor($sandbox, ['--fix']);
 
@@ -101,7 +101,7 @@ it('reports missing wiring and repairs it with --fix', function () {
         ->toContain("fix: board attached at docs/kanban\n")
         ->toContain('fix: created .claude/settings.json: hooks.SessionStart')
         ->toContain("fix: wrote .claude/agents/kanban-worker.md\n")
-        ->toContain("fix: .gitignore += /.claude/worktrees\n")
+        ->toContain("fix: .gitignore += /.claude/worktrees /.claude/settings.local.json\n")
         ->not->toContain('fail ')
         ->toEndWith("ok docker address pools: 254 free networks\nnext: restart Claude Code (agents and hooks load at session start); then `vendor/bin/kanban lease --takeover` if an old session holds the lease\n")
         ->and(doctor($sandbox)->getOutput())->not->toContain('restart Claude Code');
