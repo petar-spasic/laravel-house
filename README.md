@@ -1175,6 +1175,7 @@ The [protocol reference](resources/boost/skills/kanban/references/protocol.md) l
 |---|---|
 | `start ID` | Claims a card and creates its clone and stack. |
 | `refresh ID` | Merges the latest `main` into the card's branch. |
+| `wait [ID]` | Waits until the card's agent has stopped and its report or verdict is on the board. |
 | `finish ID` | Merges an approved card into `main` and cleans up. |
 | `stop ID --to=STAGE` | Takes a card out of work and cleans up. |
 | `stack ID up\|down\|reload\|logs\|url` | Manages a card's stack. `stack ID exec -- CMD` runs a command in it. |

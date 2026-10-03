@@ -224,6 +224,7 @@ final class SubagentStop
             return self::done("kanban: {$cardId}: stop allowed after ".self::MAX_BLOCKS.' refusals');
         }
         $agent['stop_blocks'] = $blocks + 1;
+        $agent['stop_refused'] = ['at' => microtime(true), 'reason' => mb_strimwidth((string) strtok($reason, "\n"), 0, 200, '…')];
         $agent['card'] ??= $cardId;
         unset($agent['beat']);
         $runtime->saveAgent($agent);

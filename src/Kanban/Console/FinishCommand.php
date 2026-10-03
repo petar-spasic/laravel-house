@@ -61,7 +61,7 @@ class FinishCommand extends Command
             throw new PolicyRefused("{$id}: the worktree has uncommitted changes", $dirty);
         }
         if (($agent = $this->agent($id, $snapshot)) !== null && $agent !== 'stopped' && ! str_starts_with($agent, 'stale')) {
-            throw new PolicyRefused("{$id}: an agent is still bound to the card ({$agent}); wait for it to stop");
+            throw new PolicyRefused("{$id}: an agent is still bound to the card ({$agent}); `vendor/bin/kanban wait {$id}`");
         }
 
         $check = new MergeCheck($worktrees->git(), $main);

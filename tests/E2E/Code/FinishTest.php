@@ -200,7 +200,7 @@ it('refuses to refresh a card whose agent is still running, and skips it under -
     $all = $code->kanban(['refresh', '--all']);
 
     expect($refused->getExitCode())->toBe(3)
-        ->and($refused->getErrorOutput())->toContain("{$id}: its worker is still running (what it stages applies when it stops); wait for its notification")
+        ->and($refused->getErrorOutput())->toContain("{$id}: its worker is still running (what it stages applies when it stops); `vendor/bin/kanban wait {$id}`")
         ->and($all->getExitCode())->toBe(0)
         ->and($all->getOutput())->toBe("skipped {$id}: worker live\n")
         ->and(trim($code->gitIn($code->worktree($id), 'rev-parse', 'HEAD')))->toBe($head);

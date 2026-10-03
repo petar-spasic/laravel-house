@@ -43,7 +43,7 @@ class RefreshCommand extends Command
             if (($live = $this->live($card, $snapshot)) !== null) {
                 if (! $this->option('all')) {
                     $failed = str_starts_with((new Runtime($this->paths()))->refusal($card->id(), $live === 'worker' ? 'report' : 'verdict')['reason'] ?? '', 'hook failed');
-                    throw new PolicyRefused("{$card->id()}: its {$live} is still running (what it stages applies when it stops); wait for its notification"
+                    throw new PolicyRefused("{$card->id()}: its {$live} is still running (what it stages applies when it stops); `vendor/bin/kanban wait {$card->id()}`"
                         .($failed ? '; its stop hook failed, so `vendor/bin/kanban apply` settles it' : ''));
                 }
                 $this->say("skipped {$card->id()}: {$live} live");

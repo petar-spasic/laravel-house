@@ -92,12 +92,16 @@ Before a card is created, and before it is promoted:
    - exit 3 refused: skip the card. exit 8 claim lost: `next` again, without it.
    - exit 9 remote unreachable: nothing was claimed; wait, report it, never set `KANBAN_SYNC=off` yourself.
    - exit 7 or 1 after the claim: the card stays in doing, blocked; fix the cause, then `start <ID>` again resumes it.
-5. **Wait.** Agents notify you twice: a hand-back line, then the task notification when they stop. Act only on the
-   task notification: the SubagentStop hook applies the report or verdict then. Read state with `show <ID>`; never poll.
-6. **Worker finished, card in review** (`show <ID>` says review; still doing, its report waits for its stop: wait).
+5. **Wait.** An agent ends with a hand-back message, then stops, and its stop applies the report or verdict. On a
+   hand-back, run `wait <ID>`: it returns once that is done, with the card's line (`stop refused`: the agent works on;
+   its next hand-back comes later). Then act on the card's state. A task notification may come late or start no turn:
+   never wait for one. While agents run and nothing else is to do, keep one `wait --timeout=1800` running in the
+   background (`run_in_background`): it ends when any agent settles, so a lost hand-back costs nothing. After acting,
+   start it again. Never poll in a loop of your own.
+6. **Worker finished, card in review** (`wait <ID>` printed review).
    `refresh <ID>` merges main into the branch:
    - `up to date` / `refreshed` prints the evaluator's spawn line: spawn it.
-   - exit 3 `its worker is still running`: wait for its notification.
+   - exit 3 `its worker is still running`: `wait <ID>`, then again.
    - exit 5 conflict: the card is back in doing; send the printed `SendMessage:` text to the worker, or spawn a fresh
      one with the line `show <ID>` prints.
 7. **Worker blocked.** `show <ID>` has the reason. A question: `stop <ID> --to=backlog`, with the question on the card
