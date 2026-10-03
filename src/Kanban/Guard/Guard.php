@@ -27,9 +27,6 @@ final class Guard
      */
     private const HOST = '#^\s*(?:php\s+)?(?:[A-Za-z0-9_.~/-]*/)?vendor/bin/kanban(?=\s|$)#';
 
-    /** What makes a command more than one plain command: anything chained to a host command would run on the host too. */
-    private const COMPOUND = '/[;&|<>`\n\r]|\$\(/';
-
     /** File tools and the input key that holds their path (Glob and Grep default to the cwd). */
     private const FILE_TOOLS = ['Read' => 'file_path', 'Edit' => 'file_path', 'Write' => 'file_path', 'NotebookEdit' => 'notebook_path', 'Glob' => 'path', 'Grep' => 'path'];
 
@@ -50,11 +47,44 @@ final class Guard
     /** $command with its leading kanban path (and `php`) replaced by main's binary, or null when it is not a plain kanban command. */
     public static function hostKanban(string $main, string $command): ?string
     {
-        if (preg_match(self::HOST, $command, $m) !== 1 || preg_match(self::COMPOUND, $command) === 1) {
+        if (preg_match(self::HOST, $command, $m) !== 1 || self::compound($command)) {
             return null;
         }
 
         return self::kanban($main).substr($command, strlen($m[0]));
+    }
+
+    /**
+     * More than one plain command: an operator or a redirect outside quotes, or a command substitution outside single
+     * quotes. Anything chained to a host command would run on the host too; quoted text (a note, evidence) and a
+     * heredoc with a quoted delimiter that ends the command are data.
+     */
+    public static function compound(string $command): bool
+    {
+        $quote = null;
+        for ($i = 0, $n = strlen($command); $i < $n; $i++) {
+            $c = $command[$i];
+            if ($quote === "'") {
+                $quote = $c === "'" ? null : $quote;
+            } elseif ($c === '\\') {
+                $i++;
+            } elseif ($c === '`' || ($c === '$' && ($command[$i + 1] ?? '') === '(')) {
+                return true;
+            } elseif ($quote === '"') {
+                $quote = $c === '"' ? null : $quote;
+            } elseif ($c === '"' || $c === "'") {
+                $quote = $c;
+            } elseif ($c === '<' && preg_match('/\G<<-?\s*([\'"])([A-Za-z_][A-Za-z0-9_]*)\1[ \t]*\n/', $command, $m, 0, $i) === 1) {
+                // a heredoc with a quoted delimiter is literal stdin; it must be the whole rest of the command
+                $body = substr($command, $i + strlen($m[0]));
+
+                return preg_match('/^(?:.*\n)*?'.$m[2].'[ \t]*\n?$/', $body) !== 1;
+            } elseif (str_contains(";&|<>\n\r", $c)) {
+                return true;
+            }
+        }
+
+        return $quote !== null;
     }
 
     private static function quoted(string $path): string

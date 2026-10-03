@@ -38,6 +38,8 @@ it("keeps a plain vendor/bin/kanban command on this machine, as main's binary, i
     'kanban by absolute path' => ['{main}/vendor/bin/kanban context', ' context'],
     "the card's own copy" => ['{wt}/vendor/bin/kanban context', ' context'],
     'kanban through php' => ['php vendor/bin/kanban status', ' status'],
+    'operators inside quotes' => ['vendor/bin/kanban report ACME-7K2M9Q --note="a; b | c > d" --verified=\'curl $(x) → 200\'', ' report ACME-7K2M9Q --note="a; b | c > d" --verified=\'curl $(x) → 200\''],
+    'a heredoc with a quoted delimiter' => ["vendor/bin/kanban report ACME-7K2M9Q --summary-file=- <<'EOF'\nDone; tests pass | green\nEOF", " report ACME-7K2M9Q --summary-file=- <<'EOF'\nDone; tests pass | green\nEOF"],
 ]);
 
 it('routes git, and a kanban command chained to anything, into the container', function (string $command) {
@@ -52,6 +54,9 @@ it('routes git, and a kanban command chained to anything, into the container', f
     'kanban piped' => ['vendor/bin/kanban context | tee out'],
     'kanban in a subshell' => ['vendor/bin/kanban report $(cat id)'],
     'kanban with an env prefix' => ['LD_PRELOAD=x.so vendor/bin/kanban status'],
+    'a command substitution in double quotes' => ['vendor/bin/kanban report ACME-7K2M9Q --note="$(id)"'],
+    'a heredoc that expands' => ["vendor/bin/kanban report ACME-7K2M9Q --summary-file=- <<EOF\n\$(id)\nEOF"],
+    'a command after a heredoc' => ["vendor/bin/kanban report ACME-7K2M9Q --summary-file=- <<'EOF'\nx\nEOF\nrm -rf y"],
 ]);
 
 it('leaves every other shell alone', function (string $actor, ?string $shell, string $cwd) {
