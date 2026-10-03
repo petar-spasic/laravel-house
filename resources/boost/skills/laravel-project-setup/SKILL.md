@@ -146,16 +146,14 @@ This table owns the combination rules. `install.php` enforces them and refuses a
 
    Then delete `<dir>`.
 7. **Boost.** `--fresh` wrote `boost.json` and composer's `post-update-cmd`. Run
-   `php artisan boost:install --no-interaction` yourself, never through `!` (Gotchas). Disable the plugin for the project. Detail and the checks:
-   `references/boost.md`.
-8. **Verify.**
-   - No unresolved marker or placeholder in the project's own files, except `{{hosting}}`:
-     `grep -rnE '<!-- (if|unless):|<!-- endif|\{\{[a-z_]+\}\}' . --exclude-dir={vendor,node_modules,.git,skills}`.
-     `skills` holds the house skills' own templates, which keep theirs.
-   - `vendor/bin/pint --dirty --format agent`.
-   - `php artisan route:list` boots.
-   - The module checks in `references/modules.md`.
-   - The E2E tests need the stack's `{{app}}_test` (step 9).
+   `php artisan boost:install --no-interaction` yourself, never through `!` (Gotchas). Disable the plugin for the
+   project. Detail: `references/boost.md`.
+8. **Verify.** `php "${CLAUDE_SKILL_DIR}/scripts/verify.php" .` prints nothing: no marker or placeholder but
+   `{{hosting}}`, the deletions, `.env`, `.gitignore`, Boost and its overrides, one E2E suite, and `route:list`
+   boots. Then:
+   - `vendor/bin/pint --dirty --format agent`;
+   - the module checks in `references/modules.md`;
+   - the E2E tests need the stack's `{{app}}_test` (step 9).
 9. **Hand off to `laravel-deployment`.** Invoke it with `{{app}}`, `{{app_name}}`, `{{php_version}}`, the ports, the
    LAN URL, `{{domain}}` and the modules, tenancy included. It renders its templates, merges its snippets and fills
    `{{hosting}}`. Done when `php artisan test --compact tests/E2E` passes against the stack, and:

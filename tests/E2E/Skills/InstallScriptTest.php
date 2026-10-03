@@ -323,3 +323,41 @@ it('picks host ports nothing listens on and no container publishes, outside the 
     expect($spa)->not->toContain('ws_port')->not->toContain('web_port=8080');
     fclose($listening);
 });
+
+function verifySetup(string $repo): Process
+{
+    $process = new Process(['php', Sandbox::package().'/resources/boost/skills/laravel-project-setup/scripts/verify.php', $repo]);
+    $process->run();
+
+    return $process;
+}
+
+it('verifies what setup leaves, one line per failure', function () {
+    $repo = skeleton();
+    fresh($repo, 'htmx,tenancy');
+    $claude = str_replace('{{what_we_are_building}}', 'Acme Notes keeps notes.', file_get_contents("{$repo}/CLAUDE.md"));
+    file_put_contents("{$repo}/CLAUDE.md", $claude."\n<laravel-boost-guidelines>\n# Laravel Boost\n</laravel-boost-guidelines>\n");
+    @mkdir("{$repo}/.claude/skills/testing-best-practices", 0775, true);
+    copy(Sandbox::package().'/resources/boost/skills/laravel-project-setup/templates/core/.ai/skills/testing-best-practices/SKILL.md', "{$repo}/.claude/skills/testing-best-practices/SKILL.md");
+    file_put_contents("{$repo}/phpunit.xml", "<phpunit><testsuites><testsuite name=\"E2E\"><directory>tests/E2E</directory></testsuite></testsuites></phpunit>\n");
+
+    $clean = verifySetup($repo);
+
+    expect($clean->getOutput())->toBe('')->and($clean->getExitCode())->toBe(0);
+
+    file_put_contents("{$repo}/CLAUDE.md", str_replace('# Laravel Boost', "# Laravel Boost\nUse make:test", file_get_contents("{$repo}/CLAUDE.md")));
+    file_put_contents("{$repo}/AGENTS.md", "# Agents\n");
+    file_put_contents("{$repo}/app/Note.php", "<?php // {{app_name}}\n");
+    file_put_contents("{$repo}/.env", "CACHE_STORE=file\n", FILE_APPEND);
+    file_put_contents("{$repo}/phpunit.xml", "<phpunit><testsuites><testsuite name=\"Unit\"/><testsuite name=\"E2E\"/></testsuites></phpunit>\n");
+    $broken = verifySetup($repo);
+
+    expect($broken->getExitCode())->toBe(1)
+        ->and($broken->getOutput())->toBe(implode("\n", [
+            '✗ app/Note.php:1 unresolved template marker or placeholder',
+            '✗ AGENTS.md is still there',
+            '✗ .env still sets CACHE_STORE: the config defaults are Postgres and Redis',
+            '✗ Boost\'s guidelines in CLAUDE.md still say "make:test": an override is missing (references/boost.md)',
+            '✗ phpunit.xml has the test suites Unit, E2E; it has one, E2E',
+        ])."\n");
+});

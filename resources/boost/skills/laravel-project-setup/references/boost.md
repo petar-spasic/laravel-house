@@ -14,14 +14,9 @@ How setup configures Boost (SKILL.md step 7), and how the house overrides are ke
 
 ## Check
 
-- The root `CLAUDE.md` ends with the `<laravel-boost-guidelines>` block.
-- That block holds none of: "Test every code change", "Unit and feature tests are more important", `make:test`,
-  "Laravel Cloud", `composer run dev`.
-- There is no `AGENTS.md`, no `.agents/` and no `.claude/skills/deploying-to-cloud`.
-- `.claude/skills/testing-best-practices/SKILL.md` is the E2E one ("end to end or not at all").
-- `.claude/skills/infer-conventions/SKILL.md` is the stub.
-- After a Boost upgrade, the overrides differ from upstream only by the hunks listed below:
-  `for f in foundation boost/core laravel/core; do diff vendor/laravel/boost/.ai/$f.blade.php .ai/guidelines/$f.blade.php; done`.
+`scripts/verify.php` (SKILL.md step 8) checks the guidelines block and the skills. `infer-conventions` is the house
+stub. After a Boost upgrade, the overrides differ from upstream only by the hunks listed below:
+`for f in foundation boost/core laravel/core; do diff vendor/laravel/boost/.ai/$f.blade.php .ai/guidelines/$f.blade.php; done`.
 
 ## Overrides
 
