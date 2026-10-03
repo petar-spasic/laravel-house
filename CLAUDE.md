@@ -190,6 +190,11 @@ grep -rnE 'clsx|tailwind-merge' resources README.md --exclude=packages.md   # dr
 # Scripts
 bash -n bin/kanban-exec || echo "✗ bin/kanban-exec"
 
+# Boost: upstream changed none of the files the house overrides since the version setup's references/boost.md names
+v=$(grep -oE 'Boost [0-9]+\.[0-9]+\.[0-9]+' resources/boost/skills/laravel-project-setup/references/boost.md | head -1 | cut -d' ' -f2)
+latest=$(git ls-remote --tags --refs https://github.com/laravel/boost 'v*' | sed 's#.*/v##' | sort -V | tail -1)
+[ "$v" = "$latest" ] || { d=$(mktemp -d); git clone -q --filter=blob:none --no-checkout https://github.com/laravel/boost "$d" && git -C "$d" diff --name-only "v$v" "v$latest" -- .ai/foundation.blade.php .ai/boost/core.blade.php .ai/laravel/core.blade.php .ai/pest .ai/enforce-tests.blade.php .ai/deployments .ai/laravel/skill/testing-best-practices .ai/boost/skill/infer-conventions .ai/tailwindcss config/boost.php src/Install/Agents/ClaudeCode.php | sed "s/^/✗ Boost $v → $latest changed /"; rm -rf "$d"; }   # re-base the overrides, then name the new version in boost.md
+
 # README
 grep -oE '\]\(#[a-z0-9-]+\)' README.md | sed -E 's/.*#(.*)\)/\1/' | sort -u | while read -r a; do grep -q "<a name=\"$a\"></a>" README.md || echo "✗ anchor $a"; done
 grep -oE '<a name="[^"]+"' README.md | sort | uniq -d          # no duplicate anchors
