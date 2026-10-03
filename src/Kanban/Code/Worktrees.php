@@ -168,9 +168,10 @@ final class Worktrees
 
     /**
      * Brings a card clone and main level: main's branch into the clone (its gates and diffs compare against it) and
-     * the clone's branch into main (finish, stop and the merge checks read it there). A git worktree needs neither.
+     * the clone's branch into main (finish, stop and the merge checks read it there): $branch, the card's, else the one
+     * the clone has checked out. A git worktree needs neither.
      */
-    public function sync(string $path): void
+    public function sync(string $path, ?string $branch = null): void
     {
         if (! $this->isClone(realpath($path) ?: $path)) {
             return;
@@ -178,7 +179,7 @@ final class Worktrees
         $main = $this->mainBranch();
         $clone = Git::untrusted($path);
         $clone->attempt(['fetch', '-q', '--no-tags', 'origin', "+refs/heads/{$main}:refs/heads/{$main}"]);
-        $branch = $clone->line(['symbolic-ref', '--short', '-q', 'HEAD']);
+        $branch ??= $clone->line(['symbolic-ref', '--short', '-q', 'HEAD']);
         if ($branch !== null && $branch !== $main) {
             $this->git()->attempt(['fetch', '-q', '--no-tags', $path, "+refs/heads/{$branch}:refs/heads/{$branch}"]);
         }
@@ -423,8 +424,8 @@ final class Worktrees
         return array_values(array_filter(explode("\n", rtrim($out->out))));
     }
 
-    /** A clone's branch reaches main first, so removing it never loses a commit. */
-    public function remove(string $path, bool $force = false): void
+    /** A clone's branch ($branch, the card's, else the one it has checked out) reaches main first, so removing it never loses a commit. */
+    public function remove(string $path, bool $force = false, ?string $branch = null): void
     {
         if (! $this->isClone(realpath($path) ?: $path)) {
             $this->git()->run(['worktree', 'remove', ...($force ? ['--force'] : []), $path]);
@@ -434,7 +435,7 @@ final class Worktrees
         if (! $force && $this->dirty($path) !== []) {
             throw new GitFailed("{$this->paths->relative($path)} has uncommitted changes");
         }
-        $this->sync($path);
+        $this->sync($path, $branch);
         $rm = new Process(['rm', '-rf', $path]);
         $rm->run();
         if (! $rm->isSuccessful()) {

@@ -23,10 +23,10 @@ it('merges an approved card, marks it done and tears down its stack, worktree an
     expect($output)->toBe(implode("\n", [
         "merged {$id} into main ".substr($sha, 0, 7),
         "{$id} review→done",
-        'after: echo migrated > after.txt ok',
         "stack down acme-wt-{$name}; slot released",
         "removed worktree .claude/worktrees/{$name}",
         "deleted branch {$branch}",
+        'after: echo migrated > after.txt ok',
     ])."\n")
         ->and(trim($code->sandbox->git('log', '-1', '--format=%s%n%P', 'main')))->toMatch("/^{$id}: Add login page\n\\S+ \\S+$/")
         ->and(is_file($code->root().'/login.php'))->toBeTrue()
@@ -42,6 +42,22 @@ it('merges an approved card, marks it done and tears down its stack, worktree an
         ->and($card['claim'])->toBeNull()
         ->and(array_keys($card['work']))->toBe(['branch', 'base', 'merge', 'started', 'finished'])
         ->and($card['work']['merge'])->toBe($sha);
+});
+
+it('merges the card\'s branch while its clone has another branch checked out', function () {
+    $code = $this->code;
+    $id = $code->started('Scratch branch');
+    $branch = $code->sandbox->read($id)['work']['branch'];
+    $head = $code->commit($id, 'kept.php', "<?php\n");
+    $code->approve($id);
+    $code->gitIn($code->worktree($id), 'checkout', '-q', '-b', 'scratch');
+
+    $code->ok(['finish', $id]);
+
+    expect(trim($code->sandbox->git('rev-parse', 'main^2')))->toBe($head)
+        ->and(is_file($code->root().'/kept.php'))->toBeTrue()
+        ->and(trim($code->sandbox->git('branch', '--list', 'scratch')))->toBe('')
+        ->and($branch)->toStartWith('card/');
 });
 
 it('rebuilds main\'s stack when the merge touches lockfiles, docker files or the stack compose file', function () {

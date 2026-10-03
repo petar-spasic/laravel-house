@@ -102,8 +102,10 @@ Before a card is created, and before it is promoted:
      one with the line `show <ID>` prints.
 7. **Worker blocked.** `show <ID>` has the reason. A question: `stop <ID> --to=backlog`, with the question on the card
    (see below), and into the owner batch. Anything else: fix the cause, or leave it blocked for the owner.
-8. **Approved.** `finish <ID>` installs changed dependencies on main, merges, runs the migrate and after-steps and the
-   main check, pushes main every `publish.every` merges, tears the stack down and removes the clone.
+8. **Approved.** `finish <ID>` merges, tears the card's stack down and removes its clone, then installs changed
+   dependencies on main, runs the migrate and after-steps and the main check, rebuilds main's stack when its image
+   inputs changed, and pushes main every `publish.every` merges. That can take minutes: run it in the background
+   (`run_in_background`) and act on its exit when it ends.
    - exit 5 `main moved`: `refresh <ID>`, then a fresh evaluator. exit 5 `does not merge cleanly`: the card is in
      doing; `refresh <ID>` hands the conflict to the worker.
    - exit 3: the message names it (uncommitted main files, a live agent, an approval head mismatch, leftover conflict

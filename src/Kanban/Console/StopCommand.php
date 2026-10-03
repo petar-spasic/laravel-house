@@ -58,7 +58,7 @@ class StopCommand extends Command
         }
         $this->say("stack down {$this->paths()->relative($path)}");
         if ($exists) {
-            $worktrees->remove($path, $force);
+            $worktrees->remove($path, $force, is_string($branch) ? $branch : null);
             $this->say("removed worktree {$this->paths()->relative($path)}");
         }
         $worktrees->prune();

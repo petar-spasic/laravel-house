@@ -134,6 +134,19 @@ it('records the spawn for the card a spawn line starts with, though the prompt n
     expect(array_map('basename', glob($sandbox->main.'/.git/laravel-house/spawns/*.json') ?: []))->toBe(['ACME-7K2M9Q.json']);
 });
 
+it('drops a spawn record of the same type that no agent claimed in time', function () {
+    $sandbox = new GuardSandbox;
+    $sandbox->card('ACME-ZZZZ00', 'doing', '.claude/worktrees/acme-zzzz00');
+    $spawns = $sandbox->main.'/.git/laravel-house/spawns';
+    @mkdir($spawns, 0775, true);
+    file_put_contents($spawns.'/ACME-ZZZZ00.json', json_encode(['card' => 'ACME-ZZZZ00', 'agent_type' => 'kanban-worker', 'worktree' => 'x', 'at' => microtime(true) - 30]));
+    file_put_contents($spawns.'/ACME-EVAL00.json', json_encode(['card' => 'ACME-EVAL00', 'agent_type' => 'kanban-evaluator', 'worktree' => 'y', 'at' => microtime(true) - 30]));
+
+    $sandbox->case('main', 'Agent', ['subagent_type' => 'kanban-worker', 'prompt' => 'Card ACME-7K2M9Q. Worktree {wt}']);
+
+    expect(array_map('basename', glob($spawns.'/*.json') ?: []))->toBe(['ACME-7K2M9Q.json', 'ACME-EVAL00.json']);
+});
+
 it('records no spawn for anything else', function (array $input) {
     $sandbox = new GuardSandbox;
     $sandbox->card('ACME-ZZZZ00', 'doing', '.claude/worktrees/acme-zzzz00');

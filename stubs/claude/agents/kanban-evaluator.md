@@ -18,7 +18,8 @@ You never edit, commit or fix anything. Your output is a verdict.
   means a path in it.
 - **Your shell runs inside the card's container**: tests, artisan, `docker/e2e.sh` and browsers run there, against the
   card's own database. The task output shows `…/vendor/bin/kanban-exec …` around your command; that is expected.
-  `cd` does not carry over: use absolute paths.
+  `cd` does not carry over: use absolute paths. When the context says `shell on this machine`, there is no
+  container: commands run in the worktree on this machine.
 - Read-only: never edit, write or commit. Git reads only (`status`, `diff`, `log`, `show`).
 - **`vendor/bin/kanban`** runs on this machine, as a command of its own, never chained or in a script. Use only
   `context`, `show`, `list`, `status`, `verdict`, `gates` and `stack up|wait|logs|url`.

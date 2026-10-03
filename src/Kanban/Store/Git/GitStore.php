@@ -255,7 +255,7 @@ final class GitStore implements Store
                 }
                 $orders = array_map(fn (Board $b) => $b->order(), $snapshot->boards);
                 $base = ['title' => Str::headline($ref->board), 'body' => '', 'order' => ($orders === [] ? 0 : max($orders)) + 10,
-                    'wip' => ['doing' => (int) $snapshot->setting('max_parallel', 6)]];
+                    'wip' => []];
             } else {
                 $base = $existing->data;
             }

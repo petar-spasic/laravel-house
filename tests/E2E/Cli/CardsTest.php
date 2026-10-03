@@ -171,7 +171,11 @@ it('creates and updates boards', function () {
     expect($this->sandbox->ok(['board', 'tooling', 'Tooling', '--wip-doing=2']))->toBe("created board tooling\n")
         ->and(json_decode(file_get_contents($this->sandbox->root.'/docs/kanban/tooling/board.json'), true))
         ->toMatchArray(['title' => 'Tooling', 'order' => 30, 'wip' => ['doing' => 2]])
-        ->and($this->sandbox->kanban(['board', 'platform/tooling'])->getErrorOutput())->toContain('expected a board slug');
+        ->and($this->sandbox->kanban(['board', 'platform/tooling'])->getErrorOutput())->toContain('expected a board slug')
+        ->and(json_decode(file_get_contents($this->sandbox->root.'/docs/kanban/work/board.json'), true)['wip'])->toBe([]);
+
+    $this->sandbox->ok(['board', 'ops']);
+    expect(json_decode(file_get_contents($this->sandbox->root.'/docs/kanban/ops/board.json'), true)['wip'])->toBe([]);
 
     $this->sandbox->ok(['board', 'tooling', '--order=5']);
     expect(json_decode(file_get_contents($this->sandbox->root.'/docs/kanban/tooling/board.json'), true))->not->toHaveKey('kind')

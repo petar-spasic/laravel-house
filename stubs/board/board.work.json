@@ -2,6 +2,6 @@
     "title": "Work",
     "body": "",
     "order": 20,
-    "wip": { "doing": 6 },
+    "wip": {},
     "updated": "{{now}}"
 }

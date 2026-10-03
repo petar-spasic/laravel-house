@@ -75,6 +75,20 @@ it('leaves every other shell alone', function (string $actor, ?string $shell, st
     'agents.shell host' => ['worker', 'host', '{wt}'],
 ]);
 
+it('runs a command from main in the card directory when there is no container', function (?string $shell) {
+    $sandbox = new GuardSandbox;
+    if ($shell !== null) {
+        $sandbox->stack(GuardSandbox::DOING, $shell);
+    }
+    $sandbox->bind('worker-agent', 'kanban-worker', GuardSandbox::DOING);
+
+    expect($sandbox->case('worker', 'Bash', ['command' => 'git add -A && php artisan test'], '{main}')['input']['command'])
+        ->toBe("cd '{$sandbox->wt(GuardSandbox::DOING)}' && git add -A && php artisan test");
+})->with([
+    'no stack up' => [null],
+    'agents.shell host' => ['host'],
+]);
+
 it('leaves the shell alone without vendor/bin/kanban-exec', function () {
     $sandbox = new GuardSandbox;
     $sandbox->bind('worker-agent', 'kanban-worker', GuardSandbox::DOING);

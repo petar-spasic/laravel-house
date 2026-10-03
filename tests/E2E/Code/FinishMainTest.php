@@ -96,7 +96,8 @@ it('marks main red when finish.check fails after a merge, files one bug card and
         ->and($marker)->toMatchArray(['after' => $first, 'sha' => trim($code->sandbox->git('rev-parse', 'main'))])
         ->and($bug)->toMatchArray(['type' => 'bug', 'priority' => 'high', 'stage' => 'backlog'])
         ->and(array_values(array_filter($bug['labels'], fn ($l) => str_starts_with($l, 'area:'))))->toBe(array_values(array_filter($code->sandbox->read($first)['labels'], fn ($l) => str_starts_with($l, 'area:'))))
-        ->and($bug['title'])->toStartWith("main red after {$first}: test -f");
+        ->and($bug['title'])->toStartWith("main red after {$first}: test -f")
+        ->and($bug['acceptance'][0]['text'] ?? null)->toStartWith('`test -f')->toEndWith('` passes on main');
 
     $second = $code->started('Archive notes');
     $code->commit($second, 'archive.php', "<?php\n");

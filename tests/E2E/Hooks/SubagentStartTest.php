@@ -16,7 +16,7 @@ it('records a kanban worker and gives it the board rules and the cards in doing'
         ->and($context['additionalContext'])
         ->toStartWith("Kanban board: {$this->p->main}/docs/kanban (branch kanban).")
         ->toContain('change it only via vendor/bin/kanban, never edit it')
-        ->toContain('Git: add/commit only in your own card worktree')
+        ->toContain('Git: as your agent instructions say.')->not->toContain('stash/reset')
         ->toContain("Doing: {$this->id} .claude/worktrees/".basename($this->wt).'.')
         ->and(mb_strlen(str_replace($this->p->main, '', $context['additionalContext'])))->toBeLessThan(450)
         ->and($this->p->agent('a4d2c0ffee'))->toMatchArray(['agent_id' => 'a4d2c0ffee', 'agent_type' => 'kanban-worker', 'card' => null, 'stopped_at' => null, 'stop_blocks' => 0])
@@ -44,7 +44,7 @@ it('says nothing to Explore and Plan, and does not record other agents', functio
     }
     $general = $this->p->hook('subagent-start', $this->p->payload('subagent-start', ['agent' => 'gp1', 'type' => 'general-purpose']));
 
-    expect(json_decode($general->getOutput(), true)['hookSpecificOutput']['additionalContext'])->toContain('Kanban board:')
+    expect(json_decode($general->getOutput(), true)['hookSpecificOutput']['additionalContext'])->toContain('Kanban board:')->toContain('stash/reset/checkout')
         ->and($this->p->agent('gp1'))->toBeNull()
         ->and($this->p->agent('x-Explore'))->toBeNull();
 });

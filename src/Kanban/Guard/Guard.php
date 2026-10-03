@@ -15,6 +15,9 @@ use Throwable;
  */
 final class Guard
 {
+    /** Seconds after which a spawn record no agent has claimed is dropped by the next spawn of its type. */
+    private const SPAWN_UNCLAIMED = 20;
+
     private const WORKER = 'kanban-worker';
 
     private const EVALUATOR = 'kanban-evaluator';
@@ -197,8 +200,9 @@ final class Guard
 
     /**
      * A bound worker's or evaluator's command → `<main>/vendor/bin/kanban-exec <container> <cwd> '<command>'`, when its
-     * card's stack is up with `agents.shell` = container (the stack record). The whole input is returned with only the
-     * command replaced, and no permission decision.
+     * card's stack is up with `agents.shell` = container (the stack record); otherwise a command from outside the card's
+     * directory is prefixed with `cd <card> && `. The whole input is returned with only the command replaced, and no
+     * permission decision.
      *
      * @param  array<string, mixed>  $binding
      * @param  array<string, mixed>  $input
@@ -219,19 +223,21 @@ final class Guard
 
             return;
         }
+        $root = self::canonical($worktree[0] === '/' ? $worktree : $main.'/'.$worktree);
+        $dir = self::canonical($cwd);
+        $inside = $dir === $root || str_starts_with($dir, $root.'/');
         $record = json_decode((string) @file_get_contents($main.'/.git/laravel-house/stacks/'.basename($worktree).'.json'), true);
         $container = $record['container'] ?? null;
         if (($record['shell'] ?? null) !== 'container' || ! is_string($container) || ! preg_match('/^[A-Za-z0-9][A-Za-z0-9_.-]*$/', $container)
             || ! is_file($main.'/vendor/bin/kanban-exec')) {
-            return;
+            if ($inside) {
+                return;
+            }
+            // no container: the shell stays on this machine, but in the card's clone, never in main
+            $input['command'] = 'cd '.escapeshellarg($root).' && '.$command;
+        } else {
+            $input['command'] = self::exec($main).' '.$container.' '.escapeshellarg($inside ? $dir : $root).' '.escapeshellarg($command);
         }
-        $root = self::canonical($worktree[0] === '/' ? $worktree : $main.'/'.$worktree);
-        $dir = self::canonical($cwd);
-        if ($dir !== $root && ! str_starts_with($dir, $root.'/')) {
-            $dir = $root;
-        }
-
-        $input['command'] = self::exec($main).' '.$container.' '.escapeshellarg($dir).' '.escapeshellarg($command);
         echo json_encode(['hookSpecificOutput' => ['hookEventName' => 'PreToolUse', 'updatedInput' => $input]], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
     }
 
@@ -329,6 +335,14 @@ final class Guard
             return;
         }
 
+        // a record its agent has not claimed past SubagentStart's 15 s timeout is from a spawn that never started (declined,
+        // cancelled): left, it would bind this spawn's agent to that card
+        foreach (glob($main.'/.git/laravel-house/spawns/*.json') ?: [] as $file) {
+            $record = json_decode((string) @file_get_contents($file), true);
+            if (($record['agent_type'] ?? null) === $type && microtime(true) - (float) ($record['at'] ?? 0) > self::SPAWN_UNCLAIMED) {
+                @unlink($file);
+            }
+        }
         self::write($main.'/.git/laravel-house/spawns/'.$named[0]['id'].'.json', [
             'card' => $named[0]['id'],
             'agent_type' => $type,

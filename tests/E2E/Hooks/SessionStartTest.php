@@ -135,7 +135,7 @@ it('cuts a very long card body so the gates and the protocol line survive', func
 
     expect(strlen($context))->toBeLessThan(9000)
         ->and($context)->toContain("… cut here; the whole body: `vendor/bin/kanban show {$id}`")
-        ->and($context)->toContain("up to 120 s):\n  php artisan test --compact")
+        ->and($context)->toContain("up to 120 s; give those Bash calls timeout 150000):\n  php artisan test --compact")
         ->and($context)->toContain('protocol: work and commit only in this worktree');
 });
 

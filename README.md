@@ -699,9 +699,10 @@ the defaults you keep.
 <a name="commands-after-merging"></a>
 ### Commands After Merging
 
-Before `finish` merges a card into `main`, it installs your dependencies when the card changed `composer.lock` or a
-`package-lock.json`. After the merge, in projects with a [worktree stack](#worktree-stacks), it runs the `migrate`
-command, then the commands in `finish.after`, read from the merged code. By default, they seed reference data:
+After `finish` merges a card into `main`, it takes the card's stack and clone down. Then it installs your dependencies
+when the card changed `composer.lock` or a `package-lock.json`. A failed install skips the steps after it. In projects
+with a [worktree stack](#worktree-stacks), it then runs the `migrate` command and the commands in `finish.after`, read
+from the merged code. By default, they seed reference data:
 
 ```php
 'migrate' => 'php artisan migrate --force',

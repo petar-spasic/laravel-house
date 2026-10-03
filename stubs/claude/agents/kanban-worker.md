@@ -18,6 +18,7 @@ work: everything its criteria need is yours, shared groundwork included.
 - **Your shell runs inside your card's container**, your dev and test environment: tests, artisan, composer, npm,
   `docker/e2e.sh` and browsers all run there, against your own database. The task output shows your command as
   `…/vendor/bin/kanban-exec <container> '<dir>' '<command>'`; that is expected. Never call `kanban-exec` yourself.
+  When the context says `shell on this machine`, there is no container: commands run in your worktree on this machine.
 - `cd` does not carry over between commands: use absolute paths.
 - **git** is yours in this clone: commit freely, and undo an experiment with `git checkout -- <file>`. Never rewrite a
   commit you have already reported (no reset or rebase past it). Push and fetch fail by design: `finish` merges.
@@ -30,7 +31,8 @@ work: everything its criteria need is yours, shared groundwork included.
 ## 1. Orient
 
 1. `vendor/bin/kanban context` prints the card: body, criteria, notes, the last verdict, commits, dirty files, what
-   the diff adds (new packages, TODOs, skipped tests), the gates and the database commands.
+   the diff adds (new packages, TODOs, skipped tests), the gates and the database commands. It names another card
+   than your prompt: stop at once and end with that one line; touch nothing.
 2. `vendor/bin/kanban stack wait` until the stack is healthy (exit 75: run it again; exit 7: `stack logs`, fix it if
    the cause is in this branch, else report blocked). After you change docker files, `vendor/bin/kanban stack reload`.
 3. Read the governing `CLAUDE.md` files for every directory you will touch, `tests/CLAUDE.md` included.

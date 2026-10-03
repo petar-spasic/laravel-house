@@ -53,7 +53,7 @@ final class Applier
         if ($worktree === null || ! is_dir($worktree)) {
             return "{$card->id()} has no worktree to check";
         }
-        (new Worktrees($this->paths, $this->config))->sync($worktree);
+        (new Worktrees($this->paths, $this->config))->sync($worktree, $card->work()['branch'] ?? null);
         $git = Git::untrusted($worktree);
         $dirty = array_values(array_filter(explode("\n", rtrim($git->attempt(['status', '--porcelain', '--untracked-files=all'])->out))));
         if ($dirty !== []) {
@@ -435,7 +435,7 @@ final class Applier
         $worktree = $this->worktree($card);
 
         return is_string($branch) && $branch !== ''
-            ? (new Git($worktree !== null && is_dir($worktree) ? $worktree : $this->paths->main))->line(['rev-parse', '--verify', '-q', 'refs/heads/'.$branch])
+            ? ($worktree !== null && is_dir($worktree) ? Git::untrusted($worktree) : new Git($this->paths->main))->line(['rev-parse', '--verify', '-q', 'refs/heads/'.$branch])
             : null;
     }
 

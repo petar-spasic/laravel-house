@@ -66,7 +66,7 @@ final class Context
         if ($worktree === null || ($cwd !== $worktree && ! str_starts_with($cwd, $worktree.'/'))) {
             throw new PolicyRefused("{$what} runs from {$card->id()}'s worktree".($worktree === null ? ' (it has none)' : ": cd {$worktree}"));
         }
-        (new Worktrees($this->paths, $this->config))->sync($worktree);
+        (new Worktrees($this->paths, $this->config))->sync($worktree, $card->work()['branch'] ?? null);
 
         return $worktree;
     }
@@ -77,7 +77,7 @@ final class Context
         $work = $card->work() ?? [];
         $worktree = $this->worktree($card);
         $git = $worktree !== null && is_dir($worktree) ? Git::untrusted($worktree) : null;
-        $git === null || (new Worktrees($this->paths, $this->config))->sync($worktree);
+        $git === null || (new Worktrees($this->paths, $this->config))->sync($worktree, $work['branch'] ?? null);
         $base = is_string($work['base'] ?? null) ? $work['base'] : null;
 
         $lines = ["{$card->id()} {$card->stage()} {$card->priority()} {$card->type()} {$card->board} {$card->title()}"];
@@ -94,10 +94,12 @@ final class Context
         if (is_array($stack)) {
             $ports = (array) ($stack['ports'] ?? []);
             $lines[] = 'stack '.($stack['url'] ?? '-').($ports === [] ? '' : ' ports '.implode(' ', array_map(fn ($k, $v) => "{$k}={$v}", array_keys($ports), $ports)));
-            $record = $worktree === null ? null : (new Worktrees($this->paths, $this->config))->stackRecord($worktree);
-            if (($record['shell'] ?? null) === 'container') {
-                $lines[] = "shell in container {$record['container']}, git included; a plain vendor/bin/kanban command runs on this machine";
-            }
+        }
+        if ($worktree !== null) {
+            $record = (new Worktrees($this->paths, $this->config))->stackRecord($worktree);
+            $lines[] = ($record['shell'] ?? null) === 'container'
+                ? "shell in container {$record['container']}, git included; a plain vendor/bin/kanban command runs on this machine"
+                : 'shell on this machine (no card container), started in the worktree';
         }
         $lines[] = 'acceptance:';
         $byMain = $this->tickedByMain($card);
@@ -194,7 +196,8 @@ final class Context
         }
         $gates = new Gates($this->config);
         $lines[] = $gates->commands() === [] ? 'gates: none'
-            : "gates (main's config/kanban.php; `vendor/bin/kanban gates` runs them in this worktree, and `report` before it stages, up to {$gates->total()} s):";
+            : "gates (main's config/kanban.php; `vendor/bin/kanban gates` runs them in this worktree, and `report` before it stages, up to {$gates->total()} s"
+                .($gates->total() > 110 ? '; give those Bash calls timeout '.min(600000, ($gates->total() + 30) * 1000) : '').'):';
         foreach ($gates->commands() as $gate) {
             $lines[] = '  '.$gate['run'];
         }

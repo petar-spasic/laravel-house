@@ -47,7 +47,7 @@ class FinishCommand extends Command
         $branch = (string) ($work['branch'] ?? '');
         $path = $this->paths()->main.'/'.($work['worktree'] ?? '');
         if (isset($work['worktree']) && is_dir($path)) {
-            $worktrees->sync($path);
+            $worktrees->sync($path, $branch === '' ? null : $branch);
         }
         if ($branch === '' || ! $worktrees->branchExists($branch)) {
             throw new PolicyRefused("{$id}: branch '{$branch}' does not exist");
@@ -104,9 +104,8 @@ class FinishCommand extends Command
                 .(count($untracked) > 10 ? ' … '.(count($untracked) - 10).' more' : '').'; remove or commit them');
         }
 
-        $exit = $this->afterMerge($worktrees, $files, $mainCheck, $card, $sha);
-        $this->rebuildMain($files);
-
+        // the card is done: tear it down before the long steps, so a killed finish leaves no card behind
+        $exit = self::SUCCESS;
         if ($worktrees->down($path, $work['stack']['project'] ?? null)) {
             $this->say(isset($work['stack']['project']) ? "stack down {$work['stack']['project']}; slot released" : 'stack none');
         } else {
@@ -115,7 +114,7 @@ class FinishCommand extends Command
         }
         if (isset($work['worktree']) && is_dir($path)) {
             try {
-                $worktrees->remove($path);
+                $worktrees->remove($path, branch: $branch);
                 $this->say("removed worktree {$work['worktree']}");
             } catch (GitFailed $e) {
                 $this->fault("removing {$work['worktree']}: ".$e->getMessage());
@@ -128,6 +127,9 @@ class FinishCommand extends Command
             $this->fault("branch {$branch} kept (git branch -d refused)");
         }
         $worktrees->prune();
+
+        $exit = max($exit, $this->afterMerge($worktrees, $files, $mainCheck, $card, $sha));
+        $this->rebuildMain($files);
         $this->reportPending();
         $this->publishMain($git, $main);
 
@@ -203,6 +205,7 @@ class FinishCommand extends Command
         $bug = $red['card'] ?? $this->store()->create($card->board, [
             'type' => 'bug', 'priority' => 'high', 'title' => mb_strimwidth("main red after {$card->id()}: {$failure['command']}", 0, 120, '…'),
             'labels' => array_values(array_filter($card->labels(), fn (string $l) => str_starts_with($l, 'area:'))),
+            'acceptance' => [mb_strimwidth("`{$failure['command']}` passes on main", 0, Card::MAX_CRITERION, '…')],
             'body' => "`{$failure['command']}` failed on main (".($failure['exit'] === null ? 'timed out' : "exit {$failure['exit']}").') after '.$card->id()
                 .' merged at '.substr($sha, 0, 7).". The next `finish` waits until it passes.\n\n```\n{$failure['tail']}\n```",
         ], $this->actor())->id();

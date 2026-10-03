@@ -53,8 +53,9 @@ final class SubagentStart
         $doing = array_map(fn (Card $c) => $c->id().' '.($c->work()['worktree'] ?? '(no worktree)'),
             $snapshot->cards(fn (Card $c) => $c->stage() === 'doing'));
         $context = 'Kanban board: '.$this->paths->board().' (branch kanban). Read: `vendor/bin/kanban status|list|show ID|context`; '
-            .'change it only via vendor/bin/kanban, never edit it. Git: add/commit only in your own card worktree; '
-            .'push/pull/fetch/stash/reset/checkout/switch/merge/rebase/worktree are the main session\'s: do not run them. '
+            .'change it only via vendor/bin/kanban, never edit it. '
+            .(in_array($type, [SubagentStop::WORKER, SubagentStop::EVALUATOR], true) ? 'Git: as your agent instructions say. '
+                : 'Git: push/pull/fetch/stash/reset/checkout/switch/merge/rebase/worktree are the main session\'s: do not run them. ')
             .'Doing: '.($doing === [] ? 'none' : implode(', ', $doing)).'.';
         $json = ['hookSpecificOutput' => ['hookEventName' => 'SubagentStart', 'additionalContext' => $context]];
 
