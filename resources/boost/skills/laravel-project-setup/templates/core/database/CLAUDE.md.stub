@@ -85,9 +85,9 @@ $table->timestamps();
 - **No timestamps on reference tables** (git is their history). A table the product edits at runtime is not reference
   data.
 - **No deletion by omission**: removing a reference row is a migration.
-- **A change to `database/data/` keeps every existing `id`**: `git diff main -- database/data` shows no removed or
-  changed `id`. A removed row, or a slug or unique value moved to another id, comes with its data-fix migration in the
-  same commit. An importer that regenerates these files reads the existing ids and keeps them.
+- **A change to `database/data/` keeps every existing `id`**. A removed row, or a slug or unique value moved to another
+  id, comes with its data-fix migration in the same commit. On the board, `vendor/bin/kanban data-ids` gates the
+  removals. An importer that regenerates these files reads the existing ids and keeps them.
 - **Admins before roles exist**: `config('auth.admins')` from `ADMIN_EMAILS`, created verified for the `viewHorizon`
   gate (`app/Providers/CLAUDE.md`). When roles land, only the gate body and the seeders change.
 - Every model gets a factory with **named states** for the lifecycle (`->pending()`, `->archived()`), so tests never

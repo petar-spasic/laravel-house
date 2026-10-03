@@ -65,6 +65,28 @@ it('refuses a migration timestamp that is round, shared or not newer than main',
     'older than main' => ['2026_03_01_080910_create_notes_table.php', '2026_02_03_141522_add_title_to_notes_table.php', "is not newer than main's newest migration (2026_03_01_080910)"],
 ]);
 
+it('holds every reference-data id the branch started from, unless the branch adds a migration', function () {
+    $this->p->commit($this->p->main, 'database/data/categories.json', json_encode([['id' => 'cat_0000000000000001', 'name' => 'Notes'], ['id' => 'cat_0000000000000002', 'name' => 'Lists']]), 'data');
+    $this->p->commit($this->p->main, 'database/data/tags/urgent.json', json_encode(['id' => 'tag_0000000000000001', 'name' => 'Urgent']), 'data');
+    [, $wt] = $this->p->started('Trim categories');
+
+    $this->p->commit($wt, 'database/data/categories.json', json_encode([['id' => 'cat_0000000000000002', 'name' => 'Lists'], ['id' => 'cat_0000000000000003', 'name' => 'Boards']]), 'drop notes');
+    $this->p->git($wt, 'mv', 'database/data/tags/urgent.json', 'database/data/tags/now.json');
+    $this->p->git($wt, 'commit', '-q', '-m', 'rename the file, keep the id');
+    $refused = $this->p->in($wt, ['data-ids', '--base=main']);
+
+    expect($refused->getExitCode())->toBe(1)
+        ->and($refused->getErrorOutput())->toContain('database/data/categories.json: id cat_0000000000000001 is gone')
+        ->not->toContain('tag_0000000000000001');
+
+    migration($this->p, $wt, '2026_09_30_142233_drop_notes_category.php');
+    $passed = $this->p->in($wt, ['data-ids', '--base=main']);
+
+    expect($passed->getExitCode())->toBe(0)
+        ->and($passed->getOutput())->toBe("data ids: 1 removed or renamed, with a migration: database/migrations/2026_09_30_142233_drop_notes_category.php\n")
+        ->and($this->p->in($this->wt, ['data-ids', '--base=main'])->getOutput())->toBe("data ids ok: 0 kept\n");
+});
+
 it('refuses two added migrations that share a timestamp', function () {
     migration($this->p, $this->wt, '2026_02_03_141522_create_tags_table.php');
     migration($this->p, $this->wt, '2026_02_03_141522_create_labels_table.php');

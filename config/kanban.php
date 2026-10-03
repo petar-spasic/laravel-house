@@ -126,6 +126,7 @@ return [
         'report' => [
             'vendor/bin/pint --test --diff={main_branch}',
             'vendor/bin/kanban migrations --base={main_branch}',
+            ['run' => 'vendor/bin/kanban data-ids --base={main_branch}', 'when' => 'database/data'],
             ['run' => 'cd frontend && npm run check', 'when' => 'frontend/package.json', 'timeout' => 300],
         ],
     ],

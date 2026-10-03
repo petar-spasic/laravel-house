@@ -672,8 +672,8 @@ Claude Code.
 ### Quality Gates
 
 A worker cannot hand in its work until every command in `gates.report` passes on its branch. The gates run in the
-card's stack. By default, they are Pint, a check of new migration timestamps, and `npm run check` in `frontend/` when
-the project has one. A gate with `when` runs only where that path exists, and `timeout` gives it more than the default
+card's stack. By default, they are Pint, a check of new migration timestamps, a check that every `id` in `database/data`
+stays unless the branch adds a migration, and `npm run check` in `frontend/` when the project has one. A gate with `when` runs only where that path exists, and `timeout` gives it more than the default
 120 seconds:
 
 ```php
@@ -682,6 +682,7 @@ the project has one. A gate with `when` runs only where that path exists, and `t
     'report' => [
         'vendor/bin/pint --test --diff={main_branch}',
         'vendor/bin/kanban migrations --base={main_branch}',
+        ['run' => 'vendor/bin/kanban data-ids --base={main_branch}', 'when' => 'database/data'],
         ['run' => 'cd frontend && npm run check', 'when' => 'frontend/package.json', 'timeout' => 300],
     ],
 ],
