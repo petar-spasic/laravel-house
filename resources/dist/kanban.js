@@ -145,7 +145,8 @@
     const storedPins = () => {
         try {
             const pins = JSON.parse(store.get('pins'));
-            return pins && typeof pins === 'object' && !Array.isArray(pins) ? Object.fromEntries(Object.entries(pins).filter(([slot, ref]) => /^[1-9]$/.test(slot) && typeof ref === 'string')) : {};
+            // a pin from before boards left their epic directories (`project/work`) is the board alone now
+            return pins && typeof pins === 'object' && !Array.isArray(pins) ? Object.fromEntries(Object.entries(pins).filter(([slot, ref]) => /^[1-9]$/.test(slot) && typeof ref === 'string').map(([slot, ref]) => [slot, ref.split('/').pop()])) : {};
         } catch { return {}; }
     };
     const hostOf = (url) => { try { return new URL(url).host; } catch { return url; } };
@@ -298,6 +299,8 @@
             try { return { name: 'card', id: decodeURIComponent(parts[1]) }; } catch { return { name: 'missing' }; }
         }
         if (parts.length === 1 && parts[0] !== 'cards') return { name: 'board', ref: path };
+        // a link from before boards left their epic directories: /project/work is /work now
+        if (parts.length === 2 && parts[0] !== 'cards') return { name: 'moved', ref: parts[1] };
         return { name: 'missing' };
     }
     function go(url, replace = false) {
@@ -318,6 +321,7 @@
         const mine = ++routeSeq;
         const current = () => mine === routeSeq;
         const r = parse(location.pathname);
+        if (r.name === 'moved') return go(BASE + '/' + r.ref + location.search, true);
         // a page that opens on the boards of a one-board project shows that board (a failed first load opens it on Retry); asked for later, the boards stay
         const landing = !S.landed;
         S.landed = true;
@@ -774,13 +778,8 @@
             ...(tags.length || facts.length ? [h('div', { class: 'c-meta' }, tags, facts)] : []));
     }
 
-    const AREA_COLORS = 10;
-    /** The colour slot of an area: the same name gives the same colour on every machine. */
-    function areaClass(area) {
-        let hash = 0;
-        for (const ch of area) hash = (Math.imul(hash, 31) + ch.codePointAt(0)) >>> 0;
-        return 'area-' + (hash % AREA_COLORS);
-    }
+    /** The colour slot the board gave an area: the order areas first appeared in, so the first ten never share one. */
+    const areaClass = (area) => 'area-' + ((S.board && S.board.areas && S.board.areas[area]) ?? 0);
     /** A chip on a card that toggles the filter it names; it stays a button, so the card under it does not open. */
     function filterChip(key, value, text, cls, mark) {
         const on = S.filter[key].has(value);

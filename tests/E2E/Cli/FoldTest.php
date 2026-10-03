@@ -105,3 +105,18 @@ it('refuses a fold that would close a dependency cycle', function () {
         ->and($refused->getErrorOutput())->toContain('dependency cycle')
         ->and($s->boardGit('rev-parse', 'HEAD'))->toBe($head);
 });
+
+it('gives the card the epic of the folded cards when it has none, and says so when they disagree', function () {
+    $s = $this->sandbox;
+    $s->ok(['epic', 'exports', 'Exports']);
+    $s->ok(['epic', 'sharing', 'Sharing']);
+    $into = $s->card('Export notes');
+    $from = $s->card('Export tags', ['--epic=exports']);
+
+    $s->ok(['fold', $from, "--into={$into}"]);
+    expect($s->read($into)['epic'])->toBe('exports');
+
+    $other = $s->card('Share a link', ['--epic=sharing']);
+    expect($s->ok(['fold', $other, "--into={$into}"]))->toContain("{$into} keeps the epic exports; the folded cards had sharing: set epic= if it belongs elsewhere")
+        ->and($s->read($into)['epic'])->toBe('exports');
+});

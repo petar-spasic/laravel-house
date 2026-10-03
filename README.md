@@ -749,7 +749,8 @@ A card has a type (`feature`, `bug`, `chore` or `spike`), a priority (`urgent`, 
 a description in Markdown, acceptance criteria and, optionally, other cards it depends on. Two things group cards:
 
 - **The area** is a label such as `area:billing`: a permanent part of the product. Every card has one, and two cards
-  on the same area never run at the same time. The board gives each area its own colour.
+  on the same area never run at the same time. The board gives each area a colour of its own (the first ten never
+  share one), and an area keeps its colour as new ones come.
 - **The epic** is a finite goal, such as `passkey-login`, with a title, a goal and the conditions that finish it. A
   card belongs to at most one epic. `kanban epic` lists the epics and how many of their cards are done.
 
@@ -1250,8 +1251,7 @@ Skip the `doctor` line in a project without the board. Then restart Claude Code.
 > [!WARNING]
 > Version 0.7 moves a board onto one work board: each card takes its epic from the directory it was in, and decision
 > cards become an archive. Finish or stop every card in progress, update every clone, then run `/implement-kanban`.
-> Until then, board commands refuse with `an older board format`. In spa projects, `validation:export --check` now
-> also fails a form without its parity spec.
+> Until then, board commands refuse with `an older board format`.
 
 <a name="adopting-the-current-core"></a>
 ### Adopting the Current Core

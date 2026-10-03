@@ -333,6 +333,17 @@ it('lists the epics with their progress, and each card with its epic', function 
         ->and($cards['Not in an epic']['epic'])->toBeNull();
 });
 
+it('gives each area a colour slot in the order the areas first appeared, the same on every board', function () {
+    $s = $this->sandbox;
+    $s->card('Older', ['--label=area:search']);
+    $s->card('Newer', ['--label=area:billing', '--label=area:search']);
+    $s->ok(['board', 'infra', 'Infra']);
+    $s->card('Elsewhere', ['--label=area:backups'], board: 'infra');
+
+    expect($this->getJson('/kanban/_api/work')->json('areas'))->toBe(['area:search' => 0, 'area:billing' => 1, 'area:backups' => 2])
+        ->and($this->getJson('/kanban/_api/infra')->json('areas'))->toBe(['area:search' => 0, 'area:billing' => 1, 'area:backups' => 2]);
+});
+
 it('reports a card whose epic file is missing as a board problem', function () {
     $s = $this->sandbox;
     $s->ok(['epic', 'exports', 'Exports']);

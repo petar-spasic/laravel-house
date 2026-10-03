@@ -3,7 +3,7 @@
 export const seed = 'rich';
 
 export default async function (t) {
-    const { schema, csv, w1, labels } = t.seed.ids;
+    const { schema, csv, w1 } = t.seed.ids;
     const page = await t.open();
     await page.goto(t.url + '/work', { waitUntil: 'networkidle' });
     const face = (id) => page.locator(`.card[data-id="${id}"]`);
@@ -12,10 +12,10 @@ export default async function (t) {
 
     t.ok('a card in an epic shows the epic as a chip', (await face(csv).locator('.fact.epic').innerText()) === 'Exports' && (await face(w1).locator('.fact.epic').innerText()) === 'Billing');
     t.ok('the area is a chip with a coloured dot', (await face(schema).locator('.fact.area .dot').evaluate((el) => getComputedStyle(el).backgroundColor)) !== 'rgba(0, 0, 0, 0)');
-    const dot = (id) => face(id).locator('.fact.area .dot').evaluate((el) => getComputedStyle(el).backgroundColor);
     const changes = page.locator('.card .fact.area', { hasText: /^changes$/ });
     t.ok('an area has the same colour on every card', (await changes.count()) >= 2 && new Set(await changes.evaluateAll((els) => els.map((el) => getComputedStyle(el.querySelector('.dot')).backgroundColor))).size === 1);
-    t.ok('and two areas differ', (await dot(labels)) !== (await dot(schema)));
+    const colours = await page.locator('.card .fact.area').evaluateAll((els) => Object.entries(Object.fromEntries(els.map((el) => [el.textContent, getComputedStyle(el.querySelector('.dot')).backgroundColor]))));
+    t.ok('and the areas on the board each have a colour of their own', colours.length >= 6 && new Set(colours.map(([, colour]) => colour)).size === colours.length);
     await t.shot(page, 'epics-chips');
 
     await face(csv).locator('.fact.epic').click();

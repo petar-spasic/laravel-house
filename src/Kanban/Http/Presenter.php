@@ -19,6 +19,9 @@ use Throwable;
 /** What the UI script gets: a snapshot of the board as plain arrays. */
 final class Presenter
 {
+    /** The area colour tokens in kanban.css (`--area-0` …). */
+    private const AREA_COLORS = 10;
+
     private const DONE_SHOWN = 20;
 
     private const LOG_SHOWN = 20;
@@ -120,10 +123,31 @@ final class Presenter
         return [
             'ref' => (string) $ref,
             'title' => $board->title(),
+            'areas' => $this->areaColors(),
             'moves' => Ui::moves(),
             'locked' => $this->snapshot->lockedStages(),
             'stages' => $stages,
         ];
+    }
+
+    /**
+     * Each area's colour slot, in the order the areas first appeared (the oldest card that carries one, then the name):
+     * the first ten areas never share a colour, and an area keeps its colour on every machine as new ones come.
+     *
+     * @return array<string, int> area label => slot
+     */
+    public function areaColors(): array
+    {
+        $first = [];
+        foreach ($this->snapshot->cards as $card) {
+            foreach ($card->areas() as $area) {
+                $first[$area] = min($first[$area] ?? $card->created(), $card->created());
+            }
+        }
+        $areas = array_keys($first);
+        usort($areas, fn (string $a, string $b) => [$first[$a], $a] <=> [$first[$b], $b]);
+
+        return array_map(fn (int $i) => $i % self::AREA_COLORS, array_flip($areas));
     }
 
     /** @return array<string, mixed> */

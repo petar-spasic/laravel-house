@@ -43,15 +43,15 @@
     --purple: light-dark(#7c4dff, #a78bfa);
     --purple-soft: light-dark(#f2eeff, #2a2148);
     --purple-text: light-dark(#5b2fd0, #c6b4ff);
-    /* areas: a card's area dot takes one of these by the hash of its name */
+    /* areas: a card's area dot takes one of these in the order the areas first appeared; neighbours differ in hue */
     --area-0: light-dark(#2563eb, #60a5fa);
-    --area-1: light-dark(#0d9488, #2dd4bf);
-    --area-2: light-dark(#16a34a, #4ade80);
-    --area-3: light-dark(#ca8a04, #facc15);
-    --area-4: light-dark(#ea580c, #fb923c);
-    --area-5: light-dark(#dc2626, #f87171);
-    --area-6: light-dark(#db2777, #f472b6);
-    --area-7: light-dark(#9333ea, #c084fc);
+    --area-1: light-dark(#ea580c, #fb923c);
+    --area-2: light-dark(#0d9488, #2dd4bf);
+    --area-3: light-dark(#db2777, #f472b6);
+    --area-4: light-dark(#16a34a, #4ade80);
+    --area-5: light-dark(#9333ea, #c084fc);
+    --area-6: light-dark(#ca8a04, #facc15);
+    --area-7: light-dark(#dc2626, #f87171);
     --area-8: light-dark(#4f46e5, #818cf8);
     --area-9: light-dark(#64748b, #94a3b8);
     /* elevation */

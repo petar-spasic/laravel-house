@@ -12,7 +12,7 @@ use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
 
 /**
  * `kanban fold FROM… --into=INTO` on a snapshot: INTO takes each FROM's body, criteria, labels, dependencies, the higher
- * priority and an open block; each FROM is dropped "folded into INTO"; open cards that depended on a FROM depend on INTO.
+ * priority, an open block, and their epic when it has none and they agree on one; each FROM is dropped "folded into INTO"; open cards that depended on a FROM depend on INTO.
  */
 final class Fold
 {
@@ -68,6 +68,12 @@ final class Fold
             }
         }
         $data['depends_on'] = array_values(array_diff(array_unique($data['depends_on']), [...$from, $into]));
+        $epics = array_values(array_unique(array_filter(array_map(fn (Card $source) => $source->epic(), $sources))));
+        if ($target->epic() === null && count($epics) === 1) {
+            $data['epic'] = $epics[0];
+        } elseif (array_diff($epics, array_filter([$target->epic()])) !== []) {
+            $notes[] = "{$into} keeps ".($target->epic() === null ? 'no epic' : "the epic {$target->epic()}").'; the folded cards had '.implode(', ', $epics).': set epic= if it belongs elsewhere';
+        }
         self::assertFits($into, $data);
         if ($target->stage() === 'ready' && str_starts_with((string) ($data['blocked'] ?? ''), Card::QUESTION)) {
             $data = Transitions::stage($data, 'backlog', 'move', 'an open question folded in');

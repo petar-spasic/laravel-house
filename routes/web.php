@@ -26,3 +26,5 @@ Route::prefix('_api')->name('api.')->group(function () use ($slug) {
 Route::get('/', ShellController::class)->name('index');
 Route::get('/cards/{card}', ShellController::class)->name('card');
 Route::get('/{board}', ShellController::class)->name('board')->where(['board' => $slug]);
+// a link from before boards left their epic directories; the page sends it on to /{board}
+Route::get('/{epic}/{board}', ShellController::class)->name('board.moved')->where(['epic' => $slug, 'board' => $slug]);
