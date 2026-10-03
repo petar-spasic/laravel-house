@@ -23,7 +23,7 @@ text, one fact per line; errors go to stderr. Card ids accept a unique prefix of
 ## Actors
 
 - `main`: `KANBAN_SESSION` set (SessionStart exports it). `owner`: a terminal without it, or the UI.
-- `worker` / `evaluator`: bound by the PreToolUse hook at `EnterWorktree` (even when Claude Code then refuses the switch);
+- `worker` / `evaluator`: bound to their card when they start (SubagentStart claims the main session's spawn record);
   `report` / `verdict` also require the cwd to be the card's clone, where an agent's shell starts. An agent runs
   `vendor/bin/kanban` as a command of its own (on this machine); its other commands run in the card's container.
 - `--force` is main-only and logged.

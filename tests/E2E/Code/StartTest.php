@@ -27,7 +27,7 @@ it('claims the card and creates its worktree, branch, .env, slot and stack', fun
         "stack {$project} slot 1 http://".CodeSandbox::lanHost().":{$web}",
         'ports WEB_PORT='.$web.' DB_HOST_PORT='.($web + 1).' REDIS_HOST_PORT='.($web + 2),
         'starting: the worker runs `vendor/bin/kanban stack wait` before using it',
-        "Agent(subagent_type=\"kanban-worker\", description=\"{$id} Add login page\", isolation=\"worktree\", prompt=\"Card {$id}. Worktree {$wt}\")",
+        "Agent(subagent_type=\"kanban-worker\", description=\"{$id} Add login page\", prompt=\"Card {$id}. Worktree {$wt}\")",
     ])."\n");
 
     $card = $code->sandbox->read($id);
@@ -218,11 +218,11 @@ it('prints the spawn line again in show and refresh: the worker in doing, an eva
     preg_match('/^(Agent\(.+\))$/m', $started, $line);
     $path = $code->worktree($id);
 
-    expect($line[1])->toBe("Agent(subagent_type=\"kanban-worker\", description=\"{$id} Spawn me again\", isolation=\"worktree\", prompt=\"Card {$id}. Worktree {$path}\")")
+    expect($line[1])->toBe("Agent(subagent_type=\"kanban-worker\", description=\"{$id} Spawn me again\", prompt=\"Card {$id}. Worktree {$path}\")")
         ->and($code->ok(['show', $id]))->toContain("spawn: {$line[1]}\n");
 
     $code->approve($id);
-    $evaluator = "spawn: Agent(subagent_type=\"kanban-evaluator\", description=\"{$id} review Spawn me again\", isolation=\"worktree\", prompt=\"Card {$id}. Worktree {$path}\")\n";
+    $evaluator = "spawn: Agent(subagent_type=\"kanban-evaluator\", description=\"{$id} review Spawn me again\", prompt=\"Card {$id}. Worktree {$path}\")\n";
     expect($code->ok(['show', $id]))->toContain($evaluator)
         ->and($code->ok(['refresh', $id]))->toBe("up to date {$id}\n{$evaluator}");
 });

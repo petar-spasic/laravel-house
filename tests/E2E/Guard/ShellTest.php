@@ -24,14 +24,14 @@ it('routes a bound agent\'s shell into its card container, keeping the rest of t
     'evaluator Bash' => ['evaluator', GuardSandbox::REVIEW, 'Bash'],
 ]);
 
-it("keeps a plain vendor/bin/kanban command on this machine, as main's binary, in any path form", function (string $command, string $rest) {
+it("keeps a plain vendor/bin/kanban command on this machine, as main's binary in the card, in any path form", function (string $command, string $rest) {
     $sandbox = GuardSandbox::shared();
     $sandbox->stack(GuardSandbox::DOING);
 
     $result = $sandbox->case('worker', 'Bash', ['command' => $command], '{wt}');
 
     expect($result['decision'])->toBeNull()
-        ->and($result['input']['command'])->toBe($sandbox->main.'/vendor/bin/kanban'.$rest);
+        ->and($result['input']['command'])->toBe('cd '.$sandbox->wt(GuardSandbox::DOING).' && '.$sandbox->main.'/vendor/bin/kanban'.$rest);
 })->with([
     'kanban' => ['vendor/bin/kanban report ACME-7K2M9Q --summary=x', ' report ACME-7K2M9Q --summary=x'],
     'kanban by ./' => ['./vendor/bin/kanban stack wait', ' stack wait'],

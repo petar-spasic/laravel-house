@@ -161,13 +161,20 @@ final class Guard
             return;
         }
         $root = self::canonical($worktree[0] === '/' ? $worktree : $main.'/'.$worktree);
-        $given = $input[self::FILE_TOOLS[$tool]] ?? null;
-        $path = self::canonical(! is_string($given) || $given === '' ? $cwd : ($given[0] === '/' ? $given : $cwd.'/'.$given));
+        $key = self::FILE_TOOLS[$tool];
+        $given = $input[$key] ?? null;
+        // a kanban agent works in its card: a relative path, or none, means the card's
+        $path = self::canonical(! is_string($given) || $given === '' ? $root : ($given[0] === '/' ? $given : $root.'/'.$given));
         $inside = fn (string $dir) => $path === $dir || str_starts_with($path, $dir.'/');
         $write = in_array($tool, self::WRITES, true);
 
         if ($inside($root)) {
             if (! $write || (! $inside($root.'/.git') && ! $inside($root.'/.claude'))) {
+                if ($given !== $path && ($given !== null || $tool === 'Glob' || $tool === 'Grep')) {
+                    $input[$key] = $path;
+                    echo json_encode(['hookSpecificOutput' => ['hookEventName' => 'PreToolUse', 'updatedInput' => $input]], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+                }
+
                 return;
             }
             $why = "{$path}: .git and .claude in your card's directory are kanban's; work in the code";
@@ -203,7 +210,8 @@ final class Guard
             return;
         }
         if (($host = self::hostKanban($main, $command)) !== null) {
-            $input['command'] = $host;
+            // the card as the cwd, so the CLI knows the agent's card
+            $input['command'] = 'cd '.self::quoted(self::canonical($worktree[0] === '/' ? $worktree : $main.'/'.$worktree)).' && '.$host;
             echo json_encode(['hookSpecificOutput' => ['hookEventName' => 'PreToolUse', 'updatedInput' => $input]], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
 
             return;

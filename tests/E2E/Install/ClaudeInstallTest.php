@@ -50,7 +50,7 @@ it('merges settings, writes agents, .gitignore and the CLAUDE.md block, and is i
         ])
         ->and($settings['hooks']['PreToolUse'])->toBe([
             ['matcher' => 'Bash', 'hooks' => [['type' => 'command', 'command' => 'echo foreign-guard']]],
-            ['matcher' => 'Bash|Monitor|Edit|Write|NotebookEdit|EnterWorktree|Agent', 'hooks' => [
+            ['matcher' => 'Bash|Monitor|Read|Edit|Write|NotebookEdit|Glob|Grep|EnterWorktree|Agent', 'hooks' => [
                 ['type' => 'command', 'command' => 'php', 'args' => ['-d', 'display_errors=0', '-d', 'display_startup_errors=0', '${CLAUDE_PROJECT_DIR}/vendor/petar-spasic/laravel-house/bin/kanban-guard'], 'timeout' => 10],
             ]],
         ])
@@ -62,8 +62,8 @@ it('merges settings, writes agents, .gitignore and the CLAUDE.md block, and is i
     $worker = file_get_contents($sandbox->root.'/.claude/agents/kanban-worker.md');
     expect($worker)->toStartWith("---\nname: kanban-worker\n")
         ->toContain('<!-- laravel-house:kanban-agent')
-        ->toContain('EnterWorktree(path:')
-        ->and(file_get_contents($sandbox->root.'/.claude/agents/kanban-evaluator.md'))->toContain("tools: Read, Grep, Glob, LSP, Bash, TodoWrite, EnterWorktree, Monitor, TaskStop, WebFetch, mcp__laravel-boost__search-docs\n")
+        ->toContain('a relative path')->not->toContain('isolation:')
+        ->and(file_get_contents($sandbox->root.'/.claude/agents/kanban-evaluator.md'))->toContain("tools: Read, Grep, Glob, LSP, Bash, TodoWrite, Monitor, TaskStop, WebFetch, mcp__laravel-boost__search-docs\n")
         ->and(file_get_contents($sandbox->root.'/.claude/agents/reviewer.md'))->toBe("---\nname: reviewer\n---\nmine\n")
         ->and(file_get_contents($sandbox->root.'/.gitignore'))->toBe("/vendor/\n/docs/kanban/\n/.claude/worktrees\n");
 
@@ -168,7 +168,7 @@ it('writes each agent\'s model and effort from kanban.agents, and doctor --fix f
 
     expect($worker())->toContain("model: sonnet\neffort: high\n")
         ->and($evaluator())->toContain("model: opus\neffort: medium\n")
-        ->and($worker())->toContain("isolation: worktree\n");
+        ->and($worker())->not->toContain('isolation:');
 
     @mkdir($sandbox->root.'/config', 0775, true);
     file_put_contents($sandbox->root.'/config/kanban.php', "<?php return ['agents' => ['worker' => ['model' => 'opus', 'effort' => 'max']]];\n");

@@ -82,8 +82,9 @@ Before a card is created, and before it is promoted:
    Refusals (no criteria, no area, an open question) go into the summary.
 3. **Pick.** `next --count=<free capacity>`; `none: …` → step 5.
 4. **Start each.** `start <ID>` prints the clone, branch, stack and, last, the spawn line:
-   `Agent(subagent_type="kanban-worker", description="…", isolation="worktree", prompt="Card <ID>. Worktree <path>")`.
-   Spawn exactly that, in the background, unchanged, without `name`; never two isolated spawns in one message. Context
+   `Agent(subagent_type="kanban-worker", description="…", prompt="Card <ID>. Worktree <path>")`.
+   Spawn exactly that, in the background, unchanged, without `name` or `isolation`, and one kanban spawn per message:
+   the agent binds to its card from that spawn when it starts. Context
    for the agent goes on the card (`set <ID> note=`), never into the prompt.
    - exit 3 refused: skip the card. exit 8 claim lost: `next` again, without it.
    - exit 9 remote unreachable: nothing was claimed; wait, report it, never set `KANBAN_SYNC=off` yourself.

@@ -19,7 +19,7 @@ use Throwable;
  */
 final class WorktreeCreate
 {
-    private const SPAWN_TTL = 120;
+    public const SPAWN_TTL = 120;
 
     /** Claude Code names an isolated subagent's worktree `agent-` + its agent id. */
     public const ISOLATED_AGENT = '/^agent-a[0-9a-f]{16}$/';

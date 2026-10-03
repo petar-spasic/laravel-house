@@ -209,3 +209,15 @@ it('runs within 50 ms at p95', function () {
 
     expect($p95)->toBeLessThan(50.0);
 });
+
+it("resolves a card agent's relative file path, or none, in its card rather than its cwd", function (string $tool, array $input, string $key, string $expected) {
+    $sandbox = GuardSandbox::shared();
+    $result = $sandbox->case('worker', $tool, $input, '{main}');
+
+    expect($result['decision'])->toBeNull()
+        ->and($result['input'][$key])->toBe($sandbox->expand($expected));
+})->with([
+    'Read a relative file' => ['Read', ['file_path' => 'app/A.php'], 'file_path', '{wt}/app/A.php'],
+    'Glob without a path' => ['Glob', ['pattern' => '**/*.php'], 'path', '{wt}'],
+    'Grep a relative directory' => ['Grep', ['pattern' => 'x', 'path' => 'app'], 'path', '{wt}/app'],
+]);

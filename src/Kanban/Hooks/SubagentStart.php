@@ -41,6 +41,9 @@ final class SubagentStart
             $agent = $runtime->agent($agentId) ?? ['agent_id' => $agentId, 'agent_type' => $type, 'card' => null, 'worktree' => null,
                 'bound_at' => null, 'stop_blocks' => 0];
             unset($agent['stop_reason']);
+            if (($agent['card'] ?? null) === null && ($spawn = $this->claimSpawn($type)) !== null) {
+                $agent = ['card' => $spawn['card'], 'worktree' => $spawn['worktree'], 'bound_at' => Clock::now()] + $agent;
+            }
             $runtime->saveAgent(['started_at' => Clock::now(), 'stopped_at' => null] + $agent);
         }
         if (in_array($type, self::SILENT, true)) {
@@ -56,5 +59,35 @@ final class SubagentStart
         $json = ['hookSpecificOutput' => ['hookEventName' => 'SubagentStart', 'additionalContext' => $context]];
 
         return ['stdout' => json_encode($json, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)."\n", 'stderr' => '', 'exit' => 0];
+    }
+
+    /**
+     * The oldest spawn record of $type younger than a minute or two, claimed (unlink is the atomic claim): the main
+     * session's PreToolUse hook writes one per kanban Agent spawn, and the agent it started is the next of that type
+     * to start. Expired records are dropped.
+     *
+     * @return array{card: string, worktree: string}|null
+     */
+    private function claimSpawn(string $type): ?array
+    {
+        $records = [];
+        foreach (glob($this->paths->runtime('spawns').'/*.json') ?: [] as $file) {
+            $record = json_decode((string) @file_get_contents($file), true);
+            $records[$file] = is_array($record) ? $record : [];
+        }
+        uasort($records, fn (array $a, array $b) => ($a['at'] ?? 0) <=> ($b['at'] ?? 0));
+        foreach ($records as $file => $record) {
+            $fresh = microtime(true) - (float) ($record['at'] ?? 0) <= WorktreeCreate::SPAWN_TTL;
+            if (($record['agent_type'] ?? null) !== $type && $fresh) {
+                continue;
+            }
+            if (! @unlink($file) || ! $fresh || ! is_string($record['card'] ?? null) || ! is_string($record['worktree'] ?? null)) {
+                continue;
+            }
+
+            return ['card' => $record['card'], 'worktree' => $record['worktree']];
+        }
+
+        return null;
     }
 }

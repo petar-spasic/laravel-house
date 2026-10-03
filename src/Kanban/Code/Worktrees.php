@@ -94,7 +94,7 @@ final class Worktrees
     {
         $description = $card->id().($agent === 'kanban-evaluator' ? ' review ' : ' ').self::label($card->title());
 
-        return "Agent(subagent_type=\"{$agent}\", description=\"{$description}\", isolation=\"worktree\", prompt=\"Card {$card->id()}. Worktree {$path}\")";
+        return "Agent(subagent_type=\"{$agent}\", description=\"{$description}\", prompt=\"Card {$card->id()}. Worktree {$path}\")";
     }
 
     public function branchExists(string $branch): bool
