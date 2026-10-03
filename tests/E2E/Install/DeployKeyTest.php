@@ -68,6 +68,14 @@ it('says what a dry-run install would create', function () {
         ->and(file_exists(keyFile($sandbox)))->toBeFalse();
 });
 
+it('lets doctor --fix print the public key as a line of its own, ready to paste', function () {
+    $sandbox = keyedProject();
+
+    $out = $sandbox->kanban(['doctor', '--fix'])->getOutput();
+
+    expect($out)->toMatch('/^ssh-ed25519 \S+ laravel-house kanban /m')->toContain('fix: deploy key for the container sync');
+});
+
 it('lets doctor report whether the key is there', function () {
     $sandbox = keyedProject();
 
@@ -87,6 +95,7 @@ it('lets doctor tell an https origin to set KANBAN_GIT_TOKEN for the container s
     $set = $sandbox->kanban('doctor')->getOutput();
 
     expect($unset)->toContain('warn https origin: set KANBAN_GIT_TOKEN in .env')
+        ->toContain(', or switch to ssh: `git remote set-url origin git@github.com:acme/notes.git`')
         ->and($set)->toContain('ok https origin: the container syncs with KANBAN_GIT_TOKEN')->not->toContain('github_pat_example')
         ->and(keyedProject('https://github.com/acme/notes.git', compose: false)->kanban('doctor')->getOutput())->not->toContain('KANBAN_GIT_TOKEN');
 });

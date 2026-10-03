@@ -89,7 +89,7 @@ class DoctorCommand extends Command
         } else {
             try {
                 foreach ((new Bootstrap($this->paths(), $this->config()))->attach() as $line) {
-                    $this->say("fix: {$line}");
+                    $this->say(str_starts_with($line, 'ssh-') ? $line : "fix: {$line}");
                 }
             } catch (Throwable $e) {
                 $this->say('fix: attach failed: '.$e->getMessage());
@@ -173,7 +173,8 @@ class DoctorCommand extends Command
             $token = (DotEnv::parse($this->paths()->main.'/.env')['KANBAN_GIT_TOKEN'] ?? '') !== '' || (string) getenv('KANBAN_GIT_TOKEN') !== '';
             $this->add($token ? 'ok' : 'warn', $token
                 ? 'https origin: the container syncs with KANBAN_GIT_TOKEN'
-                : "https origin: set KANBAN_GIT_TOKEN in .env for the container sync (a fine-grained token with read and write on this repository's contents)");
+                : "https origin: set KANBAN_GIT_TOKEN in .env for the container sync (a fine-grained token with read and write on this repository's contents)"
+                    .(($repo = $key->githubRepo()) !== null ? ", or switch to ssh: `git remote set-url origin git@github.com:{$repo}.git`" : ''));
         }
     }
 

@@ -133,7 +133,7 @@ If `vendor/bin/kanban status` shows the pre-restart session holding the lease, r
 
 Run `vendor/bin/kanban doctor` and `vendor/bin/kanban validate` on the host, never in the container (doctor sees host
 paths). No `fail` may remain. Read every `warn`:
-- `no deploy key …`: `vendor/bin/kanban doctor --fix` makes and prints it; strip the `fix: ` prefix before pasting.
+- `no deploy key …`: `vendor/bin/kanban doctor --fix` makes it and prints the public key on a line of its own.
   The owner registers it (step 2), then restart (step 4). `ok deploy key` only means the file exists, not that the
   repository knows it.
 - `sync off but this board is published`: the owner turns sync on (delete `KANBAN_SYNC=off` from `.env`, or the

@@ -105,7 +105,7 @@ final class DeployKey
     }
 
     /** "owner/repo" when origin is a github.com address. */
-    private function githubRepo(): ?string
+    public function githubRepo(): ?string
     {
         return preg_match('#github\.com[:/]+([^/\s]+/[^/\s]+?)(?:\.git)?/?$#', (string) $this->url(), $m) === 1 ? $m[1] : null;
     }
