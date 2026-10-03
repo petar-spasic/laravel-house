@@ -185,7 +185,7 @@ grep -rnE 'ssr-dev|DB_OWNER_USERNAME|VITE_REVERB|(^|[^i])/broadcasting/auth([^/]
 grep -rnE 'descriptor|dist/validation|zodFromDescriptor|FormController' resources src README.md   # validation:export is the one bridge to the frontend
 grep -rn 'viewPrefix' resources/boost/skills/laravel-project-setup/templates/snippets   # htmx Fortify views stay off until the project's pages exist
 grep -rnE '\{\{(web_port|domain)\}\}' resources/boost/skills/laravel-project-setup/templates   # deployment's placeholders
-grep -rnE 'formsnap|mode-watcher|clsx|tailwind-merge' resources README.md --exclude=packages.md   # dropped from the prescribed set
+grep -rnE 'clsx|tailwind-merge' resources README.md --exclude=packages.md   # dropped from the prescribed set
 
 # Scripts
 bash -n bin/kanban-exec || echo "✗ bin/kanban-exec"
@@ -218,7 +218,7 @@ for fe in '' htmx htmx,islands spa; do for rv in '' reverb; do for tn in '' tena
   grep 'placeholders left' <<<"$out" | grep -vE ': (what_we_are_building, hosting|hosting, what_we_are_building)$' && echo "✗ placeholders [$m]"
   find "$d" -name '*.php' -exec php -l {} \; | grep -v '^No syntax errors' && echo "✗ lint [$m]"
   grep -rlE '<!-- (if|unless):|<!-- endif' "$d" && echo "✗ markers [$m]"
-  grep -rlE 'formsnap|mode-watcher|clsx|tailwind-merge' "$d" && echo "✗ dropped package [$m]"
+  grep -rlE 'clsx|tailwind-merge' "$d" && echo "✗ dropped package [$m]"
   [ -f "$d/database/data/.gitkeep" ] && [ -f "$d/app/Http/Middleware/AcceptJson.php" ] || echo "✗ shipped files [$m]"
   if [ -n "$tn" ]; then grep -q '^## Tenancy' "$d/CLAUDE.md" || echo "✗ tenancy rules missing [$m]"
   else grep -rliE 'tenan(t|cy)' "$d" && echo "✗ tenancy text [$m]"; fi

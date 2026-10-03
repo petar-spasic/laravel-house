@@ -243,8 +243,7 @@ The first island that needs a component does the setup, with owner approval for 
 - `@` is `resources/js`: laravel-vite-plugin aliases it, and the shipped `tsconfig.json` `paths` cover it (the CLI
   reads `paths` from the root tsconfig only).
 - **Add** with the pinned CLI (`npx shadcn-svelte@<version> add <name> --no-deps-install`), only what an island
-  imports; remove a component no island uses. Never `sonner`: it declares a package outside the set, and toasts come
-  from `HX-Trigger`. Then `git diff package.json`: a new entry is a package the component declares, approved with
+  imports; remove a component no island uses. No `sonner`: toasts come from `HX-Trigger`. Then `git diff package.json`: a new entry is a package the component declares, approved with
   shadcn-svelte, so `npm install` it; a changed range on an existing entry goes back to the project's. Review the
   rest of its diff as code.
 - `resources/js/components/ui/` is exactly the CLI's output and is never edited. Looks go through the `class` prop

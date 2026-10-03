@@ -187,7 +187,7 @@ it('has a packages.md row for every npm package the spa frontend rules install',
     $rows = file_get_contents(Sandbox::package().'/resources/boost/skills/laravel-project-setup/references/packages.md');
 
     expect($process->getExitCode())->toBe(0, $process->getErrorOutput())
-        ->and($packages)->toContain('zod', 'cn', 'svelte-sonner', 'pusher-js')
+        ->and($packages)->toContain('zod', 'cn', 'pusher-js')
         ->and(array_values(array_filter($packages, fn (string $name) => ! str_contains($rows, "| `{$name}`"))))->toBe([]);
 });
 

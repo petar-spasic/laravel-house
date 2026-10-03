@@ -31,14 +31,14 @@ Checked 2026-10-02.
 | `bits-ui` | 2.19.4 (2026-10-01) | 31 | Svelte ^5.33 | pass |
 | `tailwind-variants` | 3.3.1 (2026-08-03) | 2 | — | pass. Merges classes with its own engine: `tailwind-merge` is an optional peer |
 | `cn` | 0.4.0 (2026-09-22); the stubs take `^0.3` (0.3.3) | 2 | Tailwind 4 | pass. Behind `cn()` in `utils.ts`: the pinned registry's `utils` item and the shadcn-svelte CLI declare it. 0.x, first released 2026-08-31, one npm publisher (the shadcn-ui organisation). Fallback: `clsx` + `tailwind-merge` behind the same `cn()` export |
-| `tw-animate-css` | 1.4.0 (2025-09-24); a canary since | 1 | Tailwind 4 | **fails: one maintainer, no stable release in 12 months.** Kept: twelve vega components (dialog, popover, select, tooltip, …) use its `animate-in`/`fade-*`/`zoom-*`/`slide-*` classes, both shadcn registries declare it, and no maintained Tailwind 4 package ships those names. One CSS file, no code. Fallback: that file (MIT) kept in the project |
+| `tw-animate-css` | 1.4.0 (2025-09-24); a canary since | 1 | Tailwind 4 | not checked: shadcn-svelte's registry declares it, so it comes with shadcn-svelte |
 | `@lucide/svelte` | 1.50.0 (2026-10-02) | 43 | Svelte 5 | pass |
-| `svelte-sonner` | 1.2.1 (2026-08-14) | 6 | Svelte 5 | pass. The toasts, used directly (shadcn's `sonner` is never added) |
 | `@internationalized/date` | 3.12.4 (2026-09-01) | 27 | — | pass. Declared by the date components and `bits-ui` |
 | `pusher-js` (reverb) | 8.6.0 (2026-07-23) | 7 | — | pass |
 
-shadcn's `form` and `sonner` are never added: they declare `formsnap` and `mode-watcher`, which fail the check (no
-commit in 12 months). Forms use `field` on superforms, and toasts use `svelte-sonner` directly.
+Only the packages the project chooses are checked. What a chosen package declares comes with it unchecked: shadcn-svelte
+is maintained, and its components (`form` with `formsnap`, `sonner` with `svelte-sonner` and `mode-watcher`, …) stay as
+the CLI writes them, so an update is `add --overwrite`.
 
 ## npm: htmx and islands (`modules.md`)
 
