@@ -10,7 +10,9 @@ use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Invalid;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\NotFound;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
 use PetarSpasic\LaravelHouse\Kanban\Store\Git\Archive;
+use PetarSpasic\LaravelHouse\Kanban\Store\Git\GitStore;
 use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
+use PetarSpasic\LaravelHouse\Kanban\Support\Git;
 use PetarSpasic\LaravelHouse\Kanban\Support\Ids;
 use Symfony\Component\Console\Attribute\AsCommand;
 
@@ -29,7 +31,8 @@ class ImportHouseDocsCommand extends Command
         {--decisions= : Decisions file, relative to the main checkout (default docs/decisions.md)}
         {--ideas= : Ideas file, relative to the main checkout (default docs/ideas.md)}
         {--dry-run : Print what would be imported; write nothing}
-        {--strict : Exit 2 when any line cannot be parsed}';
+        {--strict : Exit 2 when any line cannot be parsed}
+        {--remove-sources : Then delete the imported files, once every entry is on the board and none warned}';
 
     protected $description = 'Import docs/decisions.md and docs/ideas.md: decisions to the archive, open ideas as backlog spikes';
 
@@ -53,8 +56,10 @@ class ImportHouseDocsCommand extends Command
         /** @var list<Entry&array{file: string}> $entries */
         $entries = [];
         $unparsed = [];
+        $warnings = 0;
         foreach (array_filter([$decisions, $ideas]) as [$file, $parsed]) {
             foreach ($parsed['warnings'] as $warning) {
+                $warnings++;
                 $this->say("warning: {$file}:{$warning['line']} {$warning['message']}");
                 if ($warning['unparsed']) {
                     $unparsed[] = "{$file}:{$warning['line']}";
@@ -89,7 +94,7 @@ class ImportHouseDocsCommand extends Command
         if ($archive === [] && $spikes === []) {
             $this->totals('imported', [], [], count($entries));
 
-            return self::SUCCESS;
+            return $this->removeSources($store, $entries, $warnings, [$decisions[0] ?? null, $ideas[0] ?? null]);
         }
 
         $created = $store->batch(function (Snapshot $snapshot) use ($store, $entries, $board, &$archive, &$spikes) {
@@ -113,6 +118,39 @@ class ImportHouseDocsCommand extends Command
             $this->say("created {$card->id()} {$card->stage()} {$spikes[$i]['file']}:{$spikes[$i]['line']} {$card->title()}");
         }
         $this->totals('imported', $archive, $spikes, count($entries) - count($archive) - count($spikes));
+
+        return $this->removeSources($store, $entries, $warnings, [$decisions[0] ?? null, $ideas[0] ?? null]);
+    }
+
+    /**
+     * With --remove-sources: deletes the files once the board holds every entry and nothing warned, and names the
+     * lines that still point at them.
+     *
+     * @param  list<array<string, mixed>>  $entries
+     * @param  list<string|null>  $files
+     */
+    private function removeSources(GitStore $store, array $entries, int $warnings, array $files): int
+    {
+        if (! $this->option('remove-sources')) {
+            return self::SUCCESS;
+        }
+        $files = array_values(array_filter($files));
+        [$archive, $spikes] = $this->fresh($entries, $store->snapshot(), $store->archive());
+        if ($warnings > 0 || $archive !== [] || $spikes !== []) {
+            $this->fault('kept '.implode(', ', $files).': '.($warnings > 0 ? "{$warnings} warning(s) above" : (count($archive) + count($spikes)).' entries not on the board')
+                .'; fix the file or move what it says by hand, then run again');
+
+            return 1;
+        }
+        foreach ($files as $file) {
+            unlink(str_starts_with($file, '/') ? $file : $this->paths()->main.'/'.$file);
+            $this->say("removed {$file}");
+        }
+        $grep = (new Git($this->paths()->main))->attempt(['grep', '-n', '-F', ...array_merge(...array_map(fn (string $f) => ['-e', $f], $files)), '--', '.', ':!docs/kanban']);
+        foreach (array_filter(explode("\n", trim($grep->out))) as $line) {
+            $this->say("still points at it: {$line}");
+        }
+        $this->say('next: commit the removal on main');
 
         return self::SUCCESS;
     }

@@ -56,7 +56,7 @@ text, one fact per line; errors go to stderr. Card ids accept a unique prefix of
 | `upstream file ID:logid [--new\|--comment=N]` · `upstream dismiss ID:logid --reason=` | With `KANBAN_UPSTREAM` on: a finding filed on the package's repository after an issue search (a match exits 3), text that names the project refused; or dismissed |
 | `move ID STAGE [--reason= --force]` · `move ID --board=E/B` | Transitions below; a board move is a `git mv` |
 | `promote [ID…] [--auto]` | Backlog → ready by the ready policy; `refused ID: R1 …` lines. `--auto` takes cards whose dependencies are done, until `ready_buffer` ready cards could start |
-| `import-house-docs [--decisions= --ideas= --dry-run --strict]` | decisions.md / ideas.md → decided and dropped entries into `decisions.md`, floated ideas as backlog spikes with a question; idempotent |
+| `import-house-docs [--decisions= --ideas= --dry-run --strict --remove-sources]` | decisions.md / ideas.md → decided and dropped entries into `decisions.md`, floated ideas as backlog spikes with a question; idempotent. `--remove-sources` then deletes the files when every entry is on the board and none warned |
 
 ## Card lifecycle (main session)
 

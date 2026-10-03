@@ -85,12 +85,11 @@ php artisan kanban:install --key=XYZ
 ## 3. Record the decisions, before the restart
 
 **Path (a):**
-1. Run `vendor/bin/kanban import-house-docs --dry-run` and read every warning. Then run it without `--dry-run`. Its
-   totals line counts what went where: decided and dropped entries into `docs/kanban/decisions.md`, floated ideas as
-   backlog spikes carrying their question. Imported plus already imported equals the entries of the two files.
+1. Run `vendor/bin/kanban import-house-docs --dry-run` and fix each warning in the files. Then run
+   `vendor/bin/kanban import-house-docs --remove-sources`: decided and dropped entries go into
+   `docs/kanban/decisions.md`, floated ideas become backlog spikes carrying their question, and the two files are
+   deleted once the board holds every entry. Fix each line it prints as `still points at it:`.
 2. Judge the archive (below, "Judging decisions").
-3. Delete both files and fix every reference:
-   `grep -rn 'decisions\.md\|ideas\.md' --exclude-dir={vendor,node_modules,.claude,kanban} .`
 
 **Path (b):** setup and deployment wrote their choices into the `CLAUDE.md` files already. Every open item becomes a
 card with its question, as the `kanban` skill's "Questions and rules" says.

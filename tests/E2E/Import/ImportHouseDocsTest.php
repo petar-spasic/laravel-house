@@ -95,6 +95,29 @@ it('archives what was decided or dropped and makes each floated idea a backlog s
         ->and($this->sandbox->kanban(['promote', $offline['id']])->getExitCode())->not->toBe(0);
 });
 
+it('removes the imported files once every entry is on the board, and names what still points at them', function () {
+    houseDocs($this->sandbox);
+    file_put_contents($this->sandbox->root.'/CLAUDE.md', "# Acme Notes\n\nRead docs/decisions.md first.\n");
+    $this->sandbox->git('add', 'CLAUDE.md');
+
+    $out = $this->sandbox->ok(['import-house-docs', '--remove-sources']);
+
+    expect($out)->toContain("removed docs/decisions.md\nremoved docs/ideas.md\nstill points at it: CLAUDE.md:3:Read docs/decisions.md first.\nnext: commit the removal on main\n")
+        ->and(file_exists($this->sandbox->root.'/docs/decisions.md'))->toBeFalse()
+        ->and(file_exists($this->sandbox->root.'/docs/ideas.md'))->toBeFalse()
+        ->and(archivedSections($this->sandbox))->toHaveCount(10);
+});
+
+it('keeps the files when a line warned', function () {
+    houseDocs($this->sandbox, 'acme-decisions-edge.md', 'acme-ideas-edge.md');
+
+    $run = $this->sandbox->kanban(['import-house-docs', '--remove-sources']);
+
+    expect($run->getExitCode())->toBe(1)
+        ->and($run->getErrorOutput())->toMatch('/kept docs\/decisions\.md, docs\/ideas\.md: \d+ warning\(s\) above/')
+        ->and(file_exists($this->sandbox->root.'/docs/decisions.md'))->toBeTrue();
+});
+
 it('writes nothing on a dry run and lists what it would import', function () {
     houseDocs($this->sandbox);
     $commits = $this->sandbox->boardLog();
