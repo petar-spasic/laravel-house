@@ -327,3 +327,10 @@ it("tells an agent to run vendor/bin/kanban on its own when its card's container
     expect($run->getExitCode())->toBe(1)
         ->and($run->getErrorOutput())->toContain('run it as a command of its own');
 });
+
+it('runs a command as if from the directory --in names', function () {
+    $code = $this->code;
+    $id = $code->started('From the card');
+
+    expect($code->ok(['--in='.$code->worktree($id), 'context']))->toStartWith("{$id} doing ");
+});

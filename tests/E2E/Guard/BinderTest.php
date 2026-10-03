@@ -174,15 +174,18 @@ it("denies a card agent's file tool outside its card, and writes to the card's .
     'worker writes host tmp' => ['worker', 'Write', ['file_path' => '/tmp/scratch.txt']],
     'worker edits its .git' => ['worker', 'Edit', ['file_path' => '{wt}/.git/config']],
     'worker writes its .claude' => ['worker', 'Write', ['file_path' => '{wt}/.claude/settings.json']],
+    "worker reads another project's Claude files" => ['worker', 'Read', ['file_path' => '/tmp/claude-'.posix_getuid().'/-home-someone-else/x/tasks/y.output']],
 ]);
 
 it("lets a card agent read the skills and Claude Code's own temp directory", function (string $path) {
-    $result = GuardSandbox::shared()->case('worker', 'Read', ['file_path' => $path], '{wt}');
+    $sandbox = GuardSandbox::shared();
+    $tmp = sys_get_temp_dir().'/claude-'.posix_getuid().'/'.preg_replace('/[^A-Za-z0-9]/', '-', $sandbox->main);
+    $result = $sandbox->case('worker', 'Read', ['file_path' => str_replace('{tmp}', $tmp, $path)], '{wt}');
 
     expect($result['out'])->toBe('');
 })->with([
     'project skills' => ['{main}/.claude/skills/kanban/SKILL.md'],
-    'a task output' => [sys_get_temp_dir().'/claude-'.posix_getuid().'/project/session/tasks/x.output'],
+    'a task output' => ['{tmp}/session/tasks/x.output'],
 ]);
 
 it('stays silent on malformed input, a traversal agent_id and outside a git repository', function () {

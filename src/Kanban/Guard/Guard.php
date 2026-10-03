@@ -180,7 +180,9 @@ final class Guard
             $why = "{$path}: .git and .claude in your card's directory are kanban's; work in the code";
         } else {
             $home = getenv('HOME');
-            $tmp = rtrim((string) (getenv('CLAUDE_CODE_TMPDIR') ?: sys_get_temp_dir()), '/').'/claude-'.(function_exists('posix_getuid') ? posix_getuid() : getmyuid());
+            // Claude Code's own files for this project: task outputs, the scratchpad
+            $tmp = rtrim((string) (getenv('CLAUDE_CODE_TMPDIR') ?: sys_get_temp_dir()), '/').'/claude-'.(function_exists('posix_getuid') ? posix_getuid() : getmyuid())
+                .'/'.preg_replace('/[^A-Za-z0-9]/', '-', $main);
             $readable = [self::canonical($tmp), self::canonical($main.'/.claude/skills'), ...(is_string($home) && $home !== '' ? [self::canonical($home.'/.claude')] : [])];
             foreach ($readable as $dir) {
                 if ($inside($dir) && (! $write || $dir === $readable[0])) {
@@ -210,8 +212,9 @@ final class Guard
             return;
         }
         if (($host = self::hostKanban($main, $command)) !== null) {
-            // the card as the cwd, so the CLI knows the agent's card
-            $input['command'] = 'cd '.self::quoted(self::canonical($worktree[0] === '/' ? $worktree : $main.'/'.$worktree)).' && '.$host;
+            // one plain command (each part of a chain is checked on its own); --in gives the CLI the agent's card
+            $input['command'] = self::kanban($main).' '.self::quoted('--in='.self::canonical($worktree[0] === '/' ? $worktree : $main.'/'.$worktree))
+                .substr($host, strlen(self::kanban($main)));
             echo json_encode(['hookSpecificOutput' => ['hookEventName' => 'PreToolUse', 'updatedInput' => $input]], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
 
             return;
