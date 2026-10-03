@@ -4,10 +4,10 @@ How setup configures Boost (SKILL.md step 7), and how the house overrides are ke
 
 ## Configure
 
-- `boost.json` holds only three keys before the first install (SKILL.md Gotchas): `"agents": ["claude_code"]`,
-  `"cloud": false`, and `"packages"` with `"petar-spasic/laravel-house"`.
-- `composer.json` `post-update-cmd` ends with `@php artisan boost:update --ansi`, so `composer update` refreshes the
-  guidelines and skills.
+- `install.php --fresh` writes `boost.json` with only three keys before the first install (SKILL.md Gotchas):
+  `"agents": ["claude_code"]`, `"cloud": false`, and `"packages"` with `"petar-spasic/laravel-house"`. It also ends
+  `composer.json` `post-update-cmd` with `@php artisan boost:update --ansi`, so `composer update` refreshes the
+  guidelines and skills. An existing project sets both by hand.
 - Run `php artisan boost:install --no-interaction` yourself, never through `!` (SKILL.md Gotchas).
 - The project's copy of the house skills is the pinned one. Disable the plugin for the project:
   `claude plugin disable laravel-house@laravel-house --scope project`.

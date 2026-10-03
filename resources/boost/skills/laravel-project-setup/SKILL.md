@@ -102,27 +102,29 @@ This table owns the combination rules. `install.php` enforces them and refuses a
    - Artisan: `install:api --without-migration-prompt`, `fortify:install`, `horizon:install`,
      `octane:install --server=frankenphp --no-interaction`. The stack's entrypoint migrates; a bare
      `--no-interaction` on `install:api` would migrate whatever database the host `.env` names.
-   - `octane:install` downloads a FrankenPHP binary. `git check-ignore frankenphp public/frankenphp-worker.php` must
-     print both paths; add any it leaves out to `.gitignore`.
    - The module packages, commands and deletions in `references/modules.md`. Each npm package passes the maintenance
      check first (convention 6; the prescribed ones are `references/packages.md`). No component-test tooling.
    - `git init` and the `origin` remote, if missing. The board page syncs only when `origin` is an ssh URL
      (`git@host:owner/repo.git`). `gh repo create` uses https unless `gh config get git_protocol` says ssh. So run
      `git remote get-url origin` afterwards. If it is https, run
      `git remote set-url origin git@github.com:<owner>/<repo>.git`.
-   - Deletions in every project: `tests/Unit`, `tests/Feature`, `database/database.sqlite`, `AGENTS.md`, `.agents/`.
-     Also the files the templates replace whole: the skeleton's `CLAUDE.md`, `database/seeders/DatabaseSeeder.php`
-     and `horizon:install`'s `app/Providers/HorizonServiceProvider.php`.
+   - Step 4's `--fresh` deletes `tests/Unit`, `tests/Feature`, `AGENTS.md`, `.agents/` and the files the templates
+     replace, and makes the other fixed edits to the skeleton.
    - The PHP minor, the ports, the LAN URL and the decisions so far. Passkeys are on in every project
      (`references/core-auth.md`). Which other auth features the product keeps stays open unless the owner decides.
 4. **Install the templates.** Run a dry run first, then the real run:
 
    ```shell
    php "${CLAUDE_SKILL_DIR}/scripts/install.php" . --modules=htmx,islands,tenancy --set app=acme \
-     --set laravel_version=13 --set php_version=8.5 --set pest_version=5 --dry-run
+     --set app_name="Acme Notes" --set web_port=8000 --set db_port=5433 --set redis_port=6380 \
+     --set laravel_version=13 --set php_version=8.5 --set pest_version=5 --fresh --dry-run
    ```
 
-   - It never overwrites, so step 3's deletions must already be done.
+   - `--fresh` runs only on a repo with no commit yet. It deletes what the templates replace or the modules drop,
+     points `.env`, `.env.example` and the config defaults at Postgres and Redis, writes `boost.json`, and wires
+     composer, npm and `.gitignore` (`references/project-wiring.md`, `references/modules.md`). Fix each
+     `merge by hand:` line it prints. An existing project goes through `references/adopt.md` instead.
+   - It never overwrites a template's file.
    - Read every other skipped file and merge it by hand. Merge `.claude/settings.local.json` key by key.
    - Then render the snippets outside the repo with the same `--modules` and `--set`s plus
      `--render-to="$(mktemp -d)"`. It writes nothing into the repo, and its first output line names `<dir>`.
@@ -143,8 +145,8 @@ This table owns the combination rules. `install.php` enforces them and refuses a
    - each module's wiring: `references/modules.md`.
 
    Then delete `<dir>`.
-7. **Boost.** Set `boost.json` and composer's `post-update-cmd`. Run `php artisan boost:install --no-interaction`
-   yourself, never through `!` (Gotchas). Disable the plugin for the project. Detail and the checks:
+7. **Boost.** `--fresh` wrote `boost.json` and composer's `post-update-cmd`. Run
+   `php artisan boost:install --no-interaction` yourself, never through `!` (Gotchas). Disable the plugin for the project. Detail and the checks:
    `references/boost.md`.
 8. **Verify.**
    - No unresolved marker or placeholder in the project's own files, except `{{hosting}}`:

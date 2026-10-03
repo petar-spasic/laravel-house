@@ -203,3 +203,90 @@ it("names every placeholder a skill's templates hold in that skill's SKILL.md", 
 
     expect(array_values(array_filter(array_unique($used), fn (string $key) => ! str_contains($doc, "{{{$key}}}") && ! str_contains($doc, "`{$key}`") && ! str_contains($doc, "--set {$key}="))))->toBe([]);
 })->with(['laravel-project-setup', 'laravel-deployment']);
+
+/** The files of a `composer create-project laravel/laravel` checkout that --fresh edits, in a git repo with no commit. */
+function skeleton(): string
+{
+    $repo = templateTree([
+        'artisan' => '',
+        '.env' => "APP_NAME=Laravel\nAPP_URL=http://localhost\n\nDB_CONNECTION=sqlite\n# DB_HOST=127.0.0.1\n# DB_PORT=3306\n# DB_DATABASE=laravel\n\nSESSION_DRIVER=database\nQUEUE_CONNECTION=database\nCACHE_STORE=database\n\nREDIS_HOST=127.0.0.1\nREDIS_PORT=6379\n",
+        'config/database.php' => "<?php\n\nreturn ['default' => env('DB_CONNECTION', 'sqlite')];\n",
+        'config/queue.php' => "<?php\n\nreturn ['default' => env('QUEUE_CONNECTION', 'database'), 'batching' => ['database' => env('DB_CONNECTION', 'sqlite')], 'failed' => ['database' => env('DB_CONNECTION', 'sqlite')]];\n",
+        'config/cache.php' => "<?php\n\nreturn ['default' => env('CACHE_STORE', 'database')];\n",
+        'config/session.php' => "<?php\n\nreturn ['driver' => env('SESSION_DRIVER', 'database')];\n",
+        'composer.json' => json_encode(['name' => 'laravel/laravel', 'scripts' => ['dev' => ['npx concurrently'], 'setup' => ['composer install', 'npm install', 'npm run build'], 'post-update-cmd' => ['@php artisan vendor:publish --tag=laravel-assets --ansi --force']]], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n",
+        'package.json' => "{\n  \"scripts\": {\n    \"build\": \"vite build\"\n  }\n}\n",
+        'vite.config.js' => "input: ['resources/css/app.css', 'resources/js/app.js'],\n",
+        'resources/js/app.js' => "import './bootstrap';\n",
+        'resources/views/welcome.blade.php' => "@vite(['resources/css/app.css', 'resources/js/app.js'])\n",
+        'routes/web.php' => "<?php\n\nuse Illuminate\\Support\\Facades\\Route;\n\nRoute::get('/', function () {\n    return view('welcome');\n});\n",
+        'tests/Unit/ExampleTest.php' => "<?php\n",
+        'tests/Feature/ExampleTest.php' => "<?php\n",
+        'AGENTS.md' => "# Agents\n",
+        'CLAUDE.md' => "# Skeleton\n",
+        'database/seeders/DatabaseSeeder.php' => "<?php\n",
+        'app/Providers/HorizonServiceProvider.php' => "<?php\n",
+        '.gitignore' => "/vendor\n.env\n",
+    ]);
+    copy("{$repo}/.env", "{$repo}/.env.example");
+    (new Process(['git', 'init', '-q', '-b', 'main', $repo]))->mustRun();
+
+    return $repo;
+}
+
+function fresh(string $repo, string $modules, array $extra = []): Process
+{
+    $sets = [];
+    foreach (['app' => 'acme', 'app_name' => 'Acme Notes', 'web_port' => '8000', 'db_port' => '5433', 'redis_port' => '6380', 'laravel_version' => '13', 'php_version' => '8.5', 'pest_version' => '5'] as $key => $value) {
+        array_push($sets, '--set', "{$key}={$value}");
+    }
+    $process = new Process(['php', Sandbox::package().'/resources/boost/skills/laravel-project-setup/scripts/install.php', $repo, "--modules={$modules}", ...$sets, '--fresh', ...$extra]);
+    $process->run();
+
+    return $process;
+}
+
+it('makes the fixed edits to a fresh htmx skeleton before writing the templates', function () {
+    $repo = skeleton();
+
+    $run = fresh($repo, 'htmx');
+
+    expect($run->getExitCode())->toBe(0)
+        ->and($run->getOutput())->toContain("fresh: deleted tests/Unit\n")->toContain("fresh: deleted resources/js/app.js\n")
+        ->not->toContain('merge by hand')
+        ->and(file_exists("{$repo}/AGENTS.md"))->toBeFalse()
+        ->and(file_exists("{$repo}/tests/Feature"))->toBeFalse()
+        ->and(file_get_contents("{$repo}/CLAUDE.md"))->not->toBe("# Skeleton\n")
+        ->and(file_get_contents("{$repo}/.env"))
+        ->toContain("APP_NAME=\"Acme Notes\"\nAPP_URL=http://localhost:8000\n\nDB_HOST=127.0.0.1\nDB_PORT=5433\nDB_DATABASE=acme\n\nREDIS_HOST=127.0.0.1\nREDIS_PORT=6380\n")
+        ->toContain("DB_USERNAME=acme\nDB_PASSWORD=acme\nADMIN_EMAILS=admin@acme.test\n")
+        ->not->toContain('DB_CONNECTION')->not->toContain('SESSION_DRIVER')->not->toContain('CACHE_STORE')
+        ->and(file_get_contents("{$repo}/.env.example"))->toContain("# ADMIN_EMAILS=admin@acme.test\n")
+        ->and(file_get_contents("{$repo}/config/queue.php"))->toBe("<?php\n\nreturn ['default' => env('QUEUE_CONNECTION', 'redis'), 'batching' => ['database' => env('DB_CONNECTION', 'pgsql')], 'failed' => ['database' => env('DB_CONNECTION', 'pgsql')]];\n")
+        ->and(file_get_contents("{$repo}/config/session.php"))->toContain("env('SESSION_DRIVER', 'redis')")
+        ->and(file_get_contents("{$repo}/vite.config.js"))->toContain("'resources/js/app.ts'")
+        ->and(json_decode(file_get_contents("{$repo}/boost.json"), true))->toBe(['agents' => ['claude_code'], 'cloud' => false, 'packages' => ['petar-spasic/laravel-house']])
+        ->and(json_decode(file_get_contents("{$repo}/composer.json"), true)['scripts']['post-update-cmd'])->toContain('@php artisan boost:update --ansi')
+        ->and(file_get_contents("{$repo}/package.json"))->toBe("{\n  \"scripts\": {\n    \"build\": \"vite build\",\n    \"check\": \"tsc\"\n  }\n}\n")
+        ->and(file_get_contents("{$repo}/.gitignore"))->toBe("/vendor\n.env\n/.claude/settings.local.json\n.env.prod\n/frankenphp\n/public/frankenphp-worker.php\n");
+
+    (new Process(['git', '-c', 'user.name=Acme', '-c', 'user.email=dev@acme.test', 'commit', '-q', '--allow-empty', '-m', 'init'], $repo))->mustRun();
+
+    expect(fresh($repo, 'htmx')->getErrorOutput())->toContain('--fresh is for a fresh skeleton')
+        ->and(fresh(skeleton(), 'htmx', ['--dry-run'])->getOutput())->toContain("would: deleted AGENTS.md\n");
+});
+
+it('drops the root Node toolchain for spa, and names a known line it cannot find', function () {
+    $repo = skeleton();
+    file_put_contents("{$repo}/config/cache.php", "<?php\n\nreturn ['default' => 'file'];\n");
+
+    $run = fresh($repo, 'spa');
+
+    expect($run->getExitCode())->toBe(0)
+        ->and($run->getOutput())->toContain("merge by hand: config/cache.php (env('CACHE_STORE', 'redis'))\n")
+        ->and(file_exists("{$repo}/package.json"))->toBeFalse()
+        ->and(file_exists("{$repo}/resources/js"))->toBeFalse()
+        ->and(file_get_contents("{$repo}/routes/web.php"))->not->toContain("view('welcome')")
+        ->and(json_decode(file_get_contents("{$repo}/composer.json"), true)['scripts'])->not->toHaveKey('dev')
+        ->and(json_decode(file_get_contents("{$repo}/composer.json"), true)['scripts']['setup'])->toBe(['composer install']);
+});

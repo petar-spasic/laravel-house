@@ -12,9 +12,12 @@ declare(strict_types=1);
  * --render-to=<dir> writes the resolved templates, plus <templates>/snippets/ under <dir>/snippets/, into <dir>
  * instead of the repo: for merging snippets and for diffing an existing project against the templates.
  * Each placeholder no --set filled is reported as `placeholders left in <file>: <keys>`.
+ * --fresh first makes the fixed edits to a fresh skeleton (a repo with no commit yet): it deletes what the templates
+ * replace or the modules drop, points `.env` and the config defaults at Postgres and Redis, writes `boost.json`, and
+ * wires composer, npm and `.gitignore`. A known line it cannot find is reported as `merge by hand: …`.
  *
  * php install.php <repo> --modules=htmx,islands,tenancy --set app=acme [--set key=value …] [--force] [--dry-run]
- *   [--render-to=<dir>] [--templates=<dir>]
+ *   [--render-to=<dir>] [--templates=<dir>] [--fresh]
  */
 
 const MODULES = ['htmx', 'islands', 'spa', 'reverb', 'tenancy'];
@@ -25,6 +28,7 @@ $vars = [];
 $force = false;
 $dryRun = false;
 $renderTo = null;
+$fresh = false;
 $templates = dirname(__DIR__).'/templates';
 $args = array_slice($argv, 1);
 
@@ -41,6 +45,8 @@ for ($i = 0; $i < count($args); $i++) {
         $dryRun = true;
     } elseif (str_starts_with($arg, '--render-to=')) {
         $renderTo = rtrim(substr($arg, 12), '/') ?: fail('--render-to needs a directory');
+    } elseif ($arg === '--fresh') {
+        $fresh = true;
     } elseif (str_starts_with($arg, '--templates=')) {
         $templates = rtrim(substr($arg, 12), '/');
     } else {
@@ -71,6 +77,158 @@ if (in_array('islands', $modules, true) && ! in_array('htmx', $modules, true)) {
 }
 if (! preg_match('/^[a-z][a-z0-9]*$/', $vars['app'] ?? '')) {
     fail('--set app=<slug> is required: lowercase letters and digits (it names the test database, the config file and the dev accounts\' email domain)');
+}
+
+if ($fresh) {
+    $renderTo === null || fail('--fresh edits the repo; it does not combine with --render-to');
+    foreach (['app_name', 'web_port', 'db_port', 'redis_port'] as $key) {
+        isset($vars[$key]) || fail("--fresh needs --set {$key}=…");
+    }
+    $commits = shell_exec('git -C '.escapeshellarg($repo).' rev-parse --verify -q HEAD 2>/dev/null');
+    trim((string) $commits) === '' || fail('--fresh is for a fresh skeleton, and this repo has commits: make these edits by hand (references/adopt.md)');
+    fresh($repo, $modules, $vars, $dryRun);
+}
+
+/** Every fixed edit of SKILL.md steps 3 and 6 to a fresh skeleton. */
+function fresh(string $repo, array $modules, array $vars, bool $dryRun): void
+{
+    $on = fn (string $m) => in_array($m, $modules, true);
+    $say = fn (string $line) => print(($dryRun ? 'would: ' : 'fresh: ').$line."\n");
+    $edit = function (string $file, callable $change) use ($repo, $dryRun, $say): void {
+        $path = "{$repo}/{$file}";
+        if (! is_file($path)) {
+            echo "merge by hand: {$file} is missing\n";
+
+            return;
+        }
+        $before = (string) file_get_contents($path);
+        $after = $change($before);
+        if ($after === null) {
+            return;
+        }
+        if ($after !== $before) {
+            $dryRun || file_put_contents($path, $after);
+            $say("edited {$file}");
+        }
+    };
+    $patch = function (string $file, array $replacements) use ($edit): void {
+        $edit($file, function (string $text) use ($file, $replacements) {
+            foreach ($replacements as $pattern => $replacement) {
+                $text = preg_replace($pattern, $replacement, $text, -1, $count);
+                $count > 0 || print("merge by hand: {$file} ({$replacement})\n");
+            }
+
+            return $text;
+        });
+    };
+
+    $delete = ['tests/Unit', 'tests/Feature', 'database/database.sqlite', 'AGENTS.md', '.agents', 'CLAUDE.md',
+        'database/seeders/DatabaseSeeder.php', 'app/Providers/HorizonServiceProvider.php'];
+    if ($on('htmx')) {
+        $delete[] = 'resources/js/app.js';
+    }
+    if ($on('spa')) {
+        array_push($delete, 'package.json', 'package-lock.json', 'vite.config.js', 'resources/js', 'resources/css',
+            'resources/views/welcome.blade.php', 'public/favicon.ico', 'public/robots.txt');
+    }
+    foreach ($delete as $relative) {
+        if (file_exists("{$repo}/{$relative}")) {
+            $dryRun || remove("{$repo}/{$relative}");
+            $say("deleted {$relative}");
+        }
+    }
+
+    $app = $vars['app'];
+    $quote = fn (string $v) => preg_match('/[\s#"\'$]/', $v) ? '"'.addcslashes($v, '"\\$').'"' : $v;
+    $set = ['APP_NAME' => $quote($vars['app_name']), 'APP_URL' => "http://localhost:{$vars['web_port']}", 'DB_HOST' => '127.0.0.1',
+        'DB_PORT' => $vars['db_port'], 'DB_DATABASE' => $app, 'DB_USERNAME' => $app, 'DB_PASSWORD' => $app, 'REDIS_PORT' => $vars['redis_port']];
+    foreach (['.env' => '', '.env.example' => '# '] as $file => $comment) {
+        $edit($file, function (string $text) use ($set, $comment, $app) {
+            $text = preg_replace('/^#?[ \t]*(DB_CONNECTION|SESSION_DRIVER|QUEUE_CONNECTION|CACHE_STORE)=.*\n/m', '', $text);
+            foreach ($set + ['ADMIN_EMAILS' => "admin@{$app}.test"] as $key => $value) {
+                $line = ($key === 'ADMIN_EMAILS' ? $comment : '')."{$key}={$value}";
+                $text = preg_match("/^#?[ \t]*{$key}=.*$/m", $text)
+                    ? preg_replace("/^#?[ \t]*{$key}=.*$/m", $line, $text, 1)
+                    : rtrim($text, "\n")."\n{$line}\n";
+            }
+
+            return preg_replace("/\n{3,}/", "\n\n", $text);
+        });
+    }
+
+    $patch('config/database.php', ["/env\('DB_CONNECTION', '[a-z]+'\)/" => "env('DB_CONNECTION', 'pgsql')"]);
+    $patch('config/queue.php', ["/env\('QUEUE_CONNECTION', '[a-z]+'\)/" => "env('QUEUE_CONNECTION', 'redis')",
+        "/env\('DB_CONNECTION', '[a-z]+'\)/" => "env('DB_CONNECTION', 'pgsql')"]);
+    $patch('config/cache.php', ["/env\('CACHE_STORE', '[a-z]+'\)/" => "env('CACHE_STORE', 'redis')"]);
+    $patch('config/session.php', ["/env\('SESSION_DRIVER', '[a-z]+'\)/" => "env('SESSION_DRIVER', 'redis')"]);
+    if ($on('htmx')) {
+        $patch('vite.config.js', ['#resources/js/app\.js#' => 'resources/js/app.ts']);
+        $patch('resources/views/welcome.blade.php', ['#resources/js/app\.js#' => 'resources/js/app.ts']);
+    }
+    if ($on('spa')) {
+        $patch('routes/web.php', ["/^Route::get\('\/', function \(\) \{\s*return view\('welcome'\);\s*\}\);\n?/m" => '']);
+    }
+
+    if (! file_exists("{$repo}/boost.json")) {
+        $dryRun || file_put_contents("{$repo}/boost.json", json_encode(['agents' => ['claude_code'], 'cloud' => false,
+            'packages' => ['petar-spasic/laravel-house']], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n");
+        $say('wrote boost.json');
+    }
+    $json = fn (string $file, callable $change, int $indent) => $edit($file, function (string $text) use ($change, $indent) {
+        $data = json_decode($text, true);
+        if (! is_array($data)) {
+            return null;
+        }
+        $encoded = json_encode($change($data), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)."\n";
+
+        return $indent === 4 ? $encoded : preg_replace_callback('/^(?: {4})+/m', fn ($m) => str_repeat(' ', strlen($m[0]) / 4 * $indent), $encoded);
+    });
+    $json('composer.json', function (array $c) use ($on) {
+        $update = (array) ($c['scripts']['post-update-cmd'] ?? []);
+        in_array('@php artisan boost:update --ansi', $update, true) || $update[] = '@php artisan boost:update --ansi';
+        $c['scripts']['post-update-cmd'] = $update;
+        if ($on('spa')) {
+            unset($c['scripts']['dev']);
+            foreach ($c['scripts'] as $name => $commands) {
+                if (is_array($commands)) {
+                    $c['scripts'][$name] = array_values(array_filter($commands, fn ($cmd) => ! is_string($cmd) || ! str_contains($cmd, 'npm ')));
+                }
+            }
+        }
+
+        return $c;
+    }, 4);
+    if ($on('htmx')) {
+        $json('package.json', function (array $p) use ($on) {
+            $p['scripts']['check'] = $on('islands') ? 'svelte-check --tsconfig ./tsconfig.json' : 'tsc';
+
+            return $p;
+        }, 2);
+    }
+
+    $ignore = (string) @file_get_contents("{$repo}/.gitignore");
+    $missing = [];
+    foreach (['/.claude/settings.local.json', '.env.prod', '/frankenphp', '/public/frankenphp-worker.php'] as $line) {
+        $ignored = in_array($line, array_map('trim', explode("\n", $ignore)), true)
+            || ($line[0] === '/' && trim((string) shell_exec('git -C '.escapeshellarg($repo).' check-ignore '.escapeshellarg(substr($line, 1)).' 2>/dev/null')) !== '');
+        $ignored || $missing[] = $line;
+    }
+    if ($missing !== []) {
+        $dryRun || file_put_contents("{$repo}/.gitignore", rtrim($ignore, "\n").($ignore === '' ? '' : "\n").implode("\n", $missing)."\n");
+        $say('.gitignore += '.implode(' ', $missing));
+    }
+}
+
+function remove(string $path): void
+{
+    if (is_dir($path) && ! is_link($path)) {
+        foreach (scandir($path) as $entry) {
+            in_array($entry, ['.', '..'], true) || remove("{$path}/{$entry}");
+        }
+        rmdir($path);
+    } else {
+        unlink($path);
+    }
 }
 
 function resolve(string $text, array $modules, string $file): string

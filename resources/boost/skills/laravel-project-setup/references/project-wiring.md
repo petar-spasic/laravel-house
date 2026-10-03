@@ -16,6 +16,7 @@ Snippets are the rendered copies under `<dir>/snippets/` (SKILL.md step 4).
 
 ## Postgres and Redis everywhere
 
+`install.php --fresh` makes these edits; an existing project makes them by hand.
 - Config defaults: `pgsql` in `config/database.php` and in `config/queue.php` (`batching`, `failed`); `redis` in
   `config/queue.php`, `config/cache.php` and `config/session.php`.
 - `.env` and `.env.example` drop `DB_CONNECTION`, `SESSION_DRIVER`, `QUEUE_CONNECTION` and `CACHE_STORE`.
@@ -23,13 +24,13 @@ Snippets are the rendered copies under `<dir>/snippets/` (SKILL.md step 4).
   `DB_DATABASE`, `DB_USERNAME` and `DB_PASSWORD` all `{{app}}`, `REDIS_PORT={{redis_port}}`.
 - `APP_NAME={{app_name}}`. The session cookie is named after it, so two apps on one host under the skeleton's
   `Laravel` log each other out.
+- `.env` gets `ADMIN_EMAILS=admin@{{app}}.test`; `.env.example` documents it, commented.
 
 ## Seeding
 
 - The installer wrote the four seeders and `database/data/.gitkeep` (`database/CLAUDE.md`).
 - Merge `config-auth.php` into `config/auth.php`: the `admins` and `operator` keys. A missing key closes the Horizon
   gate silently.
-- `.env` gets `ADMIN_EMAILS=admin@{{app}}.test`. `.env.example` documents it, commented.
 - Check: `php artisan tinker --execute="var_export(config('auth.admins'));"` lists the `ADMIN_EMAILS` addresses.
 - `ProductionSeeder` seeds the operator and each `ADMIN_EMAILS` address (`database/CLAUDE.md`).
 
@@ -43,4 +44,5 @@ Snippets are the rendered copies under `<dir>/snippets/` (SKILL.md step 4).
 
 ## .gitignore
 
-Add `/.claude/settings.local.json` and `.env.prod`. The skeleton covers `.env.production` only.
+`/.claude/settings.local.json`, `.env.prod` and the FrankenPHP binary and worker (`install.php --fresh` adds them).
+The skeleton covers `.env.production` only.

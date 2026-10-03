@@ -1,7 +1,7 @@
 # Modules
 
 What each module installs (step 3), wires (step 6) and checks (step 8). Which modules combine is the SKILL.md Modules
-table.
+table. On a fresh skeleton, `install.php --fresh` makes each module's deletions and the wiring marked *(fresh)*.
 
 ## htmx
 
@@ -13,8 +13,8 @@ table.
     `references/project-files.md`).
 - **Deletes:** `resources/js/app.js`.
 - **Wiring:**
-  - `vite.config.js` `input` and the `@vite` line in `welcome.blade.php` name `resources/js/app.ts`;
-  - `package.json` gets `"check": "tsc"`;
+  - `vite.config.js` `input` and the `@vite` line in `welcome.blade.php` name `resources/js/app.ts` *(fresh)*;
+  - `package.json` gets `"check": "tsc"` *(fresh)*;
   - the rendered `htmx-indicator.css` is appended to `resources/css/app.css`;
   - `config/{{app}}.php` holds the keys `routes/CLAUDE.md` and `app/Http/CLAUDE.md` name: `public_per_minute`,
     `page_cache.hard_ttl`, `page_cache.cache_control`, `fragment_targets`, `route_query_keys`;
@@ -31,7 +31,7 @@ table.
 - **Packages:** `svelte`, `@sveltejs/vite-plugin-svelte` and `svelte-check`. TypeScript is pinned under htmx.
 - shadcn-svelte is not installed at setup. The islands rules carry the pinned `add` command and the pinned registry
   for the first component an island needs. Never run its `init`.
-- **Wiring:** `svelte()` in the Vite plugins, and `"check": "svelte-check --tsconfig ./tsconfig.json"`.
+- **Wiring:** `svelte()` in the Vite plugins, and `"check": "svelte-check --tsconfig ./tsconfig.json"` *(fresh)*.
 - **Checks:** as htmx.
 
 ## spa
