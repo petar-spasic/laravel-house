@@ -25,6 +25,9 @@ final class Worktrees
     public const MOUNT = 'KANBAN_WORKTREE_PATH';
 
     /** @param  array<string, mixed>  $config  the whole `kanban` config */
+    /** @var array<string, mixed>|null */
+    private ?array $stack = null;
+
     public function __construct(public readonly Paths $paths, private readonly array $config) {}
 
     /** Git in main, or in a card's directory, where its agent controls the config (Git::untrusted). */
@@ -241,9 +244,15 @@ final class Worktrees
         return Stack::enabled((array) ($this->config['stack'] ?? []), $this->paths->main);
     }
 
+    /** `kanban.stack` with every host port variable of main's compose file in `ports`. */
+    public function stackConfig(): array
+    {
+        return $this->stack ??= ComposeFile::withHostPorts((array) ($this->config['stack'] ?? []), $this->paths->main);
+    }
+
     public function registry(): PortRegistry
     {
-        return new PortRegistry((array) ($this->config['stack'] ?? []));
+        return new PortRegistry($this->stackConfig());
     }
 
     public function env(): EnvWriter
@@ -253,7 +262,7 @@ final class Worktrees
 
     public function stack(string $path, ?string $project = null): Stack
     {
-        return new Stack($path, $project ?? $this->env()->project($path), (array) ($this->config['stack'] ?? []), $this->paths->main);
+        return new Stack($path, $project ?? $this->env()->project($path), $this->stackConfig(), $this->paths->main);
     }
 
     /**

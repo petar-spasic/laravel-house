@@ -81,6 +81,22 @@ it('gives two started cards disjoint slots', function () {
         ->and(array_column($code->stacks(), 'card'))->toBe([$a, $b]);
 });
 
+it('gives every host port variable of the compose file a port of the slot, also to a stack started before it', function () {
+    $code = $this->code;
+    $early = $code->started('Early card');
+    $code->commitMain('docker-compose.local.yml', "name: \"\${COMPOSE_PROJECT_NAME:?unset}\"\nservices:\n  mail:\n    image: axllent/mailpit\n    ports: [\"127.0.0.1:\${MAIL_PORT:-1025}:1025\"]\n");
+    $id = $code->sandbox->readyCard('Send the digest');
+    $web = $code->base + 20;
+
+    expect($code->ok(['start', $id]))->toContain('ports WEB_PORT='.$web.' DB_HOST_PORT='.($web + 1).' REDIS_HOST_PORT='.($web + 2).' MAIL_PORT='.($web + 3)."\n")
+        ->and(file_get_contents($code->worktree($id).'/.env'))->toContain('MAIL_PORT='.($web + 3)."\n");
+
+    $code->ok(['stack', 'up'], cwd: $code->worktree($early));
+
+    expect(file_get_contents($code->worktree($early).'/.env'))->toContain('MAIL_PORT='.($code->base + 13)."\n")
+        ->and($code->kanban(['doctor'])->getOutput())->toContain("ok docker-compose.local.yml is worktree-safe\n");
+});
+
 it('skips a slot whose ports are taken on the host or by a container', function () {
     $code = $this->code;
     $socket = stream_socket_server('tcp://0.0.0.0:'.($code->base + 10 + 7));

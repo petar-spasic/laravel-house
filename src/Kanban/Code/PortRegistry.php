@@ -86,6 +86,7 @@ final class PortRegistry
             foreach ($data['stacks'] as $slot => $entry) {
                 if ($entry['worktree'] === $worktree && ! in_array((int) $slot, $avoid, true)) {
                     $data['stacks'][$slot] = array_replace($entry, array_filter($meta, fn ($v) => $v !== null));
+                    $data['stacks'][$slot]['ports'] = ($entry['ports'] ?? []) + $this->ports($data['pool'], (int) $slot);
 
                     return [$data, $data['stacks'][$slot]];
                 }

@@ -44,7 +44,7 @@ it('fails each compose problem and the missing project name, and warns about a p
         ->toContain($fixedPort('8011', 'app', 7))
         ->toContain($fixedPort('5435', 'postgres', 16))
         ->toContain($fixedPort('8025', 'mailpit', 21))
-        ->toContain("fail docker-compose.local.yml: host port variable VITE_PORT on service app (line 8): not a stack.ports variable, so every stack publishes the same port; add it to stack.ports or publish from one that is\n")
+        ->not->toContain('host port variable VITE_PORT')
         ->toContain("fail docker-compose.local.yml: volume postgres_local has name: (line 25): shared by every stack; remove it, or derive it from \${COMPOSE_PROJECT_NAME}\n")
         ->toContain("fail docker-compose.local.yml: network app has name: (line 29): shared by every stack; remove it, or derive it from \${COMPOSE_PROJECT_NAME}\n")
         ->toContain("fail docker-compose.local.yml: image: on built service app (line 4): every stack would tag the same image; remove it\n")
@@ -152,7 +152,6 @@ it('sees fixed ports behind comments and every fixed name in flow-style mappings
         ->toContain('fail docker-compose.local.yml: fixed host port 8090 on service app (line 7)')
         ->toContain('fail docker-compose.local.yml: container_name on service mail (line 8)')
         ->toContain('fail docker-compose.local.yml: fixed host port 8095 on service mail (line 8)')
-        ->toContain('fail docker-compose.local.yml: host port variable MAIL_PORT on service mail (line 8)')
         ->toContain('fail docker-compose.local.yml: fixed host port 8100 on service web (line 12)')
         ->toContain('fail docker-compose.local.yml: volume pg has name: (line 15)')
         ->toContain('fail docker-compose.local.yml: network edge has name: (line 18)')
@@ -171,22 +170,25 @@ it('accepts a checkout whose path holds an apostrophe', function () {
         ->and($fixed->getExitCode())->toBe(0);
 });
 
-it('reads nested variable defaults and quoted hashes in the compose file', function () {
+it('reads nested variable defaults and quoted hashes, and gives each extra host port variable an offset of the block', function () {
     $sandbox = doctorSandbox('compose-nested.yml');
 
     $process = doctor($sandbox);
 
-    expect($process->getExitCode())->toBe(1)
-        ->and($process->getOutput())
-        ->toContain('host port variable MAIL_PORT on service app (line 9)')
-        ->toContain('host port variable STRAY_PORT on service app (line 12)')
-        ->not->toContain('host port variable LAN_IP')
-        ->not->toContain('host port variable LITERAL')
-        ->not->toContain('host port variable REDIS_HOST_PORT')
-        ->not->toContain('host port variable WEB_PORT')
-        ->not->toContain('host port variable OTHER_DEFAULT')
-        ->not->toContain('host port variable DB_HOST_PORT')
+    expect($process->getExitCode())->toBe(0)
+        ->and($process->getOutput())->toContain("ok docker-compose.local.yml is worktree-safe\n")
+        ->not->toContain('host port variable')
         ->not->toContain('fixed host port');
+
+    $config = '<?php $c = require '.var_export(Sandbox::package().'/config/kanban.php', true).'; $c[\'stack\'][\'pool\'][\'block\'] = 4; return $c;';
+    @mkdir($sandbox->root.'/config');
+    file_put_contents($sandbox->root.'/config/kanban.php', $config);
+    $small = doctor($sandbox);
+
+    expect($small->getExitCode())->toBe(1)
+        ->and($small->getOutput())
+        ->toContain('fail docker-compose.local.yml: host port variable STRAY_PORT on service app (line 12): no offset left for it in a stack.pool block')
+        ->not->toContain('host port variable MAIL_PORT');
 });
 
 it('accepts a host port published from a stack.env variable that is built from a stack.ports one', function () {

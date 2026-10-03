@@ -994,18 +994,14 @@ deployment skill's local compose file already follows these rules:
 
 - the top-level `name:` is `"${COMPOSE_PROJECT_NAME:?…}"`, so a stack never starts without a name;
 - no `container_name`, and no volume or network name that is not built from `${COMPOSE_PROJECT_NAME}`;
-- every published host port comes from a port variable: `WEB_PORT`, `DB_HOST_PORT` or `REDIS_HOST_PORT`, or
-  `DB_PORT` and `REDIS_PORT`, which follow them;
+- every published host port comes from a variable, such as `WEB_PORT`, `DB_HOST_PORT` or `REDIS_HOST_PORT`;
 - a service with `build:` does not also set `image:`.
 
 Your main `.env` also needs a project name of its own, such as `COMPOSE_PROJECT_NAME=acme-local`.
 
-If you publish more host ports, such as for a mail catcher, add a variable for each one to `stack.ports` in
-`config/kanban.php`, with its offset in the card's block of ports:
-
-```php
-'ports' => ['WEB_PORT' => 0, 'DB_HOST_PORT' => 1, 'REDIS_HOST_PORT' => 2, 'MAILPIT_PORT' => 3],
-```
+Each card's stack gets a block of ten ports. `stack.ports` in `config/kanban.php` places the three above in it. Any
+other host port variable in your compose file, such as `${MAILPIT_PORT:-8025}` for a mail catcher, takes the next free
+port of the block, so you list nothing.
 
 `vendor/bin/kanban doctor` checks these rules and names any line that breaks one. It also warns when `phpunit.xml`
 sets `DB_HOST` or `DB_PORT`, because tests in a worktree would then hit your main database.

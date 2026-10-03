@@ -59,7 +59,8 @@ return [
         // The service agents' shells and `stack exec` run in.
         'service' => 'app',
         'pool' => ['base' => 21000, 'block' => 10, 'first' => 1, 'last' => 99],
-        // Env key => offset inside the slot's block of ports.
+        // Env key => offset inside the slot's block of ports. Every other host port variable of the compose file takes
+        // the next free offset, by name.
         'ports' => ['WEB_PORT' => 0, 'DB_HOST_PORT' => 1, 'REDIS_HOST_PORT' => 2],
         // Written into the worktree .env; {placeholders} are resolved per worktree.
         'env' => [
