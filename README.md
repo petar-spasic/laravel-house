@@ -439,7 +439,10 @@ The local stack is your dev environment. You do not run `php artisan serve` or `
 
 > [!WARNING]
 > The local stack listens on your LAN by default, and the board at `/kanban` has no login. Set `WEB_BIND=127.0.0.1`
-> in `.env` to keep the stack on your machine, or set `KANBAN_UI_TOKEN` to protect the board.
+> in `.env` to keep the stack on your machine, or set `KANBAN_UI_TOKEN` to protect the board. Either one also keeps a
+> card's agent, which works inside its own container, from editing cards through your main stack's board page. The
+> page cannot approve or finish a card. Your main stack's database and Redis listen on `127.0.0.1` only, out of the
+> containers' reach.
 
 <a name="the-production-image"></a>
 ### The Production Image
