@@ -211,18 +211,16 @@ Where a value lives and the drift to fix on sight: `references/project-files.md`
 
 Image builds take minutes: run them in the background. `dc` stands for `docker compose -f docker-compose.local.yml`.
 
-1. **Healthy.** `dc up -d --build --wait`. `dc exec app healthcheck.sh` prints no ✗. `dc exec app supervisorctl status`
-   lists php-fpm, caddy, scheduler, horizon, `vite` (not API-only, nor spa before `frontend/`), `reverb` (its module).
-2. **From another machine's URL** (`LOCAL_APP_URL`, applied with `up -d`); spa uses step 6 instead. `/kanban` answers
-   200 once installed (`?token=<secret>` when set). `/.env` and an existing `/frankenphp-worker.php` answer 404; a
-   missing `/x.php` gets Laravel's 404 page. htmx and islands: the page and every asset answer 200, `public/hot` names
-   that origin, and HMR connects at `/__vite_hmr`. API-only: `/up` answers 200; `/api/v1/x` answers JSON 404.
-3. **Restart twice.** The app container is healthy both times; seed crash loops and stale caches show on the second.
-4. **Tests.** `dc exec app php artisan test` leaves the dev database's rows untouched; a second run started meanwhile
+1. **The probes.** `docker/verify.sh` prints nothing. It brings the local stack up and checks the healthcheck, the
+   supervisor programs of the chosen modules, `/up`, the 404s of `/.env` and `/frankenphp-worker.php`, Laravel's JSON
+   404 under `/api/v1` (API-only and spa), `/kanban` once installed, and two restarts.
+2. **From another machine's URL** (`LOCAL_APP_URL`, applied with `up -d`); spa uses step 5 instead. A missing `/x.php`
+   gets Laravel's 404 page. htmx and islands: the page and every asset answer 200, `public/hot` names that origin,
+   and HMR connects at `/__vite_hmr`.
+3. **Tests.** `dc exec app php artisan test` leaves the dev database's rows untouched; a second run started meanwhile
    waits for the first.
-5. **Prod shape.** Next to the local stack, with another `WEB_PORT` and `TRUSTED_PROXIES` set in `.env.prod`: `docker
-   compose --env-file .env.prod up -d --build --wait`. `octane:frankenphp` runs as www-data; `/up` answers on
-   `127.0.0.1:${WEB_PORT}` only. A `/build/*` asset is `immutable`; `/frankenphp-worker.php` and `/index.php` are 404.
-   `php artisan about --only=cache` shows all cached; `supervisorctl status` lists `app:web`, `app:scheduler`,
-   `app:horizon`. Behind the outer proxy, `request()->ip()` is the browser's address.
-6. **Modules.** spa: `references/spa.md`, Verify. tenancy: `references/tenancy.md`, Verify.
+4. **Prod shape.** Next to the local stack, with another `WEB_PORT` and `TRUSTED_PROXIES` set in `.env.prod`:
+   `docker/verify.sh prod` prints nothing. It checks Octane runs as www-data, `/up` on `127.0.0.1:${WEB_PORT}`, an
+   `immutable` `/build/*` asset, the 404s of `/frankenphp-worker.php` and `/index.php`, the caches and the `app:*`
+   programs. Behind the outer proxy, `request()->ip()` is the browser's address.
+5. **Modules.** spa: `references/spa.md`, Verify. tenancy: `references/tenancy.md`, Verify.

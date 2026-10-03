@@ -170,10 +170,9 @@ Browser tests exercise no queue timing and no realtime: the e2e site runs `QUEUE
 Run step 1 before and after `frontend/` exists (`frontend/CLAUDE.md`, First frontend change), and steps 2 onward after
 it exists. `dc` stands for `docker compose -f docker-compose.local.yml`.
 
-1. **Healthy, before and after `frontend/` exists.** `dc up -d --build --wait`, and the healthcheck prints no ✗.
-   Before: no `vite` program; `/up` answers 200 and `/api/v1/x` answers Laravel's JSON 404. After:
-   `cat /ms-playwright/.version` in the container equals the lockfile's `@playwright/test`. Restart twice; healthy both
-   times.
+1. **Healthy, before and after `frontend/` exists.** `docker/verify.sh` prints nothing; it expects the `vite` program
+   only once `frontend/package.json` exists. After: `cat /ms-playwright/.version` in the container equals the
+   lockfile's `@playwright/test`.
 2. **Config.** `caddy adapt --config /app/docker/Caddyfile.local` in the container succeeds, and the route-coverage
    command prints nothing.
 3. **From another machine's URL.** `/` is SvelteKit's HTML, and a `.svelte` edit hot-updates. `/up` and an `/api/v1`
@@ -183,8 +182,8 @@ it exists. `dc` stands for `docker compose -f docker-compose.local.yml`.
 4. **Browser tests.** Note the dev database's row counts, then `dc exec app docker/e2e.sh`. The session flow passes
    through `localhost:8090` with SSR calling :8091, and the counts are unchanged. During the run `php artisan test`
    waits, and so does e2e.sh during a Pest run. After `php artisan config:cache`, e2e.sh refuses.
-5. **Prod shape** (SKILL.md, Verify, step 5): healthy; `node build` and `octane:frankenphp` run as www-data, and
-   `octane:status` works. A prerendered page carries `no-cache` and `frame-ancestors 'none'`. A real
+5. **Prod shape** (SKILL.md, Verify, step 4): `docker/verify.sh prod` prints nothing; `node build` runs as www-data,
+   and `octane:status` works. A prerendered page carries `no-cache` and `frame-ancestors 'none'`. A real
    `/_app/immutable/*` chunk carries `immutable`, and `content-encoding: br` for `Accept-Encoding: br`; a missing one
    answers 404 with `no-store`. `/_app/env.js` answers 200. `/storage/x.php` and `/storage/x.php/y` answer 404.
    `APP_URL=`, an `APP_URL` with a trailing slash, an empty `SANCTUM_STATEFUL_DOMAINS`, `TRUSTED_PROXIES=127.0.0.1` or

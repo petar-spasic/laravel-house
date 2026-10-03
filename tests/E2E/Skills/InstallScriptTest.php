@@ -361,3 +361,54 @@ it('verifies what setup leaves, one line per failure', function () {
             '✗ phpunit.xml has the test suites Unit, E2E; it has one, E2E',
         ])."\n");
 });
+
+/** laravel-deployment's docker/verify.sh, rendered for $modules, against a fake docker and curl. */
+function stackVerify(string $modules, array $env = []): Process
+{
+    $root = Sandbox::tmp();
+    $repo = "{$root}/repo";
+    $render = "{$root}/render";
+    mkdir($repo);
+    touch("{$repo}/artisan");
+    (new Process(['php', Sandbox::package().'/resources/boost/skills/laravel-project-setup/scripts/install.php', $repo,
+        '--templates='.Sandbox::package().'/resources/boost/skills/laravel-deployment/templates', "--modules={$modules}",
+        '--set', 'app=acme', '--set', 'web_port=8000', "--render-to={$render}"]))->mustRun();
+    file_put_contents("{$render}/.env", "WEB_PORT=8011\n");
+    $bin = "{$root}/bin";
+    mkdir($bin);
+    file_put_contents("{$bin}/docker", <<<'SH'
+        #!/usr/bin/env bash
+        echo "$*" >> "$FAKE_LOG"
+        case "$*" in
+            *supervisorctl\ status*) for p in $FAKE_RUNNING; do echo "$p RUNNING pid 1, uptime 0:01:00"; done ;;
+        esac
+        exit 0
+        SH);
+    file_put_contents("{$bin}/curl", <<<'SH'
+        #!/usr/bin/env bash
+        url=${!#}; path=/${url#http://*/}
+        echo "$url" >> "$FAKE_LOG"
+        code=404
+        case "$path" in /up|/kanban*) code=200 ;; esac
+        for pair in $FAKE_STATUS; do [ "${pair%%=*}" = "$path" ] && code=${pair#*=}; done
+        case "$*" in *content_type*) echo -n "$code application/json" ;; *http_code*) echo -n "$code" ;; esac
+        SH);
+    chmod("{$bin}/docker", 0755);
+    chmod("{$bin}/curl", 0755);
+    $process = new Process(['bash', 'docker/verify.sh'], $render, $env + ['PATH' => "{$bin}:".getenv('PATH'), 'FAKE_LOG' => "{$root}/calls.log",
+        'FAKE_RUNNING' => 'php-fpm caddy scheduler horizon reverb', 'FAKE_STATUS' => '']);
+    $process->run();
+
+    return $process;
+}
+
+it('probes the local stack with the deployment Verify steps a script can take', function () {
+    $passed = stackVerify('reverb');
+
+    expect($passed->getOutput())->toBe('')->and($passed->getExitCode())->toBe(0);
+
+    $failed = stackVerify('reverb', ['FAKE_RUNNING' => 'php-fpm caddy scheduler horizon', 'FAKE_STATUS' => '/.env=200']);
+
+    expect($failed->getExitCode())->toBe(1)
+        ->and($failed->getOutput())->toBe("✗ /.env answers 200, not 404\n✗ supervisor program reverb is not RUNNING\n");
+});
