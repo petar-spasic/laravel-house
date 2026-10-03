@@ -88,10 +88,10 @@ This table owns the combination rules. `install.php` enforces them and refuses a
    - **PHP minor** `{{php_version}}`: the newest this Laravel release supports. It is the same on the host, in the
      lock and in both images. Composer resolves the lock on the host, so `php -v` must show it; ask if it does not.
      Never take it from composer.json's `php` floor: the lock's dependencies may need more.
-   - **Host ports** `{{web_port}}`, `{{db_port}}`, `{{redis_port}}`, plus `{{ws_port}}` with `reverb` but not `spa`
-     (there Reverb shares the web port at `/app/*`). Each is free on this host: check `docker ps -a`, since a stopped
-     container still owns its ports, and the other compose files on the machine. Each is outside 21000–21999
-     (the kanban worktree pool). With `spa`, the web port is never 8080 (laravel-deployment `references/spa.md`).
+   - **Host ports** `{{web_port}}`, `{{db_port}}`, `{{redis_port}}`, plus `{{ws_port}}` with `reverb` but not `spa`:
+     `php "${CLAUDE_SKILL_DIR}/scripts/ports.php" --modules=…` prints them as `--set` arguments. It skips listening
+     ports, every container's ports and the kanban worktree pool. Add `--avoid=…` for another project's compose
+     ports whose stack is removed.
    - **LAN URL**: `http://<the host's LAN address>:{{web_port}}`, when the owner browses the stack from another
      machine.
 3. **One approval batch.** A single message the owner answers once. Install only what is approved.

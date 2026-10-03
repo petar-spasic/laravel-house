@@ -290,3 +290,36 @@ it('drops the root Node toolchain for spa, and names a known line it cannot find
         ->and(json_decode(file_get_contents("{$repo}/composer.json"), true)['scripts'])->not->toHaveKey('dev')
         ->and(json_decode(file_get_contents("{$repo}/composer.json"), true)['scripts']['setup'])->toBe(['composer install']);
 });
+
+function ports(array $args, array $env = []): Process
+{
+    $state = Sandbox::tmp();
+    $process = new Process(['php', Sandbox::package().'/resources/boost/skills/laravel-project-setup/scripts/ports.php', ...$args], null, $env + [
+        'PATH' => Sandbox::package().'/tests/Support/FakeDocker:'.getenv('PATH'), 'FAKE_DOCKER_DIR' => $state, 'KANBAN_STATE_DIR' => $state,
+    ]);
+    $process->run();
+
+    return $process;
+}
+
+it('picks host ports nothing listens on and no container publishes, outside the kanban pool', function () {
+    $listening = stream_socket_server('tcp://0.0.0.0:0');
+    $held = (int) substr(strrchr(stream_socket_get_name($listening, false), ':'), 1);
+    $state = Sandbox::tmp();
+    file_put_contents("{$state}/stacks.json", json_encode(['version' => 1, 'pool' => ['base' => 5400, 'block' => 10, 'first' => 1, 'last' => 4], 'stacks' => []]));
+
+    $out = ports(['--modules=reverb', "--avoid=8000,{$held}"], ['FAKE_DOCKER_BOUND' => '8001,6380', 'KANBAN_STATE_DIR' => $state])->getOutput();
+
+    preg_match_all('/--set (\w+)=(\d+)/', $out, $m);
+    $sets = array_combine($m[1], array_map('intval', $m[2]));
+    expect(array_keys($sets))->toBe(['web_port', 'db_port', 'redis_port', 'ws_port'])
+        ->and($sets['web_port'])->toBeGreaterThan(8001)
+        ->and($sets['db_port'])->toBe(5450)
+        ->and($sets['redis_port'])->toBeGreaterThan(6380)
+        ->and($sets['ws_port'])->toBeGreaterThan($sets['web_port'])
+        ->and($sets)->not->toContain($held);
+
+    $spa = ports(['--modules=spa,reverb', '--avoid=8000,8001,8002,8003,8004,8005,8006,8007,8008,8009,8010'])->getOutput();
+    expect($spa)->not->toContain('ws_port')->not->toContain('web_port=8080');
+    fclose($listening);
+});

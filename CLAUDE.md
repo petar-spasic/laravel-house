@@ -164,7 +164,7 @@ composer validate --no-check-publish
 for f in .claude-plugin/*.json composer.json; do php -r 'json_decode(file_get_contents($argv[1]), flags: JSON_THROW_ON_ERROR);' "$f"; done
 php -r '$c = json_decode(file_get_contents("composer.json"), true); foreach ($c["extra"]["laravel"]["providers"] as $p) { $f = "src/".str_replace(["PetarSpasic\\LaravelHouse\\", "\\"], ["", "/"], $p).".php"; is_file($f) || print("✗ $p\n"); }'
 find src -name '*.php' -exec php -l {} \; | grep -v '^No syntax errors'
-php -l resources/boost/skills/laravel-project-setup/scripts/install.php | grep -v '^No syntax errors'
+for f in resources/boost/skills/laravel-project-setup/scripts/*.php; do php -l "$f" | grep -v '^No syntax errors'; done
 
 # Skills
 wc -l resources/boost/skills/*/SKILL.md                         # each under 300; setup under 220
