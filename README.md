@@ -572,7 +572,9 @@ prefix of your card IDs. For example, `--key=ACME` gives cards like `ACME-7K2QF9
 php artisan kanban:install --key=ACME
 ```
 
-To see what the installer will change before it changes anything, add `--dry-run`. Then check the wiring. The
+First, `--check` lists what the installer needs from your project and machine, such as git 2.42 or later, a reachable
+`origin` that is not empty, and Docker Compose. It changes nothing. A `fail` line also stops the install itself. To
+see what the installer will change before it changes anything, add `--dry-run`. Then check the wiring. The
 `doctor` command prints `ok`, `warn` or `fail` for each check:
 
 ```shell

@@ -43,26 +43,24 @@ package met on the way goes upstream (the `kanban` skill, "Package findings").
 A project still on the separate package has an older copy of this skill. The swap in the house README, "Updating the
 Composer Package", brings this one; (d) step 2 and (e) are then done.
 
-## 1. Prerequisites: stop and report any that fail
+## 1. Prerequisites
 
-- **The house:** `petar-spasic/laravel-house` in `require-dev` and in `boost.json` `packages`, and no
-  `petar-spasic/laravel-kanban` (case (e)). A project without the house comes onto it with laravel-project-setup first.
-- **Tools:** Laravel 12 or 13, PHP ≥ 8.3, git ≥ 2.42, Docker Compose v2, Laravel Boost (`boost.json`). `ssh-keygen` on
-  the host too, when `origin` is ssh and the compose file below exists.
-- **main:** `main` is clean. The install changes files on main. Step 7 commits them.
-- **origin and sync:** `origin` decides sync (house README, "Team Sync"). Without one, the board stays on this
-  machine. With one, the install publishes the board branch (`kanban`, never `main`) with the host's git credentials
-  and pushes every later write. The owner confirms: the repository is private; the user running the install can write to it;
-  others share the board, or it stays on this machine (then `KANBAN_SYNC=off` in `.env` before step 2).
-  - An empty `origin` (`git ls-remote --heads origin` prints nothing): push `main` first (owner's OK), then install.
-    Otherwise the orphan board is pushed first, becomes the forge's default branch, and a clone checks out no code.
-  - The URL scheme: with ssh, the container syncs the page with a deploy key. With https, set `KANBAN_GIT_TOKEN` in
-    `.env` (fine-grained, read and write on this repository's contents); the local compose's helper uses it. The URL
-    in `.git/config` names a host the container resolves: no `~/.ssh/config` alias, no `insteadOf`.
-- **The board page:** `/kanban` has no login, and the local stack is LAN-visible by default. The owner chooses
-  `KANBAN_UI_TOKEN` or `WEB_BIND=127.0.0.1` in `.env` (laravel-deployment, Trap "Anyone who can reach the web port reads
-  and edits the board at `/kanban`").
-- **The stack:** a `docker-compose.local.yml`. Without one, cards get a worktree only. Ask whether that is intended.
+The project carries `petar-spasic/laravel-house` in `require-dev`, never `petar-spasic/laravel-kanban` (case (e)). A
+project without the house comes onto it with laravel-project-setup first. Then run:
+
+```bash
+php artisan kanban:install --check
+```
+
+It checks git, `main`, `origin` (reachable, not empty, a URL the container resolves), Docker Compose, the deploy key
+tools and the board page. A `fail` stops the install: fix it, with the owner's OK where it pushes. Report each `warn`.
+Then the owner answers what only they know:
+- `origin` decides sync (house README, "Team Sync"). The install publishes the board branch (`kanban`, never `main`)
+  and pushes every later write. The owner confirms the repository is private, and that the board is shared or stays on
+  this machine (then `KANBAN_SYNC=off` in `.env` before step 2).
+- `/kanban` has no login (laravel-deployment, Trap "Anyone who can reach the web port reads and edits the board at
+  `/kanban`"). The owner chooses `KANBAN_UI_TOKEN`, `WEB_BIND=127.0.0.1`, or leaving it open.
+- Without a `docker-compose.local.yml`, cards get a clone of main and no stack. Ask whether that is intended.
 
 ## 2. Install
 
