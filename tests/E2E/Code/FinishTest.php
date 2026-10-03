@@ -44,27 +44,32 @@ it('merges an approved card, marks it done and tears down its stack, worktree an
         ->and($card['work']['merge'])->toBe($sha);
 });
 
-it('prints a rebuild hint when the merge touches lockfiles, docker files or the stack compose file', function () {
+it('rebuilds main\'s stack when the merge touches lockfiles, docker files or the stack compose file', function () {
     $code = $this->code;
     $code->configure(['finish' => ['install' => []]]);
+    $root = realpath($code->root());
     $id = $code->started('Bump deps');
     $code->commit($id, 'composer.lock', "{}\n");
     $code->approve($id);
 
-    expect($code->ok(['finish', $id]))->toContain('rebuild main: composer.lock changed; run `docker compose -f docker-compose.local.yml up -d --build --force-recreate`');
+    expect($code->ok(['finish', $id]))->toContain("rebuild main: composer.lock changed; rebuilding\nrebuilt main's stack acme-local\n")
+        ->and($code->calls())->toContain("compose --project-directory {$root} -f {$root}/docker-compose.local.yml -p acme-local up -d --build --force-recreate --wait");
 
     $frontend = $code->started('Bump frontend deps');
     @mkdir($code->worktree($frontend).'/frontend', 0775, true);
     $code->commit($frontend, 'frontend/package-lock.json', "{}\n");
     $code->approve($frontend);
 
-    expect($code->ok(['finish', $frontend]))->toContain('rebuild main: frontend/package-lock.json changed');
+    expect($code->ok(['finish', $frontend], ['FAKE_DOCKER_FAIL' => 'up']))->toContain('rebuild main: frontend/package-lock.json changed; rebuilding')
+        ->toContain('warning: rebuild main failed: ')->toContain('; run `docker compose -f docker-compose.local.yml up -d --build --force-recreate --wait`');
 
     $compose = $code->started('Publish the web port on IPv4 only');
     $code->commit($compose, 'docker-compose.local.yml', file_get_contents($code->sandbox->root.'/docker-compose.local.yml')."# ipv4\n");
     $code->approve($compose);
+    $before = count($code->calls());
 
-    expect($code->ok(['finish', $compose]))->toContain('rebuild main: docker-compose.local.yml changed; run `docker compose -f docker-compose.local.yml up -d --build --force-recreate`');
+    expect($code->ok(['finish', $compose, '--no-rebuild']))->toContain('rebuild main: docker-compose.local.yml changed; run `docker compose -f docker-compose.local.yml up -d --build --force-recreate --wait`')
+        ->and(collect(array_slice($code->calls(), $before))->contains(fn ($call) => str_contains($call, ' up ')))->toBeFalse();
 });
 
 it('refuses to finish', function (Closure $arrange, int $exit, string $message, string $stage) {

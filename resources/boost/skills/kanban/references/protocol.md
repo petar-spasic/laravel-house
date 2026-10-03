@@ -121,6 +121,6 @@ two, `accept=@-` replaces them all.
 | Teammate without the merge driver | `attach` / `doctor --fix` configure it; SessionStart verifies |
 | Container git unusable (UI) | Writes go to the journal; the next host write, `sweep` or `sync` commits them |
 | No stack slot / resources | Exit 7 names it: `stack gc`, finish or stop a card, or widen the Docker address pools |
-| Main behind merged migrations | `finish` runs `kanban.migrate` and `finish.after`, and prints `rebuild main` when lockfiles or docker files changed |
+| Main behind merged migrations | `finish` runs `kanban.migrate` and `finish.after`, and rebuilds main's stack when lockfiles, docker files or the compose file changed (`--no-rebuild` skips it) |
 | Board version 1 | Every board command refuses; the owner runs `/implement-kanban` (`fold-boards`). `sync`, `doctor`, `attach` and `kanban:install` still run |
 | A card deleted on origin, edited here | Sync keeps the local copy in `.git/laravel-house/displaced/`; `doctor` lists it |

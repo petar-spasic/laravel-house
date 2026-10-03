@@ -108,7 +108,7 @@ Before a card is created, and before it is promoted:
      (`.claude/`, `config/kanban.php`, hooks, `.gitattributes`): show the owner the diff; `--force` with their OK.
    - `main is red`: the main check failed after an earlier merge, and the bug card it filed holds the next `finish`:
      start that card next (`--force` merges anyway, with the owner).
-   - `main: not pushed (…)`: `publish` later. `rebuild main: …`: run the printed compose command.
+   - `main: not pushed (…)`: `publish` later. `warning: rebuild main failed`: read the error, then run the printed compose command.
    - Finish approved cards in the order the brief lists them, oldest approval first.
 9. **Rejected.** The card is back in doing; `show <ID>` prints the `SendMessage` text for its worker, or spawn a
    fresh worker with the line `show <ID>` prints.

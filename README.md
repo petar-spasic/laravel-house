@@ -710,7 +710,9 @@ command, then the commands in `finish.after`, read from the merged code. By defa
 
 A `db:seed --class=…` command is skipped while that seeder does not exist. List your test suite in `finish.check` to
 run it on `main` after each merge: while it fails, the next `finish` waits. `finish` also pushes `main` once
-`publish.every` merges (5 by default) are not on your remote.
+`publish.every` merges (5 by default) are not on your remote. When the merge changed a lockfile, a docker file or the
+compose file, `finish` rebuilds your main stack. If that fails, it prints the command to run, and the card stays done.
+Pass `--no-rebuild` to skip it.
 
 A card that changes the files that steer the agents or git (`.claude/`, `config/kanban.php`, a hooks directory,
 `.gitattributes`) waits for you: `finish` refuses it until you have read the diff and run `kanban finish ID --force`.

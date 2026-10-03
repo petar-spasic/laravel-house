@@ -6,6 +6,7 @@ use PetarSpasic\LaravelHouse\Kanban\Code\DatabaseSteps;
 use PetarSpasic\LaravelHouse\Kanban\Code\MainCheck;
 use PetarSpasic\LaravelHouse\Kanban\Code\MainPush;
 use PetarSpasic\LaravelHouse\Kanban\Code\MergeCheck;
+use PetarSpasic\LaravelHouse\Kanban\Code\Stack;
 use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Lease;
 use PetarSpasic\LaravelHouse\Kanban\Store\Card;
@@ -13,6 +14,7 @@ use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Conflict;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\GitFailed;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\KanbanException;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
+use PetarSpasic\LaravelHouse\Kanban\Support\DotEnv;
 use PetarSpasic\LaravelHouse\Kanban\Support\Git;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Process\Process;
@@ -22,7 +24,8 @@ class FinishCommand extends Command
 {
     protected $signature = 'kanban:finish
         {id : Card id or unique prefix}
-        {--force : Merge anyway, with the owner: while main is red (finish.check failed after an earlier merge), or a branch that changes kanban\'s own files}';
+        {--force : Merge anyway, with the owner: while main is red (finish.check failed after an earlier merge), or a branch that changes kanban\'s own files}
+        {--no-rebuild : Leave main\'s stack alone when the merge changed its lockfiles, docker files or compose file}';
 
     protected $description = 'Merge an approved card into main, mark it done, then tear down its stack, worktree and branch';
 
@@ -102,10 +105,7 @@ class FinishCommand extends Command
         }
 
         $exit = $this->afterMerge($worktrees, $files, $mainCheck, $card, $sha);
-        $compose = $this->setting('stack.compose_file') ?? 'docker-compose.yml';
-        if (($rebuild = MergeCheck::rebuildFiles($files, $compose)) !== []) {
-            $this->say('rebuild main: '.implode(', ', $rebuild)." changed; run `docker compose -f {$compose} up -d --build --force-recreate`");
-        }
+        $this->rebuildMain($files);
 
         if ($worktrees->down($path, $work['stack']['project'] ?? null)) {
             $this->say(isset($work['stack']['project']) ? "stack down {$work['stack']['project']}; slot released" : 'stack none');
@@ -263,5 +263,33 @@ class FinishCommand extends Command
         $this->fault("{$kind}: {$command}{$where} failed (exit {$process->getExitCode()}): ".Worktrees::tail($process->getErrorOutput() ?: $process->getOutput()));
 
         return false;
+    }
+
+    /**
+     * Rebuilds main's stack when the merge changed what its image or compose file is built from. A failure only warns:
+     * the merge is done, and the owner runs the printed command.
+     *
+     * @param  list<string>  $files
+     */
+    private function rebuildMain(array $files): void
+    {
+        $stack = (array) $this->setting('stack');
+        $compose = $stack['compose_file'] ?? 'docker-compose.yml';
+        if (($rebuild = MergeCheck::rebuildFiles($files, $compose)) === []) {
+            return;
+        }
+        $command = "docker compose -f {$compose} up -d --build --force-recreate --wait";
+        $project = DotEnv::parse($this->paths()->main.'/.env')['COMPOSE_PROJECT_NAME'] ?? '';
+        if ($this->option('no-rebuild') || $project === '' || ! Stack::enabled($stack, $this->paths()->main)) {
+            $this->say('rebuild main: '.implode(', ', $rebuild)." changed; run `{$command}`");
+
+            return;
+        }
+        $this->say('rebuild main: '.implode(', ', $rebuild).' changed; rebuilding');
+        $result = (new Stack($this->paths()->main, $project, $stack, $this->paths()->main))
+            ->compose(['up', '-d', '--build', '--force-recreate', '--wait'], 1800);
+        $this->say($result['code'] === 0
+            ? "rebuilt main's stack {$project}"
+            : 'warning: rebuild main failed: '.Worktrees::tail($result['err'] ?: "exit {$result['code']}")."; run `{$command}`");
     }
 }
