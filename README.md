@@ -928,8 +928,8 @@ vendor/bin/kanban fold ACME-B7Q2PX --into=ACME-A1K8ZT
 ### Questions and Rules
 
 Decisions are yours to make. When Claude meets a question, it puts it on the card that needs the answer, which then
-waits in `backlog`, and asks you. Once you answer, it writes the answer onto the card and moves it on. It never answers
-one by itself.
+waits in `backlog`, and asks you. Once you answer, it writes the answer onto the card, under an `## Owner answer` heading, and moves it on. It never
+answers one by itself. Its own notes on a card are information, never your decision.
 
 A rule that every card must follow, such as "money is stored in cents", goes into the `CLAUDE.md` file of the
 directory it governs. Every agent reads those files.
@@ -1185,11 +1185,11 @@ The [protocol reference](resources/boost/skills/kanban/references/protocol.md) l
 
 | Command | Description |
 |---|---|
-| `start ID` | Claims a card and creates its clone and stack. |
+| `start ID` | Claims a card and creates its clone and stack. A branch that `stop` kept is reused, with the latest `main` merged in. A refusal names the card ahead on the same area, or the limit it hit. |
 | `refresh ID` | Merges the latest `main` into the card's branch. When the merge changes a lockfile, a docker file or the compose file, it recreates the card's stack. |
-| `wait [ID]` | Waits until the card's agent has stopped and its report or verdict is on the board. |
+| `wait [ID]` | Waits until the card's agent has stopped and its report or verdict is on the board. Without an ID, it waits for any card in `doing` or `review`. |
 | `finish ID` | Merges an approved card into `main` and cleans up. |
-| `stop ID --to=STAGE` | Takes a card out of work and cleans up. |
+| `stop ID --to=STAGE` | Takes a card out of work and cleans up. A branch with commits is kept for the next `start`. |
 | `stack ID up\|down\|reload\|logs\|url` | Manages a card's stack. `stack ID exec -- CMD` runs a command in it. |
 | `gates` | Runs the quality gates in a card. |
 | `sync` | Pulls and pushes the board. |
@@ -1205,7 +1205,8 @@ cause and its fix. The most common ones are:
 - **"Agent type not found", or the hooks do not run.** Restart Claude Code after installing or updating.
 - **`set` exits with "a locked stage".** The card is in a locked stage: `doing`, `review` or `done`.
   See [Locked Stages](#locked-stages).
-- **Several cards are ready but only one starts.** They share an area. `vendor/bin/kanban next -v` says so.
+- **Several cards are ready but only one starts.** They share an area. `vendor/bin/kanban next -v` says so, and a
+  refused `start` names the card ahead.
 - **Every command says "an older board format".** The board predates version 3: boards inside epic directories.
   Run `/implement-kanban`.
 - **Compose fails after about six stacks.** Widen the [Docker address pools](#docker-address-pools).
