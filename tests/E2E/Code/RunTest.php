@@ -68,17 +68,27 @@ it('takes a ready card to done: a headless worker, a headless evaluator, then th
     [$worker, $evaluator] = runLaunches($this->claude);
     $session = $worker[array_search('--session-id', $worker, true) + 1];
     $main = realpath($this->code->root());
-    expect(array_slice($worker, 0, 13))->toBe(['-p', '--agent', 'kanban-worker', '--permission-mode', 'acceptEdits', '--permission-prompts', 'none',
+    expect(array_slice($worker, 0, 17))->toBe(['-p', '--agent', 'kanban-worker', '--model', 'sonnet', '--effort', 'high', '--permission-mode', 'acceptEdits', '--permission-prompts', 'none',
         '--settings', json_encode(['permissions' => ['allow' => ['Bash('.Guard::kanban($main).' *)', ClaudeSettings::execPermission($main)]]], JSON_UNESCAPED_SLASHES),
         '--allowedTools', 'WebFetch,WebSearch', '--output-format', 'json'])
         ->and(end($worker))->toBe("Card {$id}. Worktree {$wt}")
-        ->and($evaluator[2])->toBe('kanban-evaluator')
+        ->and(array_slice($evaluator, 1, 6))->toBe(['--agent', 'kanban-evaluator', '--model', 'opus', '--effort', 'medium'])
         ->and($session)->toMatch('/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/');
 
     $runs = array_map(fn ($l) => json_decode($l, true), array_filter(explode("\n", (string) file_get_contents($this->code->root().'/.git/laravel-house/runs.jsonl'))));
     expect(array_values($runs)[0])->toMatchArray(['card' => $id, 'type' => 'kanban-worker', 'session' => $session, 'turns' => 3, 'tokens' => 21510, 'cost_usd' => 0.25, 'error' => null])
         ->and(runPass($this->code, $this->claude))->toContain('idle')
         ->and($this->code->ok(['lease']))->toContain('held by run:');
+});
+
+it('launches each agent on its configured model and effort, whatever the launching session runs on', function () {
+    $this->code->configure(['gates' => ['report' => []], 'agents' => ['worker' => ['model' => 'opus', 'effort' => 'xhigh']]]);
+    $this->code->sandbox->readyCard('Add login page');
+
+    runPass($this->code, $this->claude, env: ['CLAUDE_EFFORT' => 'low', 'ANTHROPIC_MODEL' => 'haiku']);
+
+    expect(array_slice(runLaunches($this->claude)[0], 1, 6))->toBe(['--agent', 'kanban-worker', '--model', 'opus', '--effort', 'xhigh'])
+        ->and(trim((string) file_get_contents($this->claude.'/env.log')))->toBe('[]');
 });
 
 it('resumes the same worker session after a reject', function () {

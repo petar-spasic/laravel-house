@@ -20,7 +20,8 @@ return [
     ],
 
     'agents' => [
-        // Written into the frontmatter of .claude/agents/kanban-{worker,evaluator}.md by kanban:install / doctor --fix.
+        // Passed as --model and --effort to the agents `kanban run` starts, and written into the frontmatter of
+        // .claude/agents/kanban-{worker,evaluator}.md by kanban:install / doctor --fix.
         'worker' => ['model' => 'sonnet', 'effort' => 'high'],
         'evaluator' => ['model' => 'opus', 'effort' => 'medium'],
         // container: a worker's or evaluator's Bash and Monitor commands run in its card stack's `stack.service`

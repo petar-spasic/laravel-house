@@ -47,8 +47,8 @@ are in `references/protocol.md`; card sizing in depth is `references/planning.md
 - What the owner must hear goes on the board as you go (`set <ID> note="…"`, question blocks), never only in a
   scratchpad or under `/tmp`. A note is yours, never the owner's: evaluators take owner authority only from an
   `## Owner answer` section or a `CLAUDE.md` rule.
-- The agents' model and effort come from `kanban.agents` in `config/kanban.php`: change them there, `doctor --fix`,
-  restart Claude Code.
+- The agents' model and effort come from `kanban.agents` in `config/kanban.php`. `kanban run` passes them as flags
+  to each agent it starts; `doctor --fix` writes them into the agent files for agents you spawn yourself.
 
 ## Planning cards
 

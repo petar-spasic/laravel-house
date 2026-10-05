@@ -2,6 +2,7 @@
 
 namespace PetarSpasic\LaravelHouse\Kanban\Code;
 
+use PetarSpasic\LaravelHouse\Kanban\Console\Install\ClaudeAgents;
 use PetarSpasic\LaravelHouse\Kanban\Console\Install\ClaudeSettings;
 use PetarSpasic\LaravelHouse\Kanban\Guard\Guard;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Runtime;
@@ -13,6 +14,7 @@ use Symfony\Component\Process\Process;
 
 /**
  * Headless card agents for `kanban run`: each is `claude -p --agent kanban-worker|kanban-evaluator` in main's checkout,
+ * with the model and effort of `kanban.agents.<role>` passed as flags and no model or effort inherited from the environment,
  * detached (its own session, so stopping `run` leaves it working), bound to its card by its session id. A run's pid
  * file sits in `runs/` until the run is reaped; its result JSON and stderr beside it; one line per ended run in
  * `runs.jsonl`.
@@ -22,6 +24,9 @@ final class AgentRun
     public const WORKER = 'kanban-worker';
 
     public const EVALUATOR = 'kanban-evaluator';
+
+    /** The launching session's model and effort, which would otherwise override the flags or the agent file. */
+    private const INHERITED = ['CLAUDE_EFFORT' => false, 'CLAUDE_CODE_EFFORT_LEVEL' => false, 'ANTHROPIC_MODEL' => false, 'CLAUDE_CODE_SUBAGENT_MODEL' => false];
 
     /** @param  array<string, mixed>  $config  the `kanban` config */
     public function __construct(private readonly Paths $paths, private readonly array $config) {}
@@ -55,14 +60,20 @@ final class AgentRun
         // Guard's routed commands, allowed here and not through settings.local.json, which an untrusted checkout ignores
         $main = realpath($this->paths->main) ?: $this->paths->main;
         $allow = ['permissions' => ['allow' => ['Bash('.Guard::kanban($main).' *)', ClaudeSettings::execPermission($main)]]];
-        $args = ['claude', '-p', '--agent', $type, '--permission-mode', 'acceptEdits', '--permission-prompts', 'none',
+        $pinned = [];
+        foreach (['model', 'effort'] as $key) {
+            if (($value = ClaudeAgents::setting($this->config, $type, $key)) !== null) {
+                array_push($pinned, "--{$key}", $value);
+            }
+        }
+        $args = ['claude', '-p', '--agent', $type, ...$pinned, '--permission-mode', 'acceptEdits', '--permission-prompts', 'none',
             '--settings', json_encode($allow, JSON_UNESCAPED_SLASHES),
             ...($tools === [] ? [] : ['--allowedTools', implode(',', $tools)]),
             '--output-format', 'json', $resume === null ? '--session-id' : '--resume', $session, $prompt];
         $dir = $this->paths->ensureRuntime('runs');
         $process = Process::fromShellCommandline('setsid nohup '.implode(' ', array_map('escapeshellarg', $args))
             .' > '.escapeshellarg("{$dir}/{$session}.json").' 2> '.escapeshellarg("{$dir}/{$session}.log").' < /dev/null & echo $!',
-            $this->paths->main, ['KANBAN_SESSION' => false, 'KANBAN_TRANSCRIPT' => false]);
+            $this->paths->main, ['KANBAN_SESSION' => false, 'KANBAN_TRANSCRIPT' => false, ...self::INHERITED]);
         $process->mustRun();
         file_put_contents("{$dir}/{$session}.pid", json_encode([
             'pid' => (int) trim($process->getOutput()), 'card' => $card->id(), 'type' => $type, 'started' => Clock::now(),

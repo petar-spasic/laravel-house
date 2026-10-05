@@ -3,7 +3,7 @@
 
 /*
  * Fake `claude` for the E2E tests of `kanban run`: a headless card session. Each call appends its argv as one JSON line
- * to $FAKE_CLAUDE_DIR/calls.log, then plays the session in the working directory (main's checkout):
+ * to $FAKE_CLAUDE_DIR/calls.log and the model and effort variables it inherited to env.log, then plays the session in the working directory (main's checkout):
  *
  * $FAKE_CLAUDE_DIR/<agent>.sh     run with bash and CARD, WORKTREE, SESSION in the environment (the agent's work,
  *                                 e.g. a commit and `vendor/bin/kanban --in="$WORKTREE" report …`); none: does nothing
@@ -17,6 +17,7 @@ $dir = getenv('FAKE_CLAUDE_DIR') ?: sys_get_temp_dir().'/fake-claude';
 @mkdir($dir, 0775, true);
 $args = array_slice($argv, 1);
 file_put_contents($dir.'/calls.log', json_encode($args)."\n", FILE_APPEND | LOCK_EX);
+file_put_contents($dir.'/env.log', json_encode(array_filter(array_map('getenv', ['CLAUDE_EFFORT' => 'CLAUDE_EFFORT', 'ANTHROPIC_MODEL' => 'ANTHROPIC_MODEL']), 'is_string'))."\n", FILE_APPEND | LOCK_EX);
 
 $option = function (string $name) use ($args): ?string {
     $at = array_search($name, $args, true);

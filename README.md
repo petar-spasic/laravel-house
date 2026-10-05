@@ -672,8 +672,11 @@ change either one in the `agents` section of `config/kanban.php`:
 ],
 ```
 
-These values are written into the agent files. After changing them, run `vendor/bin/kanban doctor --fix` and restart
-Claude Code.
+`kanban run` passes these values to every agent it starts as `--model` and `--effort`. The model and effort of the
+session that runs it never reach its agents, so a change applies from the next agent it starts.
+
+The values are also written into the agent files, which decide for agents your session spawns itself. After changing
+them, run `vendor/bin/kanban doctor --fix` and restart Claude Code.
 
 Agents that `kanban run` starts have nobody to approve a tool. They may edit their card's files and run commands in
 its container. Besides that, they may use only the tools in `allowed_tools`, which by default are WebFetch and

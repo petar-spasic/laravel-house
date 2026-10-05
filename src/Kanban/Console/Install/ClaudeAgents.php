@@ -56,13 +56,24 @@ final class ClaudeAgents extends Step
     {
         [$frontmatter, $body] = explode("\n---\n", self::stub("claude/agents/{$agent}.md"), 2);
         foreach (['model', 'effort'] as $key) {
-            $value = $this->config['agents'][substr($agent, 7)][$key] ?? null;
-            if (is_string($value) && preg_match('/^[A-Za-z0-9._\[\]-]+$/', $value)) {
+            if (($value = self::setting($this->config, $agent, $key)) !== null) {
                 $frontmatter = (string) preg_replace("/^{$key}: .*$/m", "{$key}: {$value}", $frontmatter);
             }
         }
 
         return $frontmatter."\n---\n".$body;
+    }
+
+    /**
+     * `kanban.agents.<role>.<key>` ($key model or effort) for $agent, or null when unset or not a plain value.
+     *
+     * @param  array<string, mixed>  $config  the `kanban` config
+     */
+    public static function setting(array $config, string $agent, string $key): ?string
+    {
+        $value = $config['agents'][substr($agent, 7)][$key] ?? null;
+
+        return is_string($value) && preg_match('/^[A-Za-z0-9._\[\]-]+$/', $value) ? $value : null;
     }
 
     private static function file(string $agent): string
