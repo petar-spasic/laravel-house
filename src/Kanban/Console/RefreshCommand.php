@@ -2,6 +2,7 @@
 
 namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
+use PetarSpasic\LaravelHouse\Kanban\Code\MergeCheck;
 use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
 use PetarSpasic\LaravelHouse\Kanban\Policy\Transitions;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Lease;
@@ -109,6 +110,11 @@ class RefreshCommand extends Command
         if ($arrived !== null) {
             $this->say($arrived);
         }
+        $rebuild = MergeCheck::rebuildFiles(array_values(array_filter(explode("\n", trim($git->attempt(['diff', '--name-only', "{$before}...{$after}"])->out)))),
+            $this->config()['stack']['compose_file'] ?? null);
+        if ($rebuild !== [] && ($entry = $worktrees->freshen($path)) !== null) {
+            $this->say("reloaded {$entry['project']}: ".implode(', ', $rebuild).' changed');
+        }
         $this->spawn($card, $path);
 
         return self::SUCCESS;
@@ -158,7 +164,7 @@ class RefreshCommand extends Command
     {
         return "Card {$id}: {$main} moved; a merge of {$main} into your branch is in progress in your worktree, with conflicts in "
             .implode(', ', $files).'. Resolve each conflict by keeping both sides\' content and adding nothing neither side had, '
-            .'then `git add` the files and `git commit --no-edit` to conclude the merge. After it, run the `database` commands '
+            .'then `git add` the files and `git commit --no-edit` to conclude the merge. After it, run `vendor/bin/kanban stack wait`, the `database` commands '
             ."`vendor/bin/kanban context` lists, `vendor/bin/kanban gates` and the whole test suite, then report with `vendor/bin/kanban report {$id} --status=review`.";
     }
 }

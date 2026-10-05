@@ -2,7 +2,6 @@
 
 namespace PetarSpasic\LaravelHouse\Kanban\Code;
 
-use FilesystemIterator;
 use Illuminate\Support\Str;
 use PetarSpasic\LaravelHouse\Kanban\Store\Card;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\GitFailed;
@@ -10,8 +9,6 @@ use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
 use PetarSpasic\LaravelHouse\Kanban\Support\Git;
 use PetarSpasic\LaravelHouse\Kanban\Support\Json;
 use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
-use RecursiveDirectoryIterator;
-use RecursiveIteratorIterator;
 use Symfony\Component\Process\Process;
 
 /**
@@ -366,34 +363,68 @@ final class Worktrees
         @unlink($this->recordFile($path, $main));
     }
 
-    /** Hash of the files whose change needs a rebuilt, recreated stack (MergeCheck::REBUILD and the compose file). */
+    /**
+     * Hash of the files whose change needs a rebuilt, recreated stack (MergeCheck::rebuildFiles), tracked or untracked;
+     * ignored ones (vendor, node_modules) never count.
+     */
     public function dockerHash(string $path): string
     {
-        $files = [];
-        foreach ([...MergeCheck::REBUILD, (string) ($this->config['stack']['compose_file'] ?? '')] as $pattern) {
-            $full = $path.'/'.rtrim($pattern, '/');
-            if ($pattern === '' || ! file_exists($full)) {
-                continue;
-            }
-            if (is_file($full)) {
-                $files[$pattern] = $full;
-
-                continue;
-            }
-            $tree = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($full, FilesystemIterator::SKIP_DOTS));
-            foreach ($tree as $file) {
-                if ($file->isFile()) {
-                    $files[substr($file->getPathname(), strlen($path) + 1)] = $file->getPathname();
-                }
-            }
-        }
-        ksort($files);
+        $listed = $this->git($path)->attempt(['ls-files', '-z', '--cached', '--others', '--exclude-standard'])->out;
+        $files = array_unique(MergeCheck::rebuildFiles(array_filter(explode("\0", $listed)), $this->config['stack']['compose_file'] ?? null));
+        sort($files);
         $hash = hash_init('sha256');
-        foreach ($files as $relative => $file) {
-            hash_update($hash, $relative."\0".hash_file('sha256', $file)."\n");
+        foreach ($files as $file) {
+            if (is_file($path.'/'.$file)) {
+                hash_update($hash, $file."\0".hash_file('sha256', $path.'/'.$file)."\n");
+            }
         }
 
         return hash_final($hash);
+    }
+
+    /**
+     * Recreates a stack whose docker files or lockfiles changed since it came up: the entry it now runs on, or null when
+     * it was fresh or never came up.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function freshen(string $path): ?array
+    {
+        $hash = $this->stackRecord($path)['hash'] ?? null;
+        if ($hash === null || $hash === $this->dockerHash($path)) {
+            return null;
+        }
+
+        return $this->up($path, $this->git($path)->line(['symbolic-ref', '--short', '-q', 'HEAD']), $this->registry()->find($path)['card'] ?? null, recreate: true);
+    }
+
+    /**
+     * Polls `http://127.0.0.1:<WEB_PORT><stack.health_path>` until 200 or `stack.wait_timeout`: true once it answers.
+     *
+     * @param  array<string, mixed>  $entry
+     */
+    public function ready(array $entry): bool
+    {
+        $deadline = microtime(true) + (float) ($this->config['stack']['wait_timeout'] ?? 110);
+        $context = stream_context_create(['http' => ['timeout' => 2, 'ignore_errors' => true]]);
+        do {
+            $started = microtime(true);
+            $body = @file_get_contents($this->healthUrl($entry), false, $context);
+            if ($body !== false && preg_match('#^HTTP/\S+\s+200\b#', $http_response_header[0] ?? '')) {
+                return true;
+            }
+            usleep((int) max(0, 1_000_000 - (microtime(true) - $started) * 1_000_000));
+        } while (microtime(true) < $deadline);
+
+        return false;
+    }
+
+    /** @param  array<string, mixed>  $entry */
+    public function healthUrl(array $entry): string
+    {
+        $port = $entry['ports']['WEB_PORT'] ?? throw new StackFailed('no WEB_PORT in stack.ports');
+
+        return 'http://127.0.0.1:'.$port.($this->config['stack']['health_path'] ?? '/up');
     }
 
     /** Stack down with `stack.down`; the slot is released only after a successful down. */

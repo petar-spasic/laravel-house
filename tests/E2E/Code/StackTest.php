@@ -170,6 +170,48 @@ it('recreates a running stack on wait once its docker files changed, and only th
         ->and($recreates())->toBe(1);
 });
 
+it('counts a lockfile at any depth among the docker files, and not one under vendor', function () {
+    $code = $this->code;
+    $id = $code->started('Frontend packages');
+    $wt = $code->worktree($id);
+    $lc = basename($wt);
+    $web = $code->base + 10;
+    $code->ok(['stack', 'down'], cwd: $wt);
+    $code->ok(['stack', 'wait'], ['FAKE_DOCKER_SERVE' => '1'], $wt);
+
+    @mkdir($wt.'/vendor/acme/notes', 0775, true);
+    file_put_contents($wt.'/vendor/acme/notes/composer.lock', "{}\n");
+    expect($code->ok(['stack', 'wait'], cwd: $wt))->toBe("ready http://127.0.0.1:{$web}/up\n");
+
+    @mkdir($wt.'/frontend', 0775, true);
+    file_put_contents($wt.'/frontend/package-lock.json', "{\"lockfileVersion\": 3}\n");
+    expect($code->ok(['stack', 'wait'], cwd: $wt))->toBe("reloaded acme-wt-{$lc}: docker files changed\nready http://127.0.0.1:{$web}/up\n");
+});
+
+it('reloads a stale stack before the gates run', function () {
+    $code = $this->code;
+    $code->configure(['gates' => ['report' => ['true']]]);
+    $id = $code->started('Gate on a fresh stack');
+    $wt = $code->worktree($id);
+    $lc = basename($wt);
+    $web = $code->base + 10;
+    $code->ok(['stack', 'down'], cwd: $wt);
+    $code->ok(['stack', 'wait'], ['FAKE_DOCKER_SERVE' => '1'], $wt);
+    $recreates = fn () => count(array_filter($code->calls(), fn ($call) => str_contains($call, 'up -d --build --force-recreate')));
+
+    expect($code->ok(['gates'], cwd: $wt))->toBe("pass true (exit 0)\n");
+
+    @mkdir($wt.'/docker', 0775, true);
+    file_put_contents($wt.'/docker/Caddyfile.local', ":8080 {\n}\n");
+    $stale = 'stack stale: docker files or lockfiles changed since it came up; `vendor/bin/kanban stack wait` recreates it';
+
+    expect($code->ok(['context', $id]))->toContain($stale)
+        ->and($code->ok(['gates'], cwd: $wt))->toBe("reloaded acme-wt-{$lc}: docker files changed\nready http://127.0.0.1:{$web}/up\npass true (exit 0)\n")
+        ->and($recreates())->toBe(1)
+        ->and($code->ok(['gates'], cwd: $wt))->toBe("pass true (exit 0)\n")
+        ->and($code->ok(['context', $id]))->not->toContain($stale);
+});
+
 it('reloads its own stack from a worktree and any card stack from main', function () {
     $code = $this->code;
     $id = $code->started('Reload me');

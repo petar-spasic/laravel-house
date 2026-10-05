@@ -78,6 +78,9 @@ class ReportCommand extends Command
         if ($gates->commands() === []) {
             return null;
         }
+        foreach ($gates->freshen($git->cwd) as $line) {
+            $this->say($line);
+        }
         $status = $git->attempt(['status', '--porcelain', '--untracked-files=all'])->out;
         $failure = $gates->failure($git->cwd);
         if ($git->line(['rev-parse', 'HEAD']) !== $head || $git->attempt(['status', '--porcelain', '--untracked-files=all'])->out !== $status) {

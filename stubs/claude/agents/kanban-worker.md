@@ -97,5 +97,6 @@ When the main session sends you a message (an evaluator reject, a merge of main 
 1. `vendor/bin/kanban context` shows the failed checks, the issues and any conflicted files.
 2. A merge of main in progress: resolve each conflict keeping both sides' content and adding nothing neither side
    had, `git add` the files, `git commit --no-edit`.
-3. After any merge of main: run the `database` commands `context` prints, the gates and the whole test suite.
+3. After any merge of main: `vendor/bin/kanban stack wait` (it recreates a stack whose docker files or lockfiles
+   changed), then the `database` commands `context` prints, the gates and the whole test suite.
 4. Fix, commit, prove again, then report again as in section 4. A card already in review takes a follow-up report.

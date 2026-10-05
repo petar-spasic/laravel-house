@@ -1179,7 +1179,7 @@ The [protocol reference](resources/boost/skills/kanban/references/protocol.md) l
 | Command | Description |
 |---|---|
 | `start ID` | Claims a card and creates its clone and stack. |
-| `refresh ID` | Merges the latest `main` into the card's branch. |
+| `refresh ID` | Merges the latest `main` into the card's branch. When the merge changes a lockfile, a docker file or the compose file, it recreates the card's stack. |
 | `wait [ID]` | Waits until the card's agent has stopped and its report or verdict is on the board. |
 | `finish ID` | Merges an approved card into `main` and cleans up. |
 | `stop ID --to=STAGE` | Takes a card out of work and cleans up. |

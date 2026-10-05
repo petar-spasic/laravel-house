@@ -115,6 +115,23 @@ final class Gates
     }
 
     /**
+     * Recreates the card's stack when its docker files or lockfiles changed since it came up (a merge of main brought
+     * them), so no gate runs against the old image: what to print, empty when the stack was fresh.
+     *
+     * @return list<string>
+     */
+    public function freshen(string $worktree): array
+    {
+        $worktrees = new Worktrees(Paths::discover($worktree), $this->config);
+        if (($entry = $worktrees->freshen($worktree)) === null) {
+            return [];
+        }
+        $url = $worktrees->healthUrl($entry);
+
+        return ["reloaded {$entry['project']}: docker files changed", $worktrees->ready($entry) ? "ready {$url}" : "starting {$url}: not 200 yet"];
+    }
+
+    /**
      * Every gate, run in order.
      *
      * @return list<array{run: string, ok: bool, why: string, tail: string}>

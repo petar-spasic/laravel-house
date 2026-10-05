@@ -96,10 +96,14 @@ final class Context
             $lines[] = 'stack '.($stack['url'] ?? '-').($ports === [] ? '' : ' ports '.implode(' ', array_map(fn ($k, $v) => "{$k}={$v}", array_keys($ports), $ports)));
         }
         if ($worktree !== null) {
-            $record = (new Worktrees($this->paths, $this->config))->stackRecord($worktree);
+            $worktrees = new Worktrees($this->paths, $this->config);
+            $record = $worktrees->stackRecord($worktree);
             $lines[] = ($record['shell'] ?? null) === 'container'
                 ? "shell in container {$record['container']}, git included; a plain vendor/bin/kanban command runs on this machine"
                 : 'shell on this machine (no card container), started in the worktree';
+            if (is_string($record['hash'] ?? null) && is_dir($worktree) && $record['hash'] !== $worktrees->dockerHash($worktree)) {
+                $lines[] = 'stack stale: docker files or lockfiles changed since it came up; `vendor/bin/kanban stack wait` recreates it';
+            }
         }
         $lines[] = 'acceptance:';
         $byMain = $this->tickedByMain($card);

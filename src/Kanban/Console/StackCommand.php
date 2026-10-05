@@ -206,12 +206,11 @@ class StackCommand extends Command
         $this->requireWorktree($path);
         $entry = $this->worktrees->registry()->find($path);
         $stack = $entry === null ? null : $this->worktrees->stack($path, $entry['project']);
-        $hash = $this->worktrees->stackRecord($path)['hash'] ?? null;
         if ($stack === null || ! $stack->running()) {
             $entry = $this->worktrees->up($path, $this->branch($path), $card);
             $this->say("up {$entry['project']}");
-        } elseif ($hash !== null && $hash !== $this->worktrees->dockerHash($path)) {
-            $entry = $this->worktrees->up($path, $this->branch($path), $card, recreate: true);
+        } elseif (($reloaded = $this->worktrees->freshen($path)) !== null) {
+            $entry = $reloaded;
             $this->say("reloaded {$entry['project']}: docker files changed");
         } else {
             $this->worktrees->record($path, $entry['project']);
@@ -251,20 +250,12 @@ class StackCommand extends Command
     /** @param  array<string, mixed>  $entry */
     private function ready(array $entry): int
     {
-        $port = $entry['ports']['WEB_PORT'] ?? throw new StackFailed('no WEB_PORT in stack.ports');
-        $url = 'http://127.0.0.1:'.$port.$this->setting('stack.health_path', '/up');
-        $deadline = microtime(true) + (float) $this->setting('stack.wait_timeout', 110);
-        $context = stream_context_create(['http' => ['timeout' => 2, 'ignore_errors' => true]]);
-        do {
-            $started = microtime(true);
-            $body = @file_get_contents($url, false, $context);
-            if ($body !== false && preg_match('#^HTTP/\S+\s+200\b#', $http_response_header[0] ?? '')) {
-                $this->say("ready {$url}");
+        $url = $this->worktrees->healthUrl($entry);
+        if ($this->worktrees->ready($entry)) {
+            $this->say("ready {$url}");
 
-                return self::SUCCESS;
-            }
-            usleep((int) max(0, 1_000_000 - (microtime(true) - $started) * 1_000_000));
-        } while (microtime(true) < $deadline);
+            return self::SUCCESS;
+        }
         $this->say("starting {$url}: not 200 yet; run `kanban stack wait` again");
 
         return 75;

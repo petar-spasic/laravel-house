@@ -23,7 +23,11 @@ class GatesCommand extends Command
             ? $snapshot->resolve($this->argument('id'))
             : ($context->cardAt($snapshot, $this->paths()->cwd) ?? throw new NotFound('the cwd is not the worktree of a card in doing or review: run it from the card\'s worktree'));
         $worktree = $context->requireInside($card, $this->paths()->cwd, 'gates');
-        $results = (new Gates($this->config()))->results($worktree);
+        $gates = new Gates($this->config());
+        foreach ($gates->freshen($worktree) as $line) {
+            $this->say($line);
+        }
+        $results = $gates->results($worktree);
         if ($results === []) {
             $this->say('gates: none');
         }
