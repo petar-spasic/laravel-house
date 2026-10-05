@@ -14,7 +14,11 @@ use Symfony\Component\HttpFoundation\Response;
  */
 class UiToken
 {
-    public const COOKIE = 'kanban_token';
+    /** Named after the token: a cookie is shared by every port of a host, so each board on it needs a name of its own. */
+    public static function cookie(string $token): string
+    {
+        return 'kanban_token_'.substr(hash('sha256', $token), 0, 8);
+    }
 
     public function handle(Request $request, Closure $next): Response
     {
@@ -22,7 +26,7 @@ class UiToken
             return $next($request);
         }
         $token = (string) config('kanban.ui.token');
-        $given = (string) ($request->query('token') ?? $request->header('X-Kanban-Token') ?? $request->cookie(self::COOKIE) ?? '');
+        $given = (string) ($request->query('token') ?? $request->header('X-Kanban-Token') ?? $request->cookie(self::cookie($token)) ?? '');
         $page = ! $request->routeIs('kanban.api.*') && $request->isMethod('GET');
         if ($given === '' || ! hash_equals($token, $given)) {
             abort_unless($page, 401, 'Kanban UI token required');
@@ -32,7 +36,7 @@ class UiToken
 
         $response = $page && $request->query('token') !== null ? $this->withoutToken($request) : $next($request);
         if ($request->query('token') !== null) {
-            $response->headers->setCookie(new Cookie(self::COOKIE, $token, time() + 365 * 86400, '/', null, $request->isSecure(), true, false, 'lax'));
+            $response->headers->setCookie(new Cookie(self::cookie($token), $token, time() + 365 * 86400, '/', null, $request->isSecure(), true, false, 'lax'));
         }
 
         return $response;

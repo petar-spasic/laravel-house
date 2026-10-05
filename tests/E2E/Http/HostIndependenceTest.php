@@ -5,6 +5,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Env;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\URL;
+use PetarSpasic\LaravelHouse\Kanban\Http\Middleware\UiToken;
 use PetarSpasic\LaravelHouse\Kanban\Store\Card;
 use PetarSpasic\LaravelHouse\Tests\Support\Sandbox;
 use PetarSpasic\LaravelHouse\Tests\Support\UiSandbox;
@@ -115,8 +116,8 @@ it('keeps the token gate without a session', function () {
     $this->get('/kanban/_api/probe/it', ['X-Kanban-Token' => 's3cret'])->assertOk();
     $response = $this->get('/kanban?token=s3cret')->assertRedirect('/kanban');
     $cookie = $response->headers->getCookies()[0];
-    expect($cookie->getName())->toBe('kanban_token')->and($cookie->getValue())->toBe('s3cret')->and($cookie->isHttpOnly())->toBeTrue()->and($cookie->getExpiresTime())->toBeGreaterThan(time() + 300 * 86400);
-    $this->withUnencryptedCookie('kanban_token', 's3cret')->get('/kanban/_api/probe/it')->assertOk();
+    expect($cookie->getName())->toBe(UiToken::cookie('s3cret'))->and($cookie->getValue())->toBe('s3cret')->and($cookie->isHttpOnly())->toBeTrue()->and($cookie->getExpiresTime())->toBeGreaterThan(time() + 300 * 86400);
+    $this->withUnencryptedCookie(UiToken::cookie('s3cret'), 's3cret')->get('/kanban/_api/probe/it')->assertOk();
 });
 
 it('drops `web` from a published config that still lists it, so writes need no CSRF token', function () {

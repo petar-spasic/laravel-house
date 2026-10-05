@@ -84,10 +84,14 @@ it('asks for the token when one is configured and remembers it in a cookie', fun
     $this->getJson('/kanban/_api/boards')->assertStatus(401)->assertJson(['message' => 'Kanban UI token required']);
     $this->get('/kanban/assets/kanban.css')->assertOk();
 
+    // named after the token: boards on other ports of the same host keep their own cookie, never this one
+    $this->withUnencryptedCookie('kanban_token_'.substr(hash('sha256', 'other'), 0, 8), 'other')->get('/kanban')
+        ->assertStatus(401)->assertDontSee('did not work');
+    $cookie = 'kanban_token_'.substr(hash('sha256', 's3cret'), 0, 8);
     $this->get('/kanban/work?from=ACME-1&token=s3cret')
-        ->assertStatus(303)->assertHeader('Location', '/kanban/work?from=ACME-1')->assertCookie('kanban_token');
-    $this->withUnencryptedCookie('kanban_token', 's3cret')->get('/kanban')->assertOk();
-    $this->withUnencryptedCookie('kanban_token', 'old')->get('/kanban')->assertStatus(401)->assertSee('did not work');
+        ->assertStatus(303)->assertHeader('Location', '/kanban/work?from=ACME-1')->assertCookie($cookie);
+    $this->withUnencryptedCookie($cookie, 's3cret')->get('/kanban')->assertOk();
+    $this->withUnencryptedCookie($cookie, 'old')->get('/kanban')->assertStatus(401)->assertSee('did not work');
     $this->getJson('/kanban/_api/boards', ['X-Kanban-Token' => 's3cret'])->assertOk();
 });
 
