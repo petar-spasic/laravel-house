@@ -19,7 +19,7 @@ for p in "${pairs[@]}"; do
 done
 [[ $want == *_test && -n $app_url ]] || { echo "no DB_DATABASE=<name>_test and APP_URL in the (e2e_php) snippet of docker/Caddyfile.local"; exit 1; }
 test_env() { env "${pairs[@]}" XDEBUG_MODE=off "$@"; }
-curl -fs -o /dev/null http://127.0.0.1:8090/up && curl -fs -o /dev/null http://127.0.0.1:8091/up || { echo "no e2e sites on 127.0.0.1:8090/8091: merge them into docker/Caddyfile.local, then supervisorctl restart caddy"; exit 1; }
+curl -fs -o /dev/null http://127.0.0.1:8090/up && curl -fs -o /dev/null http://127.0.0.1:8091/up || { echo "no e2e sites on 127.0.0.1:8090/8091: merge them into docker/Caddyfile.local, then supervisorctl restart app:caddy"; exit 1; }
 
 # A cached config ignores that env, and a DB_URL overrides DB_DATABASE: either way the reset would drop another
 # database, so ask the live connection.

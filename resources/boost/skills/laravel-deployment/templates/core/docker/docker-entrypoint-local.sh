@@ -101,4 +101,8 @@ program horizon "php artisan horizon" 70
 # Listens on REVERB_SERVER_* (compose).
 program reverb "php artisan reverb:start"
 # endif
+
+# Last, after every program: supervisord stops one group after another, but a group's programs together, so the stop
+# takes the longest stopwaitsecs, not their sum. supervisorctl names them app:caddy, app:horizon, …
+printf '[group:app]\nprograms=%s\n' "$(cd /etc/supervisor/conf.d && ls *.conf | sed 's/\.conf$//' | paste -sd,)" > /etc/supervisor/conf.d/zz-group.conf
 exec /usr/bin/supervisord -n -c /etc/supervisor/supervisord.conf

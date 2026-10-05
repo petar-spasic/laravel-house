@@ -56,7 +56,7 @@ cp .env.prod.example .env.prod && docker compose --env-file .env.prod up -d --bu
   is the same path on `http://localhost:{{web_port}}`, under the same condition as passkeys.
 - **Local routing** (`docker/Caddyfile.local`, whose comments own the details): Vite's dev paths and `/__vite_hmr` go
   to Vite, everything else to php-fpm. No route lives under `/@…`, `/resources/` or `/node_modules/`. Apply an edit
-  with `docker compose -f docker-compose.local.yml exec app supervisorctl restart caddy`.
+  with `docker compose -f docker-compose.local.yml exec app supervisorctl restart app:caddy`.
 <!-- endif -->
 <!-- if:spa -->
 - **Social sign-in** (when built): register `https://{{domain}}/api/auth/{provider}/callback` with each provider.
@@ -65,7 +65,7 @@ cp .env.prod.example .env.prod && docker compose --env-file .env.prod up -d --bu
   `/kanban` locally); SvelteKit answers everything else. A Laravel path outside those prefixes is an edit to
   `docker/Caddyfile` and `docker/Caddyfile.local`, and `php artisan route:list` stays covered (laravel-deployment,
   `references/spa.md`). Apply a local edit with
-  `docker compose -f docker-compose.local.yml exec app supervisorctl restart caddy`.
+  `docker compose -f docker-compose.local.yml exec app supervisorctl restart app:caddy`.
 - **Processes.** Local: Caddy → php-fpm (Xdebug) and SvelteKit's `vite dev` on 127.0.0.1:5173 (program `vite`), HMR
   through the web port. Prod: FrankenPHP's Caddy → Octane, and `node build` on 127.0.0.1:3000 (program `ssr`). In
   prod and on the e2e site, Caddy serves `frontend/build`'s files itself, with their cache headers and

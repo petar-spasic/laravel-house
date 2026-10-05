@@ -73,15 +73,15 @@ else
         # A token answers 303 back to /kanban with its cookie: follow it with a jar.
         expect "/kanban${token:+?token=$token}" 200 -L -c /dev/null
     fi
-    want=(php-fpm caddy scheduler horizon)
+    want=(app:php-fpm app:caddy app:scheduler app:horizon)
     # if:htmx
-    want+=(vite)
+    want+=(app:vite)
     # endif
     # if:spa
-    [ -f frontend/package.json ] && want+=(vite)
+    [ -f frontend/package.json ] && want+=(app:vite)
     # endif
     # if:reverb
-    want+=(reverb)
+    want+=(app:reverb)
     # endif
     programs "${want[@]}"
     for round in 1 2; do

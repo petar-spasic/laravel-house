@@ -116,15 +116,15 @@ Both entrypoints run these steps in order, so healthy means migrated and seeded.
    `stopwaitsecs` and directory under `/app`), then runs `exec supervisord -n`. Local: php-fpm, caddy,
    `rm -f public/hot`, then at most one dev server, `vite` on 127.0.0.1:5173 (htmx: the root Vite; spa: `frontend/`'s once
    it exists; API-only: none). Prod:
-   web, plus `ssr` with spa. Both: scheduler, and horizon with `stopwaitsecs` 70. Prod groups every program as `app`
-   (`app:web`, …); local stays ungrouped, so `supervisorctl restart caddy` works.
+   web, plus `ssr` with spa. Both: scheduler, and horizon with `stopwaitsecs` 70. Both group every program as `app`
+   (`app:web`, `app:caddy`, …), so a stop takes the longest `stopwaitsecs`, not their sum.
 
 ## Processes and limits
 
 - Horizon owns the worker pool (`config/horizon.php`); never `queue:work`. Both images have `pcntl` (Horizon needs it).
 - Queue chain: Redis `retry_after` (`REDIS_QUEUE_RETRY_AFTER`, 90) > Horizon's `timeout` (60) > the longest job's
   `$timeout`. Horizon's `stopwaitsecs` (70) > that timeout. Compose `stop_grace_period` (80) > the largest
-  `stopwaitsecs` in prod's `app` group. A longer job raises all of them, in that order; otherwise a running job is
+  `stopwaitsecs` in the `app` group. A longer job raises all of them, in that order; otherwise a running job is
   handed to a second worker mid-run.
 - Node chain (spa): adapter-node's `SHUTDOWN_TIMEOUT` (20) < `ssr`'s `stopwaitsecs` (25) < `stop_grace_period` (80).
   adapter-node drains open requests and never calls `process.exit`, so a shorter `stopwaitsecs` kills it mid-drain.

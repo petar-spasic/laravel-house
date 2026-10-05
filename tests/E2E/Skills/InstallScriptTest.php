@@ -396,7 +396,7 @@ function stackVerify(string $modules, array $env = [], string $dotenv = ''): Pro
     chmod("{$bin}/docker", 0755);
     chmod("{$bin}/curl", 0755);
     $process = new Process(['bash', 'docker/verify.sh'], $render, $env + ['PATH' => "{$bin}:".getenv('PATH'), 'FAKE_LOG' => "{$root}/calls.log",
-        'FAKE_RUNNING' => 'php-fpm caddy scheduler horizon reverb', 'FAKE_STATUS' => '']);
+        'FAKE_RUNNING' => 'app:php-fpm app:caddy app:scheduler app:horizon app:reverb', 'FAKE_STATUS' => '']);
     $process->run();
 
     return $process;
@@ -407,10 +407,10 @@ it('probes the local stack with the deployment Verify steps a script can take', 
 
     expect($passed->getOutput())->toBe('')->and($passed->getExitCode())->toBe(0);
 
-    $failed = stackVerify('reverb', ['FAKE_RUNNING' => 'php-fpm caddy scheduler horizon', 'FAKE_STATUS' => '/.env=200']);
+    $failed = stackVerify('reverb', ['FAKE_RUNNING' => 'app:php-fpm app:caddy app:scheduler app:horizon', 'FAKE_STATUS' => '/.env=200']);
 
     expect($failed->getExitCode())->toBe(1)
-        ->and($failed->getOutput())->toBe("✗ /.env answers 200, not 404\n✗ supervisor program reverb is not RUNNING\n");
+        ->and($failed->getOutput())->toBe("✗ /.env answers 200, not 404\n✗ supervisor program app:reverb is not RUNNING\n");
 });
 
 it('follows the board page\'s token redirect to the page', function () {

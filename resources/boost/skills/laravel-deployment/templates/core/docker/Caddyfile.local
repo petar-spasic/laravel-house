@@ -5,7 +5,7 @@
 # Local front server: Laravel's paths to php-fpm, everything else to SvelteKit's dev server; two loopback sites for
 # browser tests.
 # endif
-# Read from the checkout: `supervisorctl restart caddy` applies an edit.
+# Read from the checkout: `supervisorctl restart app:caddy` applies an edit.
 {
 	# Local only (SKILL trap: Octane's status, reload or stop fail in prod).
 	admin off
