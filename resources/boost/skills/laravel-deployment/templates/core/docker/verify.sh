@@ -21,10 +21,10 @@ fi
 port=$(value WEB_PORT "$env")
 base="http://127.0.0.1:${port:-{{web_port}}}"
 
-status() { curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$base$1"; }
-expect() { # path code
+status() { local path=$1; shift; curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$@" "$base$path"; }
+expect() { # path code [curl options]
     local got
-    got=$(status "$1")
+    got=$(status "$1" "${@:3}")
     [ "$got" = "$2" ] || fail "$1 answers $got, not $2"
 }
 programs() { # the names supervisorctl must list as RUNNING
@@ -70,7 +70,8 @@ else
     # endif
     if [ -x vendor/bin/kanban ] && [ "$(value KANBAN_UI .env)" != false ]; then
         token=$(value KANBAN_UI_TOKEN .env)
-        expect "/kanban${token:+?token=$token}" 200
+        # A token answers 303 back to /kanban with its cookie: follow it with a jar.
+        expect "/kanban${token:+?token=$token}" 200 -L -c /dev/null
     fi
     want=(php-fpm caddy scheduler horizon)
     # if:htmx

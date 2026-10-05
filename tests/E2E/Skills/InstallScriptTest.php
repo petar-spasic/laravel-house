@@ -363,7 +363,7 @@ it('verifies what setup leaves, one line per failure', function () {
 });
 
 /** laravel-deployment's docker/verify.sh, rendered for $modules, against a fake docker and curl. */
-function stackVerify(string $modules, array $env = []): Process
+function stackVerify(string $modules, array $env = [], string $dotenv = ''): Process
 {
     $root = Sandbox::tmp();
     $repo = "{$root}/repo";
@@ -373,7 +373,7 @@ function stackVerify(string $modules, array $env = []): Process
     (new Process(['php', Sandbox::package().'/resources/boost/skills/laravel-project-setup/scripts/install.php', $repo,
         '--templates='.Sandbox::package().'/resources/boost/skills/laravel-deployment/templates', "--modules={$modules}",
         '--set', 'app=acme', '--set', 'web_port=8000', "--render-to={$render}"]))->mustRun();
-    file_put_contents("{$render}/.env", "WEB_PORT=8011\n");
+    file_put_contents("{$render}/.env", "WEB_PORT=8011\n{$dotenv}");
     $bin = "{$root}/bin";
     mkdir($bin);
     file_put_contents("{$bin}/docker", <<<'SH'
@@ -389,7 +389,7 @@ function stackVerify(string $modules, array $env = []): Process
         url=${!#}; path=/${url#http://*/}
         echo "$url" >> "$FAKE_LOG"
         code=404
-        case "$path" in /up|/kanban*) code=200 ;; esac
+        case "$path" in /up|/kanban) code=200 ;; /kanban\?token=*) case " $* " in *" -L "*) code=200 ;; *) code=303 ;; esac ;; esac
         for pair in $FAKE_STATUS; do [ "${pair%%=*}" = "$path" ] && code=${pair#*=}; done
         case "$*" in *content_type*) echo -n "$code application/json" ;; *http_code*) echo -n "$code" ;; esac
         SH);
@@ -411,4 +411,16 @@ it('probes the local stack with the deployment Verify steps a script can take', 
 
     expect($failed->getExitCode())->toBe(1)
         ->and($failed->getOutput())->toBe("✗ /.env answers 200, not 404\n✗ supervisor program reverb is not RUNNING\n");
+});
+
+it('follows the board page\'s token redirect to the page', function () {
+    $verify = stackVerify('', [], "KANBAN_UI_TOKEN=s3cret\n");
+    $render = $verify->getWorkingDirectory();
+    mkdir("{$render}/vendor/bin", 0755, true);
+    file_put_contents("{$render}/vendor/bin/kanban", "#!/bin/sh\n");
+    chmod("{$render}/vendor/bin/kanban", 0755);
+    $verify->run();
+
+    expect($verify->getOutput())->toBe('')->and($verify->getExitCode())->toBe(0)
+        ->and(file_get_contents(dirname($render).'/calls.log'))->toContain('/kanban?token=s3cret');
 });
