@@ -30,7 +30,9 @@ are in `references/protocol.md`; card sizing in depth is `references/planning.md
 
 - Only the main session runs `start`, `refresh`, `finish`, `stop`, `publish`, `promote`, `new`, `set`, `move`, `fold`
   and `upstream file|dismiss`, from the main checkout. One main session per machine holds the lease; another one gets
-  exit 6. `lease --takeover` when the holder is your own previous session, otherwise only when the owner says so.
+  exit 6 from `start`, `refresh`, `finish`, `stop` and `apply`, and nothing changed. A new session of the same
+  transcript (after `/compact` or a restart) takes the lease at SessionStart. `lease --takeover` when the holder is
+  your own previous session, otherwise only when the owner says so.
 - Never edit `docs/kanban` by hand and never write code in the main checkout for a card.
 - Cards are for agents, not people: one card is one cohesive piece of work on one `area:*`. Every agent spawn costs a
   bootstrap, a clone, a stack and a review; a card that is too small wastes all four.
@@ -119,6 +121,7 @@ Before a card is created, and before it is promoted:
      (`.claude/`, `config/kanban.php`, hooks, `.gitattributes`): show the owner the diff; `--force` with their OK.
    - `main is red`: the main check failed after an earlier merge, and the bug card it filed holds the next `finish`:
      start that card next (`--force` merges anyway, with the owner).
+   - exit 6: another session holds the lease and nothing merged (see Ground rules).
    - `main: not pushed (…)`: `publish` later. `warning: rebuild main failed`: read the error, then run the printed compose command.
    - Finish approved cards in the order the brief lists them, oldest approval first.
 9. **Rejected.** The card is back in doing; `show <ID>` prints the `SendMessage` text for its worker, or spawn a

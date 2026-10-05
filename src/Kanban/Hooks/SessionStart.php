@@ -5,6 +5,7 @@ namespace PetarSpasic\LaravelHouse\Kanban\Hooks;
 use PetarSpasic\LaravelHouse\Kanban\Console\Install\ClaudeSettings;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Brief;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Context;
+use PetarSpasic\LaravelHouse\Kanban\Protocol\Lease;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Runtime;
 use PetarSpasic\LaravelHouse\Kanban\Store\Actor;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\KanbanException;
@@ -47,9 +48,17 @@ final class SessionStart
             }
         }
         $session = is_string($payload['session_id'] ?? null) && $payload['session_id'] !== '' ? $payload['session_id'] : null;
+        $transcript = is_string($payload['transcript_path'] ?? null) && $payload['transcript_path'] !== '' ? $payload['transcript_path'] : null;
         $envFile = getenv('CLAUDE_ENV_FILE');
         if ($session !== null && is_string($envFile) && $envFile !== '') {
-            file_put_contents($envFile, 'export KANBAN_SESSION='.escapeshellarg($session)."\n", FILE_APPEND);
+            file_put_contents($envFile, 'export KANBAN_SESSION='.escapeshellarg($session)."\n"
+                .($transcript !== null ? 'export KANBAN_TRANSCRIPT='.escapeshellarg($transcript)."\n" : ''), FILE_APPEND);
+        }
+        if ($session !== null && $transcript !== null) {
+            try {
+                (new Lease($this->paths))->handover($session, $transcript);
+            } catch (KanbanException) {
+            }
         }
 
         try {
@@ -80,7 +89,7 @@ final class SessionStart
             ]];
             $stdout = json_encode($json, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)."\n";
         } else {
-            $stdout = implode("\n", (new Brief($this->store, $this->paths, $this->config))->lines($session))."\n";
+            $stdout = implode("\n", (new Brief($this->store, $this->paths, $this->config))->lines($session, $transcript))."\n";
         }
 
         $this->tidy($runtime, $snapshot);

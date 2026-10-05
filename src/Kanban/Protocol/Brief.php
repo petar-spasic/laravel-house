@@ -29,7 +29,7 @@ final class Brief
     ) {}
 
     /** @return list<string> */
-    public function lines(?string $session): array
+    public function lines(?string $session, ?string $transcript = null): array
     {
         $snapshot = $this->store->snapshot();
         $runtime = new Runtime($this->paths, $snapshot->staleMinutes());
@@ -95,7 +95,7 @@ final class Brief
             $lines[] = 'skipped: '.implode('; ', array_map(fn (string $id, string $why) => "{$id} {$why}", array_keys(array_slice($skipped, 0, 5)), array_slice($skipped, 0, 5)))
                 .(count($skipped) > 5 ? '; '.(count($skipped) - 5).' more (`kanban next -v`)' : '');
         }
-        $lines[] = 'checks: '.implode(' · ', $this->checks($snapshot, $repo?->mergeDriver() !== null, $session));
+        $lines[] = 'checks: '.implode(' · ', $this->checks($snapshot, $repo?->mergeDriver() !== null, $session, $transcript));
 
         return $lines;
     }
@@ -174,7 +174,7 @@ final class Brief
     }
 
     /** @return list<string> */
-    private function checks(Snapshot $snapshot, bool $driver, ?string $session): array
+    private function checks(Snapshot $snapshot, bool $driver, ?string $session, ?string $transcript): array
     {
         $guard = dirname(__DIR__, 3).'/bin/kanban-guard';
         $hooksPath = (new Git($this->paths->main))->line(['config', '--get', 'core.hooksPath']);
@@ -186,7 +186,7 @@ final class Brief
             'guard '.(is_executable($guard) ? 'ok' : 'not executable ('.$guard.')'),
             'hooksPath '.($hooksPath === Bootstrap::HOOKS_PATH ? 'ok' : ($hooksPath === null || $hooksPath === '' ? 'unset' : $hooksPath)),
             count($orphans).' orphan worktrees'.($orphans === [] ? '' : ' ('.implode(', ', $orphans).')'),
-            'lease: '.(new Lease($this->paths))->describe($session),
+            'lease: '.(new Lease($this->paths))->describe($session, $transcript),
         ];
     }
 

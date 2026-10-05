@@ -44,6 +44,20 @@ it('merges an approved card, marks it done and tears down its stack, worktree an
         ->and($card['work']['merge'])->toBe($sha);
 });
 
+it('exits 6 and leaves the card in review while another main session holds the lease', function () {
+    $code = $this->code;
+    $id = $code->started('Add login page', ['KANBAN_SESSION' => 'session-a']);
+    $code->commit($id, 'login.php', "<?php\n");
+    $code->approve($id);
+
+    $run = $code->kanban(['finish', $id], ['KANBAN_SESSION' => 'session-b']);
+
+    expect($run->getExitCode())->toBe(6)
+        ->and($run->getErrorOutput())->toContain('another session holds the orchestrator lease (session-a')
+        ->and($code->sandbox->read($id)['stage'])->toBe('review')
+        ->and(is_file($code->root().'/login.php'))->toBeFalse();
+});
+
 it('merges the card\'s branch while its clone has another branch checked out', function () {
     $code = $this->code;
     $id = $code->started('Scratch branch');

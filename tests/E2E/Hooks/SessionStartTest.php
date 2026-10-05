@@ -18,7 +18,7 @@ it('prints the brief and exports KANBAN_SESSION into CLAUDE_ENV_FILE', function 
     $start = $p->hook('session-start', $p->payload('session-start'), ['CLAUDE_ENV_FILE' => $envFile]);
 
     expect($start->getExitCode())->toBe(0)
-        ->and(file_get_contents($envFile))->toBe("export FOO=1\nexport KANBAN_SESSION='".ProtocolSandbox::SESSION."'\n");
+        ->and(file_get_contents($envFile))->toBe("export FOO=1\nexport KANBAN_SESSION='".ProtocolSandbox::SESSION."'\nexport KANBAN_TRANSCRIPT='{$p->main}/.git/transcript.jsonl'\n");
     $lines = explode("\n", rtrim($start->getOutput()));
     expect($lines[0])->toMatch('/^Kanban ACME: branch kanban @[0-9a-f]{7}, not published, sync off, \d{4}-\d\d-\d\d \d\d:\d\dZ$/')
         ->and($lines[1])->toBe('WIP doing 1/6, review 0/6 · ready 1 · backlog 1 · blocked 1 · questions 1')
@@ -92,6 +92,25 @@ it('reports orphan card worktrees and the lease holder in the status checks', fu
 
     expect($p->sandbox->ok('status'))->toContain('· 1 orphan worktrees ('.strtolower($id).') · lease: held by orchestrator-1 (idle ')
         ->and($p->sandbox->ok('status', ['KANBAN_SESSION' => 'orchestrator-1']))->toContain('lease: this session');
+});
+
+it('moves the lease to a new session of the same transcript, and names another transcript\'s holder', function () {
+    $p = ProtocolSandbox::create();
+    $envFile = $p->main.'/.git/claude-env';
+    $transcript = $p->main.'/.git/transcript.jsonl';
+    $p->sandbox->ok(['apply'], ['KANBAN_SESSION' => 'before-compact', 'KANBAN_TRANSCRIPT' => $transcript]);
+
+    $start = $p->hook('session-start', $p->payload('session-start', ['session' => 'after-compact']), ['CLAUDE_ENV_FILE' => $envFile]);
+
+    expect($start->getOutput())->toContain('lease: this session (taken over from before-compact, same transcript)')
+        ->and(file_get_contents($envFile))->toContain("export KANBAN_TRANSCRIPT='{$transcript}'")
+        ->and($p->sandbox->ok('status', ['KANBAN_SESSION' => 'after-compact']))->toContain('lease: this session');
+
+    $other = $p->hook('session-start', $p->payload('session-start', ['session' => 'elsewhere'], ['transcript_path' => $p->main.'/.git/other.jsonl']));
+
+    expect($other->getOutput())->toContain('lease: held by after-compact (idle ')
+        ->and($other->getOutput())->toContain('another transcript; `vendor/bin/kanban lease --takeover` only when that session is gone')
+        ->and($p->sandbox->ok('status', ['KANBAN_SESSION' => 'after-compact']))->toContain('lease: this session');
 });
 
 it('prunes runtime files nothing reads any more and keeps the rest', function () {

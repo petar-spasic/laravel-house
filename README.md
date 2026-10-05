@@ -905,8 +905,9 @@ You may also ask it to work on one card, such as "start ACME-7K2QF9".
 To stop a run, tell Claude whether to drain (finish what is in review, start nothing new) or stop everything.
 
 > [!NOTE]
-> Only one Claude Code session per machine may run the board at a time. If an old session still holds it, for example
-> after a restart, run `vendor/bin/kanban lease --takeover`.
+> Only one Claude Code session per machine may run the board at a time. After `/compact` or a restart, the new session
+> takes over from the old one of the same conversation. If another old session still holds it, run
+> `vendor/bin/kanban lease --takeover`.
 
 <a name="planning-cards"></a>
 ### Planning Cards
