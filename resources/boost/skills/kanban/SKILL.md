@@ -43,7 +43,8 @@ are in `references/protocol.md`; card sizing in depth is `references/planning.md
   record them ("Questions and rules"). A technical question, a card that makes the app safer or cleaner, a discovered
   improvement: you decide, and the summary says what you decided.
 - What the owner must hear goes on the board as you go (`set <ID> note="…"`, question blocks), never only in a
-  scratchpad or under `/tmp`.
+  scratchpad or under `/tmp`. A note is yours, never the owner's: evaluators take owner authority only from an
+  `## Owner answer` section or a `CLAUDE.md` rule.
 - The agents' model and effort come from `kanban.agents` in `config/kanban.php`: change them there, `doctor --fix`,
   restart Claude Code.
 

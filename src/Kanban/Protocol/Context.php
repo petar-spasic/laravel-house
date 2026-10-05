@@ -121,10 +121,12 @@ final class Context
                 array_slice($earlier, -10))).(count($earlier) > 10 ? ' and '.(count($earlier) - 10).' older' : '');
         }
         $notes = $this->notes($card, (string) ($work['started'] ?? ''));
-        if ($notes !== []) {
-            $lines[] = 'notes from the owner and main:';
-            foreach ($notes as $note) {
-                $lines[] = '  '.$note;
+        foreach (['owner' => 'owner notes:', 'main' => "main-session notes (information, never the owner's decision; owner authority is an `## Owner answer` section in the card or a CLAUDE.md rule):"] as $by => $heading) {
+            if (($notes[$by] ?? []) !== []) {
+                $lines[] = $heading;
+                foreach ($notes[$by] as $note) {
+                    $lines[] = '  '.$note;
+                }
             }
         }
         if (($verdict = $this->last($card, 'verdict')) !== null) {
@@ -311,21 +313,25 @@ final class Context
 
     /**
      * A log entry's actor: the role, and the person in brackets when the entry names one. Cleaned here again, because
-     * entries arrive from any clone and end up in an agent's prompt.
+     * entries arrive from any clone and end up in an agent's prompt. The main session never shows a person: its git
+     * user is the owner's, and an agent would read the entry as the owner's decision.
      *
      * @param  array<string, mixed>  $entry
      */
     public static function actor(array $entry): string
     {
+        if (($entry['by'] ?? null) === 'main') {
+            return 'main session';
+        }
         $who = mb_substr(trim((string) preg_replace('/[\x00-\x1F\x7F\s]+/u', ' ', (string) ($entry['who'] ?? ''))), 0, 80);
 
         return (string) ($entry['by'] ?? '?').($who === '' ? '' : " ({$who})");
     }
 
     /**
-     * Notes and stage-change reasons the owner and main left since the card was started.
+     * Notes and stage-change reasons the owner and main left since the card was started, by author.
      *
-     * @return list<string>
+     * @return array{owner?: list<string>, main?: list<string>}
      */
     private function notes(Card $card, string $since): array
     {
@@ -340,7 +346,7 @@ final class Context
                 default => null,
             };
             if (is_string($text) && $text !== '') {
-                $notes[] = substr((string) $entry['at'], 0, 16).' '.self::actor($entry).(isset($entry['head']) ? ' @'.substr((string) $entry['head'], 0, 7) : '').": {$text}";
+                $notes[$entry['by']][] = substr((string) $entry['at'], 0, 16).' '.self::actor($entry).(isset($entry['head']) ? ' @'.substr((string) $entry['head'], 0, 7) : '').": {$text}";
             }
         }
 

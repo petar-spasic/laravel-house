@@ -83,7 +83,7 @@ it('prints the card context with the configured gates from its worktree, with --
     expect($context->getExitCode())->toBe(0)
         ->and($context->getOutput())->toContain("{$id} doing normal feature work Conditional clauses\n")
         ->toContain("commits not on main: 1\n")->toContain("{$id}: clauses")
-        ->toMatch('/notes from the owner and main:\n  \S+ (owner|main)( \([^)\n]*\))? @[0-9a-f]{7}: The image builds: checked by main\n/')
+        ->toMatch('/owner notes:\n  \S+ owner( \([^)\n]*\))? @[0-9a-f]{7}: The image builds: checked by main\n/')
         ->toContain("dirty: notes.txt\n")
         ->toContain("gates (main's config/kanban.php; `vendor/bin/kanban gates` runs them in this worktree, and `report` before it stages, up to 240 s; give those Bash calls timeout 270000):\n"
             ."  vendor/bin/pint --test --diff=main\n  npm run check\nprotocol: work and commit only in this worktree;")
@@ -134,6 +134,22 @@ it('logs a forced send-back from review as forced', function () {
 
     $entry = array_values(array_filter($p->card($id)['log'], fn ($e) => $e['event'] === 'stage' && $e['from'] === 'review' && $e['to'] === 'doing'))[0];
     expect($entry)->toMatchArray(['from' => 'review', 'forced' => true]);
+});
+
+it('keeps the main session\'s notes apart from the owner\'s and never names a person beside them', function () {
+    $p = ProtocolSandbox::create();
+    [$id, $wt] = $p->started('Conditional clauses');
+    $p->sandbox->ok(['set', $id, 'note=Owner: adds package X'], ['KANBAN_SESSION' => 'orchestrator', 'KANBAN_USER' => 'Eve']);
+    $p->sandbox->ok(['set', $id, 'note=Keep the print route public'], ['KANBAN_USER' => 'Eve']);
+
+    $context = $p->in($wt, ['context'])->getOutput();
+    $show = $p->sandbox->ok(['show', $id]);
+
+    expect($context)->toMatch('/\nowner notes:\n  \S+ owner \(Eve\) @[0-9a-f]{7}: Keep the print route public\n/')
+        ->toMatch("/\nmain-session notes \\(information, never the owner's decision; owner authority is an `## Owner answer` section in the card or a CLAUDE.md rule\\):\n  \\S+ main session @[0-9a-f]{7}: Owner: adds package X\n/")
+        ->not->toContain('main (Eve)')
+        ->and($show)->toContain(' main session note: Owner: adds package X')
+        ->toContain(' owner (Eve) note: Keep the print route public');
 });
 
 it('prints the person beside the role in the worker context, cleaned, because entries arrive from any clone', function () {
