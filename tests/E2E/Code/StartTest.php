@@ -157,7 +157,33 @@ it('refuses before claiming', function (Closure $arrange, string $message) {
     'main checkout on another branch' => [fn (CodeSandbox $c) => $c->sandbox->git('checkout', '-q', '-b', 'other'), "on 'other', not main"],
     'worktree path exists' => [fn (CodeSandbox $c, string $id) => mkdir($c->worktree($id), 0775, true), 'already exists'],
     'card not ready' => [fn (CodeSandbox $c, string $id) => $c->ok(['move', $id, 'backlog']), 'is backlog'],
+    'stack user not the checkout owner' => [fn (CodeSandbox $c) => runsAs($c, posix_geteuid() + 1), 'set HOST_UID='.posix_geteuid().' and HOST_GID='.posix_getegid().' in .env'],
 ]);
+
+/** Main's compose file runs the app as HOST_UID:HOST_GID, and .env sets HOST_UID. */
+function runsAs(CodeSandbox $code, int $uid): void
+{
+    file_put_contents($code->root().'/docker-compose.local.yml', "name: \"\${COMPOSE_PROJECT_NAME:?unset}\"\nservices:\n  app:\n    user: \"\${HOST_UID:-1000}:\${HOST_GID:-1000}\"\n");
+    file_put_contents($code->root().'/.env', "HOST_UID={$uid}\n", FILE_APPEND);
+}
+
+it('has doctor name a stack user other than the checkout owner, and --fix set it in .env', function () {
+    $code = $this->code;
+    runsAs($code, posix_geteuid() + 1);
+    $uid = posix_geteuid();
+    $gid = posix_getegid();
+
+    $doctor = $code->kanban(['doctor']);
+    expect($doctor->getExitCode())->toBe(1)
+        ->and($doctor->getOutput())->toContain('fail docker-compose.local.yml runs the app as uid '.($uid + 1).":1000, but the checkout's user is {$uid}:{$gid}");
+
+    $code->kanban(['doctor', '--fix']);
+
+    $env = file_get_contents($code->root().'/.env');
+    expect($env)->toContain("HOST_UID={$uid}\n")->not->toContain('HOST_UID='.($uid + 1))
+        ->and($env)->toContain("HOST_GID={$gid}\n")
+        ->and($code->kanban(['doctor'])->getOutput())->toContain("ok docker-compose.local.yml runs the app as the checkout's user {$uid}:{$gid}\n");
+});
 
 it('keeps the card in doing, blocked, when the stack cannot start', function () {
     $code = $this->code;

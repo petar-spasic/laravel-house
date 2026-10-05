@@ -1013,6 +1013,11 @@ deployment skill's local compose file already follows these rules:
 
 Your main `.env` also needs a project name of its own, such as `COMPOSE_PROJECT_NAME=acme-local`.
 
+The app container runs as `HOST_UID` and `HOST_GID` (1000 by default), because it writes your checkout and its `.git`.
+They must be the ids of the user who owns the checkout, `0` when Claude Code runs as root. `vendor/bin/kanban doctor`
+checks them, `doctor --fix` writes them into `.env`, and `start` refuses a card while they differ. Rebuild your main
+stack after a change.
+
 Each card's stack gets a block of ten ports. `stack.ports` in `config/kanban.php` places the three above in it. Any
 other host port variable in your compose file, such as `${MAILPIT_PORT:-8025}` for a mail catcher, takes the next free
 port of the block, so you list nothing.

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # kanban-exec [-u UID:GID] CONTAINER CWD CMD
 #
-# Runs CMD with bash in CONTAINER at CWD as UID:GID (default: yours). Kanban's PreToolUse hook routes a card agent's
-# shell through it. Only a card stack qualifies: a running container that mounts no main checkout and mounts CWD from
-# a card's directory under .claude/worktrees/ (a clone or a linked worktree). CMD dies with this client: when this
-# shell or the docker client is killed, docker closes the exec's stdin, and the watchdog in the container ends CMD's
-# process group.
+# Runs CMD with bash in CONTAINER at CWD as UID:GID (default: yours; root only for a root caller). Kanban's PreToolUse
+# hook routes a card agent's shell through it. Only a card stack qualifies: a running container that mounts no main
+# checkout and mounts CWD from a card's directory under .claude/worktrees/ (a clone or a linked worktree). CMD dies with
+# this client: when this shell or the docker client is killed, docker closes the exec's stdin, and the watchdog in the
+# container ends CMD's process group.
 
 user="$(id -u):$(id -g)"
 if [ "${1:-}" = -u ]; then
@@ -24,7 +24,7 @@ refuse() {
 }
 
 [[ $user =~ ^[0-9]+:[0-9]+$ ]] || refuse "-u takes a numeric UID:GID, not '$user'"
-[ "${user%%:*}" != 0 ] || refuse 'refusing to run as root'
+[ "${user%%:*}" != 0 ] || [ "$(id -u)" = 0 ] || refuse 'refusing to run as root'
 case "/$cwd/" in
     //*) ;;
     *) refuse "CWD must be absolute: $cwd" ;;

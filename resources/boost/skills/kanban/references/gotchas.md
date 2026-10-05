@@ -26,6 +26,10 @@ start, and the old session holds the lease until 15 min idle. → Restart Claude
 **Copied `node_modules` get wiped on a card stack's first start.** → A card's checkout stamps the lockfiles with the
 current time, so mtime (`-nt`) sentinels in the entrypoint reinstall. → sha256 sentinels.
 
+**`start` is refused: "… runs the app as uid …, but the checkout's user is …".** → The card's container would run as
+another user than the one who owns the clone, so it could not write it (a root host, or a user that is not 1000). →
+`vendor/bin/kanban doctor --fix` sets `HOST_UID`/`HOST_GID` in `.env`; rebuild main's stack, then start again.
+
 **About 6 stacks machine-wide, then compose fails on networks.** → The host's LAN overlaps Docker's default address
 pools. → Widen them (house README, "Worktree Stacks", "Docker Address Pools"); `doctor` shows the headroom.
 

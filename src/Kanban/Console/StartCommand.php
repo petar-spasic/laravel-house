@@ -3,6 +3,7 @@
 namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
 use PetarSpasic\LaravelHouse\Kanban\Code\Dependencies;
+use PetarSpasic\LaravelHouse\Kanban\Code\StackUser;
 use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Lease;
 use PetarSpasic\LaravelHouse\Kanban\Store\Card;
@@ -49,6 +50,9 @@ class StartCommand extends Command
 
             if ($worktrees->stackEnabled() && $worktrees->registry()->find($path) === null && ($full = $worktrees->registry()->full()) !== null) {
                 throw new PolicyRefused("refused {$id}: {$full}");
+            }
+            if ($worktrees->stackEnabled() && ($wrong = (new StackUser($this->paths()->main, (string) $this->setting('stack.compose_file')))->problem()) !== null) {
+                throw new PolicyRefused("refused {$id}: {$wrong}");
             }
             // where the work goes is on the card from the claim on, so a start cut short is resumed by running it again
             $work = [

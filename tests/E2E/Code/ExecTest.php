@@ -52,6 +52,18 @@ it('takes the user from -u', function () {
     expect(collect($this->code->calls())->first(fn ($call) => str_starts_with($call, 'exec ')))->toStartWith('exec -i -u 1234:5678 -w ');
 });
 
+it('runs as root for a root caller, and as root for nobody else', function () {
+    $bin = $this->code->root().'/fake-root';
+    @mkdir($bin);
+    file_put_contents($bin.'/id', "#!/bin/sh\necho 0\n");
+    chmod($bin.'/id', 0755);
+
+    $run = kanbanExec($this->code, [$this->container, $this->wt, 'true'], ['PATH' => $bin.':'.$this->code->env()['PATH']]);
+
+    expect($run->getExitCode())->toBe(0)
+        ->and(collect($this->code->calls())->first(fn ($call) => str_starts_with($call, 'exec ')))->toStartWith('exec -i -u 0:0 -w ');
+});
+
 it('refuses anything but a running card container and a plain directory in its worktree', function (array $args, array $env, string $error) {
     $args = array_map(fn ($a) => strtr($a, ['{wt}' => $this->wt, '{root}' => $this->code->root(), '{c}' => $this->container]), $args);
     $env = array_map(fn ($v) => strtr($v, ['{root}' => $this->code->root(), '{c}' => $this->container]), $env);

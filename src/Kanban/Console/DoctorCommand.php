@@ -6,6 +6,7 @@ use PetarSpasic\LaravelHouse\Kanban\Code\ComposeFile;
 use PetarSpasic\LaravelHouse\Kanban\Code\Dependencies;
 use PetarSpasic\LaravelHouse\Kanban\Code\PortRegistry;
 use PetarSpasic\LaravelHouse\Kanban\Code\Stack;
+use PetarSpasic\LaravelHouse\Kanban\Code\StackUser;
 use PetarSpasic\LaravelHouse\Kanban\Console\Install\Migrate;
 use PetarSpasic\LaravelHouse\Kanban\Console\Install\NextSteps;
 use PetarSpasic\LaravelHouse\Kanban\Console\Install\Steps;
@@ -101,6 +102,16 @@ class DoctorCommand extends Command
                 $this->say("fix: {$line}");
             }
         }
+        if (($user = $this->stackUser()) !== null && ($line = $user->fix()) !== null) {
+            $this->say("fix: {$line}");
+        }
+    }
+
+    private function stackUser(): ?StackUser
+    {
+        $stack = (array) $this->setting('stack', []);
+
+        return Stack::enabled($stack, $this->paths()->main) ? new StackUser($this->paths()->main, (string) $stack['compose_file']) : null;
     }
 
     private function add(string $level, string $text): void
@@ -246,6 +257,11 @@ class DoctorCommand extends Command
         }
         if ($problems === []) {
             $this->add('ok', "{$compose} is worktree-safe");
+        }
+        $user = new StackUser($main, $compose);
+        if ($user->stack() !== null) {
+            $problem = $user->problem();
+            $this->add(...($problem === null ? ['ok', "{$compose} runs the app as the checkout's user ".StackUser::caller()] : ['fail', $problem]));
         }
         $overlays = array_diff(array_map('realpath', [...glob($main.'/docker-compose*.y*ml') ?: [], ...glob($main.'/compose*.y*ml') ?: []]), [realpath($main.'/'.$compose)]);
         foreach ($overlays as $overlay) {
