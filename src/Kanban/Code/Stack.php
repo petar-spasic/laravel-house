@@ -128,6 +128,30 @@ final class Stack
         return $this->idle() === false;
     }
 
+    /**
+     * The service container's state: null when it does not exist or docker cannot say.
+     *
+     * @return array{status: string, code: int, restarts: int}|null
+     */
+    public function state(): ?array
+    {
+        $out = self::docker(['container', 'inspect', '-f', '{{.State.Status}} {{.State.ExitCode}} {{.RestartCount}}', '--', $this->container()], 10);
+
+        return $out !== null && preg_match('/^([a-z]+) (-?\d+) (\d+)$/', trim($out), $m)
+            ? ['status' => $m[1], 'code' => (int) $m[2], 'restarts' => (int) $m[3]]
+            : null;
+    }
+
+    /**
+     * Starts the stack's existing containers as they are: no build, no recreate.
+     *
+     * @return array{code: int, out: string, err: string}
+     */
+    public function start(): array
+    {
+        return $this->compose(['start'], 120);
+    }
+
     /** True when compose says the stack has no containers, false when it has some, null when it cannot say (docker down, timeout). */
     public function idle(): ?bool
     {

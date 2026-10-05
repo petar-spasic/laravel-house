@@ -14,9 +14,9 @@
  * FAKE_DOCKER_DELAY=n          every compose subcommand sleeps n seconds first
  * FAKE_DOCKER_CONTAINERS=json  {"name": ["bind source", …]}: running containers besides `<project>-app-1` of each
  *                              project that is up (which binds its directory)
- * FAKE_DOCKER_STOPPED=a,b       those containers exist but are not running
+ * FAKE_DOCKER_STOPPED=a,b:1     those containers exist but are not running; `name:code` exited with that code
  *
- * `exec [-i] [-u u:g] [-w dir] <container> <cmd…>` and `compose exec -T <service> <cmd…>` run the command here, in
+ * `exec [-i] [-u u:g] [-w dir] [-e NAME[=value]] <container> <cmd…>` and `compose exec -T <service> <cmd…>` run the command here, in
  * dir or the project's directory, with this process's stdio, in a session of its own: like a process in a container,
  * it outlives a killed client and sees only its stdin close.
  *
@@ -69,15 +69,24 @@ if (($args[0] ?? null) === 'container' && ($args[1] ?? null) === 'inspect') {
         fwrite(STDERR, "Error: No such container: {$name}\n");
         exit(1);
     }
-    echo implode("\n", [in_array($name, $list('FAKE_DOCKER_STOPPED'), true) ? 'false' : 'true', ...$containers()[$name]])."\n";
+    $stopped = null;
+    foreach ($list('FAKE_DOCKER_STOPPED') as $entry) {
+        [$stoppedName, $code] = explode(':', $entry, 2) + [1 => '0'];
+        $stoppedName === $name && $stopped = (int) $code;
+    }
+    if (str_contains((string) ($args[3] ?? ''), '.State.Status')) {
+        echo ($stopped === null ? 'running 0' : "exited {$stopped}")." 0\n";
+        exit(0);
+    }
+    echo implode("\n", [$stopped === null ? 'true' : 'false', ...$containers()[$name]])."\n";
     exit(0);
 }
 if (($args[0] ?? null) === 'exec') {
     $dir = null;
-    for ($i = 1; in_array($args[$i] ?? null, ['-i', '-u', '-w'], true); $i++) {
+    for ($i = 1; in_array($args[$i] ?? null, ['-i', '-u', '-w', '-e'], true); $i++) {
         match ($args[$i]) {
             '-w' => $dir = $args[++$i],
-            '-u' => $i++,
+            '-u', '-e' => $i++,
             default => null,
         };
     }
@@ -159,6 +168,8 @@ switch ($sub) {
             echo in_array('-q', $rest, true) ? "c0ffee{$project}\n" : "NAME STATUS\n{$project}-app-1 running\n";
         }
         exit(0);
+    case 'start':
+        exit(isset($state['projects'][$project]) ? 0 : 1);
     case 'port':
         echo '0.0.0.0:'.($state['projects'][$project]['port'] ?? 0)."\n";
         exit(0);

@@ -391,7 +391,7 @@ final class Worktrees
     public function freshen(string $path): ?array
     {
         $hash = $this->stackRecord($path)['hash'] ?? null;
-        if ($hash === null || $hash === $this->dockerHash($path)) {
+        if ($hash === null || $hash === $this->dockerHash($path) || $this->merging($path) !== null) {
             return null;
         }
 
@@ -399,24 +399,53 @@ final class Worktrees
     }
 
     /**
-     * Polls `http://127.0.0.1:<WEB_PORT><stack.health_path>` until 200 or `stack.wait_timeout`: true once it answers.
+     * The files a merge in progress in the worktree leaves unmerged (empty once all are added, before the commit); null
+     * when no merge is in progress. The stack is never rebuilt or recreated meanwhile: its container is where the
+     * card's agents run git to conclude the merge, and a conflicted tree may not boot.
+     *
+     * @return list<string>|null
+     */
+    public function merging(string $path): ?array
+    {
+        $git = $this->git($path);
+        if (! $git->attempt(['rev-parse', '-q', '--verify', 'MERGE_HEAD'])->ok()) {
+            return null;
+        }
+
+        return array_values(array_filter(explode("\n", trim($git->attempt(['diff', '--name-only', '--diff-filter=U'])->out))));
+    }
+
+    /**
+     * Polls `http://127.0.0.1:<WEB_PORT><stack.health_path>` until 200 or `stack.wait_timeout`: null once it answers,
+     * else what it last answered. Throws StackFailed with the tail of the service's log when its container exits, dies
+     * or restarts meanwhile: a container that will not boot is not starting.
      *
      * @param  array<string, mixed>  $entry
      */
-    public function ready(array $entry): bool
+    public function await(array $entry): ?string
     {
+        $stack = $this->stack((string) $entry['worktree'], (string) $entry['project']);
+        $restarts = $stack->state()['restarts'] ?? 0;
         $deadline = microtime(true) + (float) ($this->config['stack']['wait_timeout'] ?? 110);
         $context = stream_context_create(['http' => ['timeout' => 2, 'ignore_errors' => true]]);
         do {
             $started = microtime(true);
+            $http_response_header = [];
             $body = @file_get_contents($this->healthUrl($entry), false, $context);
-            if ($body !== false && preg_match('#^HTTP/\S+\s+200\b#', $http_response_header[0] ?? '')) {
-                return true;
+            $status = preg_match('#^HTTP/\S+\s+(\d+)#', $http_response_header[0] ?? '', $m) ? (int) $m[1] : null;
+            if ($body !== false && $status === 200) {
+                return null;
+            }
+            $state = $stack->state();
+            if ($state !== null && (! in_array($state['status'], ['created', 'running'], true) || $state['restarts'] > $restarts)) {
+                $logs = $stack->compose(['logs', '--no-color', '--tail=20', $stack->service()], 60);
+                throw new StackFailed("{$stack->service()} {$state['status']} (exit {$state['code']}) in {$entry['project']}; its last log lines:\n"
+                    .rtrim($logs['out'].$logs['err']));
             }
             usleep((int) max(0, 1_000_000 - (microtime(true) - $started) * 1_000_000));
         } while (microtime(true) < $deadline);
 
-        return false;
+        return $status === null ? 'no answer' : "answers {$status}";
     }
 
     /** @param  array<string, mixed>  $entry */

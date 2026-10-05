@@ -102,7 +102,8 @@ final class Context
                 ? "shell in container {$record['container']}, git included; a plain vendor/bin/kanban command runs on this machine"
                 : 'shell on this machine (no card container), started in the worktree';
             if (is_string($record['hash'] ?? null) && is_dir($worktree) && $record['hash'] !== $worktrees->dockerHash($worktree)) {
-                $lines[] = 'stack stale: docker files or lockfiles changed since it came up; `vendor/bin/kanban stack wait` recreates it';
+                $lines[] = 'stack stale: docker files or lockfiles changed since it came up; `vendor/bin/kanban stack wait` recreates it'
+                    .($worktrees->merging($worktree) !== null ? ' once the merge of main is concluded' : '');
             }
         }
         $lines[] = 'acceptance:';

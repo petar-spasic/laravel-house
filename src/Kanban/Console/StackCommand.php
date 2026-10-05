@@ -7,6 +7,7 @@ use PetarSpasic\LaravelHouse\Kanban\Code\Stack;
 use PetarSpasic\LaravelHouse\Kanban\Code\StackFailed;
 use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
 use PetarSpasic\LaravelHouse\Kanban\Hooks\WorktreeRemove;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Conflict;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Invalid;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\NotFound;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
@@ -157,6 +158,7 @@ class StackCommand extends Command
     private function up(string $path, ?string $card): int
     {
         $this->requireWorktree($path);
+        $this->refuseMidMerge($path, 'up');
         $entry = $this->worktrees->up($path, $this->branch($path), $card);
         $this->say("up {$entry['project']}");
         $this->entryLines($entry);
@@ -190,7 +192,7 @@ class StackCommand extends Command
         }
         $this->entryLines($entry + ['url' => $this->worktrees->env()->url($path, $entry['ports'])]);
         if (is_dir($path)) {
-            $ps = $this->worktrees->stack($path, $entry['project'])->compose(['ps'], 60);
+            $ps = $this->worktrees->stack($path, $entry['project'])->compose(['ps', '-a'], 60);
             $this->say(rtrim($ps['out']) === '' ? 'containers none' : rtrim($ps['out']));
         }
 
@@ -198,15 +200,28 @@ class StackCommand extends Command
     }
 
     /**
-     * Polls `http://127.0.0.1:<WEB_PORT><health_path>` until 200. Starts the stack first when it is not running, and
-     * recreates it when the docker files changed since it came up.
+     * Polls `http://127.0.0.1:<WEB_PORT><health_path>` until 200. Starts the stack first when its service is not
+     * running, and recreates it when the docker files changed since it came up. Mid-merge it only starts the service's
+     * container as it was, and refuses.
      */
     private function wait(string $path, ?string $card): int
     {
         $this->requireWorktree($path);
         $entry = $this->worktrees->registry()->find($path);
         $stack = $entry === null ? null : $this->worktrees->stack($path, $entry['project']);
-        if ($stack === null || ! $stack->running()) {
+        $state = $stack?->state();
+        if ($this->worktrees->merging($path) !== null) {
+            // the agents' git runs in the service's container
+            if ($stack === null || ($state === null && $stack->idle() === true)) {
+                $entry = $this->worktrees->up($path, $this->branch($path), $card);
+                $this->say("up {$entry['project']}");
+            } elseif ($state['status'] !== 'running') {
+                $start = $stack->start();
+                $this->say($start['code'] === 0 ? "started {$entry['project']} as it was" : "start {$entry['project']} failed: ".Worktrees::tail($start['err'] ?: $start['out']));
+            }
+            $this->refuseMidMerge($path, 'wait');
+        }
+        if ($stack === null || ! $stack->running() || ($state !== null && $state['status'] !== 'running')) {
             $entry = $this->worktrees->up($path, $this->branch($path), $card);
             $this->say("up {$entry['project']}");
         } elseif (($reloaded = $this->worktrees->freshen($path)) !== null) {
@@ -223,6 +238,7 @@ class StackCommand extends Command
     private function reload(string $path, ?string $card): int
     {
         $this->requireWorktree($path);
+        $this->refuseMidMerge($path, 'reload');
         $entry = $this->worktrees->up($path, $this->branch($path), $card, recreate: true);
         $this->say("reloaded {$entry['project']}");
 
@@ -251,14 +267,25 @@ class StackCommand extends Command
     private function ready(array $entry): int
     {
         $url = $this->worktrees->healthUrl($entry);
-        if ($this->worktrees->ready($entry)) {
+        if (($last = $this->worktrees->await($entry)) === null) {
             $this->say("ready {$url}");
 
             return self::SUCCESS;
         }
-        $this->say("starting {$url}: not 200 yet; run `kanban stack wait` again");
+        $this->say("starting {$url}: {$last}, not 200 yet; run `kanban stack wait` again");
 
         return 75;
+    }
+
+    /** A merge in progress: the stack stays as it is until the merge is concluded (Worktrees::merging). */
+    private function refuseMidMerge(string $path, string $action): void
+    {
+        if (($files = $this->worktrees->merging($path)) === null) {
+            return;
+        }
+        throw new Conflict("a merge of main is in progress in {$path}, and `stack {$action}` never rebuilds the stack mid-merge: "
+            .($files === [] ? '' : 'resolve '.implode(', ', $files).' (file tools work while the stack is down), `git add` them and ')
+            .'`git commit --no-edit`, then run `vendor/bin/kanban stack wait`');
     }
 
     private function logs(string $path): int

@@ -128,7 +128,9 @@ final class Gates
         }
         $url = $worktrees->healthUrl($entry);
 
-        return ["reloaded {$entry['project']}: docker files changed", $worktrees->ready($entry) ? "ready {$url}" : "starting {$url}: not 200 yet"];
+        $last = $worktrees->await($entry);
+
+        return ["reloaded {$entry['project']}: docker files changed", $last === null ? "ready {$url}" : "starting {$url}: {$last}, not 200 yet"];
     }
 
     /**

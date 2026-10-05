@@ -51,10 +51,11 @@ fi
 [ -n "$inside" ] || refuse "$container does not mount $cwd from a worktree"
 
 # fd 3 stays open while this shell lives; the in-container watchdog reads the copy of stdin saved as fd 4, because a
-# background job's own stdin is /dev/null.
+# background job's own stdin is /dev/null. CMD travels in the environment, so no process in the container carries its
+# text in argv, where a `pgrep -f` in CMD would find it.
 exec 3< <(while kill -0 $$ 2>/dev/null; do sleep 1; done)
 holder=$!
-docker exec -i -u "$user" -w "$cwd" "$container" bash -c 'exec 4<&0; setsid bash -c "$1" </dev/null 4<&- & c=$!; (while read -r _ <&4; do :; done; kill -TERM -- -$c; sleep 3; kill -KILL -- -$c) 2>/dev/null & w=$!; wait $c; r=$?; kill $w 2>/dev/null; exit $r' kanban "$cmd" <&3 3<&-
+KANBAN_CMD=$cmd docker exec -i -u "$user" -w "$cwd" -e KANBAN_CMD "$container" bash -c 'exec 4<&0; setsid bash -c "eval \"\$KANBAN_CMD\"" </dev/null 4<&- & c=$!; (while read -r _ <&4; do :; done; kill -TERM -- -$c; sleep 3; kill -KILL -- -$c) 2>/dev/null & w=$!; wait $c; r=$?; kill $w 2>/dev/null; exit $r' <&3 3<&-
 code=$?
 exec 3<&-
 kill "$holder" 2>/dev/null

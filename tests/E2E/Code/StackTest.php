@@ -36,7 +36,58 @@ it('exits 75 while the stack is still starting', function () {
     $run = $code->kanban(['stack', $id, 'wait']);
 
     expect($run->getExitCode())->toBe(75)
-        ->and($run->getOutput())->toContain('not 200 yet; run `kanban stack wait` again');
+        ->and($run->getOutput())->toContain('/up: no answer, not 200 yet; run `kanban stack wait` again');
+});
+
+it('answers 7 with the log tail for a service container that exited, after trying to start it', function () {
+    $code = $this->code;
+    $id = $code->started('Will not boot');
+    $wt = $code->worktree($id);
+    $lc = basename($wt);
+    $ups = fn () => count(array_filter($code->calls(), fn ($call) => str_ends_with($call, "-p acme-wt-{$lc} up -d --build")));
+    $before = $ups();
+
+    $run = $code->kanban(['stack', 'wait'], ['FAKE_DOCKER_STOPPED' => "acme-wt-{$lc}-app-1:1"], $wt);
+
+    expect($run->getExitCode())->toBe(7)
+        ->and($run->getErrorOutput())->toContain("app exited (exit 1) in acme-wt-{$lc}; its last log lines:\nacme-wt-{$lc}-app-1 | fake log line")
+        ->and($run->getOutput())->not->toContain('starting')
+        ->and($ups())->toBe($before + 1)
+        ->and($code->ok(['stack', $id, 'status']))->toContain("acme-wt-{$lc}-app-1")
+        ->and($code->calls())->toContain("compose --project-directory {$wt} -f {$wt}/docker-compose.local.yml -p acme-wt-{$lc} ps -a");
+});
+
+it('never rebuilds a stack mid-merge: wait starts its container as it was and names what concludes the merge', function () {
+    $code = $this->code;
+    $id = $code->started('Conflicted');
+    $wt = $code->worktree($id);
+    $lc = basename($wt);
+    $code->commit($id, 'app.php', "<?php\n\nreturn 'branch';\n");
+    $code->commitMain('app.php', "<?php\n\nreturn 'main';\n");
+    expect($code->kanban(['refresh', $id])->getExitCode())->toBe(5);
+    @mkdir($wt.'/docker', 0775, true);
+    file_put_contents($wt.'/docker/Caddyfile.local', ":8080 {\n}\n");
+    $builds = fn () => count(array_filter($code->calls(), fn ($call) => str_contains($call, ' up -d')));
+    $before = $builds();
+    $refusal = "a merge of main is in progress in {$wt}, and `stack wait` never rebuilds the stack mid-merge: resolve app.php "
+        .'(file tools work while the stack is down), `git add` them and `git commit --no-edit`, then run `vendor/bin/kanban stack wait`';
+
+    $down = $code->kanban(['stack', 'wait'], ['FAKE_DOCKER_STOPPED' => "acme-wt-{$lc}-app-1:1"], $wt);
+    $running = $code->kanban(['stack', 'wait'], cwd: $wt);
+    $reload = $code->kanban(['stack', 'reload'], cwd: $wt);
+    $gates = $code->kanban(['gates'], cwd: $wt);
+
+    expect($down->getExitCode())->toBe(5)
+        ->and($down->getOutput())->toBe("started acme-wt-{$lc} as it was\n")
+        ->and($down->getErrorOutput())->toContain($refusal)
+        ->and($code->calls())->toContain("compose --project-directory {$wt} -f {$wt}/docker-compose.local.yml -p acme-wt-{$lc} start")
+        ->and($running->getExitCode())->toBe(5)
+        ->and($running->getOutput())->toBe('')
+        ->and($reload->getExitCode())->toBe(5)
+        ->and($reload->getErrorOutput())->toContain('`stack reload` never rebuilds the stack mid-merge')
+        ->and($gates->getOutput())->not->toContain('reloaded')
+        ->and($code->ok(['context', $id]))->toContain('`vendor/bin/kanban stack wait` recreates it once the merge of main is concluded')
+        ->and($builds())->toBe($before);
 });
 
 it('downs a stack and releases its slot', function () {

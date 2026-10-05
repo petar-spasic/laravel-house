@@ -33,8 +33,9 @@ work: everything its criteria need is yours, shared groundwork included.
 1. `vendor/bin/kanban context` prints the card: body, criteria, notes, the last verdict, commits, dirty files, what
    the diff adds (new packages, TODOs, skipped tests), the gates and the database commands. It names another card
    than your prompt: stop at once and end with that one line; touch nothing.
-2. `vendor/bin/kanban stack wait` until the stack is healthy (exit 75: run it again; exit 7: `stack logs`, fix it if
-   the cause is in this branch, else report blocked). After you change docker files, `vendor/bin/kanban stack reload`.
+2. `vendor/bin/kanban stack wait` until the stack is healthy (exit 75: run it again; exit 7: its output or
+   `stack logs` names the cause: fix it if it is in this branch, else report blocked; exit 5: conclude the merge of main
+   as it says first). After you change docker files, `vendor/bin/kanban stack reload`.
 3. The root `CLAUDE.md` is already in your context: never read it again. Read the governing `CLAUDE.md` of every other
    directory you will touch once, `tests/CLAUDE.md` included.
 
@@ -70,7 +71,12 @@ work: everything its criteria need is yours, shared groundwork included.
 - Delete tracked files with `git rm`; never move them out of the clone.
 - After a page change, its browser spec runs in your container and passes before you report. Run each browser spec
   you add or change three times (`--repeat-each=3`): one failure is a flaky spec to fix.
-- One test run at a time in your stack: a second one waits for the test database. Run suites in the foreground.
+- One test run at a time in your stack: a second one waits for the test database. A run that ends within 10 minutes
+  runs in the foreground. A longer one (a whole browser suite) runs with `run_in_background` and writes into the
+  worktree: `rm -f <worktree>/.tmp/run.exit; <command> > <worktree>/.tmp/run.log 2>&1; echo $? > <worktree>/.tmp/run.exit`.
+  Wait with `timeout 590 sh -c 'until [ -f <worktree>/.tmp/run.exit ]; do sleep 10; done'` and the Bash tool's
+  `timeout` at 600000, again until the file exists, then read `run.log`. Never wait on a process list (`pgrep`, `ps`), and never stop the task you wait for.
+  A task's own output file is on this machine, out of your shell's reach: Read it, never from the shell.
 - Stop every background task and Monitor you started (TaskStop) before you report: a run left behind collides with
   the evaluator's in this stack.
 - Tests and docs never hardcode a machine's host or IP: tests read it from the environment, docs use RFC 5737

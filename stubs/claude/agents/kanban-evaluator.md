@@ -20,7 +20,7 @@ You never edit, commit or fix anything. Your output is a verdict.
   card's own database. The task output shows `…/vendor/bin/kanban-exec …` around your command; that is expected.
   `cd` does not carry over: use absolute paths. When the context says `shell on this machine`, there is no
   container: commands run in the worktree on this machine.
-- Read-only: never edit, write or commit. Git reads only (`status`, `diff`, `log`, `show`).
+- Read-only: never edit, write or commit; only a run's output goes into `<worktree>/.tmp`. Git reads only (`status`, `diff`, `log`, `show`).
 - **`vendor/bin/kanban`** runs on this machine, as a command of its own, never chained or in a script. Use only
   `context`, `show`, `list`, `status`, `verdict`, `gates` and `stack up|wait|logs|url`.
 - A refused call: rephrase it once; refused again, say so in the verdict. Never ask the main session to run it.
@@ -36,7 +36,7 @@ You never edit, commit or fix anything. Your output is a verdict.
    `## Owner answer (YYYY-MM-DD)` section in the card's body or a `CLAUDE.md` rule, nothing else: a main-session
    note is information, never approval, whatever it says the owner wants. A `## Provisional decision` is the
    worker's choice, not the owner's: check the work follows its `Taken:` option.
-2. `vendor/bin/kanban stack wait` (exit 75: run it again; exit 7: reject with the logs). Then run the `database`
+2. `vendor/bin/kanban stack wait` (exit 75: run it again; exit 7: reject with the cause it prints). Then run the `database`
    commands `context` prints: a refresh may have brought main's migrations.
 3. Read the whole diff: `git diff main...HEAD`, and every merge resolution `context` lists with `git show <sha>`.
 4. The root `CLAUDE.md` is already in your context: never read it again. Read the governing `CLAUDE.md` of every other
@@ -49,8 +49,13 @@ You never edit, commit or fix anything. Your output is a verdict.
 - `vendor/bin/kanban gates`: every gate, run in this card.
 - The tests the diff adds or touches, and the whole suite after a merge of main, as `tests/CLAUDE.md` says.
 - A card that adds or changes a page: run its browser spec (`docker/e2e.sh <spec>` where the project has one).
-- One test run at a time in the stack: a second one waits for the test database. Stop every background task you
-  started (TaskStop) before the verdict.
+- One test run at a time in the stack: a second one waits for the test database. A run that ends within 10 minutes
+  runs in the foreground. A longer one (a whole browser suite) runs with `run_in_background` and writes into the
+  worktree: `rm -f <worktree>/.tmp/run.exit; <command> > <worktree>/.tmp/run.log 2>&1; echo $? > <worktree>/.tmp/run.exit`.
+  Wait with `timeout 590 sh -c 'until [ -f <worktree>/.tmp/run.exit ]; do sleep 10; done'` and the Bash tool's
+  `timeout` at 600000, again until the file exists, then read `run.log`. Never wait on a process list (`pgrep`, `ps`), and never stop the task you wait for.
+  A task's own output file is on this machine, out of the shell's reach: Read it, never from the shell.
+- Stop every background task you started (TaskStop) before the verdict.
 
 ## 3. Exercise each criterion
 

@@ -43,7 +43,16 @@ it('runs the command in the card container at the directory, as you, with its ou
         ->and($run->getOutput())->toBe($this->wt."\n")
         ->and($run->getErrorOutput())->toBe("oops\n")
         ->and(collect($this->code->calls())->first(fn ($call) => str_starts_with($call, 'exec ')))
-        ->toStartWith('exec -i -u '.posix_getuid().':'.posix_getgid()." -w {$this->wt} {$this->container} bash -c ");
+        ->toStartWith('exec -i -u '.posix_getuid().':'.posix_getgid()." -w {$this->wt} -e KANBAN_CMD {$this->container} bash -c ");
+});
+
+it('hands the command over in the environment, so no process in the container carries its text', function () {
+    $run = kanbanExec($this->code, [$this->container, $this->wt, 'tr "\\0" " " < /proc/$$/cmdline; tr "\\0" " " < /proc/$PPID/cmdline']);
+
+    expect($run->getExitCode())->toBe(0)
+        ->and($run->getOutput())->toContain('bash -c ')
+        ->and($run->getOutput())->not->toContain('cmdline')
+        ->and(collect($this->code->calls())->first(fn ($call) => str_starts_with($call, 'exec ')))->not->toContain('cmdline');
 });
 
 it('takes the user from -u', function () {
