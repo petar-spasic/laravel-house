@@ -49,6 +49,19 @@ it('waits for any live agent without ids, and says when there is none', function
         ->and($this->p->sandbox->ok(['wait']))->toBe("no live agents\n");
 });
 
+it('waits without ids only for cards in doing or review, never a leftover record of a card that left them', function () {
+    $gone = $this->p->sandbox->card('Merged earlier');
+    $agents = dirname($this->p->runtime('agents/a4d2c0ffee.json'));
+    file_put_contents("{$agents}/leftover-live.json", json_encode(['agent_type' => 'kanban-evaluator', 'card' => $gone, 'stopped_at' => null]));
+    file_put_contents("{$agents}/leftover-stopped.json", json_encode(['agent_type' => 'kanban-worker', 'card' => $gone, 'stopped_at' => '2026-01-01T00:00:00Z']));
+    touch("{$agents}/leftover-live.json", time() - 5);
+
+    $wait = $this->p->sandbox->kanban(['wait', '--timeout=1']);
+
+    expect($wait->getExitCode())->toBe(75)
+        ->and($wait->getOutput())->toBe("still running after 1 s: {$this->id}; run `wait` again\n");
+});
+
 it('is the main session\'s', function () {
     expect($this->p->in($this->wt, ['wait', $this->id])->getErrorOutput())->toContain('wait runs from the main checkout');
 });

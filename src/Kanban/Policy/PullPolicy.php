@@ -22,15 +22,19 @@ final class PullPolicy
         $here = count(array_filter($doing, fn (Card $c) => in_array($c->host(), [null, $host], true)));
 
         $boardFree = 0;
+        $full = [];
         foreach ($snapshot->boards() as $board) {
             $onBoard = count(array_filter($doing, fn (Card $c) => $c->board->equals($board->ref)));
             $boardFree += $board->wipDoing() === null ? $maxParallel : max(0, $board->wipDoing() - $onBoard);
+            if ($board->wipDoing() !== null && $onBoard >= $board->wipDoing()) {
+                $full[] = "board {$board->ref} doing {$onBoard}/{$board->wipDoing()}";
+            }
         }
         $slots = max(0, min($maxParallel - $here, $boardFree));
         $reason = match (true) {
             $slots > 0 => null,
             $maxParallel - $here <= 0 => "doing {$here}/{$maxParallel}",
-            default => 'board WIP limits reached',
+            default => implode(', ', $full),
         };
         if ($review >= $reviewLimit) {
             [$slots, $reason] = [0, "review {$review}/{$reviewLimit} (stop starting)"];
@@ -105,9 +109,10 @@ final class PullPolicy
     }
 
     /**
-     * Up to $count cards to start now. `urgent` may exceed capacity by one when no urgent card is in doing.
+     * Up to $count cards to start now. `urgent` may exceed capacity by one when no urgent card is in doing. `held` is the
+     * refusal for each startable card it passed over: the card ahead in its area, or the limit it hit.
      *
-     * @return array{cards: list<Card>, reason: string|null, capacity: array<string, mixed>}
+     * @return array{cards: list<Card>, reason: string|null, capacity: array<string, mixed>, held: array<string, string>}
      */
     public function next(Snapshot $snapshot, int $count = 1, ?string $host = null): array
     {
@@ -122,22 +127,37 @@ final class PullPolicy
 
         $picked = [];
         $areas = [];
+        $held = [];
+        $first = null;
         $expedited = false;
         foreach ($candidates as $card) {
             if (count($picked) >= $count) {
                 break;
             }
-            if (array_intersect_key(array_flip($card->areas()), $areas) !== []) {
+            if (($taken = array_intersect_key($areas, array_flip($card->areas()))) !== []) {
+                $held[$card->id()] = implode(', ', array_map(fn (string $area, string $id) => "{$area} goes to {$id} first", array_keys($taken), $taken))
+                    ." (ahead in pull order): start that one, raise this card's priority, or --force";
+
                 continue;
             }
-            $withinCapacity = count($picked) < $capacity['slots'] && ($boardFree[(string) $card->board] ?? 0) > 0;
+            $free = $boardFree[(string) $card->board] ?? 0;
+            $withinCapacity = count($picked) < $capacity['slots'] && $free > 0;
             $expedite = ! $withinCapacity && ! $expedited && ! $urgentDoing && $card->priority() === 'urgent';
             if (! $withinCapacity && ! $expedite) {
+                $board = $snapshot->boardOf($card);
+                $limit = match (true) {
+                    $capacity['slots'] === 0 => (string) $capacity['reason'],
+                    $free <= 0 && $board !== null => "board {$card->board} doing ".count($snapshot->cards(fn (Card $c) => $c->stage() === 'doing' && $c->board->equals($board->ref)))."/{$board->wipDoing()}",
+                    default => "{$capacity['slots']} free slots go to ".implode(', ', array_map(fn (Card $c) => $c->id(), $picked)).' first',
+                };
+                $first ??= $limit;
+                $held[$card->id()] = "no capacity ({$limit})";
+
                 continue;
             }
             $expedited = $expedited || $expedite;
             $picked[] = $card;
-            $areas += array_flip($card->areas());
+            $areas += array_fill_keys($card->areas(), $card->id());
             $boardFree[(string) $card->board] = ($boardFree[(string) $card->board] ?? 0) - 1;
         }
 
@@ -146,10 +166,10 @@ final class PullPolicy
             $reason = match (true) {
                 $capacity['slots'] === 0 => $capacity['reason'],
                 $candidates === [] => 'no startable ready cards',
-                default => 'board WIP limits reached',
+                default => (string) $first,
             };
         }
 
-        return ['cards' => $picked, 'reason' => $reason, 'capacity' => $capacity];
+        return ['cards' => $picked, 'reason' => $reason, 'capacity' => $capacity, 'held' => $held];
     }
 }

@@ -133,7 +133,7 @@ it('orders next by the pull policy', function (Closure $setup, array|string $exp
         $s->ok(['board', 'work', '--wip-doing=1']);
 
         return ['l' => $s->readyCard('L')];
-    }, 'none: board WIP limits reached'],
+    }, 'none: board work doing 1/1'],
     'urgent expedites by one' => [function (Sandbox $s) {
         $s->ok(['claim', $s->readyCard('K')], ['KANBAN_SESSION' => 's1']);
         $s->ok(['board', 'work', '--wip-doing=1']);
@@ -167,7 +167,7 @@ it('claims only within capacity unless urgent or forced', function () {
     expect($s->ok(['claim', $first], $main))->toStartWith("claimed {$first} by ");
     $refused = $s->kanban(['claim', $second], $main);
     expect($refused->getExitCode())->toBe(3)
-        ->and($refused->getErrorOutput())->toContain("refused {$second}: no capacity (board WIP limits reached)")
+        ->and($refused->getErrorOutput())->toContain("refused {$second}: no capacity (board work doing 1/1)")
         ->and($s->kanban(['claim', $first], $main)->getExitCode())->toBe(3)
         ->and($s->ok(['claim', $second, '--force'], $main))->toStartWith("claimed {$second}");
 
@@ -175,6 +175,23 @@ it('claims only within capacity unless urgent or forced', function () {
     expect($card['stage'])->toBe('doing')
         ->and($card['claim'])->toMatchArray(['session' => 's1'])
         ->and(end($card['log']))->toMatchArray(['event' => 'stage', 'from' => 'ready', 'to' => 'doing', 'via' => 'start', 'by' => 'main']);
+});
+
+it('names the card ahead when a start is refused for its area, and the numbers when for slots', function () {
+    $s = $this->sandbox;
+    $main = ['KANBAN_SESSION' => 's1'];
+    $ahead = $s->readyCard('Ahead', ['--label=area:pdf', '--priority=high']);
+    $behind = $s->readyCard('Behind', ['--label=area:pdf']);
+
+    $area = $s->kanban(['claim', $behind], $main);
+    expect($area->getExitCode())->toBe(3)
+        ->and($area->getErrorOutput())->toContain("refused {$behind}: area:pdf goes to {$ahead} first (ahead in pull order): start that one, raise this card's priority, or --force");
+
+    file_put_contents($s->root.'/docs/kanban/kanban.json', str_replace('"max_parallel": 6', '"max_parallel": 1', file_get_contents($s->root.'/docs/kanban/kanban.json')));
+    $other = $s->readyCard('Other', ['--label=area:api']);
+    $s->ok(['claim', $ahead], $main);
+    $full = $s->kanban(['claim', $other], $main);
+    expect($full->getErrorOutput())->toContain("refused {$other}: no capacity (doing 1/1)");
 });
 
 it('says why each ready card waits: under none, with -v, in status and in the brief', function () {

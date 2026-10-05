@@ -202,9 +202,10 @@ final class Transitions
         if ($refusals !== [] && ! $force) {
             throw new PolicyRefused("refused {$card->id()}: ".implode('; ', $refusals), $refusals);
         }
-        if (! $force && ! in_array($card->id(), array_map(fn (Card $c) => $c->id(), $this->pull->next($snapshot, PHP_INT_MAX)['cards']), true)) {
-            $skipped = $this->pull->skipped($snapshot)[$card->id()] ?? null;
-            throw new PolicyRefused("refused {$card->id()}: ".($skipped ?? 'no capacity ('.($this->pull->capacity($snapshot)['reason'] ?? 'board WIP limits reached').')'));
+        $next = $this->pull->next($snapshot, PHP_INT_MAX);
+        if (! $force && ! in_array($card->id(), array_map(fn (Card $c) => $c->id(), $next['cards']), true)) {
+            $reason = $this->pull->skipped($snapshot)[$card->id()] ?? $next['held'][$card->id()] ?? 'no capacity ('.$next['capacity']['reason'].')';
+            throw new PolicyRefused("refused {$card->id()}: {$reason}");
         }
 
         return $card;
