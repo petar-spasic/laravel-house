@@ -63,10 +63,14 @@ class StartCommand extends Command
             $this->transitions()->start($id, $this->actor(), work: $work, force: (bool) $this->option('force'));
         }
 
+        $merged = [];
         try {
             if (! $worktrees->isWorktree($path)) {
                 $worktrees->prune();
                 $worktrees->add($path, $branch);
+                if ($branch === $parked) {
+                    $merged = $this->mergeMain($worktrees, $path, $id);
+                }
             }
             $worktrees->copyDependencies($path);
             if ($worktrees->prepare($path, $branch, $id) !== null) {
@@ -98,6 +102,9 @@ class StartCommand extends Command
         $this->say(($resumed ? 'resumed' : 'started')." {$id}");
         $this->say("worktree {$path}");
         $this->say("branch {$branch}".($branch === $parked ? ' (parked branch reused)' : ''));
+        foreach ($merged as $line) {
+            $this->say($line);
+        }
         if ($work['stack'] !== null) {
             $stack = $work['stack'];
             $this->say("stack {$stack['project']} slot {$stack['slot']}".($stack['url'] !== null ? " {$stack['url']}" : ''));
@@ -113,6 +120,35 @@ class StartCommand extends Command
         $this->reportPending();
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Merges main into a parked branch before its stack starts, so the branch carries main's board format and the
+     * container installs from the merged lockfiles. A conflict is left in progress for the worker, as refresh leaves one.
+     *
+     * @return list<string> what to print
+     */
+    private function mergeMain(Worktrees $worktrees, string $path, string $id): array
+    {
+        $main = $worktrees->mainBranch();
+        $git = $worktrees->git($path);
+        $before = $worktrees->head('HEAD', $path);
+        $merge = $git->attempt(['merge', '--no-edit', $main]);
+        $conflicted = array_values(array_filter(explode("\n", trim($git->attempt(['diff', '--name-only', '--diff-filter=U'])->out))));
+        if ($conflicted !== []) {
+            return [
+                "conflict {$id}: merge of {$main} left in progress in {$path}",
+                ...array_map(fn (string $file) => "conflicted {$file}", $conflicted),
+                'the worker concludes the merge first: resolve each conflict by keeping both sides\' content, `git add` the files and '
+                    .'`git commit --no-edit`; until then the stack serves the conflicted tree, and `vendor/bin/kanban stack wait` reloads it after',
+            ];
+        }
+        if (! $merge->ok()) {
+            throw new PolicyRefused("git merge {$main} into the parked branch failed: ".Worktrees::tail($merge->err ?: $merge->out));
+        }
+        $after = $worktrees->head('HEAD', $path);
+
+        return $after === $before ? [] : ["merged {$main} into the parked branch (".substr($before, 0, 7).'..'.substr($after, 0, 7).')'];
     }
 
     /**

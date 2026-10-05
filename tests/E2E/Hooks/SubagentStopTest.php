@@ -21,7 +21,7 @@ it('blocks a worker that stops without a report, three times, then marks the car
     foreach ([1, 2, 3] as $n) {
         $stop = stop($this->p, $this->wt);
         expect($stop['exit'])->toBe(0)
-            ->and($stop['json'])->toBe(['decision' => 'block', 'reason' => "No report staged for {$this->id}. Run: vendor/bin/kanban report {$this->id} --status=review|blocked [--tick=N …] --summary-file=- <<'EOF' … EOF (blocked needs --reason=\"…\")"])
+            ->and($stop['json'])->toBe(['decision' => 'block', 'reason' => "No report staged for {$this->id}. Run: vendor/bin/kanban report {$this->id} --status=review|blocked [--tick=N …] --summary-file=- <<'EOF' … EOF (blocked needs --reason=\"…\"). If vendor/bin/kanban cannot reach the board, end your last message with why: after 3 refusals the stop goes through and the card is blocked"])
             ->and($this->p->agent('a4d2c0ffee')['stop_blocks'])->toBe($n);
     }
 

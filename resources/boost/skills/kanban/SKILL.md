@@ -152,8 +152,8 @@ then `promote <ID>` unless it waits on a product question. Read the `hint:` line
 - **Agent stopped or stale, card in doing:** `show <ID>` and `context <ID>`. A staged report never applied → `apply <ID>`.
   Otherwise SendMessage the old worker, or spawn a fresh one with the line `show <ID>` prints.
 - **Stack down or unhealthy:** `stack <ID> wait`; `stack <ID> logs` for failures; `stack <ID> exec -- <cmd>` to look.
-- **Give up on a card:** `stop <ID> --to=ready|backlog|dropped [--reason=…]` (a branch with commits is parked and
-  reused by the next `start`).
+- **Give up on a card:** `stop <ID> --to=ready|backlog|dropped [--reason=…]` (a branch with commits is parked;
+  the next `start` reuses it with main merged in, and prints a conflict for the worker to conclude first).
 - **Leftovers:** `stack gc`, `doctor`, `sweep`, `apply --all`.
 
 ## Package findings

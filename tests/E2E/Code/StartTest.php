@@ -127,19 +127,44 @@ it('moves to the next slot and retries once when compose reports a port already 
         ->and(array_column($code->stacks(), 'slot'))->toBe([2]);
 });
 
-it('reuses a parked branch', function () {
+it('reuses a parked branch with main merged into it', function () {
     $code = $this->code;
     $id = $code->started('Park me');
     $sha = $code->commit($id, 'feature.txt', "one\n");
     $code->ok(['stop', $id, '--to=ready']);
+    $main = $code->commitMain('main.txt', "moved\n");
 
     $output = $code->ok(['start', $id]);
 
     $card = $code->sandbox->read($id);
+    $wt = $code->worktree($id);
     expect($output)->toContain('(parked branch reused)')
+        ->and($output)->toContain('merged main into the parked branch')
         ->and($card['work']['attempt'])->toBe(2)
+        ->and($card['work']['base'])->toBe($main)
         ->and(array_key_exists('parked_branch', $card['work']))->toBeFalse()
-        ->and(trim($code->gitIn($code->worktree($id), 'rev-parse', 'HEAD')))->toBe($sha);
+        ->and(trim($code->gitIn($wt, 'rev-parse', 'HEAD^1')))->toBe($sha)
+        ->and(trim($code->gitIn($wt, 'rev-parse', 'HEAD^2')))->toBe($main)
+        ->and(file_get_contents($wt.'/main.txt'))->toBe("moved\n");
+});
+
+it('starts a parked branch that conflicts with main with the merge in progress', function () {
+    $code = $this->code;
+    $id = $code->started('Park conflict');
+    $sha = $code->commit($id, 'app.php', "<?php\n\nreturn 'branch';\n");
+    $code->ok(['stop', $id, '--to=ready']);
+    $code->commitMain('app.php', "<?php\n\nreturn 'main';\n");
+
+    $output = $code->ok(['start', $id]);
+
+    $wt = $code->worktree($id);
+    expect($output)->toContain("conflict {$id}: merge of main left in progress in {$wt}\nconflicted app.php\n")
+        ->and($output)->toContain('the worker concludes the merge first: resolve each conflict')
+        ->and($output)->toContain('Agent(subagent_type="kanban-worker"')
+        ->and(trim($code->gitIn($wt, 'rev-parse', 'HEAD')))->toBe($sha)
+        ->and(trim($code->gitIn($wt, 'rev-parse', '-q', '--verify', 'MERGE_HEAD')))->not->toBe('')
+        ->and($code->sandbox->read($id)['stage'])->toBe('doing')
+        ->and($code->ok(['status']))->toMatch("/^doing  {$id} .*, merge in progress$/m");
 });
 
 it('refuses before claiming', function (Closure $arrange, string $message) {

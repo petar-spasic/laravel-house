@@ -83,7 +83,7 @@ final class SubagentStop
             }
 
             return $this->block($runtime, $agent, $cardId, $worker
-                ? "No report staged for {$cardId}. Run: vendor/bin/kanban report {$cardId} --status=review|blocked [--tick=N …] --summary-file=- <<'EOF' … EOF (blocked needs --reason=\"…\")"
+                ? "No report staged for {$cardId}. Run: vendor/bin/kanban report {$cardId} --status=review|blocked [--tick=N …] --summary-file=- <<'EOF' … EOF (blocked needs --reason=\"…\"). If vendor/bin/kanban cannot reach the board, end your last message with why: after ".self::MAX_BLOCKS.' refusals the stop goes through and the card is blocked'
                 : "No verdict staged for {$cardId}. Run: vendor/bin/kanban verdict {$cardId} approve|reject --check=N:pass|fail:\"evidence\" … (one --check per criterion)");
         }
 
