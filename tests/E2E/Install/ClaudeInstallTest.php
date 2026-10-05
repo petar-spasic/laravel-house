@@ -33,7 +33,7 @@ it('merges settings, writes agents, .gitignore and the CLAUDE.md block, and is i
     $output = $sandbox->install('ACME');
 
     expect($output)
-        ->toContain('updated .claude/settings.json: hooks.SessionStart, hooks.SubagentStart, hooks.SubagentStop, hooks.PreToolUse, hooks.WorktreeCreate, hooks.WorktreeRemove, permissions.allow -Bash(/srv/ben/acme/vendor/bin/kanban-exec *), permissions.allow Bash(vendor/bin/kanban *), attribution off')
+        ->toContain('updated .claude/settings.json: hooks.SessionStart, hooks.SubagentStart, hooks.SubagentStop, hooks.Stop, hooks.PreToolUse, hooks.WorktreeCreate, hooks.WorktreeRemove, permissions.allow -Bash(/srv/ben/acme/vendor/bin/kanban-exec *), permissions.allow Bash(vendor/bin/kanban *), attribution off')
         ->toContain("created .claude/settings.local.json: permissions.allow Bash({$sandbox->root}/vendor/bin/kanban *), permissions.allow Bash({$sandbox->root}/vendor/bin/kanban-exec *)")
         ->toContain('wrote .claude/agents/kanban-worker.md')
         ->toContain('wrote .claude/agents/kanban-evaluator.md')
@@ -56,6 +56,7 @@ it('merges settings, writes agents, .gitignore and the CLAUDE.md block, and is i
             ]],
         ])
         ->and($settings['hooks']['SubagentStop'])->toBe([['matcher' => 'kanban-worker|kanban-evaluator', 'hooks' => [$kanban('subagent-stop') + ['timeout' => 300]]]])
+        ->and($settings['hooks']['Stop'])->toBe([['hooks' => [$kanban('stop') + ['timeout' => 300]]]])
         ->and($settings['hooks']['WorktreeCreate'][0]['hooks'][0])->toBe($kanban('worktree-create') + ['timeout' => 120])
         ->and($settings['permissions']['allow'])->toBe(['Bash(npm run check)', 'Bash(vendor/bin/kanban *)'])
         ->and(json_decode(file_get_contents($sandbox->root.'/.claude/settings.local.json'), true)['permissions']['allow'])->toBe(["Bash({$sandbox->root}/vendor/bin/kanban *)", "Bash({$sandbox->root}/vendor/bin/kanban-exec *)"])

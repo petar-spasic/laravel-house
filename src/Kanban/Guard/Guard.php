@@ -120,6 +120,10 @@ final class Guard
 
         $input = is_array($payload['tool_input'] ?? null) ? $payload['tool_input'] : [];
         $agentId = is_string($payload['agent_id'] ?? null) ? $payload['agent_id'] : '';
+        // a headless card session (`kanban run`) has no agent_id: it is bound by its session id
+        if ($agentId === '' && in_array($payload['agent_type'] ?? null, [self::WORKER, self::EVALUATOR], true) && is_string($payload['session_id'] ?? null)) {
+            $agentId = $payload['session_id'];
+        }
 
         if ($agentId === '') {
             if (in_array($payload['tool_name'] ?? null, ['Agent', 'Task'], true)) {

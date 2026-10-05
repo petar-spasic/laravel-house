@@ -17,7 +17,7 @@ use Throwable;
 #[AsCommand(name: 'kanban:hook')]
 class HookCommand extends Command
 {
-    protected $signature = 'kanban:hook {event : session-start|subagent-start|subagent-stop|worktree-create|worktree-remove}';
+    protected $signature = 'kanban:hook {event : session-start|subagent-start|subagent-stop|stop|worktree-create|worktree-remove}';
 
     protected $description = 'Claude Code hook handler (reads the hook JSON from stdin)';
 
@@ -25,6 +25,8 @@ class HookCommand extends Command
         'session-start' => SessionStart::class,
         'subagent-start' => SubagentStart::class,
         'subagent-stop' => SubagentStop::class,
+        // a headless card session (`kanban run`) stops with Stop, not SubagentStop
+        'stop' => SubagentStop::class,
         'worktree-create' => WorktreeCreate::class,
         'worktree-remove' => WorktreeRemove::class,
     ];

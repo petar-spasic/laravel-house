@@ -9,6 +9,9 @@
         "SubagentStop": [
             { "matcher": "kanban-worker|kanban-evaluator", "hooks": [ { "type": "command", "command": "php", "args": ["-d", "display_errors=0", "-d", "display_startup_errors=0", "${CLAUDE_PROJECT_DIR}/vendor/bin/kanban", "hook", "subagent-stop"], "timeout": 300 } ] }
         ],
+        "Stop": [
+            { "hooks": [ { "type": "command", "command": "php", "args": ["-d", "display_errors=0", "-d", "display_startup_errors=0", "${CLAUDE_PROJECT_DIR}/vendor/bin/kanban", "hook", "stop"], "timeout": 300 } ] }
+        ],
         "PreToolUse": [
             { "matcher": "Bash|Monitor|Read|Edit|Write|NotebookEdit|Glob|Grep|EnterWorktree|Agent", "hooks": [ { "type": "command", "command": "php", "args": ["-d", "display_errors=0", "-d", "display_startup_errors=0", "${CLAUDE_PROJECT_DIR}/vendor/petar-spasic/laravel-house/bin/kanban-guard"], "timeout": 10 } ] }
         ],

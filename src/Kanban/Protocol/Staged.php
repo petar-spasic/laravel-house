@@ -19,10 +19,11 @@ final class Staged
      * @param  list<string>  $discovered  `type: Title — body`
      * @param  array{head: string, worktree: string, session: ?string}  $at
      * @param  list<array{title: string, body: string}>  $upstream  scrubbed findings about the house package (Upstream\Findings::stage)
+     * @param  list<string>  $questions  question sections for the card's body (Policy\Questions::file)
      * @return array<string, mixed>
      */
     public static function report(Card $card, string $status, array $ticks, ?string $summary, array $verified, array $discovered,
-        ?string $reason, ?string $note, array $at, array $upstream = []): array
+        ?string $reason, ?string $note, array $at, array $upstream = [], array $questions = []): array
     {
         if (! in_array($status, ['review', 'blocked'], true)) {
             throw new Invalid("--status must be review or blocked, not '{$status}'");
@@ -49,7 +50,7 @@ final class Staged
             'upstream' => $upstream,
             'reason' => $reason,
             'note' => self::text($note),
-        ] + $at;
+        ] + ($questions === [] ? [] : ['questions' => $questions]) + $at;
 
         return self::seal($item);
     }

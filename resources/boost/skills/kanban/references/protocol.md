@@ -33,13 +33,15 @@ text, one fact per line; errors go to stderr. Card ids accept a unique prefix of
 
 | Command | Does |
 |---|---|
-| `status [--json]` | The brief: branch, unpushed, WIP, doing/review with agents and URLs, blocked, questions, why ready cards wait, hubs, pending upstream findings, checks |
+| `status [--json]` | The brief: branch, unpushed, WIP, doing/review with agents and URLs, blocked, questions, why ready cards wait, hubs, rule files over 24 KB, pending upstream findings, checks |
 | `list [--board= --epic= --stage= --type= --label= --all --json]` | Default: ready, doing, review, plus blocked anywhere |
 | `show ID [--json --log=10]` | Header, body, criteria, deps with stages, claim, work, agent state, log; in doing or review the agent's spawn line, after a reject the message for the worker |
 | `context [ID] [--evaluate]` | For agents; card from the cwd: notes (with the commit they were taken at), the diff's findings (new packages, TODOs, skipped tests, private addresses), the gates (`{main_branch}` resolved) and the database commands; `--evaluate` adds every report of the attempt, the diff stat and the merge resolutions to read |
 | `next [--count=1 --json] [-v]` | Pull order, or `none: <reason>`; `-v` names why each ready card waits |
 | `gates [ID]` | Runs every gate in the card's clone (in its container when its shell is there); `pass\|fail <command>` lines |
 | `upstream` | Pending package findings, `ID:logid Title` |
+| `questions` | Open questions, blocking first: `<ID>#<n>` with the card, the context and the options (recommended, taken); an older free-form question raw |
+| `morning [--since=24h\|90m\|ISO]` | The brief, then since then: merged cards, cards blocked but not on a question, open questions, and the agent runs `kanban run` logged (tokens, list-price cost, per merged card) |
 | `validate [--fix]` | Schema and cross-card rules; `--fix` rewrites canonically, re-ids duplicates (one commit) |
 | `doctor [--fix]` | `ok\|warn\|fail` lines, exit 1 on any fail; `--fix` re-runs attach and the install steps, then Claude Code needs a restart |
 | `lease [--takeover --release]` | The orchestrator lease (15 min idle expiry; SessionStart hands it to a new session of the holder's transcript); `--takeover`/`--release` run from the main checkout |
@@ -55,6 +57,7 @@ text, one fact per line; errors go to stderr. Card ids accept a unique prefix of
 | `fold FROM… --into=ID` | Backlog or ready cards into one: bodies as `## Folded from` sections, criteria, labels and dependencies joined, the higher priority; FROM dropped, its dependents repointed; one commit |
 | `fold-boards [--into=work --dry-run]` | An older board (boards inside epic directories) onto one work board, version 3: each card's epic from its old directory (not `project`), decision cards into `decisions.md`, open questions onto the cards that waited on them; runs `Migrate` first, refuses while a card is in doing or review |
 | `upstream file ID:logid [--new\|--comment=N]` · `upstream new "Title — body" [--new\|--comment=N]` · `upstream dismiss ID:logid --reason=` | With `KANBAN_UPSTREAM` on: a finding filed on the package's repository after an issue search (a match exits 3), text that names the project refused; `new` files the main session's own finding, recorded on no card; or dismissed |
+| `answer ID[#n] OPTION [--note=]` | Any stage: `## Owner answer (date)` under that question (the option's text, the note; a free-form question needs `--note`). An open question: block cleared, then `promote`. A provisional decision answered differently: prints that a follow-up card makes the change |
 | `move ID STAGE [--reason= --force]` · `move ID --board=BOARD` | Transitions below; a board move is a `git mv` |
 | `promote [ID…] [--auto]` | Backlog → ready by the ready policy; `refused ID: R1 …` lines. `--auto` takes cards whose dependencies are done, until `ready_buffer` ready cards could start |
 | `import-house-docs [--decisions= --ideas= --dry-run --strict --remove-sources]` | decisions.md / ideas.md → decided and dropped entries into `decisions.md`, floated ideas as backlog spikes with a question; idempotent. `--remove-sources` then deletes the files when every entry is on the board and none warned |
@@ -63,6 +66,7 @@ text, one fact per line; errors go to stderr. Card ids accept a unique prefix of
 
 | Command | Does |
 |---|---|
+| `run [--once] [--until-attention --timeout=1500] [--drain]` | Main checkout, Linux, card containers. Under the orchestrating session's lease (`KANBAN_SESSION`, else `run:<host>`, which takes it over), every 15 s: finishes the oldest approval (main moved → refresh, evaluator), refreshes review cards and launches their evaluator, parks question cards in backlog, resumes doing cards' workers after merging main, `promote --auto` and starts cards up to capacity, publishes when idle. Each agent is `claude -p --agent kanban-worker\|kanban-evaluator` (`--permission-mode acceptEdits`, the routed-command allow rules, `agents.allowed_tools`), detached; `runs.jsonl` logs each run, `run.log` each line. A usage limit pauses launches 15 min; three runs without progress, or a failed `finish`/`refresh`/`stop`, block the card. `--until-attention` returns with an `attention:` block (a card newly blocked without a question, a parked question, a red main, more package findings, a pause, idle, an error) or after `--timeout`. `--drain` starts no card and returns once none is in flight. Exit 3 refused, 6 lease |
 | `start ID [--force]` | Claim (it records where the work goes), slot, a clone of main at `.claude/worktrees/<id without key>-<slug≤24>` (compose project `{app}-wt-` + that name) on `card/<id>-<slug≤40>`, deps copied, `.env`, `compose up -d --build` (no wait); prints the Agent spawn line. Run again, it finishes a start cut short. A refusal names the cause: the card ahead on its area (`area:x goes to ID first`), or the limit and its numbers (`no capacity (doing 6/6)`, `board work doing 2/2`, `review 6/6`) |
 | `refresh ID\|--all` | Refuses while the card's agent is live. Merges main into the branch and logs the round; a staged report or an older verdict no longer applies. Moved head → approval cleared. Conflict → card to doing, merge left in progress, exit 5, prints `SendMessage: …`. Prints the next spawn line |
 | `wait [ID…] [--timeout=90]` | Main only. Blocks until the card's agent has stopped (its report or verdict applied by then) or its stop was refused; no ID: until any card in doing or review with a live agent settles. Prints each settled card's line. Exit 75 after the timeout |
@@ -76,7 +80,7 @@ text, one fact per line; errors go to stderr. Card ids accept a unique prefix of
 
 | Command | Who | Does |
 |---|---|---|
-| `report ID --status=review\|blocked [--tick=N* --summary= --summary-file=- --verified="cmd → result"* --discovered="bug: Title — body"* --upstream="Title — body"* --reason= --note=]` | worker, own card | `review` runs the gates first and refuses on a failure or a conflict marker; staged; applied at SubagentStop. A worker may report again on its card in review |
+| `report ID --status=review\|blocked [--tick=N* --summary= --summary-file=- --verified="cmd → result"* --discovered="bug: Title — body"* --upstream="Title — body"* --reason= --note= --question-file=PATH]` | worker, own card | `review` runs the gates first and refuses on a failure or a conflict marker; staged; applied at SubagentStop (Stop for a `kanban run` agent). `--question-file`: Provisional decisions (review) or an Open question (blocked; the block becomes `question: …`), checked when staged, appended to the body once. A worker may report again on its card in review |
 | `verdict ID approve\|reject --check=N:pass\|fail:"evidence"* [--issue=* --discovered=* --upstream=* --note=]` | evaluator, own card | Every criterion needs one check; approve needs all pass and no issues; discovered items never decide it |
 | `gates` · `migrations [--base=]` · `data-ids [--base=]` · `stack status\|wait\|logs\|up\|reload` | worker, evaluator | Own card only; never `down` |
 
@@ -126,3 +130,70 @@ two, `accept=@-` replaces them all.
 | Main behind merged migrations | `finish` runs `kanban.migrate` and `finish.after`, and rebuilds main's stack when lockfiles, docker files or the compose file changed (`--no-rebuild` skips it) |
 | Board version 1 | Every board command refuses; the owner runs `/implement-kanban` (`fold-boards`). `sync`, `doctor`, `attach` and `kanban:install` still run |
 | A card deleted on origin, edited here | Sync keeps the local copy in `.git/laravel-house/displaced/`; `doctor` lists it |
+
+## Driving the board by hand
+
+Only where `kanban run` cannot stay alive (a cloud session, no `setsid`): the main session drives the board itself, with
+background subagents.
+
+### Keeping agents busy
+
+- Finish approved cards first: cards in review hold stacks and areas.
+- Ready holds at least the free capacity in startable cards on distinct areas (`promote --auto` counts only those).
+- Every question for the owner goes out early and in one batch, never one at a time as agents hit them.
+- `next` returns none while slots are free: `next -v` says why each ready card waits. With nothing startable, spawn
+  read-only audit agents (no isolation, no card), one per area, that check the code against its `CLAUDE.md` rules and
+  return findings to card.
+- "Stop": ask once whether the owner means **drain** (start nothing new; keep evaluating, finishing and resending
+  rejects; then publish and report) or **stop all** (no spawns at all), unless the words already say.
+
+### The loop
+
+1. **Orient.** `status`: WIP, cards in flight with their agents, blocked cards, questions, next, checks.
+   - A `checks:` item not ok → `doctor` (`doctor --fix` for wiring) before starting work.
+   - Cards in doing with `no agent`, or a `stopped`/`stale` agent → "Recover" first.
+2. **Fill Ready.** `promote --auto`: backlog cards whose dependencies are done, up to `ready_buffer` startable cards.
+   Refusals (no criteria, no area, an open question) go into the summary.
+3. **Pick.** `next --count=<free capacity>`; `none: …` → step 5.
+4. **Start each.** `start <ID>` prints the clone, branch, stack and, last, the spawn line:
+   `Agent(subagent_type="kanban-worker", description="…", prompt="Card <ID>. Worktree <path>")`.
+   Spawn exactly that, in the background, unchanged, without `name` or `isolation`, and one kanban spawn per message:
+   the agent binds to its card from that spawn when it starts. Context
+   for the agent goes on the card (`set <ID> note=`), never into the prompt.
+   - exit 3 refused: skip the card. exit 8 claim lost: `next` again, without it.
+   - exit 9 remote unreachable: nothing was claimed; wait, report it, never set `KANBAN_SYNC=off` yourself.
+   - exit 7 or 1 after the claim: the card stays in doing, blocked; fix the cause, then `start <ID>` again resumes it.
+5. **Wait.** An agent ends with a hand-back message, then stops, and its stop applies the report or verdict. On a
+   hand-back, run `wait <ID>`: it returns once that is done, with the card's line (`stop refused`: the agent works on;
+   its next hand-back comes later). Then act on the card's state. A task notification may come late or start no turn:
+   never wait for one. While agents run and nothing else is to do, keep one `wait --timeout=1800` running in the
+   background (`run_in_background`): it ends when any agent settles, so a lost hand-back costs nothing. After acting,
+   start it again. Never poll in a loop of your own.
+6. **Worker finished, card in review** (`wait <ID>` printed review).
+   `refresh <ID>` merges main into the branch:
+   - `up to date` / `refreshed` prints the evaluator's spawn line: spawn it.
+   - exit 3 `its worker is still running`: `wait <ID>`, then again.
+   - exit 5 conflict: the card is back in doing; send the printed `SendMessage:` text to the worker, or spawn a fresh
+     one with the line `show <ID>` prints.
+7. **Worker blocked.** `show <ID>` has the reason. A question: `stop <ID> --to=backlog`, with the question on the card
+   (see below), and into the owner batch. Anything else: fix the cause, or leave it blocked for the owner.
+8. **Approved.** `finish <ID>` merges, tears the card's stack down and removes its clone, then installs changed
+   dependencies on main, runs the migrate and after-steps and the main check, rebuilds main's stack when its image
+   inputs changed, and pushes main every `publish.every` merges. That can take minutes: run it in the background
+   (`run_in_background`) and act on its exit when it ends.
+   - exit 5 `main moved`: `refresh <ID>`, then a fresh evaluator. exit 5 `does not merge cleanly`: the card is in
+     doing; `refresh <ID>` hands the conflict to the worker.
+   - exit 3: the message names it (uncommitted main files, a live agent, an approval head mismatch, leftover conflict
+     markers: the card is back in doing; send the worker the listed lines). A card that changes kanban's own files
+     (`.claude/`, `config/kanban.php`, hooks, `.gitattributes`): show the owner the diff; `--force` with their OK.
+   - `main is red`: the main check failed after an earlier merge, and the bug card it filed holds the next `finish`:
+     start that card next (`--force` merges anyway, with the owner).
+   - exit 6: another session holds the lease and nothing merged (see Ground rules).
+   - `main: not pushed (…)`: `publish` later. `warning: rebuild main failed`: read the error, then run the printed compose command.
+   - Finish approved cards in the order the brief lists them, oldest approval first.
+9. **Rejected.** The card is back in doing; `show <ID>` prints the `SendMessage` text for its worker, or spawn a
+   fresh worker with the line `show <ID>` prints.
+10. **Repeat** 2–9 while there is capacity and ready work.
+11. **Publish** at the end, and after a `not pushed` line: `publish` pushes `kanban` and `main`. Never force-push.
+12. **One message to the owner:** done (ids, titles, merge shas), in flight, the questions in one batch, refused
+    promotions, what you decided on your own, and pending package findings. Facts only.

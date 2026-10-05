@@ -49,6 +49,7 @@
     - [Keyboard Shortcuts](#keyboard-shortcuts)
 - [Working With Claude](#working-with-claude)
     - [Running the Board](#running-the-board)
+    - [Your Morning](#your-morning)
     - [Planning Cards](#planning-cards)
     - [Questions and Rules](#questions-and-rules)
     - [Reporting Package Issues](#reporting-package-issues)
@@ -82,12 +83,13 @@ You tell Claude what you are building. Claude asks a few questions and installs 
 `CLAUDE.md` rule file for the app and one for each layer directory, such as `app/Models`. Claude follows those rules
 in every later session.
 
-There are four skills:
+There are five skills:
 
 - `laravel-project-setup` starts a project, or brings an older house project up to date.
 - `laravel-deployment` runs the project in Docker, locally and in production.
 - `implement-kanban` puts the project on the [kanban board](#the-kanban-board).
 - `kanban` runs the board, once the project is on it.
+- `kanban-status` tells you what is happening on the board right now.
 
 The composer package also ships two tools:
 
@@ -673,6 +675,16 @@ change either one in the `agents` section of `config/kanban.php`:
 These values are written into the agent files. After changing them, run `vendor/bin/kanban doctor --fix` and restart
 Claude Code.
 
+Agents that `kanban run` starts have nobody to approve a tool. They may edit their card's files and run commands in
+its container. Besides that, they may use only the tools in `allowed_tools`, which by default are WebFetch and
+WebSearch. An empty list keeps them off the web:
+
+```php
+'agents' => [
+    'allowed_tools' => [],
+],
+```
+
 <a name="quality-gates"></a>
 ### Quality Gates
 
@@ -891,23 +903,43 @@ Open Claude Code in your project's main checkout and ask it to run the board:
 Run the board.
 ```
 
-The main session follows the `kanban` skill. It moves complete cards from `backlog` to `ready` and starts as many
-cards as the limits allow. For each card, it starts a worker in the background, sends finished work to the evaluator
-and merges what is approved. When the run is over, it publishes and sends you one summary covering:
+The main session follows the `kanban` skill. The routine runs in code, in `vendor/bin/kanban run`, which the session
+keeps going in the background:
+- it moves complete cards from `backlog` to `ready` and starts as many cards as the limits allow;
+- it starts a worker for each card, sends finished work to the evaluator and merges what is approved;
+- a card that waits on your answer goes back to `backlog`, and the board carries on with the others.
 
-- what was merged;
-- what is still in progress;
-- which cards are blocked;
-- the questions it needs you to answer, in one batch.
+Each agent is a headless Claude Code session of its own. This needs Linux and card containers (see
+[Where Agents Run](#where-agents-run)). The main session steps in only when something needs judgment:
+a blocked card, a failing merge, a red `main`, a package finding, or nothing left to start. When it hits your usage
+limit, the board pauses and resumes later.
 
-You may also ask it to work on one card, such as "start ACME-7K2QF9".
+To see what is happening at any time, ask Claude:
 
-To stop a run, tell Claude whether to drain (finish what is in review, start nothing new) or stop everything.
+```text
+/kanban-status
+```
+
+To stop, tell Claude to wrap up. It starts nothing new, lets the cards in progress finish, publishes and sends you one
+summary.
 
 > [!NOTE]
 > Only one Claude Code session per machine may run the board at a time. After `/compact` or a restart, the new session
 > takes over from the old one of the same conversation. If another old session still holds it, run
 > `vendor/bin/kanban lease --takeover`.
+
+<a name="your-morning"></a>
+### Your Morning
+
+Once a day, ask Claude for the morning:
+
+```text
+Do the morning.
+```
+
+Claude shows what merged, what is blocked and what the agents spent, then asks every open question as a multiple
+choice, with a recommended answer and what each option means. Your answers go onto the cards, and the waiting cards
+move on. Tell Claude about new work, and the board carries on.
 
 <a name="planning-cards"></a>
 ### Planning Cards
@@ -927,9 +959,11 @@ vendor/bin/kanban fold ACME-B7Q2PX --into=ACME-A1K8ZT
 <a name="questions-and-rules"></a>
 ### Questions and Rules
 
-Decisions are yours to make. When Claude meets a question, it puts it on the card that needs the answer, which then
-waits in `backlog`, and asks you. Once you answer, it writes the answer onto the card, under an `## Owner answer` heading, and moves it on. It never
-answers one by itself. Its own notes on a card are information, never your decision.
+Decisions about what the product does are yours. A choice that is easy to change later does not wait for you: the
+agent takes the recommended option, records it as a provisional decision, and you confirm or change it in the morning.
+Anything else, such as money, legal text, real data or production, waits in `backlog` until you answer. Your answer
+goes onto the card under an `## Owner answer` heading. Claude's own notes on a card are information, never your
+decision.
 
 A rule that every card must follow, such as "money is stored in cents", goes into the `CLAUDE.md` file of the
 directory it governs. Every agent reads those files.
@@ -1165,6 +1199,8 @@ The [protocol reference](resources/boost/skills/kanban/references/protocol.md) l
 | `show ID` | One card with its criteria, dependencies and history. |
 | `next` | The card that would be started next. `-v` says why the others wait. |
 | `upstream` | Package findings waiting to be filed. |
+| `morning` | What merged, what is blocked, the open questions and what the agents spent, since yesterday. |
+| `questions` | Every open question with its options. |
 | `doctor` | Checks the installation. `--fix` repairs it. |
 | `validate` | Checks every board file. `--fix` rewrites them. |
 
@@ -1175,16 +1211,18 @@ The [protocol reference](resources/boost/skills/kanban/references/protocol.md) l
 | `new work "Title"` | Adds a card. `--epic=SLUG` puts it in an epic. |
 | `epic SLUG "Title"` | Adds or updates an epic: `--goal=` and `--done-when=`. Without a slug, lists the epics. |
 | `fold ID --into=ID` | Merges cards into one. |
+| `answer ID#N OPTION` | Records your answer to a question, then moves the card on. |
 | `set ID key=value` | Changes a card, such as `priority=high`, `epic=passkey-login` or `note="…"`. |
 | `move ID STAGE` | Moves a card to another stage, or `--board=BOARD` to another board. |
 | `promote ID` | Moves a card from `backlog` to `ready`. `--auto` fills `ready` with complete cards, up to 12 by default. |
 | `board BOARD "Title"` | Adds or updates a board. |
 | `fold-boards` | Moves an older board onto one work board, with each card's epic taken from where it was. `/implement-kanban` runs it. |
 
-**Working on cards** (usually run by Claude)
+**Working on cards** (usually run by Claude and `kanban run`)
 
 | Command | Description |
 |---|---|
+| `run` | The routine of running the board: starts cards, agents and merges. Claude runs it for you. |
 | `start ID` | Claims a card and creates its clone and stack. A branch that `stop` kept is reused, with the latest `main` merged in. A refusal names the card ahead on the same area, or the limit it hit. |
 | `refresh ID` | Merges the latest `main` into the card's branch. When the merge changes a lockfile, a docker file or the compose file, it recreates the card's stack. |
 | `wait [ID]` | Waits until the card's agent has stopped and its report or verdict is on the board. Without an ID, it waits for any card in `doing` or `review`. |

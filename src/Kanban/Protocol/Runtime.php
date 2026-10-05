@@ -151,6 +151,9 @@ final class Runtime
         foreach (glob($this->paths->runtime('spawns').'/*.json') ?: [] as $file) {
             $drop($file, self::SPAWN_SECONDS);
         }
+        foreach ([...glob($this->paths->runtime('runs/*.json')) ?: [], ...glob($this->paths->runtime('runs/*.log')) ?: []] as $file) {
+            $drop($file, self::APPLIED_DAYS * 86400);
+        }
         foreach (glob($this->paths->staged('*.json')) ?: [] as $file) {
             $card = $snapshot->card(strstr(basename($file), '.', true) ?: '');
             if ($card === null || in_array($card->stage(), ['done', 'dropped'], true)) {

@@ -22,10 +22,11 @@ it('prints the brief and exports KANBAN_SESSION into CLAUDE_ENV_FILE', function 
     $lines = explode("\n", rtrim($start->getOutput()));
     expect($lines[0])->toMatch('/^Kanban ACME: branch kanban @[0-9a-f]{7}, not published, sync off, \d{4}-\d\d-\d\d \d\d:\d\dZ$/')
         ->and($lines[1])->toBe('WIP doing 1/6, review 0/6 · ready 1 · backlog 1 · blocked 1 · questions 1')
-        ->and($lines[2])->toMatch("/^doing  {$id} norm work Conditional clauses: worker a4d2 live \d+s, wt ".basename($wt).'$/')
-        ->and($lines[3])->toBe("blocked {$blocked} Waiting on owner: \"question: one workspace per team?\"")
-        ->and($lines[4])->toBe("next: {$next} high")
-        ->and($lines[5])->toBe('checks: merge driver ok · journal 0 · guard ok · hooksPath ok · 0 orphan worktrees · lease: free')
+        ->and($lines[2])->toBe('agents: 1 worker, 0 evaluators live')
+        ->and($lines[3])->toMatch("/^doing  {$id} norm work Conditional clauses: worker a4d2 live \d+s, wt ".basename($wt).'$/')
+        ->and($lines[4])->toBe("blocked {$blocked} Waiting on owner: \"question: one workspace per team?\"")
+        ->and($lines[5])->toBe("next: {$next} high")
+        ->and($lines[6])->toBe('checks: merge driver ok · journal 0 · guard ok · hooksPath ok · 0 orphan worktrees · lease: free')
         ->and(strlen($start->getOutput()))->toBeLessThan(6000);
 });
 
@@ -84,6 +85,18 @@ it('marks agents with a stale heartbeat as stopped', function () {
         ->and($out)->toContain("doing  {$id} norm work Conditional clauses: worker a4d2 stopped, wt ");
 });
 
+it('counts the agent runs kanban run logged in the last 24 hours', function () {
+    $p = ProtocolSandbox::create();
+    $runs = $p->runtime('runs.jsonl');
+    @mkdir(dirname($runs), 0775, true);
+    file_put_contents($runs, implode("\n", [
+        json_encode(['card' => 'ACME-OLD', 'ended' => '2020-01-01T00:00:00.000+00:00', 'tokens' => 5, 'cost_usd' => 9.0]),
+        json_encode(['card' => 'ACME-NEW', 'ended' => gmdate('Y-m-d\TH:i:s.000+00:00'), 'tokens' => 1_234_567, 'cost_usd' => 3.5]),
+    ])."\n");
+
+    expect($p->sandbox->ok('status'))->toContain("\nagents: 0 workers, 0 evaluators live; last 24h: 1 run, 1.2M tokens, \$3.50\n");
+});
+
 it('reports orphan card worktrees and the lease holder in the status checks', function () {
     $p = ProtocolSandbox::create();
     $id = $p->sandbox->card('Parked');
@@ -132,6 +145,8 @@ it('prunes runtime files nothing reads any more and keeps the rest', function ()
     $orphanStaged = $write('staged/ACME-GONE.report.json', [], $old);
     $keptStaged = $write("staged/{$id}.report.json", [], $old);
     $lease = $write('lease.json', ['session' => 'gone', 'since' => '2026-01-01T00:00:00Z'], time() - 3600);
+    $oldRun = $write('runs/old-session.json', [], $old);
+    $oldPid = $write('runs/old-live.pid', ['pid' => 1], $old);
 
     $p->hook('session-start', $p->payload('session-start'));
 
@@ -140,6 +155,8 @@ it('prunes runtime files nothing reads any more and keeps the rest', function ()
         ->and($spawn)->not->toBeFile()
         ->and($orphanStaged)->not->toBeFile()
         ->and($lease)->not->toBeFile()
+        ->and($oldRun)->not->toBeFile()
+        ->and($oldPid)->toBeFile()
         ->and($liveButQuiet)->toBeFile()
         ->and($keptStaged)->toBeFile();
 });
@@ -244,4 +261,15 @@ it('counts the doing cards of this machine against max_parallel, and names the o
     $lines = explode("\n", rtrim($p->hook('session-start', $p->payload('session-start'))->getOutput()));
 
     expect($lines[1])->toStartWith('WIP doing 1/6 (+1 elsewhere), review 0/6');
+});
+
+it('names the rule files over 24 KB, so a pruning card keeps them lean', function () {
+    $p = ProtocolSandbox::create();
+    mkdir($p->main.'/frontend');
+    file_put_contents($p->main.'/frontend/CLAUDE.md', str_repeat("A rule.\n", 4000));
+    file_put_contents($p->main.'/notes.md', str_repeat("Not a rule file.\n", 4000));
+    $p->sandbox->git('add', 'frontend/CLAUDE.md', 'notes.md');
+    $p->sandbox->git('commit', '-qm', 'rules');
+
+    expect($p->sandbox->ok('status'))->toContain("\nrules over 24 KB (prune them): frontend/CLAUDE.md 31 KB\n");
 });

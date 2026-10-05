@@ -152,7 +152,7 @@ Ask first: one commit or a few by concern. Board writes are already commits on `
 ## 8. First card through the loop
 
 Path (b) takes the first real feature; path (a) a real bug or feature, planned as the `kanban` skill's "Planning
-cards" says. Drive it with the `kanban` skill: `promote` → `start` → worker → `refresh` → evaluator → `finish`.
+cards" says, and `promote` it. Run the board as the `kanban` skill's "Running the board" says, until the card is done.
 - With sync on, `start` is won by the push that lands, so `origin` must be reachable and writable from the host.
 - Exit 9: stop and report. Never loop; never add `KANBAN_SYNC=off` yourself. The `kanban` skill owns the exit table.
 
@@ -166,6 +166,7 @@ Report to the owner:
 - the archive and the rules it added, the cards with open questions, the doctor output, `vendor/bin/kanban status`
   (sync state) and the first card's merge sha;
 - the owner steps still open: address pools, old volumes, the deploy key to register;
+- how the board runs from now on: "Run the board", `/kanban-status` any time, and a daily "Do the morning";
 - on every other clone, before its first Claude Code session: `composer install && vendor/bin/kanban attach`. Read
   what it prints. Each clone has its own key. If a session ran first, `cat .git/laravel-house/deploy_key.pub`.
 

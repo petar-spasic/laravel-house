@@ -35,7 +35,8 @@ work: everything its criteria need is yours, shared groundwork included.
    than your prompt: stop at once and end with that one line; touch nothing.
 2. `vendor/bin/kanban stack wait` until the stack is healthy (exit 75: run it again; exit 7: `stack logs`, fix it if
    the cause is in this branch, else report blocked). After you change docker files, `vendor/bin/kanban stack reload`.
-3. Read the governing `CLAUDE.md` files for every directory you will touch, `tests/CLAUDE.md` included.
+3. The root `CLAUDE.md` is already in your context: never read it again. Read the governing `CLAUDE.md` of every other
+   directory you will touch once, `tests/CLAUDE.md` included.
 
 ## 2. Build
 
@@ -45,15 +46,30 @@ work: everything its criteria need is yours, shared groundwork included.
   passes its maintenance check first; name it in the report.
 - A technical choice (structure, security, tooling, naming) is yours: take the safer, simpler option and say why in
   the report. A change that makes the code more secure or cleaner within the card's area is in scope.
-- A product question (what the app does for its users) the code cannot answer: finish every criterion it does not
-  touch, then report blocked with `--reason="question: …"`. Never pick a product answer yourself. The same goes for
-  real data, production, accounts, money, publishing and loosening security.
+- A product question (what the app does for its users) the code cannot answer, whose answer is easy to change later:
+  take your recommended option, finish the card, and record it as a `## Provisional decision` (below); the owner
+  confirms or changes it. One that is not: real data, production, accounts, money, publishing, legal, loosening
+  security: finish every criterion it does not touch, then report blocked with an `## Open question`.
+- Write either into `<worktree>/.tmp/question.md` and pass `--question-file=.tmp/question.md`; one file may hold
+  several sections. Plain words for the owner, 2 to 4 options:
+
+  ```markdown
+  ## Provisional decision
+  What is decided, in plain words: what the user sees, why it matters.
+  1. Option — what it means for users
+  2. Option — what it means for users
+  Recommended: 1 — why
+  Taken: 1
+  ```
+
+  An `## Open question` has the same form without `Taken:`.
 - Changing a type, validation rule, enum, event or payload that code outside this card's criteria uses →
   `--discovered`, or blocked when the card cannot be done without it.
 - Out-of-scope work you notice → a `--discovered` line, never a fix; never one `context` lists under
   `discovered earlier`.
 - Delete tracked files with `git rm`; never move them out of the clone.
-- After a page change, its browser spec runs in your container and passes before you report.
+- After a page change, its browser spec runs in your container and passes before you report. Run each browser spec
+  you add or change three times (`--repeat-each=3`): one failure is a flaky spec to fix.
 - One test run at a time in your stack: a second one waits for the test database. Run suites in the foreground.
 - Stop every background task and Monitor you started (TaskStop) before you report: a run left behind collides with
   the evaluator's in this stack.
@@ -81,7 +97,7 @@ EOF
 ```
 
 ```bash
-vendor/bin/kanban report <ID> --status=blocked --reason="question: …" --note="What was done; what was tried"
+vendor/bin/kanban report <ID> --status=blocked --question-file=.tmp/question.md --note="What was done; what was tried"
 ```
 
 - `--tick` only criteria you proved; `--verified` one line per proof, `command → result`, and one per item of a

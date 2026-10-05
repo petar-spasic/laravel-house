@@ -47,4 +47,7 @@ cd frontend
 # PUBLIC_* values are baked in at build: the browser's origin during the run.
 PUBLIC_APP_URL=$app_url npm run build
 export E2E_DATABASE_READY=1
-exec node_modules/.bin/playwright test "$@"
+# One character per passing test, failures in full: an agent reads all of it. A caller's --reporter wins.
+reporter=--reporter=dot
+for a in "$@"; do case "$a" in --reporter*) reporter= ;; esac; done
+exec node_modules/.bin/playwright test ${reporter:+"$reporter"} "$@"

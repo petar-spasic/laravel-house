@@ -149,3 +149,22 @@ it('rewrites within 50 ms at p95', function () {
 
     expect($p95)->toBeLessThan(50.0);
 });
+
+it('binds a headless card session by its session id: routing and the fence, as for a subagent', function () {
+    $sandbox = new GuardSandbox;
+    $session = '5f0c9a2e-0000-4000-8000-000000000001';
+    $sandbox->bind($session, 'kanban-worker', GuardSandbox::DOING);
+    $container = $sandbox->stack(GuardSandbox::DOING);
+    $payload = fn (string $tool, array $input, ?string $type = 'kanban-worker') => json_encode(array_filter([
+        'session_id' => $session, 'cwd' => $sandbox->main, 'hook_event_name' => 'PreToolUse',
+        'agent_type' => $type, 'tool_name' => $tool, 'tool_input' => $input,
+    ]));
+
+    $shell = $sandbox->raw($payload('Bash', ['command' => 'git status']));
+    $read = $sandbox->raw($payload('Read', ['file_path' => $sandbox->main.'/.env']));
+    $main = $sandbox->raw($payload('Bash', ['command' => 'git status'], null));
+
+    expect($shell['input']['command'])->toBe("{$sandbox->main}/vendor/bin/kanban-exec {$container} '{$sandbox->wt(GuardSandbox::DOING)}' 'git status'")
+        ->and($read['decision'])->toBe('deny')
+        ->and($main['out'])->toBe('');
+});

@@ -159,7 +159,7 @@ Each line passes or prints nothing:
 
 # Package and manifests
 claude plugin validate .                                        # passes; the one warning is the omitted version
-claude --plugin-dir . plugin details laravel-house              # lists all four skills
+claude --plugin-dir . plugin details laravel-house              # lists all five skills
 composer validate --no-check-publish
 for f in .claude-plugin/*.json composer.json; do php -r 'json_decode(file_get_contents($argv[1]), flags: JSON_THROW_ON_ERROR);' "$f"; done
 php -r '$c = json_decode(file_get_contents("composer.json"), true); foreach ($c["extra"]["laravel"]["providers"] as $p) { $f = "src/".str_replace(["PetarSpasic\\LaravelHouse\\", "\\"], ["", "/"], $p).".php"; is_file($f) || print("✗ $p\n"); }'

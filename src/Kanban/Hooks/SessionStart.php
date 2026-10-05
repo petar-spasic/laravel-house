@@ -48,6 +48,10 @@ final class SessionStart
             }
         }
         $session = is_string($payload['session_id'] ?? null) && $payload['session_id'] !== '' ? $payload['session_id'] : null;
+        // a headless card session (`kanban run` wrote its record): no brief, and not the main session
+        if ($session !== null && (new Runtime($this->paths))->agent($session) !== null) {
+            return ['stdout' => '', 'stderr' => '', 'exit' => 0];
+        }
         $transcript = is_string($payload['transcript_path'] ?? null) && $payload['transcript_path'] !== '' ? $payload['transcript_path'] : null;
         $envFile = getenv('CLAUDE_ENV_FILE');
         if ($session !== null && is_string($envFile) && $envFile !== '') {

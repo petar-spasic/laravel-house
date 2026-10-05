@@ -40,7 +40,7 @@ final class SubagentStop
     public function handle(array $payload): array
     {
         $type = $payload['agent_type'] ?? null;
-        $agentId = (string) ($payload['agent_id'] ?? '');
+        $agentId = self::agentId($payload);
         if (! in_array($type, [self::WORKER, self::EVALUATOR], true) || ! Runtime::validAgentId($agentId) || ! $this->paths->hasBoard()) {
             return self::done();
         }
@@ -150,7 +150,7 @@ final class SubagentStop
     private function settle(array $payload, Runtime $runtime): array
     {
         $type = $payload['agent_type'] ?? null;
-        $agentId = (string) ($payload['agent_id'] ?? '');
+        $agentId = self::agentId($payload);
         if (! in_array($type, [self::WORKER, self::EVALUATOR], true) || ! Runtime::validAgentId($agentId)) {
             return [];
         }
@@ -173,7 +173,7 @@ final class SubagentStop
     public function failed(array $payload, string $message): void
     {
         $type = $payload['agent_type'] ?? null;
-        $agentId = (string) ($payload['agent_id'] ?? '');
+        $agentId = self::agentId($payload);
         if (! in_array($type, [self::WORKER, self::EVALUATOR], true) || ! Runtime::validAgentId($agentId)) {
             return;
         }
@@ -208,8 +208,14 @@ final class SubagentStop
     {
         $blocks = (int) ($agent['stop_blocks'] ?? 0);
         if ($blocks >= self::MAX_BLOCKS) {
-            if (($agent['agent_type'] ?? null) === self::WORKER) {
-                $why = str_starts_with($reason, 'No report') ? 'worker stopped without report' : 'worker stopped: '.strtok($reason, "\n");
+            // a blocked card is one `kanban run` launches no agent for again
+            if (in_array($agent['agent_type'] ?? null, [self::WORKER, self::EVALUATOR], true)) {
+                $role = str_replace('kanban-', '', (string) $agent['agent_type']);
+                $why = match (true) {
+                    str_starts_with($reason, 'No report') => 'worker stopped without report',
+                    str_starts_with($reason, 'No verdict') => 'evaluator stopped without verdict',
+                    default => "{$role} stopped: ".strtok($reason, "\n"),
+                };
                 try {
                     $this->store->update($cardId, function (array $data) use ($why) {
                         $data['blocked'] = mb_substr($why, 0, 500);
@@ -248,6 +254,16 @@ final class SubagentStop
     }
 
     /** @return array{stdout: string, stderr: string, exit: int} */
+    /**
+     * The subagent's id, or for a headless card session (`kanban run`, which stops with Stop) its session id.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    private static function agentId(array $payload): string
+    {
+        return (string) ($payload['agent_id'] ?? '') ?: (string) ($payload['session_id'] ?? '');
+    }
+
     private static function done(string $note = ''): array
     {
         return ['stdout' => '', 'stderr' => $note === '' ? '' : $note."\n", 'exit' => 0];

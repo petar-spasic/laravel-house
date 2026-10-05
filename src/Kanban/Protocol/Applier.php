@@ -5,6 +5,7 @@ namespace PetarSpasic\LaravelHouse\Kanban\Protocol;
 use Closure;
 use PetarSpasic\LaravelHouse\Kanban\Code\MergeCheck;
 use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
+use PetarSpasic\LaravelHouse\Kanban\Policy\Questions;
 use PetarSpasic\LaravelHouse\Kanban\Policy\Transitions;
 use PetarSpasic\LaravelHouse\Kanban\Store\Actor;
 use PetarSpasic\LaravelHouse\Kanban\Store\Card;
@@ -164,6 +165,9 @@ final class Applier
                     $data['work']['head'] = $head;
                 }
                 $data['blocked'] = $status === 'blocked' ? mb_substr((string) $report['reason'], 0, 500) : null;
+                if (($report['questions'] ?? []) !== []) {
+                    $data['body'] = Questions::append((string) ($data['body'] ?? ''), $report['questions']);
+                }
                 // a report on a card in review is a new round: whatever an evaluator approved is no longer what it reports
                 if ($data['stage'] === 'review') {
                     $data['work']['approved'] = null;

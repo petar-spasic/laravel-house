@@ -58,6 +58,9 @@ final class Brief
         $lines[] = "WIP doing {$capacity['here']}/{$capacity['max_parallel']}".($elsewhere > 0 ? " (+{$elsewhere} elsewhere)" : '').", review {$capacity['review']}/{$capacity['review_limit']}"
             .' · ready '.($counts['ready'] ?? 0).' · backlog '.($counts['backlog'] ?? 0).' · blocked '.count($blocked)
             .' · questions '.count(array_filter($blocked, fn (Card $c) => $c->asks()));
+        if (($agents = $this->agents($runtime)) !== null) {
+            $lines[] = $agents;
+        }
         if (($red = (new MainCheck($this->paths))->red()) !== null) {
             $lines[] = 'main red since '.substr((string) $red['sha'], 0, 7)." ({$red['after']} merged): `{$red['command']}` fails; finish waits for it ("
                 .($red['card'] ?? 'no card').')';
@@ -84,6 +87,9 @@ final class Brief
         if (($hubs = Shape::hubs($snapshot)) !== []) {
             $lines[] = 'hubs: '.implode(', ', array_map(fn (string $id) => "{$id} blocks ".count($hubs[$id]), array_keys($hubs)));
         }
+        if (($rules = $this->bigRules()) !== []) {
+            $lines[] = 'rules over 24 KB (prune them): '.implode(', ', $rules);
+        }
         if (Findings::enabled($this->config) && ($pending = count(Findings::pending($snapshot))) > 0) {
             $lines[] = "upstream: {$pending} pending (`kanban upstream`)";
         }
@@ -98,6 +104,67 @@ final class Brief
         $lines[] = 'checks: '.implode(' · ', $this->checks($snapshot, $repo?->mergeDriver() !== null, $session, $transcript));
 
         return $lines;
+    }
+
+    /**
+     * Tracked `CLAUDE.md` files over 24 KB, biggest first: every agent that works there reads them whole.
+     *
+     * @return list<string>
+     */
+    private function bigRules(): array
+    {
+        $sizes = [];
+        foreach (explode("\0", (new Git($this->paths->main))->attempt(['ls-files', '-z', '--', 'CLAUDE.md', '*/CLAUDE.md'])->out) as $file) {
+            if ($file !== '' && ($size = (int) @filesize($this->paths->main.'/'.$file)) > 24 * 1024) {
+                $sizes[$file] = $size;
+            }
+        }
+        arsort($sizes);
+
+        return array_map(fn (string $file, int $size) => $file.' '.intdiv($size, 1024).' KB', array_keys($sizes), $sizes);
+    }
+
+    /** `agents: 2 workers, 1 evaluator live; last 24h: 9 runs, 4.1M tokens, $3.20`, or null when there is neither. */
+    private function agents(Runtime $runtime): ?string
+    {
+        $live = ['kanban-worker' => 0, 'kanban-evaluator' => 0];
+        foreach ($runtime->agents() as $agent) {
+            if (isset($live[$agent['agent_type'] ?? '']) && $runtime->state($agent) === 'live') {
+                $live[$agent['agent_type']]++;
+            }
+        }
+        $runs = self::runs($this->paths, gmdate('Y-m-d\TH:i:s', time() - 86400));
+        if (array_sum($live) === 0 && $runs === []) {
+            return null;
+        }
+        $plural = fn (int $n, string $word) => "{$n} {$word}".($n === 1 ? '' : 's');
+
+        return 'agents: '.$plural($live['kanban-worker'], 'worker').', '.$plural($live['kanban-evaluator'], 'evaluator').' live'
+            .($runs === [] ? '' : '; last 24h: '.$plural(count($runs), 'run').', '.self::tokens(array_sum(array_column($runs, 'tokens'))).' tokens, $'
+                .number_format(array_sum(array_column($runs, 'cost_usd')), 2));
+    }
+
+    /**
+     * The agent runs `kanban run` logged as ended since $since (runs.jsonl).
+     *
+     * @return list<array{tokens: int, cost_usd: float}>
+     */
+    public static function runs(Paths $paths, string $since): array
+    {
+        $runs = [];
+        foreach (@file($paths->runtime('runs.jsonl'), FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
+            $run = json_decode($line, true);
+            if (is_array($run) && (string) ($run['ended'] ?? '') >= $since) {
+                $runs[] = ['tokens' => (int) ($run['tokens'] ?? 0), 'cost_usd' => (float) ($run['cost_usd'] ?? 0)];
+            }
+        }
+
+        return $runs;
+    }
+
+    public static function tokens(float $n): string
+    {
+        return $n >= 1e6 ? round($n / 1e6, 1).'M' : ($n >= 1e3 ? round($n / 1e3).'k' : (string) (int) $n);
     }
 
     private function short(Card $card): string

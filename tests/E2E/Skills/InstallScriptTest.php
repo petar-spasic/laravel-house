@@ -158,6 +158,25 @@ it('takes the test database lock for every top-level test run: a second run wait
         ->and($second->getOutput())->toBe('second');
 })->with(['', 'spa']);
 
+it('runs Playwright with the dot reporter unless the caller names one', function (array $args, string $expected) {
+    $script = file_get_contents(deployment('spa').'/docker/e2e.sh');
+    $tail = substr($script, (int) strpos($script, "\nreporter=") + 1);
+    $dir = sys_get_temp_dir().'/e2e-'.bin2hex(random_bytes(4));
+    mkdir("{$dir}/node_modules/.bin", 0777, true);
+    file_put_contents("{$dir}/node_modules/.bin/playwright", "#!/bin/bash\necho \"\$*\"\n");
+    chmod("{$dir}/node_modules/.bin/playwright", 0755);
+
+    $run = new Process(['bash', '-c', $tail, 'e2e.sh', ...$args], $dir);
+    $run->run();
+
+    expect(str_contains($script, "\nreporter="))->toBeTrue()
+        ->and(trim($run->getOutput()))->toBe($expected);
+})->with([
+    'none' => [['e2e/a.spec.ts'], 'test --reporter=dot e2e/a.spec.ts'],
+    'named' => [['--reporter=list', 'e2e/a.spec.ts'], 'test --reporter=list e2e/a.spec.ts'],
+    'spaced' => [['--reporter', 'line'], 'test --reporter line'],
+]);
+
 it('keeps the spa e2e site on localhost, on the CSRF token path and behind one switch the prod boot refuses', function () {
     $out = deployment('spa');
     $caddy = file_get_contents("{$out}/docker/Caddyfile.local");

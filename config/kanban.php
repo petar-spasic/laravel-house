@@ -26,6 +26,9 @@ return [
         // container: a worker's or evaluator's Bash and Monitor commands run in its card stack's `stack.service`
         // container (vendor/bin/kanban-exec), except `git` and `vendor/bin/kanban`. host: they run on this machine.
         'shell' => env('KANBAN_AGENT_SHELL', 'container'),
+        // What a headless card agent (`kanban run`) may use besides edits in its card and its routed shell: nobody is there
+        // to approve anything else. [] keeps the agents off the web.
+        'allowed_tools' => ['WebFetch', 'WebSearch'],
     ],
 
     'main_branch' => env('KANBAN_MAIN_BRANCH', 'main'),

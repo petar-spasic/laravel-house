@@ -2,18 +2,19 @@
 name: kanban
 description: >-
   For a project on the kanban board (docs/kanban present, kanban:install run).
-  Orchestrate the board from the main session: plan cohesive cards an agent
-  finishes in one go, keep every slot busy, start each card in its own clone
-  and Docker stack, spawn background kanban-worker and kanban-evaluator
-  agents, react to their reports and verdicts, merge approved work with
-  `finish`, and report back to the owner. Covers card sizing and folding,
-  open questions on cards, the run loop step by step, the exact
-  vendor/bin/kanban commands and exit codes, and filing package findings
-  upstream. Use when asked to run, work through or drive the board, plan or
-  split work into cards, start or continue cards, merge finished work, or
-  record the owner's answer. Triggers — kanban, board, run the board, next
-  card, ready cards, plan cards, fold cards, start card, kanban-worker,
-  kanban-evaluator, finish card, publish, vendor/bin/kanban, docs/kanban.
+  The main session orchestrates: it plans cohesive cards an agent finishes in
+  one go, runs `vendor/bin/kanban run --until-attention` in the background
+  (the routine in code: clones, Docker stacks, headless kanban-worker and
+  kanban-evaluator agents, merges) and acts on what it hands back, and runs
+  the owner's morning: the summary, every open question as a multiple choice,
+  the answers recorded with `kanban answer`. Covers card sizing and folding,
+  the question format, provisional decisions, wrapping up, recovery, the
+  exact vendor/bin/kanban commands and exit codes, and filing package
+  findings upstream. Use when asked to run
+  or drive the board, plan or split work into cards, answer or record the
+  owner's questions, do the morning, or wrap up. Triggers — kanban, board,
+  run the board, kanban run, morning, questions, answer, plan cards, fold
+  cards, kanban-worker, kanban-evaluator, finish card, vendor/bin/kanban.
 ---
 
 # Kanban orchestrator (main session)
@@ -22,15 +23,16 @@ No `docs/kanban` in the project: if the root `CLAUDE.md` has the `laravel-house:
 not attached yet: run `vendor/bin/kanban attach`, then `doctor`. Without the block, the board is not adopted: offer
 the owner `/implement-kanban`, and stop. `an older board format: the owner runs /implement-kanban` means the same.
 
-You plan the cards and drive the board; agents do the card work. Exact flags, every exit code and the rarer failures
+You orchestrate the board and run the owner's morning; `kanban run` does the routine steps, and agents do the card work. Exact flags, every exit code and the rarer failures
 are in `references/protocol.md`; card sizing in depth is `references/planning.md`. All commands below are
 `vendor/bin/kanban <command>` run from the main checkout.
 
 ## Ground rules
 
-- Only the main session runs `start`, `refresh`, `finish`, `stop`, `publish`, `promote`, `new`, `set`, `move`, `fold`
-  and `upstream file|new|dismiss`, from the main checkout. One main session per machine holds the lease; another one gets
-  exit 6 from `start`, `refresh`, `finish`, `stop` and `apply`, and nothing changed. A new session of the same
+- Only the main session (and the `kanban run` it starts) runs `start`, `refresh`, `finish`, `stop`, `publish`, `promote`, `new`, `set`,
+  `move`, `fold`, `answer` and `upstream file|new|dismiss`, from the main checkout. One orchestrator per machine holds
+  the lease; another one gets exit 6 from `start`, `refresh`, `finish`, `stop` and `apply`, and nothing changed. While
+  `kanban run` is running, leave starting, refreshing, finishing and stopping cards to it. A new session of the same
   transcript (after `/compact` or a restart) takes the lease at SessionStart. `lease --takeover` when the holder is
   your own previous session, otherwise only when the owner says so.
 - Never edit `docs/kanban` by hand and never write code in the main checkout for a card.
@@ -69,79 +71,72 @@ Before a card is created, and before it is promoted:
 - **A shared contract** (a type, rule, enum or event several cards use) is its own small card on its own area.
 - **Discovered items** fold into the open card on their area before a new card is made; check each against main first.
 - After a rename lands, grep the open cards' criteria for the old names before their workers start.
+- **Rule files stay lean.** The brief's `rules over 24 KB` line names a `CLAUDE.md` every agent there reads whole: plan
+  a chore card on its area that prunes it (stale, redundant or one-off text out, detail into a doc it points to).
+- **A rule the evaluator rejects for twice** that grep can check (a forbidden call, a fixed sleep) becomes a
+  `gates.report` entry in `config/kanban.php`, so `report` refuses it before an evaluator spawns.
 
-## Keeping agents busy
+## Running the board
 
-- Finish approved cards first: cards in review hold stacks and areas.
-- Ready holds at least the free capacity in startable cards on distinct areas (`promote --auto` counts only those).
-- Every question for the owner goes out early and in one batch, never one at a time as agents hit them.
-- `next` returns none while slots are free: `next -v` says why each ready card waits. With nothing startable, spawn
-  read-only audit agents (no isolation, no card), one per area, that check the code against its `CLAUDE.md` rules and
-  return findings to card.
-- "Stop": ask once whether the owner means **drain** (start nothing new; keep evaluating, finishing and resending
-  rejects; then publish and report) or **stop all** (no spawns at all), unless the words already say.
+You orchestrate; `kanban run` does the routine in code: finishes approvals, refreshes and evaluates review cards,
+resumes rejected or conflicted workers (merging main first), parks question cards in backlog, promotes and starts cards
+up to capacity, each agent a headless `claude -p` session. It runs under your session's lease.
 
-## The run loop
+1. `status`. A `checks:` item not ok → `doctor` first.
+2. Start `vendor/bin/kanban run --until-attention` in the background (`run_in_background`). It returns with an
+   `attention:` block when something needs you, or after 25 min with `nothing needs you: run it again`.
+3. Act on each `attention:` line, then start it again:
+   - `<ID> blocked: …` (its agent, the stop gate, three runs without progress, or a failed command, `kanban run: …`):
+     `show <ID>`, `context <ID>` and the run's log in `.git/laravel-house/runs/`. Fix the cause, then `set <ID>
+     blocked=` (the worker resumes with main merged in), or `stop` it. A cause on main is a card of its own.
+   - `<ID> parked in backlog: question: …`: it waits for the owner's batch ("Morning").
+   - `main red …`: the bug card it filed goes first (`set <ID> priority=high`).
+   - `upstream: N … pending`: "Package findings".
+   - `paused until …: usage limit`: nothing to do; start it again.
+   - `idle: …`: plan or promote cards ("Planning cards"); with nothing to plan, report to the owner and stop.
+   - `kanban run failed: …`: read it; a defect in the package is `upstream new`; start it again.
+4. **Wrap up** ("stop", "drain"): `vendor/bin/kanban run --drain --until-attention` until it prints `drained`, then
+   `publish` and one message to the owner. Agents already running finish on their own; a new `run` picks them up.
+- Keep ready full: at least the free capacity in startable cards on distinct areas (`promote --auto` counts only those;
+  `next -v` says why ready cards wait).
+- Where a background command cannot run (a cloud session that ends turns), drive the board by hand:
+  `references/protocol.md`, "Driving the board by hand".
 
-1. **Orient.** `status`: WIP, cards in flight with their agents, blocked cards, questions, next, checks.
-   - A `checks:` item not ok → `doctor` (`doctor --fix` for wiring) before starting work.
-   - Cards in doing with `no agent`, or a `stopped`/`stale` agent → "Recover" first.
-2. **Fill Ready.** `promote --auto`: backlog cards whose dependencies are done, up to `ready_buffer` startable cards.
-   Refusals (no criteria, no area, an open question) go into the summary.
-3. **Pick.** `next --count=<free capacity>`; `none: …` → step 5.
-4. **Start each.** `start <ID>` prints the clone, branch, stack and, last, the spawn line:
-   `Agent(subagent_type="kanban-worker", description="…", prompt="Card <ID>. Worktree <path>")`.
-   Spawn exactly that, in the background, unchanged, without `name` or `isolation`, and one kanban spawn per message:
-   the agent binds to its card from that spawn when it starts. Context
-   for the agent goes on the card (`set <ID> note=`), never into the prompt.
-   - exit 3 refused: skip the card. exit 8 claim lost: `next` again, without it.
-   - exit 9 remote unreachable: nothing was claimed; wait, report it, never set `KANBAN_SYNC=off` yourself.
-   - exit 7 or 1 after the claim: the card stays in doing, blocked; fix the cause, then `start <ID>` again resumes it.
-5. **Wait.** An agent ends with a hand-back message, then stops, and its stop applies the report or verdict. On a
-   hand-back, run `wait <ID>`: it returns once that is done, with the card's line (`stop refused`: the agent works on;
-   its next hand-back comes later). Then act on the card's state. A task notification may come late or start no turn:
-   never wait for one. While agents run and nothing else is to do, keep one `wait --timeout=1800` running in the
-   background (`run_in_background`): it ends when any agent settles, so a lost hand-back costs nothing. After acting,
-   start it again. Never poll in a loop of your own.
-6. **Worker finished, card in review** (`wait <ID>` printed review).
-   `refresh <ID>` merges main into the branch:
-   - `up to date` / `refreshed` prints the evaluator's spawn line: spawn it.
-   - exit 3 `its worker is still running`: `wait <ID>`, then again.
-   - exit 5 conflict: the card is back in doing; send the printed `SendMessage:` text to the worker, or spawn a fresh
-     one with the line `show <ID>` prints.
-7. **Worker blocked.** `show <ID>` has the reason. A question: `stop <ID> --to=backlog`, with the question on the card
-   (see below), and into the owner batch. Anything else: fix the cause, or leave it blocked for the owner.
-8. **Approved.** `finish <ID>` merges, tears the card's stack down and removes its clone, then installs changed
-   dependencies on main, runs the migrate and after-steps and the main check, rebuilds main's stack when its image
-   inputs changed, and pushes main every `publish.every` merges. That can take minutes: run it in the background
-   (`run_in_background`) and act on its exit when it ends.
-   - exit 5 `main moved`: `refresh <ID>`, then a fresh evaluator. exit 5 `does not merge cleanly`: the card is in
-     doing; `refresh <ID>` hands the conflict to the worker.
-   - exit 3: the message names it (uncommitted main files, a live agent, an approval head mismatch, leftover conflict
-     markers: the card is back in doing; send the worker the listed lines). A card that changes kanban's own files
-     (`.claude/`, `config/kanban.php`, hooks, `.gitattributes`): show the owner the diff; `--force` with their OK.
-   - `main is red`: the main check failed after an earlier merge, and the bug card it filed holds the next `finish`:
-     start that card next (`--force` merges anyway, with the owner).
-   - exit 6: another session holds the lease and nothing merged (see Ground rules).
-   - `main: not pushed (…)`: `publish` later. `warning: rebuild main failed`: read the error, then run the printed compose command.
-   - Finish approved cards in the order the brief lists them, oldest approval first.
-9. **Rejected.** The card is back in doing; `show <ID>` prints the `SendMessage` text for its worker, or spawn a
-   fresh worker with the line `show <ID>` prints.
-10. **Repeat** 2–9 while there is capacity and ready work.
-11. **Publish** at the end, and after a `not pushed` line: `publish` pushes `kanban` and `main`. Never force-push.
-12. **One message to the owner:** done (ids, titles, merge shas), in flight, the questions in one batch, refused
-    promotions, what you decided on your own, and pending package findings. Facts only.
+## Morning
+
+While `kanban run` is not running (between hand-backs), so no answered card starts before its criteria are rewritten:
+
+1. `morning`: the board, what merged since, cards blocked without a question, open questions, agent runs and tokens.
+2. `questions`, then ask the owner through the multiple-choice prompt (AskUserQuestion), up to four per call: the
+   context as the question, each option as a choice with what it means as its description, the recommended option
+   first and marked "(Recommended)". A free-form question goes as it is.
+3. `answer <ID>#<n> <option> [--note=…]` for each. An answer that changes a card's criteria: rewrite them (`set`). A
+   provisional decision answered differently: the follow-up card that changes it. A standing rule: "Questions and
+   rules".
+4. Cards blocked without a question: as in step 3 of "Running the board". Pending package findings: "Package findings".
+5. Plan new cards from the owner's notes, `promote --auto`, start `kanban run --until-attention` again.
+6. One message: what merged, what you decided, what still waits on the owner. Facts only.
 
 ## Questions and rules
 
-- **An open question** is a product question (what the app does for its users), or one about real data,
-  production, accounts, money or publishing, or loosening security. Any other you answer yourself: `## Decision
-  (YYYY-MM-DD)` in the card's body, with the reason. It rides on the work card it blocks: `set <ID> blocked="question: <the question>"` and an
-  `## Open question` section in its body (options, trade-offs). It stays in backlog until answered.
+- **One format**, in the card's body; 2–4 options, so each fits the multiple-choice prompt:
+  ```markdown
+  ## Open question
+  What is decided, in plain words: what the user sees, why it matters.
+  1. Option — what it means for users
+  2. Option — what it means for users
+  Recommended: 1 — why
+  ```
+- **An open question** blocks its card in backlog until answered: real data, production, accounts, money, publishing,
+  legal, loosening security, or a product question that is hard to change later. Workers report it with
+  `--question-file`; when you plan one, write the section into the body and `set <ID> blocked="question: <…>"`.
+- **A provisional decision** (`## Provisional decision`, the same form plus `Taken: N`) is a product choice that is
+  easy to change later: the agent took the recommended option and went on; the owner confirms it in the morning.
+- Any other question you answer yourself: `## Decision (YYYY-MM-DD)` in the card's body, with the reason.
 - Before asking, check the `CLAUDE.md` rules and `docs/kanban/decisions.md`: a question they settle is not asked;
   write the answer onto the card and cite the rule.
-- **The owner answers:** add `## Owner answer (YYYY-MM-DD)` to the body, rewrite the criteria it changes, clear the
-  block (`set <ID> blocked=`), then `promote <ID>`. Rewrite the other open cards it changes too.
+- **The owner answers:** `answer` records it, clears the block and promotes the card; rewrite the criteria it changes,
+  and the other open cards it changes too.
 - **A standing rule** the owner states goes into the `CLAUDE.md` of the directory it governs, as a criterion on the
   first card that needs it, or straight away when the owner asks.
 - `docs/kanban/decisions.md` is the read-only archive of decisions recorded before the board had questions.
@@ -153,8 +148,6 @@ then `promote <ID>` unless it waits on a product question. Read the `hint:` line
 
 ## Recover
 
-- **Agent stopped or stale, card in doing:** `show <ID>` and `context <ID>`. A staged report never applied → `apply <ID>`.
-  Otherwise SendMessage the old worker, or spawn a fresh one with the line `show <ID>` prints.
 - **Stack down or unhealthy:** `stack <ID> wait`; `stack <ID> logs` for failures; `stack <ID> exec -- <cmd>` to look.
 - **Give up on a card:** `stop <ID> --to=ready|backlog|dropped [--reason=…]` (a branch with commits is parked;
   the next `start` reuses it with main merged in, and prints a conflict for the worker to conclude first).

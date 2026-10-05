@@ -2,6 +2,7 @@
 
 namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
+use PetarSpasic\LaravelHouse\Kanban\Policy\Questions;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Applier;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Context;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Gates;
@@ -24,7 +25,8 @@ class ReportCommand extends Command
         {--verified=* : "command → result" evidence}
         {--discovered=* : Out-of-scope work you found: "bug: Title — body"}
         {--upstream=* : A problem in the house package itself, in generic terms: "Title — body"}
-        {--reason= : Why blocked (required for blocked)}
+        {--reason= : Why blocked (required for blocked, unless the question file has an Open question)}
+        {--question-file= : A file in your worktree with ## Open question / ## Provisional decision sections for the owner}
         {--note= : Anything else for the main session}';
 
     protected $description = 'Worker: stage the report of your card (applied when you stop)';
@@ -37,13 +39,15 @@ class ReportCommand extends Command
         }
         $worktree = (new Context($this->paths(), $this->config()))->requireInside($card, $this->paths()->cwd, 'report');
         $summary = $this->option('summary-file') !== null ? $this->readFile((string) $this->option('summary-file')) : $this->option('summary');
+        $questions = $this->option('question-file') !== null
+            ? Questions::file($this->readFile($this->inside($worktree, (string) $this->option('question-file'))), (string) $this->option('status')) : [];
         $git = Git::untrusted($worktree);
         $report = Staged::report($card, (string) $this->option('status'), $this->option('tick'), $summary, $this->option('verified'),
-            $this->option('discovered'), $this->option('reason'), $this->option('note'), [
+            $this->option('discovered'), $this->option('reason') ?? Questions::block($questions), $this->option('note'), [
                 'head' => (string) $git->line(['rev-parse', 'HEAD']),
                 'worktree' => $this->paths()->relative($worktree),
                 'session' => (getenv('KANBAN_SESSION') ?: null),
-            ], $this->upstream($card));
+            ], $this->upstream($card), $questions);
         $runtime = new Runtime($this->paths());
         $refusal = $report['status'] === 'review' ? (new Applier($this->store(), $this->paths(), $this->config(), $runtime))->refusal($card) : null;
         if ($report['status'] === 'review' && $refusal === null) {
@@ -54,7 +58,8 @@ class ReportCommand extends Command
         $this->say("staged report for {$card->id()}: {$report['status']}, head ".substr($report['head'], 0, 7)
             .($report['ticks'] === [] ? '' : ', ticks '.implode(',', $report['ticks']))
             .($report['discovered'] === [] ? '' : ', '.count($report['discovered']).' discovered')
-            .($report['upstream'] === [] ? '' : ', '.count($report['upstream']).' upstream'));
+            .($report['upstream'] === [] ? '' : ', '.count($report['upstream']).' upstream')
+            .($questions === [] ? '' : ', '.count($questions).' question'.(count($questions) === 1 ? '' : 's')));
         if (mb_strlen((string) $report['summary']) > Staged::SUMMARY) {
             $this->say('warning: the summary is '.mb_strlen((string) $report['summary']).' characters; the card keeps the first '.Staged::SUMMARY.'; shorten it and stage the report again');
         }
@@ -95,6 +100,12 @@ class ReportCommand extends Command
         $this->say('gates passed ('.count($gates->commands()).')');
 
         return $gates->passed($head);
+    }
+
+    /** A relative question file is the worktree's: the CLI may run from main's checkout with --in. */
+    private function inside(string $worktree, string $file): string
+    {
+        return $file === '-' || str_starts_with($file, '/') ? $file : $worktree.'/'.$file;
     }
 
     private function readFile(string $file): string

@@ -222,7 +222,7 @@ final class Context
             $criteria = implode(' ', array_map(fn (array $c) => "--check={$c['id']}:pass|fail:\"evidence\"", $card->acceptance()));
             $lines[] = "protocol: read-only; verify each criterion, then `vendor/bin/kanban verdict {$card->id()} approve|reject {$criteria} [--issue=\"…\"] [--discovered=\"bug: Title — body\"]`";
         } else {
-            $lines[] = "protocol: work and commit only in this worktree; when done `vendor/bin/kanban report {$card->id()} --status=review --tick=N --summary-file=- <<'EOF' … EOF` (or --status=blocked --reason=\"…\")";
+            $lines[] = "protocol: work and commit only in this worktree; when done `vendor/bin/kanban report {$card->id()} --status=review --tick=N --summary-file=- <<'EOF' … EOF` (a question: --question-file=.tmp/question.md, its format in your instructions; blocked: --status=blocked --reason=\"…\")";
         }
         if (Findings::enabled($this->config)) {
             $lines[] = 'a problem in the house package itself (not this app): add --upstream="Title — body" in generic terms, without project, host, path or card names';

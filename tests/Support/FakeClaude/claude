@@ -1,0 +1,56 @@
+#!/usr/bin/env php
+<?php
+
+/*
+ * Fake `claude` for the E2E tests of `kanban run`: a headless card session. Each call appends its argv as one JSON line
+ * to $FAKE_CLAUDE_DIR/calls.log, then plays the session in the working directory (main's checkout):
+ *
+ * $FAKE_CLAUDE_DIR/<agent>.sh     run with bash and CARD, WORKTREE, SESSION in the environment (the agent's work,
+ *                                 e.g. a commit and `vendor/bin/kanban --in="$WORKTREE" report …`); none: does nothing
+ * $FAKE_CLAUDE_DIR/<agent>.error  ends the run with this result JSON merged over an error result, exit 1, no Stop hook
+ *
+ * Otherwise it stops through `vendor/bin/kanban hook stop`; while that refuses ({"decision":"block"}) it stops again,
+ * as a session that ignores the refusal, at most four times. Last, it prints the result JSON on stdout.
+ */
+
+$dir = getenv('FAKE_CLAUDE_DIR') ?: sys_get_temp_dir().'/fake-claude';
+@mkdir($dir, 0775, true);
+$args = array_slice($argv, 1);
+file_put_contents($dir.'/calls.log', json_encode($args)."\n", FILE_APPEND | LOCK_EX);
+
+$option = function (string $name) use ($args): ?string {
+    $at = array_search($name, $args, true);
+
+    return $at === false ? null : ($args[$at + 1] ?? null);
+};
+$agent = (string) $option('--agent');
+$session = (string) ($option('--session-id') ?? $option('--resume'));
+$prompt = (string) end($args);
+preg_match('/^(?:Card|Resumed for card) ([A-Z0-9]+-[A-Z0-9]+)/', $prompt, $m);
+$card = $m[1] ?? '';
+$worktree = preg_match('/Worktree (\S+)/', $prompt, $w) === 1 ? $w[1] : '';
+$result = ['type' => 'result', 'subtype' => 'success', 'is_error' => false, 'session_id' => $session, 'num_turns' => 3, 'result' => 'Done.',
+    'total_cost_usd' => 0.25, 'usage' => ['input_tokens' => 10, 'cache_creation_input_tokens' => 1000, 'cache_read_input_tokens' => 20000, 'output_tokens' => 500]];
+
+if (is_file("{$dir}/{$agent}.error")) {
+    echo json_encode(array_merge($result, ['is_error' => true, 'subtype' => 'error_during_execution', 'result' => null], (array) json_decode((string) file_get_contents("{$dir}/{$agent}.error"), true)))."\n";
+    exit(1);
+}
+if (is_file("{$dir}/{$agent}.sh")) {
+    if ($worktree === '' && $card !== '') {
+        $record = json_decode((string) @file_get_contents(getcwd()."/.git/laravel-house/agents/{$session}.json"), true);
+        $worktree = (string) ($record['worktree'] ?? '');
+    }
+    passthru('CARD='.escapeshellarg($card).' WORKTREE='.escapeshellarg($worktree).' SESSION='.escapeshellarg($session).' bash '.escapeshellarg("{$dir}/{$agent}.sh").' >> '.escapeshellarg("{$dir}/{$agent}.out").' 2>&1');
+}
+for ($i = 0; $i < 4; $i++) {
+    $hook = proc_open([PHP_BINARY, getcwd().'/vendor/bin/kanban', 'hook', 'stop'], [['pipe', 'r'], ['pipe', 'w'], ['pipe', 'w']], $pipes);
+    fwrite($pipes[0], json_encode(['session_id' => $session, 'cwd' => getcwd(), 'hook_event_name' => 'Stop', 'stop_hook_active' => $i > 0, 'agent_type' => $agent, 'last_assistant_message' => 'Done.']));
+    fclose($pipes[0]);
+    $out = stream_get_contents($pipes[1]);
+    proc_close($hook);
+    if (! str_contains((string) $out, '"decision":"block"')) {
+        break;
+    }
+}
+echo json_encode($result)."\n";
