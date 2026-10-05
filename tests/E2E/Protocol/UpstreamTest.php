@@ -182,6 +182,41 @@ it('refuses to file when gh is missing or signed out, or the text names the proj
         ->and(array_column(($this->calls)(), 1))->not->toContain('create');
 });
 
+it('files the main session\'s own finding with the same search, scrub and label, and records it on no card', function () {
+    $main = ['KANBAN_SESSION' => 'orchestrator'];
+    $log = count($this->p->card($this->id)['log']);
+
+    $off = $this->p->sandbox->kanban(['upstream', 'new', 'Finish exits 0 on a refusal — seen after a restart'], $main + $this->off);
+    expect($off->getExitCode())->toBe(3)->and($off->getErrorOutput())->toContain('filing upstream is off');
+
+    $named = $this->p->sandbox->kanban(['upstream', 'new', "Finish stalls — on the {$this->id} card"], $main + $this->on);
+    expect($named->getExitCode())->toBe(2)
+        ->and($named->getErrorOutput())->toContain('the finding names a card id')
+        ->and(($this->calls)())->toBe([]);
+
+    $untitled = $this->p->sandbox->kanban(['upstream', 'new', str_repeat('long ', 30).'— body'], $main + $this->on);
+    expect($untitled->getExitCode())->toBe(2)->and($untitled->getErrorOutput())->toContain('the title must be 1-120 characters');
+
+    $hits = $this->p->sandbox->kanban(['upstream', 'new', 'Finish exits 0 on a refusal — seen after a restart'], $main + ['FAKE_GH_HITS' => '[{"number":7,"title":"Finish exit code","url":"https://github.com/petar-spasic/laravel-house/issues/7"}]'] + $this->on);
+    expect($hits->getExitCode())->toBe(3)
+        ->and($hits->getOutput())->toBe("open #7 Finish exit code https://github.com/petar-spasic/laravel-house/issues/7\n")
+        ->and(lastOf(($this->calls)()))->toContain('finish exits refusal');
+
+    $filed = $this->p->sandbox->kanban(['upstream', 'new', 'Finish exits 0 on a refusal — seen after a restart'], $main + $this->on);
+    expect($filed->getExitCode())->toBe(0)
+        ->and($filed->getOutput())->toBe("filed #101 https://github.com/petar-spasic/laravel-house/issues/101\n")
+        ->and(lastOf(($this->calls)()))->toMatchArray([0 => 'issue', 1 => 'create', 4 => '--title', 5 => 'Finish exits 0 on a refusal', 8 => '--label', 9 => 'agent-finding'])
+        ->and(lastOf(($this->calls)())[7])->toStartWith("seen after a restart\n\n---\nFlagged by the main session; laravel-house ")
+        ->and(count($this->p->card($this->id)['log']))->toBe($log);
+
+    $this->p->sandbox->ok(['upstream', 'new', 'Brief hides hubs', '--comment=7'], $this->on);
+    expect(lastOf(($this->calls)()))->toMatchArray([0 => 'issue', 1 => 'comment', 2 => '7'])
+        ->and(lastOf(($this->calls)())[6])->toStartWith("**Brief hides hubs**\n\n---\nFlagged by the owner; laravel-house ");
+
+    $worker = $this->p->in($this->wt, ['upstream', 'new', 'Brief hides hubs'], ['KANBAN_SESSION' => 'x'] + $this->on);
+    expect($worker->getExitCode())->toBe(3);
+});
+
 it('dismisses a finding with a reason', function () {
     ($this->report)(['Gates run twice'])->mustRun();
     ($this->apply)();

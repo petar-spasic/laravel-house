@@ -29,7 +29,7 @@ are in `references/protocol.md`; card sizing in depth is `references/planning.md
 ## Ground rules
 
 - Only the main session runs `start`, `refresh`, `finish`, `stop`, `publish`, `promote`, `new`, `set`, `move`, `fold`
-  and `upstream file|dismiss`, from the main checkout. One main session per machine holds the lease; another one gets
+  and `upstream file|new|dismiss`, from the main checkout. One main session per machine holds the lease; another one gets
   exit 6 from `start`, `refresh`, `finish`, `stop` and `apply`, and nothing changed. A new session of the same
   transcript (after `/compact` or a restart) takes the lease at SessionStart. `lease --takeover` when the holder is
   your own previous session, otherwise only when the owner says so.
@@ -164,7 +164,8 @@ then `promote <ID>` unless it waits on a product question. Read the `hint:` line
 Workers and evaluators log a defect in the house package itself with `--upstream`; `upstream` lists them. With
 `KANBAN_UPSTREAM` on: `upstream file <ID>:<logid>` searches open issues and files it on the package's repository
 (`--comment=N` to add to a match, `--new` to file anyway), refusing text that names this project; or
-`upstream dismiss <ID>:<logid> --reason=…`. Off: list them in the owner summary.
+`upstream dismiss <ID>:<logid> --reason=…`. A defect you meet yourself: `upstream new "Title — body"`, same search
+and checks. Off: list them in the owner summary.
 
 `references/gotchas.md` holds the board's known surprises; read it when something behaves unexpectedly. It ships
 with the package: never edit it. A surprise specific to this project goes into the project's own `CLAUDE.md`.

@@ -945,7 +945,13 @@ an issue on this package's repository, after searching for an open one:
 vendor/bin/kanban upstream file ACME-7K2QF9:3H8D2K1Q
 ```
 
-The command refuses any text that names your project: its key, app name, hosts, repository, paths, addresses or
+Claude files a problem it meets itself the same way:
+
+```shell
+vendor/bin/kanban upstream new "Finish ignores the lease — seen after a restart"
+```
+
+Both commands refuse any text that names your project: its key, app name, hosts, repository, paths, addresses or
 people. Without the setting, Claude lists the findings in its summary instead.
 
 <a name="when-something-goes-wrong"></a>

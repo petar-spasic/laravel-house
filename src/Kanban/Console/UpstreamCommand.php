@@ -19,13 +19,13 @@ class UpstreamCommand extends Command
     public const LABEL = 'agent-finding';
 
     protected $signature = 'kanban:upstream
-        {action? : file|dismiss (none: list the pending findings)}
-        {finding? : ID:logid, as the list prints it}
+        {action? : file|new|dismiss (none: list the pending findings)}
+        {finding? : ID:logid, as the list prints it; for new, "Title — body"}
         {--new : File it although open issues match}
         {--comment= : Add it to this open issue instead}
         {--reason= : Why it is dismissed}';
 
-    protected $description = 'Findings about the house package that agents flagged: list them, file one as an issue (gh), or dismiss one';
+    protected $description = 'Findings about the house package that agents flagged: list them, file one as an issue (gh), dismiss one, or file your own (new)';
 
     protected function perform(): int
     {
@@ -34,8 +34,9 @@ class UpstreamCommand extends Command
         return match ($this->argument('action')) {
             null => $this->list(),
             'file' => $this->file(),
+            'new' => $this->own(),
             'dismiss' => $this->dismiss(),
-            default => throw new Invalid("upstream takes file or dismiss, not '{$this->argument('action')}'"),
+            default => throw new Invalid("upstream takes file, new or dismiss, not '{$this->argument('action')}'"),
         };
     }
 
@@ -59,10 +60,43 @@ class UpstreamCommand extends Command
 
     private function file(): int
     {
+        $this->requireEnabled();
+        [$card, $entry] = $this->finding();
+        [$issue, $url] = $this->send((string) $entry['title'], (string) ($entry['body'] ?? ''), 'an agent');
+
+        return $this->filed($card, $entry, $issue, $url);
+    }
+
+    /** The main session's (or the owner's) own finding: no card holds it, so nothing is recorded. */
+    private function own(): int
+    {
+        $this->requireEnabled();
+        [['title' => $title, 'body' => $body]] = Findings::stage([(string) $this->argument('finding')], $this->scrubber(), 'the finding');
+        [$issue, $url] = $this->send($title, $body, $this->actor()->isMain() ? 'the main session' : 'the owner');
+        $this->say('filed '.($issue === null ? '' : "#{$issue} ").$url);
+
+        return self::SUCCESS;
+    }
+
+    private function requireEnabled(): void
+    {
         if (! Findings::enabled($this->config())) {
             throw new PolicyRefused('filing upstream is off: KANBAN_UPSTREAM=true turns it on');
         }
-        [$card, $entry] = $this->finding();
+    }
+
+    private function scrubber(): Scrubber
+    {
+        return Scrubber::forProject($this->paths(), $this->store()->snapshot()->key(), (string) $this->setting('remote', 'origin'));
+    }
+
+    /**
+     * Scrubs, searches open issues (unless --new), then comments on --comment or files a new labelled issue.
+     *
+     * @return array{0: ?int, 1: string} the issue number and the URL gh printed
+     */
+    private function send(string $title, string $body, string $by): array
+    {
         $comment = $this->option('comment');
         if ($comment !== null && ! ctype_digit((string) $comment)) {
             throw new Invalid('--comment takes an issue number');
@@ -70,10 +104,8 @@ class UpstreamCommand extends Command
         if ($comment !== null && $this->option('new')) {
             throw new Invalid('--new files a new issue and --comment adds to one: give one of them');
         }
-        $title = (string) $entry['title'];
-        $body = (string) ($entry['body'] ?? '');
         $query = Findings::query($title);
-        $scrubber = Scrubber::forProject($this->paths(), $this->store()->snapshot()->key(), (string) $this->setting('remote', 'origin'));
+        $scrubber = $this->scrubber();
         $scrubber->check($title."\n".$body, 'the finding');
         $scrubber->check($query, 'the search query');
         $gh = new Gh($this->paths()->main);
@@ -81,13 +113,11 @@ class UpstreamCommand extends Command
             throw new PolicyRefused($problem);
         }
         $repo = Findings::repo($this->config());
-        $footer = "---\nFlagged by an agent; laravel-house ".self::version();
+        $footer = "---\nFlagged by {$by}; laravel-house ".self::version();
         $text = $body === '' ? $footer : "{$body}\n\n{$footer}";
 
         if ($comment !== null) {
-            $url = $this->gh($gh, ['issue', 'comment', (string) $comment, '--repo', $repo, '--body', "**{$title}**\n\n{$text}"]);
-
-            return $this->filed($card, $entry, (int) $comment, $url);
+            return [(int) $comment, $this->gh($gh, ['issue', 'comment', (string) $comment, '--repo', $repo, '--body', "**{$title}**\n\n{$text}"])];
         }
         if (! $this->option('new') && $query !== '') {
             $hits = json_decode($this->gh($gh, ['issue', 'list', '--repo', $repo, '--state', 'open', '--search', $query, '--json', 'number,title,url', '--limit', '5']), true);
@@ -99,9 +129,8 @@ class UpstreamCommand extends Command
             }
         }
         $url = $this->gh($gh, ['issue', 'create', '--repo', $repo, '--title', $title, '--body', $text, '--label', self::LABEL]);
-        $issue = preg_match('#/issues/(\d+)#', $url, $m) === 1 ? (int) $m[1] : null;
 
-        return $this->filed($card, $entry, $issue, $url);
+        return [preg_match('#/issues/(\d+)#', $url, $m) === 1 ? (int) $m[1] : null, $url];
     }
 
     private function dismiss(): int
