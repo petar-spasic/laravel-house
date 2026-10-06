@@ -51,7 +51,15 @@ class RefreshCommand extends Command
 
                 continue;
             }
-            $exit = max($exit, $this->refresh($card, $worktrees));
+            try {
+                $exit = max($exit, $this->refresh($card, $worktrees));
+            } catch (PolicyRefused $e) {
+                if (! $this->option('all')) {
+                    throw $e;
+                }
+                $this->say("skipped {$card->id()}: ".strtok($e->getMessage(), "\n"));
+                $exit = max($exit, PolicyRefused::EXIT);
+            }
         }
 
         return $exit;
@@ -66,6 +74,12 @@ class RefreshCommand extends Command
             throw new NotFound("{$id} has no worktree on this machine");
         }
         $main = $worktrees->mainBranch();
+        // a merge would carry the edits into the merge commit, where nobody reviews them as the card's change
+        if (($dirty = $worktrees->dirty($path)) !== []) {
+            throw new PolicyRefused($worktrees->merging($path) !== null
+                ? "{$id}: a merge of {$main} is in progress in its clone; its worker concludes it first"
+                : "{$id}: uncommitted changes in its clone; its worker commits them before {$main} is merged in", array_slice($dirty, 0, 20));
+        }
         $git = $worktrees->git($path);
         $worktrees->sync($path, $card->work()['branch'] ?? null);
         $before = $worktrees->head('HEAD', $path);

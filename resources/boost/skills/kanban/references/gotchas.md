@@ -23,6 +23,11 @@ main; its branch reaches main when a kanban command needs it there (`report`, `c
 start. → Restart Claude Code: the old session frees the lease as it ends, and the new one takes it. `vendor/bin/kanban
 lease --takeover` covers an old session that crashed.
 
+**A worker's stop is refused: "A merge of main carries changes neither side had".** → Work that was not committed
+went into a merge commit (a conflict resolved with `git add -A`), where no review sees it as the card's change. →
+`vendor/bin/kanban rebuild-branch ID` from the card's clone makes the branch one commit with the same files; then
+report again. `refresh` never merges main into uncommitted changes.
+
 **Copied `node_modules` get wiped on a card stack's first start.** → A card's checkout stamps the lockfiles with the
 current time, so mtime (`-nt`) sentinels in the entrypoint reinstall. → sha256 sentinels.
 

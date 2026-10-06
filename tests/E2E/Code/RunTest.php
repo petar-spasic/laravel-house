@@ -156,6 +156,25 @@ it('merges main into a card before resuming its worker, so a fix landed on main 
     expect($this->code->sandbox->read($id)['stage'])->toBe('review');
 });
 
+it('never merges main into a clone with uncommitted changes: its worker commits them first', function () {
+    $id = $this->code->sandbox->readyCard('Add login page');
+    runPass($this->code, $this->claude);
+    expect($this->code->sandbox->read($id)['stage'])->toBe('review');
+    $wt = $this->code->worktree($id);
+    file_put_contents($wt.'/stray.txt', "left over\n");
+    $this->code->commitMain('fix.txt', "fixed\n");
+
+    $back = runPass($this->code, $this->claude);
+    expect($back)->toContain("{$id} back to doing: uncommitted changes in its clone")
+        ->and($back)->toMatch("/ {$id} worker [0-9a-f]{8} resumed, main not merged: uncommitted changes in its clone\n/")
+        ->and(is_file($wt.'/fix.txt'))->toBeFalse()
+        ->and($this->code->sandbox->read($id)['stage'])->toBe('review');
+
+    runPass($this->code, $this->claude);
+    expect(runPass($this->code, $this->claude))->toContain("merged {$id} into main")
+        ->and(is_file($this->code->root().'/stray.txt'))->toBeTrue();
+});
+
 it('finishes a start cut short on this machine whose block was cleared, then runs its worker', function () {
     $id = $this->code->started('Add login page');
     $wt = $this->code->worktree($id);

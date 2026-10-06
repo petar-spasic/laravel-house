@@ -59,6 +59,35 @@ final class MergeCheck
 
     public function __construct(private readonly Git $git, private readonly string $main) {}
 
+    /**
+     * The merges in $range whose result holds what neither parent had: a file that differs from git's own merge of the two
+     * parents and was no conflict there (resolving a conflict is the merge's to do). One `sha: files` line each.
+     *
+     * @return list<string>
+     */
+    public function evilMerges(string $range): array
+    {
+        $found = [];
+        foreach (array_filter(explode("\n", $this->git->attempt(['rev-list', '--merges', '--parents', $range])->out)) as $line) {
+            $shas = explode(' ', trim($line));
+            if (count($shas) !== 3) {
+                continue;
+            }
+            [$merge, $ours, $theirs] = $shas;
+            $auto = explode("\n", trim($this->git->attempt(['merge-tree', '--write-tree', '--name-only', '--no-messages', $ours, $theirs])->out));
+            $tree = array_shift($auto);
+            if (preg_match('/^[0-9a-f]{40,64}$/', (string) $tree) !== 1) {
+                continue;
+            }
+            $changed = array_filter(explode("\n", trim($this->git->attempt(['diff', '--name-only', $tree, $merge])->out)));
+            if (($added = array_values(array_diff($changed, $auto))) !== []) {
+                $found[] = substr($merge, 0, 7).': '.implode(', ', array_slice($added, 0, 10)).(count($added) > 10 ? ' and '.(count($added) - 10).' more' : '');
+            }
+        }
+
+        return $found;
+    }
+
     /** @return list<string> files the branch changed since it forked from main */
     public function branchFiles(string $branch): array
     {

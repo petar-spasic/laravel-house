@@ -170,3 +170,74 @@ it('asks only for a re-verify when nothing but a clean merge of main followed th
     $this->p->commit($this->wt, 'more.php');
     expect($this->p->sandbox->ok(['context', $this->id, '--evaluate']))->not->toContain('re-verify');
 });
+
+it('never merges main into uncommitted changes', function () {
+    $this->p->commit($this->wt, 'app.php', "<?php\n", "{$this->id}: clauses");
+    file_put_contents($this->wt.'/wip.php', "<?php\n");
+    gone($this->p, 'a4d2c0ffee');
+    commitMain($this->p, 'other.txt', "other\n");
+    $head = trim($this->p->git($this->wt, 'rev-parse', 'HEAD'));
+
+    $one = $this->p->sandbox->kanban(['refresh', $this->id]);
+    $all = $this->p->sandbox->kanban(['refresh', '--all']);
+
+    expect($one->getExitCode())->toBe(3)
+        ->and($one->getErrorOutput())->toContain("{$this->id}: uncommitted changes in its clone; its worker commits them before main is merged in")
+        ->and($one->getErrorOutput())->toContain('wip.php')
+        ->and($all->getExitCode())->toBe(3)
+        ->and($all->getOutput())->toContain("skipped {$this->id}: {$this->id}: uncommitted changes in its clone")
+        ->and(trim($this->p->git($this->wt, 'rev-parse', 'HEAD')))->toBe($head);
+});
+
+it('refuses a stop whose merge of main carries changes neither side had, and rebuild-branch makes it one commit with the same files', function () {
+    $this->p->commit($this->wt, 'app.php', "<?php\n\nreturn 'branch';\n", "{$this->id}: clauses");
+    gone($this->p, 'a4d2c0ffee');
+    commitMain($this->p, 'app.php', "<?php\n\nreturn 'main';\n");
+    expect($this->p->sandbox->kanban(['refresh', $this->id])->getExitCode())->toBe(5);
+    file_put_contents($this->wt.'/app.php', "<?php\n\nreturn 'branch and main';\n");
+    file_put_contents($this->wt.'/stray.php', "<?php\n");
+    $this->p->git($this->wt, 'add', '-A');
+    $this->p->git($this->wt, 'commit', '-q', '--no-edit');
+    $merge = substr(trim($this->p->git($this->wt, 'rev-parse', 'HEAD')), 0, 7);
+    commitMain($this->p, 'later.txt', "later\n");
+    $this->p->hook('subagent-start', $this->p->payload('subagent-start'));
+    $this->p->in($this->wt, ['report', $this->id, '--status=review', '--tick=1,2', '--summary=Merged'])->mustRun();
+
+    $refused = stopAgent($this->p, $this->wt);
+    expect($refused['json']['decision'] ?? null)->toBe('block')
+        ->and($refused['json']['reason'])->toContain('A merge of main carries changes neither side had')
+        ->toContain("{$merge}: stray.php")->toContain("vendor/bin/kanban rebuild-branch {$this->id}")
+        ->and($this->p->card($this->id)['stage'])->toBe('doing');
+
+    $tree = trim($this->p->git($this->wt, 'rev-parse', 'HEAD^{tree}'));
+    $rebuilt = $this->p->in($this->wt, ['rebuild-branch', $this->id]);
+    $onto = trim($this->p->git($this->wt, 'rev-parse', 'HEAD^'));
+
+    expect($rebuilt->getExitCode())->toBe(0)
+        ->and($rebuilt->getOutput())->toContain("discarded the report staged for {$this->id} before the rebuild")->toContain('with the same files')
+        ->and(trim($this->p->git($this->wt, 'rev-parse', 'HEAD^{tree}')))->toBe($tree)
+        ->and(trim($this->p->git($this->wt, 'rev-list', '--count', '--merges', 'HEAD')))->toBe('0')
+        ->and(trim($this->p->git($this->wt, 'diff', '--name-only', $onto, 'HEAD')))->toBe("app.php\nstray.php")
+        ->and(end($this->p->card($this->id)['log']))->toMatchArray(['event' => 'rebuilt', 'by' => 'worker', 'onto' => $onto]);
+
+    $this->p->in($this->wt, ['report', $this->id, '--status=review', '--tick=1,2', '--summary=Rebuilt'])->mustRun();
+    expect(stopAgent($this->p, $this->wt)['out'])->toBe('')
+        ->and($this->p->card($this->id)['stage'])->toBe('review');
+});
+
+it('lets a merge that resolves a modify/delete conflict through the stop gate', function () {
+    commitMain($this->p, 'shared.txt', "one\n");
+    gone($this->p, 'a4d2c0ffee');
+    $this->p->sandbox->ok(['refresh', $this->id]);
+    $this->p->commit($this->wt, 'shared.txt', "one\ntwo\n", "{$this->id}: shared");
+    $this->p->git($this->p->main, 'rm', '-q', 'shared.txt');
+    $this->p->git($this->p->main, 'commit', '-q', '-m', 'main: drop shared');
+    expect($this->p->sandbox->kanban(['refresh', $this->id])->getExitCode())->toBe(5);
+    $this->p->git($this->wt, 'add', 'shared.txt');
+    $this->p->git($this->wt, 'commit', '-q', '--no-edit');
+    $this->p->hook('subagent-start', $this->p->payload('subagent-start'));
+    $this->p->in($this->wt, ['report', $this->id, '--status=review', '--tick=1,2', '--summary=Kept it'])->mustRun();
+
+    expect(stopAgent($this->p, $this->wt)['out'])->toBe('')
+        ->and($this->p->card($this->id)['stage'])->toBe('review');
+});

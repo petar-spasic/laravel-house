@@ -186,8 +186,10 @@ class RunCommand extends Command
             } elseif (! $paused) {
                 $last = $runtime->agentFor($card->id(), AgentRun::WORKER);
                 $resume = ! empty($last['headless']) ? (string) $last['agent_id'] : null;
-                // a fix that unblocked the card may have landed on main; 5: the worker concludes the conflict first
-                if ($resume !== null && ! in_array(($refresh = $this->kanban(['refresh', $card->id()]))->getExitCode(), [0, 5], true)) {
+                // a fix that unblocked the card may have landed on main; 5: the worker concludes the conflict first. Not into
+                // uncommitted edits: the worker commits them first (its stop gate), and the next round merges
+                $dirty = $this->dirty($card);
+                if ($resume !== null && ! $dirty && ! in_array(($refresh = $this->kanban(['refresh', $card->id()]))->getExitCode(), [0, 5], true)) {
                     $this->block($card->id(), $refresh);
 
                     continue;
@@ -200,7 +202,7 @@ class RunCommand extends Command
                     $fresh => " launched, a new session: the last one reads ~{$size} tokens a turn",
                     $resume === null => ' launched',
                     default => ' resumed',
-                });
+                }.($resume !== null && $dirty ? ', main not merged: uncommitted changes in its clone' : ''));
                 $acted = true;
             }
         }
@@ -311,9 +313,15 @@ class RunCommand extends Command
         return false;
     }
 
-    /** Merges main into the card's branch, then launches an evaluator on it. */
+    /** Merges main into the card's branch, then launches an evaluator on it. A clone with uncommitted changes goes back to its worker. */
     private function evaluate(string $id): bool
     {
+        if ($this->dirty($this->store()->snapshot()->resolve($id))) {
+            $back = $this->kanban(['move', $id, 'doing', '--reason=uncommitted changes in its clone: its worker commits them']);
+            $back->isSuccessful() ? $this->log("{$id} back to doing: uncommitted changes in its clone") : $this->block($id, $back);
+
+            return $back->isSuccessful();
+        }
         $refresh = $this->kanban(['refresh', $id]);
         if (! $refresh->isSuccessful()) {
             // 5: a conflict sent the card back to doing, where its worker resumes; 3: its worker still runs
@@ -389,6 +397,11 @@ class RunCommand extends Command
     private static function slotLost(string $blocked): bool
     {
         return str_starts_with($blocked, 'start failed: no stack slot') || str_starts_with($blocked, 'start failed: no free slot');
+    }
+
+    private function dirty(Card $card): bool
+    {
+        return (new Worktrees($this->paths(), $this->config()))->dirty($this->paths()->main.'/'.$card->work()['worktree']) !== [];
     }
 
     /** True when a card stack fits under `stack.max_stacks`, or stacks are off. */

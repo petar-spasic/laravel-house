@@ -1243,7 +1243,8 @@ The [protocol reference](resources/boost/skills/kanban/references/protocol.md) l
 | `run` | The routine of running the board: starts cards, agents and merges. Claude runs it for you. |
 | `drain` | Makes `run` wrap up: it starts no new card and stops once none is in flight. `drain --off` undoes it. |
 | `start ID` | Claims a card and creates its clone and stack. A branch that `stop` kept is reused, with the latest `main` merged in. A refusal names the card ahead on the same area, or the limit it hit. |
-| `refresh ID` | Merges the latest `main` into the card's branch. When the merge changes a lockfile, a docker file or the compose file, it recreates the card's stack. |
+| `refresh ID` | Merges the latest `main` into the card's branch, once everything in its clone is committed. When the merge changes a lockfile, a docker file or the compose file, it recreates the card's stack. |
+| `rebuild-branch ID` | Turns a card's branch into one commit with the same files, when a merge of `main` carries changes of its own. |
 | `wait [ID]` | Waits until the card's agent has stopped and its report or verdict is on the board. Without an ID, it waits for any card in `doing` or `review`. |
 | `finish ID` | Merges an approved card into `main` and cleans up. |
 | `allow-steering ID PATH` | Approves a card's change to a file that steers the agents or git, so `finish` merges it. |

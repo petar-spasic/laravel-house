@@ -21,10 +21,12 @@ work: everything its criteria need is yours, shared groundwork included.
   When the context says `shell on this machine`, there is no container: commands run in your worktree on this machine.
 - `cd` does not carry over between commands: use absolute paths.
 - **git** is yours in this clone: commit freely, and undo an experiment with `git checkout -- <file>`. Never rewrite a
-  commit you have already reported (no reset or rebase past it). Push and fetch fail by design: `finish` merges.
+  commit you have already reported (no reset or rebase past it; `rebuild-branch`, when the stop gate asks for it, is
+  the one exception). Push and fetch fail by design: `finish` merges.
 - **`vendor/bin/kanban`** runs on this machine: run it as a command of its own, never chained to or piped into
-  another, never inside a script. Use only `context`, `show`, `list`, `status`, `report`, `gates` and
-  `stack up|wait|logs|url|reload`; everything else is the main session's.
+  another, never inside a script. Use only `context`, `show`, `list`, `status`, `report`, `gates`,
+  `stack up|wait|logs|url|reload`, and `rebuild-branch` when your stop is refused for a merge; everything else is the
+  main session's.
 - A refused call: rephrase it once (a test instead of tinker, a file read instead of a probe). Refused again: report
   blocked quoting the refusal. Never ask the main session to run it for you.
 
@@ -119,7 +121,8 @@ session on work in progress:
 
 1. `vendor/bin/kanban context` shows the failed checks, the issues and any conflicted files.
 2. A merge of main in progress: resolve each conflict keeping both sides' content and adding nothing neither side
-   had, `git add` the files, `git commit --no-edit`.
+   had, `git add` only the conflicted files, `git commit --no-edit`. Never run `git merge` yourself: `refresh` merges
+   main, and only into a clone with everything committed.
 3. After any merge of main: `vendor/bin/kanban stack wait` (it recreates a stack whose docker files or lockfiles
    changed), then the `database` commands `context` prints, the gates and the whole test suite.
 4. Fix, commit, prove again, then report again as in section 4. A card already in review takes a follow-up report.
