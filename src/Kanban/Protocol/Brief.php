@@ -2,6 +2,7 @@
 
 namespace PetarSpasic\LaravelHouse\Kanban\Protocol;
 
+use PetarSpasic\LaravelHouse\Kanban\Code\AgentRun;
 use PetarSpasic\LaravelHouse\Kanban\Code\MainCheck;
 use PetarSpasic\LaravelHouse\Kanban\Policy\PullPolicy;
 use PetarSpasic\LaravelHouse\Kanban\Policy\Questions;
@@ -153,9 +154,8 @@ final class Brief
     public static function runs(Paths $paths, string $since): array
     {
         $runs = [];
-        foreach (@file($paths->runtime('runs.jsonl'), FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
-            $run = json_decode($line, true);
-            if (is_array($run) && (string) ($run['ended'] ?? '') >= $since) {
+        foreach (AgentRun::history($paths) as $run) {
+            if ((string) ($run['ended'] ?? '') >= $since) {
                 $runs[] = ['tokens' => (int) ($run['tokens'] ?? 0), 'cost_usd' => (float) ($run['cost_usd'] ?? 0)];
             }
         }

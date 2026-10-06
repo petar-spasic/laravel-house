@@ -110,6 +110,12 @@ it('resumes the same worker session after a reject', function () {
         ->and($workers[1])->toContain('--resume')
         ->and($workers[1][array_search('--resume', $workers[1], true) + 1])->toBe($workers[0][array_search('--session-id', $workers[0], true) + 1])
         ->and(end($workers[1]))->toStartWith("Resumed for card {$id}: run vendor/bin/kanban context");
+
+    $session = $workers[0][array_search('--session-id', $workers[0], true) + 1];
+    $runs = array_values(array_filter(array_map(fn ($l) => json_decode($l, true), file($this->code->root().'/.git/laravel-house/runs.jsonl', FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES)),
+        fn (array $r) => $r['session'] === $session));
+    expect($runs)->toHaveCount(2)
+        ->and($runs[1])->toMatchArray(['cost_usd' => 0.25, 'session_cost_usd' => 0.5]);
 });
 
 it('merges main into a card before resuming its worker, so a fix landed on main reaches it', function () {

@@ -111,11 +111,14 @@ final class AgentRun
             $result = json_decode((string) @file_get_contents($this->paths->runtime("runs/{$session}.json")), true);
             $result = is_array($result) ? $result : [];
             $usage = (array) ($result['usage'] ?? []);
+            // a resumed session reports what the whole session cost so far: this run's share is the difference
+            $total = (float) ($result['total_cost_usd'] ?? 0);
+            $before = $this->sessionCost($session);
             $line = [
                 'card' => $run['card'] ?? null, 'type' => $run['type'] ?? null, 'session' => $session,
                 'started' => $run['started'] ?? null, 'ended' => Clock::now(), 'turns' => (int) ($result['num_turns'] ?? 0),
                 'tokens' => array_sum(array_map('intval', array_intersect_key($usage, array_flip(['input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens', 'output_tokens'])))),
-                'cost_usd' => (float) ($result['total_cost_usd'] ?? 0),
+                'cost_usd' => round($total >= $before ? $total - $before : $total, 6), 'session_cost_usd' => $total,
                 'error' => $result === [] ? 'no result' : (empty($result['is_error']) ? null : (string) ($result['subtype'] ?? 'error')),
                 'limit' => self::limit($result),
             ];
@@ -130,6 +133,44 @@ final class AgentRun
         }
 
         return $ended;
+    }
+
+    /**
+     * Every run `runs.jsonl` holds, each with its own cost: a line without `session_cost_usd` (logged before 0.8.1) carries
+     * its session's running total, from which the run's share is worked out.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public static function history(Paths $paths): array
+    {
+        $runs = [];
+        $totals = [];
+        foreach (@file($paths->runtime('runs.jsonl'), FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
+            $run = json_decode($line, true);
+            if (! is_array($run)) {
+                continue;
+            }
+            $session = (string) ($run['session'] ?? '');
+            $cost = (float) ($run['cost_usd'] ?? 0);
+            if (! array_key_exists('session_cost_usd', $run) && $session !== '') {
+                $before = $totals[$session] ?? 0.0;
+                [$run['session_cost_usd'], $run['cost_usd']] = [$cost, $cost >= $before ? round($cost - $before, 6) : $cost];
+            }
+            if ($session !== '') {
+                $totals[$session] = (float) ($run['session_cost_usd'] ?? $cost);
+            }
+            $runs[] = $run;
+        }
+
+        return $runs;
+    }
+
+    /** What $session cost up to its last ended run. */
+    private function sessionCost(string $session): float
+    {
+        $runs = array_filter(self::history($this->paths), fn (array $r) => ($r['session'] ?? null) === $session);
+
+        return $runs === [] ? 0.0 : (float) (end($runs)['session_cost_usd'] ?? 0);
     }
 
     /** A usage limit or an overloaded API: worth waiting out, not the card's fault. @param  array<string, mixed>  $result */

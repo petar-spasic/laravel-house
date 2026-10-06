@@ -153,6 +153,8 @@ Class names below are relative to `PetarSpasic\LaravelHouse\Kanban` (`src/Kanban
     otherwise (`askOwner`).
   - A signal handler that calls `exit()` in a command running a child Process kills the child → `exit()` runs
     destructors, and `Process::__destruct()` stops a running process → no handler; hold a lock the system frees instead.
+  - Spend in `morning` came out several times too high → `claude -p --resume` reports `total_cost_usd` for the whole
+    session so far, while `usage` is the run's own → `AgentRun` logs the difference (`session_cost_usd` beside it).
 - **UI changes:** the script has no unit tests, so `./dev ui` drives it in a real Chromium (CSP `default-src 'self'`) against a seeded board: `docker/browser/checks/*.mjs`, one file per area, screenshots in `build/ui`. A new interaction gets a check there (`t.ok`), written first and seen failing on the old code, because a check that passes before the fix proves nothing; the accessibility sweep (`a11y.mjs`) holds contrast (4.5:1), target size (24 px), names, tab order and, on a touch device, 16 px text boxes and 40 px controls; `forced.mjs` emulates Windows high contrast; `./dev ui serve` serves the seeded board at http://localhost:8099/kanban for looking at by hand. A check that needs another person opts into the `team` seed (`export const seed = 'team'`): an origin, the page's server running as Ana with sync on, and a second clone "peer" (Ben) that `t.cli(cmd, { root: t.seed.peer, env })` acts in.
 - **Trying it in a consumer:** push a commit and `composer update petar-spasic/laravel-house` with the constraint `dev-main`. A path repository does not resolve inside the consumer's container; the Release smoke install runs on the host.
 

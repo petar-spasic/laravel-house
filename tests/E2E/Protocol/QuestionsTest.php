@@ -195,3 +195,17 @@ it('lists the morning: merged cards, cards blocked without a question, and open 
         ->and($out)->toContain('agents 2 runs, 1.5M tokens, $4.75 at list price; 1.5M tokens, $4.75 per merged card')
         ->and($out)->toStartWith('Kanban ACME:');
 });
+
+it('counts each resumed run at its own cost, though an older log holds the session\'s running total', function () {
+    $runs = $this->p->runtime('runs.jsonl');
+    @mkdir(dirname($runs), 0775, true);
+    $now = gmdate('Y-m-d\TH:i:s.000+00:00');
+    file_put_contents($runs, implode("\n", [
+        json_encode(['card' => $this->id, 'type' => 'kanban-worker', 'session' => 's1', 'ended' => $now, 'tokens' => 1000, 'cost_usd' => 2.0]),
+        json_encode(['card' => $this->id, 'type' => 'kanban-worker', 'session' => 's1', 'ended' => $now, 'tokens' => 1000, 'cost_usd' => 3.0]),
+        json_encode(['card' => $this->id, 'type' => 'kanban-worker', 'session' => 's1', 'ended' => $now, 'tokens' => 1000, 'cost_usd' => 4.5]),
+        json_encode(['card' => $this->id, 'type' => 'kanban-worker', 'session' => 's1', 'ended' => $now, 'tokens' => 1000, 'cost_usd' => 0.5, 'session_cost_usd' => 5.0]),
+    ])."\n");
+
+    expect($this->p->sandbox->ok(['morning']))->toContain('agents 4 runs, 4k tokens, $5.00 at list price');
+});

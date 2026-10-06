@@ -30,8 +30,11 @@ $prompt = (string) end($args);
 preg_match('/^(?:Card|Resumed for card) ([A-Z0-9]+-[A-Z0-9]+)/', $prompt, $m);
 $card = $m[1] ?? '';
 $worktree = preg_match('/Worktree (\S+)/', $prompt, $w) === 1 ? $w[1] : '';
+// like Claude Code, the cost of the whole session so far: a resumed session's grows by each run's 0.25
+$spent = 0.25 + (float) @file_get_contents("{$dir}/cost-{$session}");
+file_put_contents("{$dir}/cost-{$session}", (string) $spent);
 $result = ['type' => 'result', 'subtype' => 'success', 'is_error' => false, 'session_id' => $session, 'num_turns' => 3, 'result' => 'Done.',
-    'total_cost_usd' => 0.25, 'usage' => ['input_tokens' => 10, 'cache_creation_input_tokens' => 1000, 'cache_read_input_tokens' => 20000, 'output_tokens' => 500]];
+    'total_cost_usd' => $spent, 'usage' => ['input_tokens' => 10, 'cache_creation_input_tokens' => 1000, 'cache_read_input_tokens' => 20000, 'output_tokens' => 500]];
 
 if (is_file("{$dir}/{$agent}.error")) {
     echo json_encode(array_merge($result, ['is_error' => true, 'subtype' => 'error_during_execution', 'result' => null], (array) json_decode((string) file_get_contents("{$dir}/{$agent}.error"), true)))."\n";
