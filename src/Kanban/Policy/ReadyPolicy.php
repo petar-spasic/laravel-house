@@ -5,7 +5,7 @@ namespace PetarSpasic\LaravelHouse\Kanban\Policy;
 use PetarSpasic\LaravelHouse\Kanban\Store\Card;
 use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
 
-/** Backlog → Ready gate (R1–R7). */
+/** The gate out of the backlog (R1–R7): into planning, or into ready when the card's plan is current. */
 final class ReadyPolicy
 {
     /** @return list<string> refusals such as "R4 no acceptance criteria"; empty = ready */

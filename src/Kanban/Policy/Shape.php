@@ -40,9 +40,9 @@ final class Shape
     public static function hints(Snapshot $snapshot, Card $card, array $areas, array $depends): array
     {
         $hints = [];
-        if (in_array($card->stage(), ['backlog', 'ready'], true)) {
+        if (in_array($card->stage(), ['backlog', 'planning', 'ready'], true)) {
             foreach ($areas as $area) {
-                $others = $snapshot->cards(fn (Card $c) => $c->id() !== $card->id() && in_array($c->stage(), ['backlog', 'ready'], true) && in_array($area, $c->areas(), true));
+                $others = $snapshot->cards(fn (Card $c) => $c->id() !== $card->id() && in_array($c->stage(), ['backlog', 'planning', 'ready'], true) && in_array($area, $c->areas(), true));
                 if ($others === []) {
                     continue;
                 }
@@ -57,9 +57,9 @@ final class Shape
             if (! isset($hubs[$id])) {
                 continue;
             }
-            $foldable = array_values(array_filter($hubs[$id], fn (string $c) => in_array($snapshot->card($c)?->stage(), ['backlog', 'ready'], true)));
+            $foldable = array_values(array_filter($hubs[$id], fn (string $c) => in_array($snapshot->card($c)?->stage(), ['backlog', 'planning', 'ready'], true)));
             $hints[] = "hint: {$id} blocks ".count($hubs[$id]).' open cards ('.implode(', ', $hubs[$id]).')'
-                .($foldable === [] || ! in_array($snapshot->card($id)?->stage(), ['backlog', 'ready'], true) ? ''
+                .($foldable === [] || ! in_array($snapshot->card($id)?->stage(), ['backlog', 'planning', 'ready'], true) ? ''
                     : '; if they are one piece of work: kanban fold '.implode(' ', $foldable)." --into={$id}");
         }
 

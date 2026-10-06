@@ -22,7 +22,7 @@ class StartCommand extends Command
         {id : Card id or unique prefix}
         {--force : Skip the capacity and policy checks (main session only; logged)}';
 
-    protected $description = 'Claim a ready card, create its worktree, .env and port slot, and start its Docker stack; run again, it finishes a start cut short';
+    protected $description = 'Claim a ready card for its worker, or a planning card for its planner: its worktree, .env and port slot, and its Docker stack; run again, it finishes a start cut short';
 
     /** Runtime directory of this checkout's starts: a file per card listing their `work.started`, one a line. */
     public const STARTED = 'starts';
@@ -36,6 +36,7 @@ class StartCommand extends Command
 
         $card = $this->store()->card($this->argument('id'));
         $id = $card->id();
+        $planning = $card->stage() === 'planning';
         $resumed = $this->resumable($card, $worktrees);
         if (! $resumed) {
             $path = $this->paths()->worktree($id, $card->title());
@@ -51,7 +52,7 @@ class StartCommand extends Command
             }
             // the slot is taken before the claim, so a start that claims the card has its slot
             $reserved = false;
-            if ($worktrees->stackEnabled() && $card->stage() === 'ready' && $card->claim() === null && $worktrees->registry()->find($path) === null) {
+            if ($worktrees->stackEnabled() && in_array($card->stage(), ['planning', 'ready'], true) && $card->claim() === null && $worktrees->registry()->find($path) === null) {
                 try {
                     $worktrees->registry()->allocate($path, ['project' => $worktrees->env()->project($path), 'repo' => $this->paths()->main, 'branch' => $branch, 'card' => $id]);
                     $reserved = true;
@@ -65,6 +66,11 @@ class StartCommand extends Command
                 'host' => gethostname() ?: null, 'stack' => null, 'attempt' => $attempt, 'head' => null, 'approved' => null, 'merge' => null,
                 'started' => Clock::now(), 'finished' => null,
             ];
+            // a planner's clone of a parked branch keeps it parked and records its head: planning changes no commit, and
+            // `stop` holds the branch to that
+            if ($planning && $branch === $parked) {
+                $work = ['head' => $worktrees->head('refs/heads/'.$branch), 'parked_branch' => $parked] + $work;
+            }
             // before the claim: a claim that lands though its start fails or is killed is still this checkout's to finish
             self::mark($this->paths(), $id, $work['started']);
             try {
@@ -100,9 +106,15 @@ class StartCommand extends Command
             if (! $worktrees->isWorktree($path)) {
                 $worktrees->prune();
                 $worktrees->add($path, $branch);
-                if ($branch === $parked) {
+                // a planner reads the parked work as it is; the worker's start merges main into it
+                if ($branch === $parked && ! $planning) {
                     $merged = $this->mergeMain($worktrees, $path, $id);
                 }
+            }
+            // a planner revises the card's earlier plan in place; a worker reads the plan from the card
+            if ($planning && ($plan = $card->plan()) !== null && ! is_file($path.'/.tmp/plan.md')) {
+                @mkdir($path.'/.tmp', 0775, true);
+                file_put_contents($path.'/.tmp/plan.md', rtrim($plan)."\n");
             }
             $worktrees->copyDependencies($path);
             if ($worktrees->prepare($path, $branch, $id) !== null) {
@@ -117,8 +129,8 @@ class StartCommand extends Command
 
                 return $data;
             }, $this->actor());
-            $this->fault("{$id} stays in doing, blocked: {$reason}");
-            $this->fault("run `kanban start {$id}` again once that is fixed, or clean up with `kanban stop {$id} --to=ready --force`");
+            $this->fault("{$id} stays in ".($planning ? 'planning' : 'doing').", blocked: {$reason}");
+            $this->fault("run `kanban start {$id}` again once that is fixed, or clean up with `kanban stop {$id} --to=".($planning ? 'backlog' : 'ready').' --force`');
             throw $e;
         }
 
@@ -131,7 +143,7 @@ class StartCommand extends Command
             return $data;
         }, $this->actor());
 
-        $this->say(($resumed ? 'resumed' : 'started')." {$id}");
+        $this->say(($resumed ? 'resumed' : 'started').($planning ? ' planning' : '')." {$id}");
         $this->say("worktree {$path}");
         $this->say("branch {$branch}".($branch === $parked ? ' (parked branch reused)' : ''));
         foreach ($merged as $line) {
@@ -141,14 +153,14 @@ class StartCommand extends Command
             $stack = $work['stack'];
             $this->say("stack {$stack['project']} slot {$stack['slot']}".($stack['url'] !== null ? " {$stack['url']}" : ''));
             $this->say('ports '.implode(' ', array_map(fn ($k, $v) => "{$k}={$v}", array_keys($stack['ports']), $stack['ports'])));
-            $this->say('starting: the worker runs `vendor/bin/kanban stack wait` before using it');
+            $this->say('starting: the '.($planning ? 'planner' : 'worker').' runs `vendor/bin/kanban stack wait` before using it');
         } else {
             $this->say('stack none (stack.compose_file unset or missing)');
         }
         foreach (Dependencies::problems($this->paths()->main, (array) ($this->setting('worktrees.copy') ?? [])) as $problem) {
             $this->say("warning: {$problem}");
         }
-        $this->say(Worktrees::spawnLine($card, 'kanban-worker', $path));
+        $this->say(Worktrees::spawnLine($card, $planning ? 'kanban-planner' : 'kanban-worker', $path));
         $this->reportPending();
 
         return self::SUCCESS;
@@ -225,13 +237,13 @@ class StartCommand extends Command
     }
 
     /**
-     * A card in doing on this machine whose start was cut short (killed, or failed and fixed since): its worktree or
-     * stack is missing, or a failed start blocks it.
+     * A card in doing (or held in planning) on this machine whose start was cut short (killed, or failed and fixed since): its
+     * worktree or stack is missing, or a failed start blocks it.
      */
     private function resumable(Card $card, Worktrees $worktrees): bool
     {
         $work = $card->work() ?? [];
-        if ($card->stage() !== 'doing' || ! is_string($work['worktree'] ?? null) || ! is_string($work['branch'] ?? null) || ($work['host'] ?? null) !== gethostname()) {
+        if (! $card->atWork() || $card->stage() === 'review' || ! is_string($work['worktree'] ?? null) || ! is_string($work['branch'] ?? null) || ($work['host'] ?? null) !== gethostname()) {
             return false;
         }
 

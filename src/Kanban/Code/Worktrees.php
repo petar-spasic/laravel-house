@@ -89,10 +89,12 @@ final class Worktrees
         return rtrim($end === false || $end === 0 ? mb_substr($title, 0, $max) : mb_substr($cut, 0, $end), ' ,.;:-');
     }
 
-    /** The Agent call that spawns $agent (kanban-worker, kanban-evaluator) on the card's worktree at $path. */
+    /** The Agent call that spawns $agent (kanban-worker, kanban-planner, kanban-evaluator) on the card's worktree at $path. */
     public static function spawnLine(Card $card, string $agent, string $path): string
     {
-        $description = $card->id().($agent === 'kanban-evaluator' ? ' review ' : ' ').self::label($card->title());
+        $description = $card->id().match ($agent) {
+            'kanban-evaluator' => ' review ', 'kanban-planner' => ' plan ', default => ' '
+        }.self::label($card->title());
 
         return "Agent(subagent_type=\"{$agent}\", description=\"{$description}\", prompt=\"Card {$card->id()}. Worktree {$path}\")";
     }

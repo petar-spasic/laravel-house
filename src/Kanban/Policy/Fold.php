@@ -13,6 +13,7 @@ use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
 /**
  * `kanban fold FROM… --into=INTO` on a snapshot: INTO takes each FROM's body, criteria, labels, dependencies, the higher
  * priority, an open block, and their epic when it has none and they agree on one; each FROM is dropped "folded into INTO"; open cards that depended on a FROM depend on INTO.
+ * A planned INTO goes back to planning: its plan does not cover what it took.
  */
 final class Fold
 {
@@ -32,8 +33,8 @@ final class Fold
         $target = self::card($snapshot, $into);
         $sources = array_map(fn (string $id) => self::card($snapshot, $id), $from);
         foreach ([$target, ...$sources] as $card) {
-            if (! in_array($card->stage(), ['backlog', 'ready'], true)) {
-                throw new PolicyRefused("{$card->id()} is in {$card->stage()}: fold takes backlog and ready cards");
+            if (! in_array($card->stage(), ['backlog', 'planning', 'ready'], true) || $card->atWork()) {
+                throw new PolicyRefused("{$card->id()} is in {$card->stage()}".($card->stage() === 'planning' ? ', being planned' : '').': fold takes backlog, planning and ready cards no agent holds');
             }
         }
         $locked = $snapshot->lockedStages();
@@ -80,9 +81,12 @@ final class Fold
             $notes[] = "{$into} keeps ".($target->epic() === null ? 'no epic' : "the epic {$target->epic()}").'; the folded cards had '.implode(', ', $epics).': set epic= if it belongs elsewhere';
         }
         self::assertFits($into, $data);
-        if ($target->stage() === 'ready' && str_starts_with((string) ($data['blocked'] ?? ''), Card::QUESTION)) {
+        if (in_array($target->stage(), ['planning', 'ready'], true) && str_starts_with((string) ($data['blocked'] ?? ''), Card::QUESTION)) {
             $data = Transitions::stage($data, 'backlog', 'move', 'an open question folded in');
             $notes[] = "{$into} goes back to backlog: it carries an open question";
+        } elseif (($replanned = Edits::replanned($target->data, $data)) !== $data) {
+            $data = $replanned;
+            $notes[] = "{$into} goes back to planning: its plan does not cover what was folded in";
         }
         $data['log'][] = ['event' => 'folded', 'from' => $from];
         Edits::assertOpen($target->data, $data, $locked);

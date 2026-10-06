@@ -50,16 +50,16 @@ final class Creation
         $fields['depends_on'] = array_map(fn (string $id) => $snapshot->resolve($id)->id(), $input['depends'] ?? []);
 
         $stage = $input['stage'] ?? null;
-        if ($stage !== null && ! in_array($stage, ['backlog', 'ready'], true)) {
-            throw new Invalid($this->name('stage').' must be one of: backlog, ready');
+        if ($stage !== null && ! in_array($stage, ['backlog', 'planning'], true)) {
+            throw new Invalid($this->name('stage').' must be one of: backlog, planning (a card reaches ready through its plan)');
         }
-        if ($stage === 'ready') {
+        if ($stage === 'planning') {
             $draft = new Card(array_merge(['id' => $snapshot->key().'-DRAFT', 'type' => 'feature', 'stage' => 'backlog', 'blocked' => null, 'body' => ''], $fields), $ref, '', new Rev(''));
             $refusals = (new ReadyPolicy)->refusals($draft, $snapshot, false);
             if ($refusals !== []) {
                 throw new PolicyRefused('refused: '.implode('; ', $refusals), $refusals);
             }
-            $fields['stage'] = 'ready';
+            $fields['stage'] = 'planning';
         }
 
         return $fields;

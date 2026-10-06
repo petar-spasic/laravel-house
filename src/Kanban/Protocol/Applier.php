@@ -5,6 +5,7 @@ namespace PetarSpasic\LaravelHouse\Kanban\Protocol;
 use Closure;
 use PetarSpasic\LaravelHouse\Kanban\Code\MergeCheck;
 use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
+use PetarSpasic\LaravelHouse\Kanban\Policy\Plan;
 use PetarSpasic\LaravelHouse\Kanban\Policy\Questions;
 use PetarSpasic\LaravelHouse\Kanban\Policy\Transitions;
 use PetarSpasic\LaravelHouse\Kanban\Store\Actor;
@@ -19,7 +20,7 @@ use PetarSpasic\LaravelHouse\Kanban\Support\Git;
 use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
 
 /**
- * Applies staged reports and verdicts to the board under the store lock, once per content hash.
+ * Applies staged reports, verdicts and plans to the board under the store lock, once per content hash.
  */
 final class Applier
 {
@@ -113,7 +114,23 @@ final class Applier
     }
 
     /**
-     * Applies whatever is staged for the card (report or verdict) without an agent to answer: a review report the
+     * Why a staged plan must not be applied to $card now, or null: a planner works only on a card it holds in planning,
+     * here.
+     */
+    public function stalePlan(Card $card): ?string
+    {
+        if ($card->stage() !== 'planning' || ! $card->atWork()) {
+            return "{$card->id()} is now {$card->stage()}".($card->stage() === 'planning' ? ', held by no planner' : '');
+        }
+        if (($host = $card->host()) !== null && $host !== gethostname()) {
+            return "{$card->id()} is now planned on {$host}";
+        }
+
+        return null;
+    }
+
+    /**
+     * Applies whatever is staged for the card (report, verdict or plan) without an agent to answer: a review report the
      * branch does not support yet stays staged. Returns what happened, one line, or null when nothing is staged.
      */
     public function settle(string $cardId, string $kind): ?string
@@ -123,6 +140,9 @@ final class Applier
             return null;
         }
         try {
+            if ($kind === 'plan') {
+                return $this->plan($item);
+            }
             if ($kind === 'report') {
                 $card = $this->store->card($cardId);
                 if (($stale = $this->stale($card)) !== null) {
@@ -204,6 +224,62 @@ final class Applier
             $card = $this->store->card($id);
 
             return "{$id}: report applied, stage {$card->stage()}".($status === 'blocked' ? ', blocked' : '').self::found($created, $report, $known);
+        });
+    }
+
+    /**
+     * Applies a staged plan: a ready one puts the plan and its `planned` entry on the card (the card stays in planning, held,
+     * until StopCommand releases it to ready), a blocked one the block; questions join the body, discovered items become
+     * cards. A plan for a card whose content changed since it was staged is refused: its planner revises it.
+     *
+     * @param  array<string, mixed>  $staged
+     */
+    public function plan(array $staged): string
+    {
+        $id = (string) $staged['card'];
+        $hash = (string) $staged['hash'];
+
+        return $this->locked(function () use ($staged, $id, $hash) {
+            if (is_file($this->runtime->appliedFile($id, 'plan', $hash))) {
+                $this->runtime->markApplied($id, 'plan', $hash);
+
+                return "{$id}: plan {$hash} already applied";
+            }
+            $by = new Actor('planner');
+            $card = $this->store->card($id);
+            if (($stale = $this->stalePlan($card)) !== null) {
+                throw new StaleReport($stale);
+            }
+            if ((string) ($staged['staged_at'] ?? '') < (string) ($card->claim()['at'] ?? '')) {
+                @unlink($this->runtime->stagedFile($id, 'plan'));
+
+                return "{$id}: plan predates its planner's claim of the card and was discarded";
+            }
+            $status = (string) $staged['status'];
+            if ($status === 'ready' && ($staged['content'] ?? null) !== Plan::hash($card->data)) {
+                throw new PolicyRefused("{$id} changed since the plan was staged (its criteria or body): run `vendor/bin/kanban context`, revise the plan to cover the card as it is, and stage it again");
+            }
+            $created = $this->discover($card, $staged['discovered'] ?? [], $by, 'planning', $known);
+            $this->store->update($id, function (array $data) use ($staged, $status, $created, $known) {
+                if (($staged['questions'] ?? []) !== []) {
+                    $data['body'] = Questions::append((string) ($data['body'] ?? ''), $staged['questions']);
+                }
+                $data['blocked'] = $status === 'blocked' ? mb_substr((string) $staged['reason'], 0, 500) : null;
+                if ($status === 'ready') {
+                    $data['plan'] = (string) $staged['plan'];
+                }
+                $data['log'][] = array_filter($status === 'ready'
+                    ? ['event' => 'planned', 'base' => $staged['base'] ?? null, 'hash' => Plan::hash($data), 'head' => $staged['head'] ?? null,
+                        'discovered' => $created, 'known' => $known, 'note' => self::cut($staged['note'] ?? null, 500)]
+                    : ['event' => 'plan', 'status' => 'blocked', 'reason' => $staged['reason'] ?? null, 'discovered' => $created, 'known' => $known,
+                        'note' => self::cut($staged['note'] ?? null, 500)], fn ($v) => $v !== null && $v !== []);
+                $data['log'] = [...$data['log'], ...self::upstream($staged)];
+
+                return $data;
+            }, $by);
+            $this->runtime->markApplied($id, 'plan', $hash);
+
+            return "{$id}: ".($status === 'ready' ? 'plan applied ('.count(explode("\n", (string) $staged['plan'])).' lines)' : 'planning blocked').self::found($created, $staged, $known);
         });
     }
 

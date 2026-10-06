@@ -15,14 +15,19 @@ use PetarSpasic\LaravelHouse\Kanban\Support\Clock;
 use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
 
 /**
- * SubagentStop for kanban-worker / kanban-evaluator: refuses the stop until a report (verdict) is staged and the
- * branch supports it, then applies it and unbinds the agent.
+ * SubagentStop for kanban-worker / kanban-evaluator / kanban-planner: refuses the stop until a report (verdict, plan) is
+ * staged and the card supports it, then applies it and unbinds the agent.
  */
 final class SubagentStop
 {
     public const WORKER = 'kanban-worker';
 
     public const EVALUATOR = 'kanban-evaluator';
+
+    public const PLANNER = 'kanban-planner';
+
+    /** What each kanban agent stages. */
+    public const KINDS = [self::WORKER => 'report', self::EVALUATOR => 'verdict', self::PLANNER => 'plan'];
 
     public const MAX_BLOCKS = 3;
 
@@ -39,9 +44,9 @@ final class SubagentStop
      */
     public function handle(array $payload): array
     {
-        $type = $payload['agent_type'] ?? null;
+        $type = is_string($payload['agent_type'] ?? null) ? $payload['agent_type'] : '';
         $agentId = self::agentId($payload);
-        if (! in_array($type, [self::WORKER, self::EVALUATOR], true) || ! Runtime::validAgentId($agentId) || ! $this->paths->hasBoard()) {
+        if (! isset(self::KINDS[$type]) || ! Runtime::validAgentId($agentId) || ! $this->paths->hasBoard()) {
             return self::done();
         }
         $snapshot = $this->store->snapshot();
@@ -52,7 +57,8 @@ final class SubagentStop
             return self::done("kanban: {$agentId} ({$type}) is bound to no card; nothing to apply");
         }
         $worker = $type === self::WORKER;
-        $kind = $worker ? 'report' : 'verdict';
+        $kind = self::KINDS[$type];
+        $applier = new Applier($this->store, $this->paths, $this->config, $runtime);
         $since = max((string) ($agent['started_at'] ?? ''), (string) ($agent['bound_at'] ?? ''));
         $staged = $runtime->staged($cardId, $kind);
         if ($staged !== null && (string) ($staged['staged_at'] ?? '') < $since) {
@@ -68,30 +74,37 @@ final class SubagentStop
                 }
             }
 
-            // a card that left this worker's hands (stopped, re-claimed, moved on another machine) has nothing to report on, and a block written now would land on someone else's card
-            if ($worker && ($stale = (new Applier($this->store, $this->paths, $this->config, $runtime))->stale($snapshot->resolve($cardId))) !== null) {
+            // a card that left this agent's hands (stopped, re-claimed, moved on another machine) has nothing to report on, and a block written now would land on someone else's card
+            $card = $snapshot->resolve($cardId);
+            if (($stale = match ($kind) {
+                'report' => $applier->stale($card), 'plan' => $applier->stalePlan($card), default => null
+            }) !== null) {
                 $this->unbind($runtime, $agent, $cardId);
 
-                return self::done("kanban: {$cardId}: no report applied: {$stale}");
+                return self::done("kanban: {$cardId}: no {$kind} applied: {$stale}");
             }
 
             // an evaluator whose card left review (finished on another approval, sent back, stopped) has nothing to judge
-            if (! $worker && ($stage = $snapshot->resolve($cardId)->stage()) !== 'review') {
+            if ($kind === 'verdict' && $card->stage() !== 'review') {
                 $this->unbind($runtime, $agent, $cardId);
 
-                return self::done("kanban: {$cardId}: no verdict needed: the card is {$stage}");
+                return self::done("kanban: {$cardId}: no verdict needed: the card is {$card->stage()}");
             }
 
-            return $this->block($runtime, $agent, $cardId, $worker
-                ? "No report staged for {$cardId}. Run: vendor/bin/kanban report {$cardId} --status=review|blocked [--tick=N …] --summary-file=- <<'EOF' … EOF (blocked needs --reason=\"…\"). If vendor/bin/kanban cannot reach the board, end your last message with why: after ".self::MAX_BLOCKS.' refusals the stop goes through and the card is blocked'
-                : "No verdict staged for {$cardId}. Run: vendor/bin/kanban verdict {$cardId} approve|reject --check=N:pass|fail:\"evidence\" … (one --check per criterion)");
+            return $this->block($runtime, $agent, $cardId, match ($kind) {
+                'report' => "No report staged for {$cardId}. Run: vendor/bin/kanban report {$cardId} --status=review|blocked [--tick=N …] --summary-file=- <<'EOF' … EOF (blocked needs --reason=\"…\"). If vendor/bin/kanban cannot reach the board, end your last message with why: after ".self::MAX_BLOCKS.' refusals the stop goes through and the card is blocked',
+                'plan' => "No plan staged for {$cardId}. Write it to .tmp/plan.md, then run: vendor/bin/kanban plan {$cardId} --plan-file=.tmp/plan.md (blocked: --status=blocked --reason=\"…\", or an Open question in --question-file). If vendor/bin/kanban cannot reach the board, end your last message with why: after ".self::MAX_BLOCKS.' refusals the stop goes through and the card is blocked',
+                default => "No verdict staged for {$cardId}. Run: vendor/bin/kanban verdict {$cardId} approve|reject --check=N:pass|fail:\"evidence\" … (one --check per criterion)",
+            });
         }
 
-        $applier = new Applier($this->store, $this->paths, $this->config, $runtime);
-        if ($worker && ($stale = $applier->stale($snapshot->resolve($cardId))) !== null) {
+        $card = $snapshot->resolve($cardId);
+        if (($stale = match ($kind) {
+            'report' => $applier->stale($card), 'plan' => $applier->stalePlan($card), default => null
+        }) !== null) {
             $this->unbind($runtime, $agent, $cardId);
 
-            return self::done("kanban: report for {$cardId} stays staged: {$stale}");
+            return self::done("kanban: {$kind} for {$cardId} stays staged: {$stale}");
         }
         if ($worker && ($refusal = $applier->refusal($snapshot->resolve($cardId), $staged, $staged['status'] === 'blocked')) !== null) {
             $runtime->noteRefusal($cardId, $kind, $refusal);
@@ -99,15 +112,17 @@ final class SubagentStop
             return $this->block($runtime, $agent, $cardId, "Report for {$cardId} not applied. {$refusal}\nFix it, commit, run `vendor/bin/kanban report` again (it runs the gates), then finish again.");
         }
         try {
-            $line = $worker ? $applier->report($staged) : $applier->verdict($staged);
+            $line = match ($kind) {
+                'report' => $applier->report($staged), 'plan' => $applier->plan($staged), default => $applier->verdict($staged)
+            };
         } catch (StaleReport $e) {
             $this->unbind($runtime, $agent, $cardId);
 
-            return self::done("kanban: report for {$cardId} stays staged: ".$e->getMessage().'; `vendor/bin/kanban apply '.$cardId.'` applies it once the card is this machine\'s again');
+            return self::done("kanban: {$kind} for {$cardId} stays staged: ".$e->getMessage().'; `vendor/bin/kanban apply '.$cardId.'` applies it once the card is this machine\'s again');
         } catch (PolicyRefused $e) {
             $runtime->noteRefusal($cardId, $kind, $e->getMessage());
 
-            return $this->block($runtime, $agent, $cardId, "Verdict for {$cardId} not applied: ".$e->getMessage());
+            return $this->block($runtime, $agent, $cardId, ucfirst($kind)." for {$cardId} not applied: ".$e->getMessage());
         }
         $this->unbind($runtime, $agent, $cardId);
 
@@ -149,9 +164,9 @@ final class SubagentStop
      */
     private function settle(array $payload, Runtime $runtime): array
     {
-        $type = $payload['agent_type'] ?? null;
+        $type = is_string($payload['agent_type'] ?? null) ? $payload['agent_type'] : '';
         $agentId = self::agentId($payload);
-        if (! in_array($type, [self::WORKER, self::EVALUATOR], true) || ! Runtime::validAgentId($agentId)) {
+        if (! isset(self::KINDS[$type]) || ! Runtime::validAgentId($agentId)) {
             return [];
         }
         $agent = $runtime->agent($agentId) ?? ['agent_id' => $agentId, 'agent_type' => $type, 'stop_blocks' => 0];
@@ -159,7 +174,7 @@ final class SubagentStop
         if ($cardId === null) {
             return [];
         }
-        $line = (new Applier($this->store, $this->paths, $this->config, $runtime))->settle($cardId, $type === self::WORKER ? 'report' : 'verdict');
+        $line = (new Applier($this->store, $this->paths, $this->config, $runtime))->settle($cardId, self::KINDS[$type]);
         $this->unbind($runtime, $agent, $cardId);
 
         return $line === null ? [] : ["kanban: {$line}"];
@@ -172,15 +187,15 @@ final class SubagentStop
      */
     public function failed(array $payload, string $message): void
     {
-        $type = $payload['agent_type'] ?? null;
+        $type = is_string($payload['agent_type'] ?? null) ? $payload['agent_type'] : '';
         $agentId = self::agentId($payload);
-        if (! in_array($type, [self::WORKER, self::EVALUATOR], true) || ! Runtime::validAgentId($agentId)) {
+        if (! isset(self::KINDS[$type]) || ! Runtime::validAgentId($agentId)) {
             return;
         }
         $runtime = new Runtime($this->paths);
         $card = $runtime->agent($agentId)['card'] ?? null;
         if (is_string($card) && $card !== '') {
-            $runtime->noteRefusal($card, $type === self::WORKER ? 'report' : 'verdict', "hook failed: {$message}");
+            $runtime->noteRefusal($card, self::KINDS[$type], "hook failed: {$message}");
         }
     }
 
@@ -209,11 +224,12 @@ final class SubagentStop
         $blocks = (int) ($agent['stop_blocks'] ?? 0);
         if ($blocks >= self::MAX_BLOCKS) {
             // a blocked card is one `kanban run` launches no agent for again
-            if (in_array($agent['agent_type'] ?? null, [self::WORKER, self::EVALUATOR], true)) {
+            if (isset(self::KINDS[(string) ($agent['agent_type'] ?? '')])) {
                 $role = str_replace('kanban-', '', (string) $agent['agent_type']);
                 $why = match (true) {
                     str_starts_with($reason, 'No report') => 'worker stopped without report',
                     str_starts_with($reason, 'No verdict') => 'evaluator stopped without verdict',
+                    str_starts_with($reason, 'No plan') => 'planner stopped without a plan',
                     default => "{$role} stopped: ".strtok($reason, "\n"),
                 };
                 try {

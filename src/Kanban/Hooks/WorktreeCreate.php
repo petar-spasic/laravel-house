@@ -105,7 +105,7 @@ final class WorktreeCreate
         }
         $card = ($this->store ??= new GitStore($this->paths, $this->config))->snapshot()->card($id);
         $relative = $card?->work()['worktree'] ?? null;
-        if ($card === null || ! in_array($card->stage(), ['doing', 'review'], true) || $relative === null) {
+        if ($card === null || ! $card->atWork() || $relative === null) {
             return null;
         }
         $path = realpath($this->paths->main.'/'.$relative);

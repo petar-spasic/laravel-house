@@ -55,7 +55,7 @@ class SetCommand extends Command
                 $data = $this->apply($data, $key, $index, $op, $value, $removed, $head);
             }
             Edits::assertOpen($before, $data, $locked, $force, $reason !== null);
-            $data = Edits::recordRemoved($before, $data, $removed);
+            $data = Edits::replanned($before, Edits::recordRemoved($before, $data, $removed));
 
             return $reason === null ? $data : Edits::reworded($before, $data, trim($reason), $head);
         }, $this->actor(), $card->rev);
@@ -65,7 +65,7 @@ class SetCommand extends Command
 
             return self::SUCCESS;
         }
-        $this->say("{$updated->id()} updated");
+        $this->say("{$updated->id()} updated".($updated->stage() !== $card->stage() ? ", {$card->stage()}→{$updated->stage()}: its plan does not cover the change" : ''));
         $areas = array_values(array_diff($updated->areas(), $card->areas()));
         $depends = array_values(array_diff($updated->dependsOn(), $card->dependsOn()));
         if ($areas !== [] || $depends !== []) {

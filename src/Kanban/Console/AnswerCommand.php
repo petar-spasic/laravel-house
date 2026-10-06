@@ -6,6 +6,7 @@ use PetarSpasic\LaravelHouse\Kanban\Code\MergeCheck;
 use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
 use PetarSpasic\LaravelHouse\Kanban\Policy\PullPolicy;
 use PetarSpasic\LaravelHouse\Kanban\Policy\Questions;
+use PetarSpasic\LaravelHouse\Kanban\Policy\Transitions;
 use PetarSpasic\LaravelHouse\Kanban\Store\Card;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Invalid;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
@@ -55,13 +56,22 @@ class AnswerCommand extends Command
             ? MergeCheck::approvalOf(new Worktrees($this->paths(), $this->config()), $this->paths()->main, $card, $steering) : null;
         // the answer, the approval it gives and the block it clears: one write, so none lands without the others
         $asked = $card->asks();
-        $card = $this->store()->update($card->id(), function (array $data) use ($question, $answer, $approval) {
+        $overruled = $question['kind'] === Questions::PROVISIONAL && (int) $option !== $question['taken'];
+        $before = $card->stage();
+        $card = $this->store()->update($card->id(), function (array $data) use ($question, $answer, $approval, $overruled, $handle, $option) {
             $data['body'] = Questions::answer((string) ($data['body'] ?? ''), $question['n'], $answer);
             if ($approval !== null) {
                 $data['log'][] = $approval;
             }
             if ($question['kind'] === Questions::OPEN && str_starts_with((string) ($data['blocked'] ?? ''), Card::QUESTION) && Questions::unanswered($data['body']) === 0) {
                 $data['blocked'] = null;
+            }
+            // no worker may follow a plan built on the option the owner turned down: before work starts, it is planned again
+            if ($overruled && in_array($data['stage'], ['backlog', 'planning', 'ready'], true)) {
+                unset($data['plan']);
+                if ($data['stage'] === 'ready') {
+                    $data = Transitions::replan($data, "the owner chose {$option} for {$handle}, not {$question['taken']}");
+                }
             }
 
             return $data;
@@ -71,7 +81,9 @@ class AnswerCommand extends Command
             $this->say("{$card->id()}: the owner approved ".implode(', ', $steering).' as they are; the next finish merges it');
         }
         if ($question['kind'] === Questions::PROVISIONAL) {
-            if ((int) $option !== $question['taken']) {
+            if ($overruled && in_array($before, ['backlog', 'planning', 'ready'], true)) {
+                $this->say("{$handle}: the agent took {$question['taken']}; the card is planned again for {$option}".($before === 'ready' ? " ({$before}→{$card->stage()})" : ''));
+            } elseif ($overruled) {
                 $this->say("{$handle}: the agent took {$question['taken']}; a follow-up card makes the change");
             }
 
@@ -87,7 +99,7 @@ class AnswerCommand extends Command
         if ($card->stage() === 'backlog' && $card->blocked() === null) {
             try {
                 $card = $this->transitions()->promote($card->id(), $this->actor());
-                $this->say("promoted {$card->id()}".(PullPolicy::parked($card) ? ": its parked branch {$card->work()['parked_branch']} starts ahead of new cards, in a drain too" : ''));
+                $this->say("promoted {$card->id()} to {$card->stage()}".(PullPolicy::parked($card) ? ": its parked branch {$card->work()['parked_branch']} goes ahead of new cards, in a drain too" : ''));
             } catch (PolicyRefused $e) {
                 $this->say($e->getMessage());
             }

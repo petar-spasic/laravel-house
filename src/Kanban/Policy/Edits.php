@@ -148,10 +148,26 @@ final class Edits
         return Transitions::stage($after, 'doing', 'move', 'criteria '.implode(', ', array_column($changed, 'id')).' reworded');
     }
 
+    /**
+     * A ready card whose criteria or body changed goes back to planning: its plan no longer covers it.
+     *
+     * @param  array<string, mixed>  $before
+     * @param  array<string, mixed>  $after
+     * @return array<string, mixed>
+     */
+    public static function replanned(array $before, array $after): array
+    {
+        if (($before['stage'] ?? null) !== 'ready' || ($after['stage'] ?? null) !== 'ready' || Plan::hash($before) === Plan::hash($after)) {
+            return $after;
+        }
+
+        return Transitions::replan($after, 'its criteria or body changed since it was planned');
+    }
+
     /** @param  array<string, mixed>  $data */
     public static function assertRemovable(array $data): void
     {
-        if (! in_array($data['stage'], ['backlog', 'ready'], true)) {
+        if (! in_array($data['stage'], ['backlog', 'planning', 'ready'], true)) {
             throw new PolicyRefused('acceptance criteria are never deleted once work started');
         }
     }

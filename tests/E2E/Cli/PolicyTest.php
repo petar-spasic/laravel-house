@@ -27,14 +27,14 @@ it('promotes through the ready policy and names every refusal', function () {
     expect($run->getExitCode())->toBe(3)
         ->and($run->getOutput())->toBe(implode("\n", [
             "refused {$bare}: R1 no area:* label; R3 empty body; R4 no acceptance criteria",
-            "promoted {$good}",
+            "promoted {$good} to planning",
             "refused {$arealess}: R1 no area:* label",
             "refused {$blocked}: R6 blocked: owner",
             "refused {$asks}: R6 blocked: question: monthly or yearly plans?",
             "refused {$dependent}: R5 dependency {$dropped} is dropped",
             "refused {$ready}: R7 in ready, not backlog",
         ])."\n")
-        ->and($s->read($good)['stage'])->toBe('ready')
+        ->and($s->read($good)['stage'])->toBe('planning')
         ->and($s->read($arealess)['stage'])->toBe('backlog')
         ->and($s->read($asks)['stage'])->toBe('backlog');
 });
@@ -49,14 +49,14 @@ it('refuses a dependency cycle', function () {
     expect($cycle->getExitCode())->toBe(2)->and($cycle->getErrorOutput())->toContain('dependency cycle');
 });
 
-it('fills the ready buffer in pull order with --auto', function () {
+it('fills planning in pull order with --auto', function () {
     $s = $this->sandbox;
     $low = $s->card('Low', ['--body=x', '--accept=y', '--priority=low', '--label=area:a']);
     $high = $s->card('High', ['--body=x', '--accept=y', '--priority=high', '--label=area:b']);
     $s->card('Not ready yet');
     file_put_contents($s->root.'/docs/kanban/kanban.json', str_replace('"ready_buffer": 12', '"ready_buffer": 1', file_get_contents($s->root.'/docs/kanban/kanban.json')));
 
-    expect($s->ok(['promote', '--auto']))->toBe("promoted {$high}\nready 1/1 startable\n")
+    expect($s->ok(['promote', '--auto']))->toBe("promoted {$high} to planning\nready 0 startable, planning 1: 1/1\n")
         ->and($s->read($low)['stage'])->toBe('backlog');
 });
 
@@ -222,7 +222,7 @@ it('says why each ready card waits: under none, with -v, in status and in the br
     expect($refused->getExitCode())->toBe(3)->and($refused->getErrorOutput())->toContain("refused {$area}: area:pdf busy ({$busy} doing)");
 });
 
-it('fills the ready buffer with startable cards only, and names each backlog card it passes over', function () {
+it('plans ahead of a busy area but not of unfinished dependencies, and names each backlog card it passes over', function () {
     $s = $this->sandbox;
     $main = ['KANBAN_SESSION' => 's1'];
     $busy = $s->readyCard('Busy', ['--label=area:pdf']);
@@ -233,15 +233,16 @@ it('fills the ready buffer with startable cards only, and names each backlog car
     $pdf = $s->card('More pdf', ['--body=x', '--accept=y', '--label=area:pdf', '--priority=high']);
     $bare = $s->card('No criteria', ['--priority=high']);
     $next = $s->card('Next', ['--body=x', '--accept=y', '--label=area:a2x']);
-    file_put_contents($s->root.'/docs/kanban/kanban.json', str_replace('"ready_buffer": 12', '"ready_buffer": 1', file_get_contents($s->root.'/docs/kanban/kanban.json')));
+    $s->card('Not now', ['--body=x', '--accept=y', '--label=area:a3x', '--priority=low']);
+    file_put_contents($s->root.'/docs/kanban/kanban.json', str_replace('"ready_buffer": 12', '"ready_buffer": 2', file_get_contents($s->root.'/docs/kanban/kanban.json')));
 
     $out = $s->ok(['promote', '--auto']);
 
     expect($out)->toContain("skipped {$later}: waits on {$busy} (doing)\n")
-        ->and($out)->toContain("skipped {$pdf}: area:pdf busy ({$busy} doing)\n")
+        ->and($out)->toContain("promoted {$pdf} to planning\n")
         ->and($out)->toContain("skipped {$bare}: R")
-        ->and($out)->toEndWith("promoted {$next}\nready 1/1 startable\n")
-        ->and(array_map(fn (string $id) => $s->read($id)['stage'], [$waiting, $later, $pdf, $bare, $next]))->toBe(['ready', 'backlog', 'backlog', 'backlog', 'ready']);
+        ->and($out)->toEndWith("promoted {$next} to planning\nready 0 startable, planning 2: 2/2\n")
+        ->and(array_map(fn (string $id) => $s->read($id)['stage'], [$waiting, $later, $pdf, $bare, $next]))->toBe(['ready', 'backlog', 'planning', 'backlog', 'planning']);
 });
 
 it('clears what blocked a card when it is stopped back to ready, and logs it', function () {

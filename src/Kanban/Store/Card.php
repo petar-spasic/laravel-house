@@ -19,6 +19,9 @@ final class Card
     /** Characters in the body. */
     public const MAX_BODY = 20000;
 
+    /** Characters in a plan. */
+    public const MAX_PLAN = 20000;
+
     /**
      * @param  array<string, mixed>  $data  the card file, decoded
      * @param  string  $path  relative to the board root
@@ -110,6 +113,36 @@ final class Card
         return array_values($this->data['acceptance'] ?? []);
     }
 
+    /** The plan written for the card's worker (Markdown), or null. */
+    public function plan(): ?string
+    {
+        $plan = $this->data['plan'] ?? null;
+
+        return is_string($plan) && trim($plan) !== '' ? $plan : null;
+    }
+
+    /**
+     * The latest `planned` log entry: `base`, the main commit the plan was made on, and `hash`, the content it covers.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function planned(): ?array
+    {
+        foreach (array_reverse($this->log()) as $entry) {
+            if (($entry['event'] ?? null) === 'planned') {
+                return $entry;
+            }
+        }
+
+        return null;
+    }
+
+    /** A claim is held: its agent works on it in doing or review, or a planner took it in planning. */
+    public function atWork(): bool
+    {
+        return Stage::isActive($this->stage()) || ($this->stage() === 'planning' && $this->claim() !== null);
+    }
+
     /** @return list<array<string, mixed>> */
     public function log(): array
     {
@@ -142,6 +175,18 @@ final class Card
     public function entered(string $stage): ?string
     {
         foreach ($this->log() as $entry) {
+            if (($entry['event'] ?? null) === 'stage' && ($entry['to'] ?? null) === $stage) {
+                return (string) $entry['at'];
+            }
+        }
+
+        return null;
+    }
+
+    /** Last time the card entered a stage, or null. */
+    public function lastEntered(string $stage): ?string
+    {
+        foreach (array_reverse($this->log()) as $entry) {
             if (($entry['event'] ?? null) === 'stage' && ($entry['to'] ?? null) === $stage) {
                 return (string) $entry['at'];
             }

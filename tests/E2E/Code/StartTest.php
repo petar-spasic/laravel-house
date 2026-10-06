@@ -129,18 +129,24 @@ it('moves to the next slot and retries once when compose reports a port already 
         ->and(array_column($code->stacks(), 'slot'))->toBe([2]);
 });
 
-it('reuses a parked branch with main merged into it', function () {
+it('reuses a parked branch with main merged into it, once it is planned again', function () {
     $code = $this->code;
     $id = $code->started('Park me');
     $sha = $code->commit($id, 'feature.txt', "one\n");
     $code->ok(['stop', $id, '--to=ready']);
     $main = $code->commitMain('main.txt', "moved\n");
+    $unplanned = $code->kanban(['start', $id]);
+    $code->ok(['promote', '--auto']);
+    $replanned = $code->sandbox->read($id)['stage'];
+    $code->sandbox->plan($id);
 
     $output = $code->ok(['start', $id]);
 
     $card = $code->sandbox->read($id);
     $wt = $code->worktree($id);
-    expect($output)->toContain('(parked branch reused)')
+    expect($unplanned->getExitCode())->toBe(3)->and($unplanned->getErrorOutput())->toContain('no current plan')
+        ->and($replanned)->toBe('planning')
+        ->and($output)->toContain('(parked branch reused)')
         ->and($output)->toContain('merged main into the parked branch')
         ->and($card['work']['attempt'])->toBe(2)
         ->and($card['work']['base'])->toBe($main)
@@ -156,6 +162,8 @@ it('starts a parked branch that conflicts with main with the merge in progress',
     $sha = $code->commit($id, 'app.php', "<?php\n\nreturn 'branch';\n");
     $code->ok(['stop', $id, '--to=ready']);
     $code->commitMain('app.php', "<?php\n\nreturn 'main';\n");
+    $code->ok(['promote', '--auto']);
+    $code->sandbox->plan($id);
 
     $output = $code->ok(['start', $id]);
 

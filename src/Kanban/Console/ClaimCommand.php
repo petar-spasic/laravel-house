@@ -9,7 +9,7 @@ class ClaimCommand extends Command
 {
     protected $signature = 'kanban:claim {id : Card id or unique prefix} {--force : Skip capacity and policy checks (main only)}';
 
-    protected $description = 'Claim a ready card (ready → doing) without a worktree; `start` does this and more';
+    protected $description = 'Claim a ready card (ready → doing), or a planning card for its planner, without a worktree; `start` does this and more';
 
     protected $hidden = true;
 

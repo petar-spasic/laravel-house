@@ -41,7 +41,7 @@
     - [Boards and Cards](#boards-and-cards)
     - [Stages](#stages)
     - [Card IDs](#card-ids)
-    - [Ready Cards](#ready-cards)
+    - [Planned Cards](#planned-cards)
     - [Locked Stages](#locked-stages)
 - [The Board UI](#the-board-ui)
     - [Opening the Board](#opening-the-board)
@@ -50,7 +50,7 @@
 - [Working With Claude](#working-with-claude)
     - [Running the Board](#running-the-board)
     - [Your Morning](#your-morning)
-    - [Planning Cards](#planning-cards)
+    - [Cutting Cards](#cutting-cards)
     - [Questions and Rules](#questions-and-rules)
     - [Reporting Package Issues](#reporting-package-issues)
     - [When Something Goes Wrong](#when-something-goes-wrong)
@@ -548,16 +548,19 @@ cards are worked on at once without stepping on each other.
 Every card follows the same path:
 
 1. **You describe the work.** You, or Claude, add a card with a title, a description, an area and a list of
-   acceptance criteria. When the card is ready to be picked up, it moves to the `ready` column.
-2. **Claude starts the card.** The main Claude Code session claims the card. It creates a clone for it in
+   acceptance criteria. When the card is complete enough to work from, it moves to the `planning` column.
+2. **A planner plans it.** A `kanban-planner` agent reads the code in the card's own clone and Docker stack, and writes
+   the plan the worker follows: the files, the steps with a check for each, and how each criterion is proven. The card
+   moves to `ready`.
+3. **Claude starts the card.** The main Claude Code session claims the card. It creates a clone for it in
    `.claude/worktrees` and brings up a Docker stack for it on its own ports.
-3. **A worker writes the code.** A background `kanban-worker` agent commits to the card's branch. When it is done, it
-   reports back, and the card moves to `review`.
-4. **An evaluator checks it.** A read-only `kanban-evaluator` agent checks every acceptance criterion and approves or
+4. **A worker writes the code.** A background `kanban-worker` agent follows the plan and commits to the card's branch.
+   When it is done, it reports back, and the card moves to `review`.
+5. **An evaluator checks it.** A read-only `kanban-evaluator` agent checks every acceptance criterion and approves or
    rejects the work. Rejected work goes back to the worker.
-5. **Approved work is merged.** `kanban finish` merges the branch into `main`, marks the card `done`, and removes the
+6. **Approved work is merged.** `kanban finish` merges the branch into `main`, marks the card `done`, and removes the
    clone and its stack. Every few merges, it pushes `main` too.
-6. **The run is published.** At the end of a run, `kanban publish` pushes the board and `main` to your remote.
+7. **The run is published.** At the end of a run, `kanban publish` pushes the board and `main` to your remote.
 
 Requiring the package does not put a project on the board. The `/implement-kanban` skill does:
 
@@ -598,7 +601,8 @@ The installer makes the following changes:
   kept. It also turns off Claude Code's commit and PR attribution, because the hooks would reject those trailers.
 - It adds the permissions that name this checkout's path, for its `vendor/bin/kanban` and `vendor/bin/kanban-exec`, to
   `.claude/settings.local.json`. That file stays out of git, so each machine gets its own.
-- It writes the two agents to `.claude/agents/kanban-worker.md` and `.claude/agents/kanban-evaluator.md`.
+- It writes the three agents to `.claude/agents/kanban-planner.md`, `.claude/agents/kanban-worker.md` and
+  `.claude/agents/kanban-evaluator.md`.
 - It writes a marked `## Kanban` block into the root `CLAUDE.md`, before Boost's guidelines when they are there. The
   block points Claude at the `kanban` skill.
 - With Boost, it makes sure `petar-spasic/laravel-house` is in the `packages` list in `boost.json`, so
@@ -664,11 +668,12 @@ KANBAN_UPSTREAM=false     # Set to true to let Claude file package issues. See "
 <a name="agent-models"></a>
 ### Agent Models
 
-By default, the worker runs on Sonnet with high effort, and the evaluator runs on Opus with medium effort. You may
-change either one in the `agents` section of `config/kanban.php`:
+By default, the planner runs on Opus with high effort, the worker on Sonnet with high effort, and the evaluator on Opus
+with medium effort. You may change any of them in the `agents` section of `config/kanban.php`:
 
 ```php
 'agents' => [
+    'planner' => ['model' => 'opus', 'effort' => 'high'],
     'worker' => ['model' => 'sonnet', 'effort' => 'high'],
     'evaluator' => ['model' => 'opus', 'effort' => 'medium'],
 ],
@@ -796,14 +801,16 @@ Cards move through these stages:
 | Stage | Meaning |
 |---|---|
 | `backlog` | An idea, not yet ready to be worked on. |
-| `ready` | Fully described and waiting to be picked up. |
+| `planning` | Fully described; a planner agent writes its plan. |
+| `ready` | Planned, and waiting for a worker. |
 | `doing` | A worker is on it, in its own worktree. |
 | `review` | The worker is done; the evaluator checks the work. |
 | `done` | Merged into `main`. |
 | `dropped` | Not going to happen. Dropping a card asks for a reason. |
 
-You move cards between `backlog` and `ready`, and to `dropped`. The rest of the path belongs to the workflow: a card
-enters `doing` through `start`, `review` through the worker's report, and `done` through `finish`.
+You move cards from `backlog` to `planning`, back to `backlog`, and to `dropped`. A card enters `ready` through its
+plan. The rest of the path belongs to the workflow: a card enters `doing` through `start`, `review` through the
+worker's report, and `done` through `finish`.
 
 <a name="card-ids"></a>
 ### Card IDs
@@ -816,10 +823,10 @@ not matter, and you may leave the key out:
 vendor/bin/kanban show 7k2
 ```
 
-<a name="ready-cards"></a>
-### Ready Cards
+<a name="planned-cards"></a>
+### Planned Cards
 
-A card may move from `backlog` to `ready` only when it is complete enough for an agent to work from:
+A card may leave the `backlog` only when it is complete enough for an agent to work from:
 
 - it has an `area:` label, a title and a description;
 - it has between 1 and 24 acceptance criteria;
@@ -828,6 +835,26 @@ A card may move from `backlog` to `ready` only when it is complete enough for an
 
 Write each acceptance criterion as something the evaluator can check, such as "GET /invoices.csv lists the month's
 invoices". `kanban promote` tells you which rule a card misses.
+
+The card then waits in `planning`. Once the cards it depends on are done, a planner agent takes it, in a clone and a
+stack of its own. The planner reads the code, checks every name against it, and writes the plan for the worker: the
+files to read and change, the steps in order with a check for each, how each criterion is proven, and the traps. Then
+the card moves to `ready`.
+
+The worker is a smaller model, so the plan is short and exact. It says what to build and where, and leaves the code to
+the worker. `kanban plan` refuses a plan that names a file the code does not have or leaves a criterion out. When a plan
+runs long or writes the code itself, it prints a hint, and the planner trims what the card does not need.
+
+A plan holds while the card stays as it was planned. A ready card goes back to `planning` when you change its criteria
+or description, or answer a provisional decision with another option than the one its plan took. A card that comes
+back from a question with work on its branch is planned again too: its planner reads the work so far and plans the
+rest.
+
+If you already have a plan for a card, give it one yourself. The file needs the same sections:
+
+```shell
+vendor/bin/kanban plan ACME-7K2QF9 --plan-file=plan.md
+```
 
 <a name="locked-stages"></a>
 ### Locked Stages
@@ -878,7 +905,8 @@ checkboxes and dropdowns at once. Text such as the description opens an editor t
 
 To move a card, drag it to another column, or press `m`. Press `n` to add a new card.
 
-A card waiting for your answer shows a *Question* tag, and its panel shows the question. Write the answer in the
+A planned card shows its plan under the acceptance criteria, folded. A card waiting for your answer shows a
+*Question* tag, and its panel shows the question. Write the answer in the
 description, then press *Unblock*. A *Blocks N* tag marks a card that N open cards wait on: if they are one piece of
 work, fold them into it.
 
@@ -919,8 +947,9 @@ Run the board.
 
 The main session follows the `kanban` skill. The routine runs in code, in `vendor/bin/kanban run`, which the session
 keeps going in the background:
-- it moves complete cards from `backlog` to `ready` and starts as many cards as the limits allow;
-- it starts a worker for each card, sends finished work to the evaluator and merges what is approved;
+- it moves complete cards from `backlog` to `planning`, and has a planner plan each one;
+- it starts as many planned cards as the limits allow, with a worker for each; planners and workers share the limit;
+- it sends finished work to the evaluator and merges what is approved;
 - a card that waits on your answer goes back to `backlog`, and the board carries on with the others. Once you answer,
   its kept branch starts again ahead of new cards.
 
@@ -959,11 +988,11 @@ choice, with a recommended answer and what each option means. Your answers go on
 move on. The cards the agents discovered wait for criteria, which you and Claude write. Tell Claude about new work, and
 the board carries on.
 
-<a name="planning-cards"></a>
-### Planning Cards
+<a name="cutting-cards"></a>
+### Cutting Cards
 
-Cards are written for agents. Each card costs an agent to build it, a second agent to review it, a clone, a stack and
-a merge, so a card is one cohesive piece of work, not one small step. Cards that share an area never run at the same
+Cards are written for agents. Each card costs an agent to plan it, an agent to build it, a third to review it, clones,
+stacks and a merge, so a card is one cohesive piece of work, not one small step. Cards that share an area never run at the same
 time, so related work on one area belongs on one card, and separate areas run side by side.
 
 When two cards turn out to be one piece of work, fold them:
@@ -1215,9 +1244,9 @@ The [protocol reference](resources/boost/skills/kanban/references/protocol.md) l
 | Command | Description |
 |---|---|
 | `status` | What is in progress, blocked and next, and any failing checks. |
-| `list` | Cards in `ready`, `doing` and `review`, plus blocked cards. |
-| `show ID` | One card with its criteria, dependencies and history. |
-| `next` | The card that would be started next. `-v` says why the others wait. |
+| `list` | Cards in `planning`, `ready`, `doing` and `review`, plus blocked cards. |
+| `show ID [--plan]` | One card with its criteria, dependencies and history; `--plan` prints only its plan. |
+| `next` | The card that would be started next, or with `--planning` planned next. `-v` says why the others wait. |
 | `upstream` | Package findings waiting to be filed. |
 | `morning` | What merged, what is blocked, the questions, the discovered cards waiting for criteria and what the agents spent, since yesterday. |
 | `questions` | Every question waiting for you, with its options: open questions on unfinished cards, and provisional decisions until you answer them. |
@@ -1234,7 +1263,8 @@ The [protocol reference](resources/boost/skills/kanban/references/protocol.md) l
 | `answer ID#N OPTION` | Records your answer to a question, then moves the card on. |
 | `set ID key=value` | Changes a card, such as `priority=high`, `epic=passkey-login` or `note="…"`. |
 | `move ID STAGE` | Moves a card to another stage, or `--board=BOARD` to another board. |
-| `promote ID` | Moves a card from `backlog` to `ready`. `--auto` fills `ready` with complete cards, up to 12 by default. |
+| `promote ID` | Moves a card from `backlog` to `planning`, or to `ready` when its plan still holds. `--auto` fills `planning` with complete cards, up to 12 by default, and sends ready cards without a plan back to `planning`. |
+| `plan ID` | Gives a card in `planning` a plan of your own (`--plan-file=`). A planner hands in its plan the same way. |
 | `board BOARD "Title"` | Adds or updates a board. |
 | `fold-boards` | Moves an older board onto one work board, with each card's epic taken from where it was. `/implement-kanban` runs it. |
 
@@ -1244,13 +1274,13 @@ The [protocol reference](resources/boost/skills/kanban/references/protocol.md) l
 |---|---|
 | `run` | The routine of running the board: starts cards, agents and merges. Claude runs it for you. |
 | `drain` | Makes `run` wrap up: it starts no new card and stops once none is in flight. `drain --off` undoes it. |
-| `start ID` | Claims a card and creates its clone and stack. A branch that `stop` kept is reused, with the latest `main` merged in. A refusal names the card ahead on the same area, or the limit it hit. |
+| `start ID` | Claims a card and creates its clone and stack: a ready card for its worker, a planning card for its planner. A branch that `stop` kept is reused, with the latest `main` merged in. A refusal names the card ahead on the same area, or the limit it hit. |
 | `refresh ID` | Merges the latest `main` into the card's branch, once everything in its clone is committed. When the merge changes a lockfile, a docker file or the compose file, it recreates the card's stack. |
 | `rebuild-branch ID` | Turns a card's branch into one commit with the same files, when a merge of `main` carries changes of its own. |
-| `wait [ID]` | Waits until the card's agent has stopped and its report or verdict is on the board. Without an ID, it waits for any card in `doing` or `review`. |
+| `wait [ID]` | Waits until the card's agent has stopped and its plan, report or verdict is on the board. Without an ID, it waits for any card an agent works on. |
 | `finish ID` | Merges an approved card into `main` and cleans up. |
 | `allow-steering ID PATH` | Approves a card's change to a file that steers the agents or git, so `finish` merges it. |
-| `stop ID --to=STAGE` | Takes a card out of work and cleans up. A branch with commits is kept for the next `start`. |
+| `stop ID --to=STAGE` | Takes a card out of work and cleans up. A branch with commits is kept for the next `start`. A card its planner has planned moves to `ready` this way. |
 | `stack ID up\|down\|reload\|logs\|url` | Manages a card's stack. `stack ID exec -- CMD` runs a command in it. |
 | `gates` | Runs the quality gates in a card. |
 | `sync` | Pulls and pushes the board. |
@@ -1268,6 +1298,8 @@ cause and its fix. The most common ones are:
   See [Locked Stages](#locked-stages).
 - **Several cards are ready but only one starts.** They share an area. `vendor/bin/kanban next -v` says so, and a
   refused `start` names the card ahead.
+- **A ready card went back to `planning`.** Its criteria or description changed after it was planned, and its
+  planner plans it again.
 - **Every command says "an older board format".** The board predates version 3: boards inside epic directories.
   Run `/implement-kanban`.
 - **Compose fails after about six stacks.** Widen the [Docker address pools](#docker-address-pools).
@@ -1323,6 +1355,11 @@ Skip the `doctor` line in a project without the board. Then restart Claude Code.
 > [!WARNING]
 > Every clone that shares a board must run the same version of the package. Commit `composer.lock`. Each other clone
 > then runs `composer install` and `vendor/bin/kanban doctor --fix`.
+
+> [!WARNING]
+> Version 0.9 adds the `planning` stage and its planner agent. Update every clone, run `vendor/bin/kanban doctor --fix`
+> to write the planner, and restart Claude Code. The next `kanban promote --auto`, which `kanban run` runs on every pass,
+> moves the ready cards that have no plan to `planning`.
 
 > [!WARNING]
 > Version 0.7 moves a board onto one work board: each card takes its epic from the directory it was in, and decision

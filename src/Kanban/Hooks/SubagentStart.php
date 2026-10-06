@@ -37,7 +37,7 @@ final class SubagentStart
         $snapshot = $this->store->snapshot();
         $runtime = new Runtime($this->paths, $snapshot->staleMinutes());
 
-        if (in_array($type, [SubagentStop::WORKER, SubagentStop::EVALUATOR], true) && Runtime::validAgentId($agentId)) {
+        if (isset(SubagentStop::KINDS[$type]) && Runtime::validAgentId($agentId)) {
             $agent = $runtime->agent($agentId) ?? ['agent_id' => $agentId, 'agent_type' => $type, 'card' => null, 'worktree' => null,
                 'bound_at' => null, 'stop_blocks' => 0];
             unset($agent['stop_reason']);
@@ -54,7 +54,7 @@ final class SubagentStart
             $snapshot->cards(fn (Card $c) => $c->stage() === 'doing'));
         $context = 'Kanban board: '.$this->paths->board().' (branch kanban). Read: `vendor/bin/kanban status|list|show ID|context`; '
             .'change it only via vendor/bin/kanban, never edit it. '
-            .(in_array($type, [SubagentStop::WORKER, SubagentStop::EVALUATOR], true) ? 'Git: as your agent instructions say. '
+            .(isset(SubagentStop::KINDS[$type]) ? 'Git: as your agent instructions say. '
                 : 'Git: push/pull/fetch/stash/reset/checkout/switch/merge/rebase/worktree are the main session\'s: do not run them. ')
             .'Doing: '.($doing === [] ? 'none' : implode(', ', $doing)).'.';
         $json = ['hookSpecificOutput' => ['hookEventName' => 'SubagentStart', 'additionalContext' => $context]];

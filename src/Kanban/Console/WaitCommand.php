@@ -14,7 +14,7 @@ class WaitCommand extends Command
     private const POLL = 0.25;
 
     protected $signature = 'kanban:wait
-        {ids?* : The cards to wait for (default: every card in doing or review with a live agent)}
+        {ids?* : The cards to wait for (default: every card at work with a live agent: doing, review, or held by a planner)}
         {--timeout=90 : Seconds before giving up with exit 75}';
 
     protected $description = 'Block until a card\'s agent has stopped (its report or verdict applied) or its stop was refused';
@@ -30,10 +30,10 @@ class WaitCommand extends Command
         $ids = array_map(fn (string $id) => $this->store()->card($id)->id(), (array) $this->argument('ids'));
         if ($ids === []) {
             $runtime = new Runtime($this->paths(), $snapshot->staleMinutes());
-            // a card that left doing and review may keep a record nothing stopped: it has no agent to wait for
+            // a card no longer at work may keep a record nothing stopped: it has no agent to wait for
             $ids = array_values(array_unique(array_map(fn (array $a) => (string) $a['card'], array_filter($runtime->agents(),
                 fn (array $a) => is_string($a['card'] ?? null) && $runtime->state($a) === 'live'
-                    && in_array($snapshot->card($a['card'])?->stage(), ['doing', 'review'], true)))));
+                    && ($snapshot->card($a['card'])?->atWork() ?? false)))));
             if ($ids === []) {
                 $this->say('no live agents');
 

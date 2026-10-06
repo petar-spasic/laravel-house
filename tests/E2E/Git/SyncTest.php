@@ -321,7 +321,7 @@ it('keeps claims local when sync is off', function () {
     $a->ok(['claim', $id], ['KANBAN_SESSION' => 's']);
 
     expect($origin->log('kanban'))->toHaveCount(1)
-        ->and($a->ok('status'))->toContain('2 unpushed');
+        ->and($a->ok('status'))->toContain('3 unpushed');
 });
 
 it('pushes in the background after each write when sync is on', function () {

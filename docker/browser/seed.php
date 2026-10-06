@@ -81,7 +81,14 @@ if ($rich || $perf) {
 
         return $store->create($ref, $fields, Actor::owner())->id();
     };
-    $ready = fn (string $title, array $input = [], string $board = 'work') => $make($title, ['body' => 'Build it', 'accept' => ['It works'], 'stage' => 'ready'] + $input, $board);
+    $base = trim($s->git('rev-parse', 'refs/heads/main'));
+    // a card reaches ready through its plan: created into planning, then given one
+    $ready = function (string $title, array $input = [], string $board = 'work', ?string $plan = null) use ($make, $store, $transitions, $base): string {
+        $id = $make($title, ['body' => 'Build it', 'accept' => ['It works'], 'stage' => 'planning'] + $input, $board);
+        $transitions->plan($id, $plan ?? Sandbox::planFor(array_column($store->card($id)->acceptance(), 'id')), $base, Actor::owner());
+
+        return $id;
+    };
 }
 
 if ($perf) {
@@ -91,10 +98,10 @@ if ($perf) {
 }
 
 if ($rich) {
-    $agent = function (string $name, string $card, int $boundAgo, int $beatAgo = 0, bool $stopped = false) use ($s): void {
+    $agent = function (string $name, string $card, int $boundAgo, int $beatAgo = 0, bool $stopped = false, string $type = 'kanban-worker') use ($s): void {
         @mkdir($s->root.'/.git/laravel-house/agents', 0775, true);
         $file = $s->root."/.git/laravel-house/agents/{$name}.json";
-        file_put_contents($file, json_encode(['agent_id' => $name, 'agent_type' => 'kanban-worker', 'card' => $card, 'worktree' => null,
+        file_put_contents($file, json_encode(['agent_id' => $name, 'agent_type' => $type, 'card' => $card, 'worktree' => null,
             'bound_at' => gmdate('Y-m-d\TH:i:s.000+00:00', time() - $boundAgo), 'stopped_at' => $stopped ? gmdate('Y-m-d\TH:i:s.000+00:00') : null, 'stop_blocks' => 0]));
         touch($file, time() - $beatAgo);
     };
@@ -111,6 +118,32 @@ if ($rich) {
     $transitions->start($ids['r1'], $main, null, $stack('feed', 21030));
     $transitions->apply($ids['r1'], $main);
     $agent('worker-3', $ids['r1'], 5400, 60, true);
+
+    // planning: a card waiting for its planner, one a planner works on, and a planned one in ready
+    $ids['to_plan'] = $make('Tag notes from the editor', ['body' => 'Tags are typed in the editor and saved with the note.', 'accept' => ['A tag typed in the editor is saved'], 'stage' => 'planning', 'labels' => ['area:sync']]);
+    $ids['planning'] = $make('Share a notebook read-only', ['body' => 'A link that opens the notebook without an account.', 'accept' => ['The link opens the notebook', 'It cannot be edited'], 'stage' => 'planning', 'labels' => ['area:print']]);
+    $transitions->start($ids['planning'], $main, null, $stack('share', 21040));
+    $agent('planner-1', $ids['planning'], 420, 0, false, 'kanban-planner');
+    $ids['planned'] = $ready('Show the history of a note', ['labels' => ['area:import'], 'accept' => ['Each saved version is listed', 'A version opens read-only']], 'work', <<<'MD'
+        ## Goal
+        The note page lists every saved version; a version opens read-only.
+
+        ## Files
+        - read `README.md` — how the app is laid out
+        - create `app/Http/Controllers/NoteVersionController.php` — invokable, shaped like the note controller
+        - create `tests/Feature/NoteVersionsTest.php` — criteria 1 and 2
+
+        ## Steps
+        1. Add `Route::get('/notes/{note}/versions', NoteVersionController::class)->name('notes.versions')`. Check: `php artisan route:list --name=notes.versions` → 1 route.
+        2. List the versions newest first, 20 a page. Check: `php artisan test --compact --filter=NoteVersions`
+
+        ## Criteria
+        - 1: `tests/Feature/NoteVersionsTest.php` `it lists each saved version`: 3 saves → 3 rows
+        - 2: `tests/Feature/NoteVersionsTest.php` `it opens a version read-only`: no form on the page
+
+        ## Traps
+        - `Note::versions()` includes drafts: filter on `saved_at`
+        MD);
 
     // attention states and stress shapes
     $ids['blocked'] = $make('Rotate the signing keys before the audit', ['priority' => 'urgent', 'type' => 'bug']);

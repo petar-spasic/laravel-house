@@ -11,13 +11,13 @@
     const MAX = { body: 20000, criteria: Number(body.dataset.maxCriteria), criterion: Number(body.dataset.maxCriterion), labels: 10 };
     // what an empty lane says
     const EMPTY = {
-        backlog: 'No cards yet. Press N to add one.', ready: 'Cards that pass the ready checks wait here.', doing: 'Started by agents: kanban start.',
-        review: 'Finished work waits here for evaluation.', done: 'Completed cards collect here.', dropped: 'Nothing dropped.',
+        backlog: 'No cards yet. Press N to add one.', planning: 'Cards that pass the ready checks wait here for their plan.', ready: 'Planned cards wait here for a worker.',
+        doing: 'Started by agents: kanban start.', review: 'Finished work waits here for evaluation.', done: 'Completed cards collect here.', dropped: 'Nothing dropped.',
     };
     // lanes a card cannot be dropped into, and how a card gets there; and how one gets out
     const CLI_HINT = {
-        doing: 'Cards move here from the command line: vendor/bin/kanban start ID', review: "A worker's report moves cards here: vendor/bin/kanban apply ID",
-        done: 'Finished from the command line: vendor/bin/kanban finish ID',
+        ready: "A plan moves cards here: their planner's, or vendor/bin/kanban plan ID", doing: 'Cards move here from the command line: vendor/bin/kanban start ID',
+        review: "A worker's report moves cards here: vendor/bin/kanban apply ID", done: 'Finished from the command line: vendor/bin/kanban finish ID',
     };
     const CLI_ONWARD = {
         doing: 'It moves to review when a worker reports: vendor/bin/kanban apply ID', review: 'It moves to done with vendor/bin/kanban finish ID',
@@ -87,7 +87,10 @@
         };
         return [el, draw];
     }
-    /** The mark of a stage: a dashed circle for backlog, an outline for ready, half filled for doing, a dot inside for review, ticked for done, crossed for dropped. */
+    /**
+     * The mark of a stage: a dashed circle for backlog, a dashed ring inside an outline for planning, an outline for ready, half
+     * filled for doing, a dot inside for review, ticked for done, crossed for dropped.
+     */
     function stageIcon(stage) {
         const [el, draw] = drawing('i stage-i');
         const circle = { cx: 8, cy: 8, r: 5.25 };
@@ -95,6 +98,7 @@
         else if (stage === 'done') { draw('circle', { ...circle, class: 'solid' }); draw('path', { d: 'M5.5 8.25l1.9 1.9 3.2-3.6', class: 'tick' }); }
         else {
             draw('circle', circle);
+            if (stage === 'planning') draw('circle', { cx: 8, cy: 8, r: 2.25, pathLength: 12, 'stroke-dasharray': '1.5 1.5' });
             if (stage === 'doing') draw('path', { d: 'M8 2.75a5.25 5.25 0 0 1 0 10.5z', class: 'solid' });
             if (stage === 'review') draw('circle', { cx: 8, cy: 8, r: 2, class: 'solid' });
             if (stage === 'dropped') draw('path', { d: 'M5.75 10.25l4.5-4.5' });
@@ -1692,12 +1696,13 @@
         P.accRow = h('div', { class: 'add-line' }, P.accAdd, P.accAddBtn);
         P.accHint = h('p', { class: 'hint', id: accHint }, 'Type a criterion and press ', kbd('Enter'), ' to add it; the box stays ready for the next one. A card can have up to ' + MAX.criteria + '. Tick each one when it is true.');
         P.acc = h('section', { class: 'sec' }, P.accHead, P.accEmpty, P.accList, P.accRow, P.accHint, P.accNote);
+        P.plan = h('details', { class: 'sec plan', hidden: true });
         P.logHead = h('h3');
         P.log = h('ol', { class: 'log' });
         P.activity = h('section', { class: 'sec' }, P.logHead, P.log);
         P.facts = h('details', { class: 'sec' });
         P.mark = h('div', { class: 'd-mark', role: 'status', hidden: true });
-        P.body = h('div', { class: 'd-body', tabindex: '-1', role: 'group', 'aria-label': 'Card details' }, P.mark, P.titleBox, P.lockNote, P.controls, P.blocked, P.props, P.desc, P.acc, P.activity, P.facts);
+        P.body = h('div', { class: 'd-body', tabindex: '-1', role: 'group', 'aria-label': 'Card details' }, P.mark, P.titleBox, P.lockNote, P.controls, P.blocked, P.props, P.desc, P.acc, P.plan, P.activity, P.facts);
 
         P.note = h('textarea', { class: 'field', rows: '2', maxlength: '5000', placeholder: 'Add a note…', 'aria-label': 'Note',
             oninput: () => { if (P.note.value) drafts.set(P.id + ':note', P.note.value); else drafts.delete(P.id + ':note'); growNote(P); },
@@ -1761,8 +1766,24 @@
         renderWork(P, c);
         renderDescription(P, P.desc, 'Description', 'body', c.body, c.body_html, 'Add a description…');
         renderAcceptance(P, c);
+        renderPlan(P, c);
         renderFacts(P, c);
         renderLog(P, c);
+    }
+
+    /** The plan written for the card's worker: folded, rendered, read-only; who wrote it and on which commit of main. */
+    function renderPlan(P, c) {
+        P.plan.hidden = !c.plan_html;
+        if (!c.plan_html) { P.plan.replaceChildren(); return; }
+        const p = c.planned || {};
+        const view = h('div', { class: 'read md' });
+        view.innerHTML = c.plan_html; /* md-sink: server-rendered Markdown, HTML escaped */
+        for (const a of view.querySelectorAll('a')) { a.target = '_blank'; a.rel = 'noopener noreferrer'; }
+        const wasOpen = P.plan.open;
+        P.plan.replaceChildren(h('summary', {}, h('span', { text: 'Plan' }),
+            h('span', { class: 'muted', text: [p.by, p.base && '@' + p.base, p.at && text(p.at).slice(0, 16).replace('T', ' ')].filter(Boolean).join(' · ') }),
+            p.current === false ? h('span', { class: 'tag amber', title: 'The criteria or the description changed since it was written: it is planned again', text: 'Outdated' }) : null), view);
+        P.plan.open = wasOpen;
     }
 
     /** Why a card is locked, what stays open, and how to reopen it. */
@@ -1954,12 +1975,12 @@
 
     function renderAcceptance(P, c) {
         const frozen = !!c.locked;
-        const editable = !frozen && (c.stage === 'backlog' || c.stage === 'ready');
+        const editable = !frozen && ['backlog', 'planning', 'ready'].includes(c.stage);
         const list = (card) => card.acceptance.map((i) => ({ id: i.id, text: i.text, done: i.done }));
         P.accHead.replaceChildren(...['Acceptance', c.progress.total ? h('span', { class: 'ring-count' }, ring(c.progress.done, c.progress.total), c.progress.done + '/' + c.progress.total) : null].filter(Boolean));
         const full = c.acceptance.length >= MAX.criteria;
         P.accEmpty.hidden = c.acceptance.length > 0;
-        P.accEmpty.textContent = frozen ? 'No acceptance criteria.' : 'What has to be true for this card to be done. It needs at least one before it can move to Ready.';
+        P.accEmpty.textContent = frozen ? 'No acceptance criteria.' : 'What has to be true for this card to be done. It needs at least one before it can be planned.';
         P.accNote.hidden = editable || frozen;
         P.accRow.hidden = P.accHint.hidden = frozen;
         P.accAdd.disabled = P.accAddBtn.disabled = full;
@@ -2105,6 +2126,9 @@
     function logPhrase(entry) {
         if (entry.event === 'note') return 'added a note';
         if (entry.event === 'stage') return 'moved ' + entry.from + ' → ' + entry.to + (entry.via ? ' (' + entry.via + ')' : '');
+        if (entry.event === 'planned') return 'wrote the plan' + (entry.base ? ' on main @' + String(entry.base).slice(0, 7) : '');
+        if (entry.event === 'claimed') return 'took it to plan';
+        if (entry.event === 'plan') return 'could not plan it' + (entry.reason ? ': ' + entry.reason : '');
         if (entry.event === 'conflict') return 'kept the other version of ' + (entry.field === 'flow' ? 'the stage' : entry.field) + ' in a merge';
         if (entry.event === 'set') return 'changed ' + (entry.fields || []).join(', ') + (entry.acceptance_removed ? ' (removed criteria ' + entry.acceptance_removed.join(', ') + ')' : '');
 

@@ -39,7 +39,7 @@ export default async (t) => {
     await card(low).hover();
     await card(low).locator('.c-more').click();
     await page.waitForSelector('.menu');
-    t.ok('the button lists where it can go, numbered', (await page.locator('.menu [role=menuitem]').allInnerTexts()).map((s) => s.replace(/\s+/g, ' ').trim()).join('|') === 'ready 1|dropped 2');
+    t.ok('the button lists where it can go, numbered', (await page.locator('.menu [role=menuitem]').allInnerTexts()).map((s) => s.replace(/\s+/g, ' ').trim()).join('|') === 'planning 1|dropped 2');
     t.ok('the button says it opens a menu and that it is open', (await card(low).locator('.c-more').getAttribute('aria-haspopup')) === 'menu' && (await card(low).locator('.c-more').getAttribute('aria-expanded')) === 'true');
     await card(low).locator('.c-more').click();
     t.ok('pressing it again closes the menu', (await page.locator('.menu').count()) === 0 && (await card(low).locator('.c-more').getAttribute('aria-expanded')) === 'false');
@@ -58,10 +58,10 @@ export default async (t) => {
 
     // lanes
     t.ok('a lane that cards cannot be dropped into says how they get there', (await page.locator('.col[data-stage=doing] .cli').getAttribute('aria-label')).includes('kanban start'));
-    t.ok('a lane with a work-in-progress limit shows it next to its count', (await page.locator('.col[data-stage=doing] .n').innerText()) === '2' && (await page.locator('.col[data-stage=doing] .wip').innerText()) === '/6');
+    t.ok('a lane with a work-in-progress limit shows it next to its count', (await page.locator('.col[data-stage=review] .n').innerText()) === '1' && (await page.locator('.col[data-stage=review] .wip').innerText()) === '/6');
     t.ok('each lane has the mark of its stage', (await page.locator('.col .col-h .stage-i').count()) === (await page.locator('.col').count()));
     t.ok('a lane names its cards to a screen reader', (await page.locator('.col[data-stage=doing]').getAttribute('aria-label')) === 'Doing, 2 cards');
-    t.ok('the limit sits against the count, like 2/6', Math.abs(await page.evaluate(() => document.querySelector('.col[data-stage=doing] .wip').getBoundingClientRect().left - document.querySelector('.col[data-stage=doing] .n').getBoundingClientRect().right)) <= 1);
+    t.ok('the limit sits against the count, like 1/6', Math.abs(await page.evaluate(() => document.querySelector('.col[data-stage=review] .wip').getBoundingClientRect().left - document.querySelector('.col[data-stage=review] .n').getBoundingClientRect().right)) <= 1);
 
     // criteria can be removed until work starts; after that a lock says why there is no X
     await card(w1).locator('.c-title').click();

@@ -10,7 +10,7 @@ export default async (t) => {
     await page.goto(t.url + '/cards/' + g, { waitUntil: 'networkidle' });
     await page.waitForSelector('.drawer:not([hidden]) button[data-field="stage"]');
     await page.waitForTimeout(500);
-    t.ok('the page starts with damaged stored preferences', (await page.locator('.col').count()) === 6);
+    t.ok('the page starts with damaged stored preferences', (await page.locator('.col').count()) === 7);
     const options = await choices(page, 'stage');
     t.ok('a dropped card can only go back to backlog', JSON.stringify(options) === JSON.stringify(['backlog']));
     await page.keyboard.press('Escape');

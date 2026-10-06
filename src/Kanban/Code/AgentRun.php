@@ -13,7 +13,7 @@ use Symfony\Component\Process\ExecutableFinder;
 use Symfony\Component\Process\Process;
 
 /**
- * Headless card agents for `kanban run`: each is `claude -p --agent kanban-worker|kanban-evaluator` in main's checkout,
+ * Headless card agents for `kanban run`: each is `claude -p --agent kanban-worker|kanban-planner|kanban-evaluator` in main's checkout,
  * with the model and effort of `kanban.agents.<role>` passed as flags and no model or effort inherited from the environment,
  * detached (its own session, so stopping `run` leaves it working), bound to its card by its session id. A run's pid
  * file sits in `runs/` until the run is reaped; its result JSON and stderr beside it; one line per ended run in
@@ -24,6 +24,8 @@ final class AgentRun
     public const WORKER = 'kanban-worker';
 
     public const EVALUATOR = 'kanban-evaluator';
+
+    public const PLANNER = 'kanban-planner';
 
     /** The launching session's model and effort, which would otherwise override the flags or the agent file. */
     private const INHERITED = ['CLAUDE_EFFORT' => false, 'CLAUDE_CODE_EFFORT_LEVEL' => false, 'ANTHROPIC_MODEL' => false, 'CLAUDE_CODE_SUBAGENT_MODEL' => false];
@@ -36,10 +38,13 @@ final class AgentRun
     {
         $finder = new ExecutableFinder;
 
+        $missing = array_values(array_filter([self::WORKER, self::PLANNER, self::EVALUATOR], fn (string $agent) => ! is_file($this->paths->main."/.claude/agents/{$agent}.md")));
+
         return match (true) {
             ($this->config['agents']['shell'] ?? 'container') !== 'container' || ($this->config['stack']['compose_file'] ?? null) === null => 'kanban run needs card containers (agents.shell container and stack.compose_file set): a headless agent may run only the commands Guard routes into one',
             $finder->find('setsid') === null => 'kanban run needs setsid (Linux) to detach the agents',
             $finder->find('claude') === null => 'kanban run needs Claude Code: no `claude` on PATH',
+            $missing !== [] => 'kanban run needs .claude/agents/'.implode('.md, .claude/agents/', $missing).'.md: run `vendor/bin/kanban doctor --fix`',
             default => null,
         };
     }
@@ -77,7 +82,7 @@ final class AgentRun
         $process->mustRun();
         file_put_contents("{$dir}/{$session}.pid", json_encode([
             'pid' => (int) trim($process->getOutput()), 'card' => $card->id(), 'type' => $type, 'started' => Clock::now(),
-            'stage' => $card->stage(), 'approved' => $card->work()['approved']['head'] ?? null,
+            'stage' => $card->stage(), 'approved' => $card->work()['approved']['head'] ?? null, 'planned' => $card->planned()['at'] ?? null,
         ]));
 
         return $session;
@@ -129,7 +134,7 @@ final class AgentRun
             if (($agent = $runtime->agent($session)) !== null && empty($agent['stopped_at'])) {
                 $runtime->saveAgent(['stopped_at' => Clock::now()] + $agent);
             }
-            $ended[] = $line + ['stage' => $run['stage'] ?? null, 'approved' => $run['approved'] ?? null];
+            $ended[] = $line + ['stage' => $run['stage'] ?? null, 'approved' => $run['approved'] ?? null, 'planned' => $run['planned'] ?? null];
         }
 
         return $ended;

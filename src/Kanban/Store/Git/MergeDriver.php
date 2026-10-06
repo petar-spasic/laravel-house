@@ -19,7 +19,7 @@ final class MergeDriver
     ];
 
     /** Text fields whose displaced value is kept in the log. */
-    private const TEXTS = ['title', 'body', 'blocked'];
+    private const TEXTS = ['title', 'body', 'plan', 'blocked'];
 
     /** Where a card is in the flow; a displaced value is kept in the log as one line. */
     private const FLOW = ['stage', 'claim', 'work'];

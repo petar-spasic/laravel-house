@@ -2,19 +2,19 @@
 name: kanban
 description: >-
   For a project on the kanban board (docs/kanban present, kanban:install run).
-  The main session orchestrates: it plans cohesive cards an agent finishes in
+  The main session orchestrates: it cuts cohesive cards an agent finishes in
   one go, runs `vendor/bin/kanban run --until-attention` in the background
-  (the routine in code: clones, Docker stacks, headless kanban-worker and
-  kanban-evaluator agents, merges) and acts on what it hands back, and runs
-  the owner's morning: the summary, every open question as a multiple choice,
-  the answers recorded with `kanban answer`. Covers card sizing and folding,
-  the question format, provisional decisions, wrapping up, recovery, the
-  exact vendor/bin/kanban commands and exit codes, and filing package
-  findings upstream. Use when asked to run
-  or drive the board, plan or split work into cards, answer or record the
-  owner's questions, do the morning, or wrap up. Triggers — kanban, board,
-  run the board, kanban run, morning, questions, answer, plan cards, fold
-  cards, kanban-worker, kanban-evaluator, finish card, vendor/bin/kanban.
+  (the routine in code: clones, Docker stacks, headless kanban-planner,
+  kanban-worker and kanban-evaluator agents, merges) and acts on what it
+  hands back, and runs the owner's morning: the summary, every open question
+  as a multiple choice, the answers recorded with `kanban answer`. Covers card
+  sizing and folding, the question format, provisional decisions, wrapping
+  up, recovery, the exact vendor/bin/kanban commands and exit codes, and
+  filing package findings upstream. Use when asked to run or drive the board,
+  cut or split work into cards, answer or record the owner's questions, do
+  the morning, or wrap up. Triggers — kanban, board,
+  run the board, kanban run, morning, questions, answer, cut cards, fold
+  cards, kanban-planner, kanban-worker, kanban-evaluator, vendor/bin/kanban.
 ---
 
 # Kanban orchestrator (main session)
@@ -30,14 +30,16 @@ are in `references/protocol.md`; card sizing in depth is `references/planning.md
 ## Ground rules
 
 - Only the main session (and the `kanban run` it starts) runs `start`, `refresh`, `finish`, `stop`, `publish`, `promote`, `new`, `set`,
-  `move`, `fold`, `answer`, `allow-steering`, `drain` and `upstream file|new|dismiss`, from the main checkout. One orchestrator per machine holds
+  `move`, `fold`, `plan`, `answer`, `allow-steering`, `drain` and `upstream file|new|dismiss`, from the main checkout. One orchestrator per machine holds
   the lease; another one gets exit 6 from `start`, `refresh`, `finish`, `stop` and `apply`, and nothing changed. While
   `kanban run` is running, leave starting, refreshing, finishing and stopping cards to it. A session that ends frees its lease;
   a new session of the same transcript (after `/compact` or a restart) takes it at SessionStart. `lease --takeover`
   when the holder is your own previous session, otherwise only when the owner says so.
 - Never edit `docs/kanban` by hand and never write code in the main checkout for a card.
-- Cards are for agents, not people: one card is one cohesive piece of work on one `area:*`. Every agent spawn costs a
-  bootstrap, a clone, a stack and a review; a card that is too small wastes all four.
+- Cards are for agents, not people: one card is one cohesive piece of work on one `area:*`. Every card costs a plan, a
+  worker, a review and their clones and stacks; a card that is too small wastes them all.
+- Every card is planned before a worker starts it: an Opus planner writes the plan in a `planning` stage between backlog
+  and ready, and the Sonnet worker follows it. A ready card whose criteria or body change goes back to planning.
 - Cards in doing, review and done are locked: `set` takes `note=`, `blocked=`, `tick=`, `untick=`, and
   `accept[N]="…" --reason="…"` (a reworded criterion, logged; the stack and the agent stay). `stop` it for anything
   else; `--force` only when the owner asks.
@@ -50,7 +52,7 @@ are in `references/protocol.md`; card sizing in depth is `references/planning.md
 - The agents' model and effort come from `kanban.agents` in `config/kanban.php`. `kanban run` passes them as flags
   to each agent it starts; `doctor --fix` writes them into the agent files for agents you spawn yourself.
 
-## Planning cards
+## Cutting cards
 
 Before a card is created, and before it is promoted:
 
@@ -63,10 +65,10 @@ Before a card is created, and before it is promoted:
 - **No enabler cards.** A card whose only job is to unblock others is folded into them; `hubs:` in the brief and the
   `hint:` lines of `new` and `set` point at candidates. `fold <FROM>… --into=<ID>` merges them in one commit.
 - **Split only to run in parallel**, on different areas, and only when each part is worth an agent of its own.
-- **Group criteria per surface**: up to 24, each one the evaluator can check.
-- **Check each criterion against the code** (grep every route, file, config key or generated artifact it names, or
-  state that the card creates it), against the governing `CLAUDE.md` rules (test technique included), and against the
-  open questions on the same topic. Name the real entry point that shows it, never "the full suite passes".
+- **Group criteria per surface**: up to 24, each one the evaluator can check, naming the real entry point that shows
+  it, never "the full suite passes". Check them against the governing `CLAUDE.md` rules (test technique included) and
+  the open questions on the same topic. The planner checks them against the code, and blocks a card whose criterion
+  cannot be done as written.
 - **A page change** names the browser spec that proves it, and the design reference section when the owner decided one.
 - **A shared contract** (a type, rule, enum or event several cards use) is its own small card on its own area.
 - **A change the owner asked for to a file that steers the agents or git** (`config/kanban.php`, `.claude/`, git
@@ -81,8 +83,9 @@ Before a card is created, and before it is promoted:
 ## Running the board
 
 You orchestrate; `kanban run` does the routine in code: finishes approvals, refreshes and evaluates review cards,
-resumes rejected or conflicted workers (merging main first), parks question cards in backlog, promotes and starts cards
-up to capacity, each agent a headless `claude -p` session. It runs under your session's lease.
+resumes rejected or conflicted workers (merging main first), parks question cards in backlog, moves planned cards to
+ready, promotes cards into planning, starts ready cards up to capacity and planners on the slots workers leave, each
+agent a headless `claude -p` session. It runs under your session's lease.
 
 1. `status`. A `checks:` item not ok → `doctor` first.
 2. Start `vendor/bin/kanban run --until-attention` in the background (`run_in_background`). It returns with an
@@ -90,18 +93,20 @@ up to capacity, each agent a headless `claude -p` session. It runs under your se
 3. Act on each `attention:` line, then start it again:
    - `<ID> blocked: …` (its agent, the stop gate, three runs without progress, or a failed command, `kanban run: …`):
      `show <ID>`, `context <ID>` and the run's log in `.git/laravel-house/runs/`. Fix the cause, then `set <ID>
-     blocked=` (the worker resumes with main merged in), or `stop` it. A cause on main is a card of its own.
+     blocked=` (its agent resumes, a worker with main merged in), or `stop` it. A cause on main is a card of its own. A
+     planner blocks on a criterion that cannot be done as written, or a card too big for one worker: reword the
+     criterion (`set`) or split the card, then unblock it.
    - `<ID> parked in backlog: question: …` or `<ID> waits on the owner: question: …`: it waits for the owner's batch
      ("Morning").
    - `main red …`: the bug card it filed goes first (`set <ID> priority=high`).
    - `upstream: N … pending`: "Package findings".
    - `paused until …: usage limit`: nothing to do; start it again.
-   - `idle: …`: plan or promote cards ("Planning cards"); with nothing to plan, report to the owner and stop.
+   - `idle: …`: cut or promote cards ("Cutting cards"); with nothing to cut, report to the owner and stop.
    - `kanban run failed: …`: read it; a defect in the package is `upstream new`; start it again.
 4. **Wrap up** ("stop", "drain"): `vendor/bin/kanban drain` (never kill a run: it may be mid-merge), then keep
    starting `run --until-attention` as above until it prints `drained`, then `publish` and one message to the owner. Agents already running finish on their own; a new `run` picks them up.
-- Keep ready full: at least the free capacity in startable cards on distinct areas (`promote --auto` counts only those;
-  `next -v` says why ready cards wait).
+- Keep the pipeline full: `promote --auto` fills planning, counting startable ready cards and the planning cards a
+  planner holds or may take; `next -v` says why ready cards wait, `next --planning -v` why planning cards do.
 - Where a background command cannot run (a cloud session that ends turns), drive the board by hand:
   `references/protocol.md`, "Driving the board by hand".
 
@@ -136,10 +141,11 @@ While `kanban run` is not running (between hand-backs), so no answered card star
   Recommended: 1 — why
   ```
 - **An open question** blocks its card in backlog until answered: real data, production, accounts, money, publishing,
-  legal, loosening security, or a product question that is hard to change later. Workers report it with
-  `--question-file`; when you plan one, write the section into the body and `set <ID> blocked="question: <…>"`.
+  legal, loosening security, or a product question that is hard to change later. Planners and workers report it with
+  `--question-file`; when you cut a card with one, write the section into the body and `set <ID> blocked="question: <…>"`.
 - **A provisional decision** (`## Provisional decision`, the same form plus `Taken: N`) is a product choice that is
-  easy to change later: the agent took the recommended option and went on; the owner confirms it in the morning.
+  easy to change later: the agent took the recommended option and went on; the owner confirms it in the morning. An
+  answer with another option sends a planned card back to planning; on a card at work, a follow-up card makes the change.
 - Any other question you answer yourself: `## Decision (YYYY-MM-DD)` in the card's body, with the reason.
 - Before asking, check the `CLAUDE.md` rules and `docs/kanban/decisions.md`: a question they settle is not asked;
   `answer <ID>#<n> <option> --note="<the rule>"` records it. Only `answer` closes a question; a section written by
@@ -153,13 +159,15 @@ While `kanban run` is not running (between hand-backs), so no answered card star
 ## New work
 
 `new work "<title>" --type=feature|bug|chore|spike --label=area:<area> [--epic=<slug>] --priority=… --body-file=- --accept="…" …`,
-then `promote <ID>` unless it waits on a product question. Read the `hint:` lines it prints.
+then `promote <ID>` (into planning) unless it waits on a product question. Read the `hint:` lines it prints. A plan the
+owner hands you for a card in planning: `plan <ID> --plan-file=…`, in the planner's format (`references/protocol.md`).
 
 ## Recover
 
 - **Stack down or unhealthy:** `stack <ID> wait`; `stack <ID> logs` for failures; `stack <ID> exec -- <cmd>` to look.
 - **Give up on a card:** `stop <ID> --to=ready|backlog|dropped [--reason=…]` (a branch with commits is parked;
-  the next `start` reuses it with main merged in, and prints a conflict for the worker to conclude first).
+  it is planned again, and the next `start` reuses it with main merged in, printing a conflict for the worker to
+  conclude first). A card a planner holds: `stop <ID> --to=backlog|dropped`.
 - **Leftovers:** `stack gc`, `doctor`, `sweep`, `apply --all`.
 
 ## Package findings

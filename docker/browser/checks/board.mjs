@@ -94,7 +94,7 @@ export default async (t) => {
     const selected = await page.locator('.card.is-selected').getAttribute('data-id');
     await page.keyboard.press('m');
     await page.waitForSelector('.menu');
-    await page.click('.menu button:has-text("ready")');
+    await page.click('.menu button:has-text("planning")');
     await page.waitForTimeout(800);
     t.ok('a card that fails the ready policy stays put and says why', (await inColumn('backlog', selected)) === 1 && (await page.locator('.toast.err', { hasText: 'R3' }).count()) === 1);
 
@@ -104,17 +104,17 @@ export default async (t) => {
     await page.mouse.move(held.x + 30, held.y + 20);
     await page.mouse.down();
     await page.mouse.move(held.x + 60, held.y + 60, { steps: 4 });
-    const ready = await page.locator('.col[data-stage=ready]').boundingBox();
-    await page.mouse.move(ready.x + 60, ready.y + 200, { steps: 6 });
+    const planning = await page.locator('.col[data-stage=planning]').boundingBox();
+    await page.mouse.move(planning.x + 60, planning.y + 200, { steps: 6 });
     await page.waitForTimeout(700);
     const feedback = await page.evaluate(() => ({
         board: document.querySelector('.board').classList.contains('is-dragging'),
         takes: [...document.querySelectorAll('.col.can-drop')].map((el) => el.dataset.stage).sort().join(),
         receding: getComputedStyle(document.querySelector('.col[data-stage=doing]')).opacity,
         source: document.querySelector('.col[data-stage=backlog]').classList.contains('is-source'),
-        over: document.querySelector('.col[data-stage=ready]').classList.contains('is-over'),
+        over: document.querySelector('.col[data-stage=planning]').classList.contains('is-over'),
     }));
-    t.ok('holding a card marks the board and the lanes that take it', feedback.board && feedback.takes === 'dropped,ready' && feedback.source);
+    t.ok('holding a card marks the board and the lanes that take it', feedback.board && feedback.takes === 'dropped,planning' && feedback.source);
     t.ok('the lane under it is highlighted and the ones that cannot take it recede', feedback.over && feedback.receding === '0.5');
     await page.mouse.move(400, 6, { steps: 4 });
     await page.mouse.up();
@@ -181,7 +181,7 @@ export default async (t) => {
     await t.shot(page, 'boards');
     await page.goBack();
     await page.waitForTimeout(500);
-    t.ok('Back returns to the board', (await page.locator('.col').count()) === 6);
+    t.ok('Back returns to the board', (await page.locator('.col').count()) === 7);
     const landing = await t.open();
     await landing.goto(t.url, { waitUntil: 'networkidle' });
     await landing.waitForTimeout(500);

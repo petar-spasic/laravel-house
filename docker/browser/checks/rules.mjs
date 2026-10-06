@@ -6,7 +6,7 @@ export default async (t) => {
     const page = await t.open();
     await page.goto(t.url + '/work', { waitUntil: 'networkidle' });
 
-    await page.dragAndDrop(`.card[data-id="${c}"]`, '.col[data-stage=ready]');
+    await page.dragAndDrop(`.card[data-id="${c}"]`, '.col[data-stage=planning]');
     await page.waitForSelector('.toast.err');
     const toast = await page.locator('.toast.err').innerText();
     t.ok('a refused move lists the policy reasons', toast.includes('Not allowed') && toast.includes('R3'));
@@ -23,7 +23,7 @@ export default async (t) => {
     t.ok('and the drawer shows the latest version', (await valueOf(page, 'priority')) === 'low');
     await page.reload({ waitUntil: 'networkidle' });
     await page.waitForTimeout(500);
-    t.ok('a card URL opens the drawer over its board', (await page.locator('.drawer:not([hidden]) .d-title').count()) === 1 && (await page.locator('.col').count()) === 6);
+    t.ok('a card URL opens the drawer over its board', (await page.locator('.drawer:not([hidden]) .d-title').count()) === 1 && (await page.locator('.col').count()) === 7);
 
     const phone = await t.open({ w: 390, h: 800 });
     await phone.goto(t.url + '/work', { waitUntil: 'networkidle' });

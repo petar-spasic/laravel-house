@@ -20,11 +20,12 @@ it('folds cards into one in one commit and repoints their dependents', function 
     $out = $s->ok(['fold', $from, strtolower(substr($also, 5)), "--into={$into}"]);
 
     expect($out)->toStartWith("{$into} folded {$from}, {$also}: 3 criteria added; repointed to it: {$dependent}\n")
+        ->and($out)->toContain("{$into} goes back to planning: its plan does not cover what was folded in")
         ->and($s->boardLog()[0])->toBe("{$into} folded {$from} {$also} [owner]")
         ->and(trim($s->boardGit('status', '--porcelain')))->toBe('');
 
     $card = $s->read($into);
-    expect($card)->toMatchArray(['stage' => 'ready', 'priority' => 'high',
+    expect($card)->toMatchArray(['stage' => 'planning', 'priority' => 'high',
         'labels' => ['area:export', 'area:tags', 'files', 'pdf'],
         'depends_on' => collect([$base, $other])->sort()->values()->all(),
         'body' => "Build it\n\n## Folded from {$from}: Export attachments\n\nAttachments too\n\n## Folded from {$also}: Export tags\n"])
@@ -111,7 +112,7 @@ it('refuses cards outside backlog and ready, a locked dependent, and a card into
 
     $doing = $s->kanban(['fold', $busy, "--into={$into}"]);
     expect($doing->getExitCode())->toBe(3)
-        ->and($doing->getErrorOutput())->toContain("{$busy} is in doing: fold takes backlog and ready cards")
+        ->and($doing->getErrorOutput())->toContain("{$busy} is in doing: fold takes backlog, planning and ready cards no agent holds")
         ->and($s->kanban(['fold', $gone, "--into={$into}"])->getExitCode())->toBe(3)
         ->and($s->kanban(['fold', $into, "--into={$into}"])->getExitCode())->toBe(2)
         ->and($s->kanban(['fold', $into])->getExitCode())->toBe(2);

@@ -35,14 +35,24 @@ it('moves a card, commits it on the kanban branch as owner and answers with the 
     $s = $this->sandbox;
     $id = $s->card('Promote me', ['--body=Build it', '--accept=It works', '--label=area:api']);
 
-    $response = send($this, 'POST', "/cards/{$id}/stage", ['to' => 'ready', 'rev' => rev($s, $id)])->assertOk();
+    $response = send($this, 'POST', "/cards/{$id}/stage", ['to' => 'planning', 'rev' => rev($s, $id)])->assertOk();
 
     $card = $s->read($id);
-    expect($response->json('card.stage'))->toBe('ready')->and($response->json('card.rev'))->toBe(rev($s, $id))
-        ->and($card['stage'])->toBe('ready')
-        ->and(end($card['log']))->toMatchArray(['by' => 'owner', 'event' => 'stage', 'from' => 'backlog', 'to' => 'ready', 'via' => 'promote'])
-        ->and($s->boardLog()[0])->toBe("{$id} stage backlog→ready [owner]")
+    expect($response->json('card.stage'))->toBe('planning')->and($response->json('card.rev'))->toBe(rev($s, $id))
+        ->and($card['stage'])->toBe('planning')
+        ->and(end($card['log']))->toMatchArray(['by' => 'owner', 'event' => 'stage', 'from' => 'backlog', 'to' => 'planning', 'via' => 'promote'])
+        ->and($s->boardLog()[0])->toBe("{$id} stage backlog→planning [owner]")
         ->and(trim($s->boardGit('status', '--porcelain')))->toBe('');
+});
+
+it('sends a card dragged to ready to planning first, and a planned one straight to ready', function () {
+    $s = $this->sandbox;
+    $id = $s->card('Plan me first', ['--body=Build it', '--accept=It works', '--label=area:api']);
+    $planned = $s->readyCard('Planned before');
+    $s->ok(['move', $planned, 'backlog']);
+
+    send($this, 'POST', "/cards/{$id}/stage", ['to' => 'ready', 'rev' => rev($s, $id)])->assertOk()->assertJsonPath('card.stage', 'planning');
+    send($this, 'POST', "/cards/{$planned}/stage", ['to' => 'planning', 'rev' => rev($s, $planned)])->assertOk()->assertJsonPath('card.stage', 'ready');
 });
 
 it('moves a card back and drops it with a reason', function () {
@@ -219,6 +229,17 @@ it('needs a rev, and 404s an unknown card', function () {
     send($this, 'POST', '/cards/ACME-ZZZZZZ/notes', ['text' => 'x', 'rev' => sha1('x')])->assertNotFound();
 });
 
+it('sends a ready card back to planning when the page edits its criteria or body, and keeps it ready otherwise', function () {
+    $s = $this->sandbox;
+    $id = $s->readyCard('Planned');
+
+    send($this, 'PATCH', "/cards/{$id}", ['rev' => rev($s, $id), 'priority' => 'high', 'title' => 'Planned, renamed'])->assertOk()->assertJsonPath('card.stage', 'ready');
+    send($this, 'PATCH', "/cards/{$id}", ['rev' => rev($s, $id), 'acceptance' => [['id' => 1, 'text' => 'It works', 'done' => false], ['text' => 'It is tested']]])
+        ->assertOk()->assertJsonPath('card.stage', 'planning');
+
+    expect(end($s->read($id)['log']))->toMatchArray(['event' => 'stage', 'from' => 'ready', 'to' => 'planning', 'via' => 'replan', 'reason' => 'its criteria or body changed since it was planned']);
+});
+
 it('adds, ticks, edits and removes acceptance criteria, never reusing a removed id', function () {
     $s = $this->sandbox;
     $id = $s->card('Criteria', ['--accept=First', '--accept=Second']);
@@ -334,18 +355,20 @@ it('creates a card in the backlog with just a title', function () {
         ->and($s->boardLog()[0])->toBe("{$id} created [owner]");
 });
 
-it('creates a card with every field, straight into ready when it passes the policy', function () {
+it('creates a card with every field, straight into planning when it passes the policy', function () {
     $s = $this->sandbox;
     $dep = $s->card('Upstream');
 
     $response = send($this, 'POST', '/work/cards', [
         'title' => 'Full card', 'type' => 'bug', 'priority' => 'high', 'labels' => ['area:api'], 'body' => 'Fix it',
-        'acceptance' => ['It is fixed', 'It is tested'], 'depends_on' => [$dep], 'stage' => 'ready',
+        'acceptance' => ['It is fixed', 'It is tested'], 'depends_on' => [$dep], 'stage' => 'planning',
     ])->assertCreated();
 
     expect($s->read($response->json('card.id')))->toMatchArray([
-        'title' => 'Full card', 'type' => 'bug', 'priority' => 'high', 'labels' => ['area:api'], 'body' => 'Fix it', 'stage' => 'ready', 'depends_on' => [$dep],
+        'title' => 'Full card', 'type' => 'bug', 'priority' => 'high', 'labels' => ['area:api'], 'body' => 'Fix it', 'stage' => 'planning', 'depends_on' => [$dep],
     ])->and($response->json('card.progress'))->toBe(['done' => 0, 'total' => 2]);
+    send($this, 'POST', '/work/cards', ['title' => 'Unplanned', 'body' => 'x', 'labels' => ['area:x'], 'acceptance' => ['y'], 'stage' => 'ready'])
+        ->assertStatus(422)->assertJsonPath('message', 'stage must be one of: backlog, planning (a card reaches ready through its plan)');
 });
 
 it('creates a card with 24 criteria of 500 characters and no more', function () {
@@ -363,7 +386,7 @@ it('refuses a new card the ready policy rejects, creating nothing', function () 
     $s = $this->sandbox;
     $commits = count($s->boardLog());
 
-    $response = send($this, 'POST', '/work/cards', ['title' => 'Too early', 'stage' => 'ready'])->assertStatus(422);
+    $response = send($this, 'POST', '/work/cards', ['title' => 'Too early', 'stage' => 'planning'])->assertStatus(422);
 
     expect($response->json('message'))->toContain('R3 empty body')->and(count($s->boardLog()))->toBe($commits)
         ->and(glob($s->root.'/docs/kanban/work/ACME-*.json'))->toBe([]);
@@ -423,7 +446,7 @@ it('stores criteria without the whitespace around them, as when creating', funct
 
 it('words a refused initial stage for the UI, not the CLI', function () {
     send($this, 'POST', '/work/cards', ['title' => 'Bad stage', 'stage' => 'doing'])->assertStatus(422)
-        ->assertJsonPath('message', 'stage must be one of: backlog, ready');
+        ->assertJsonPath('message', 'stage must be one of: backlog, planning (a card reaches ready through its plan)');
 });
 
 it('leaves a card alone when asked to move it to the stage it is in', function () {
@@ -489,12 +512,12 @@ it('reads an empty string in the body as no value, whether or not the host conve
     send($this, 'PATCH', "/cards/{$id}", ['rev' => rev($s, $id), 'type' => ''])->assertStatus(422);
     send($this, 'PATCH', "/cards/{$id}", ['rev' => rev($s, $id), 'priority' => ''])->assertStatus(422);
     send($this, 'PATCH', "/cards/{$id}", ['rev' => rev($s, $id), 'acceptance' => [['id' => 1, 'text' => 'First', 'done' => false], ['id' => '', 'text' => 'Second']]])->assertOk();
-    send($this, 'POST', "/cards/{$id}/stage", ['rev' => rev($s, $id), 'to' => 'ready', 'reason' => ''])->assertOk();
+    send($this, 'POST', "/cards/{$id}/stage", ['rev' => rev($s, $id), 'to' => 'planning', 'reason' => ''])->assertOk();
     $made = send($this, 'POST', '/work/cards', ['title' => 'Blank stage', 'stage' => '', 'type' => '', 'priority' => ''])->assertStatus(201);
 
     $card = $s->read($id);
     expect(array_column($card['acceptance'], 'id'))->toBe([1, 2])
         ->and($card['type'])->toBe('feature')
-        ->and(end($card['log']))->toMatchArray(['event' => 'stage', 'to' => 'ready'])->not->toHaveKey('reason')
+        ->and(end($card['log']))->toMatchArray(['event' => 'stage', 'to' => 'planning'])->not->toHaveKey('reason')
         ->and($s->read($made->json('card.id')))->toMatchArray(['stage' => 'backlog', 'type' => 'feature', 'priority' => 'normal']);
 });

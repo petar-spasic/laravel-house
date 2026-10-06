@@ -101,10 +101,30 @@ final class Sandbox
         return $m[1];
     }
 
-    /** A card that passes the ready policy, created straight into ready; on an area of its own unless $options name one. */
+    /** A card that passes the ready policy, created into planning and planned into ready; on an area of its own unless $options name one. */
     public function readyCard(string $title, array $options = [], string $board = 'work', array $env = []): string
     {
-        return $this->card($title, ['--body=Build it', '--accept=It works', '--stage=ready', ...self::withArea($options)], $board, $env);
+        $id = $this->card($title, ['--body=Build it', '--accept=It works', '--stage=planning', ...self::withArea($options)], $board, $env);
+        $this->plan($id, $env);
+
+        return $id;
+    }
+
+    /** Gives a card waiting in planning a plan of the owner's own (`kanban plan --plan-file=-`): ready, its plan current. */
+    public function plan(string $id, array $env = []): string
+    {
+        return $this->ok(['plan', $id, '--plan-file=-'], $env, self::planFor(array_column($this->read($id)['acceptance'], 'id')));
+    }
+
+    /**
+     * A plan that passes the plan checks: it reads $file (tracked on main) and proves each of $criteria.
+     *
+     * @param  list<int>  $criteria
+     */
+    public static function planFor(array $criteria, string $file = 'README.md'): string
+    {
+        return "## Files\n- read `{$file}` — what the work starts from\n\n## Steps\n1. Build it. Check: `true` → exit 0\n\n## Criteria\n"
+            .implode('', array_map(fn (int $n) => "- {$n}: `true` → exit 0\n", $criteria));
     }
 
     /**

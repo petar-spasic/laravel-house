@@ -35,6 +35,7 @@ it('merges settings, writes agents, .gitignore and the CLAUDE.md block, and is i
     expect($output)
         ->toContain('updated .claude/settings.json: hooks.SessionStart, hooks.SessionEnd, hooks.SubagentStart, hooks.SubagentStop, hooks.Stop, hooks.PreToolUse, hooks.WorktreeCreate, hooks.WorktreeRemove, permissions.allow -Bash(/srv/ben/acme/vendor/bin/kanban-exec *), permissions.allow Bash(vendor/bin/kanban *), attribution off')
         ->toContain("created .claude/settings.local.json: permissions.allow Bash({$sandbox->root}/vendor/bin/kanban *), permissions.allow Bash({$sandbox->root}/vendor/bin/kanban-exec *)")
+        ->toContain('wrote .claude/agents/kanban-planner.md')
         ->toContain('wrote .claude/agents/kanban-worker.md')
         ->toContain('wrote .claude/agents/kanban-evaluator.md')
         ->toContain('added the kanban block to CLAUDE.md')
@@ -55,7 +56,7 @@ it('merges settings, writes agents, .gitignore and the CLAUDE.md block, and is i
                 ['type' => 'command', 'command' => 'php', 'args' => ['-d', 'display_errors=0', '-d', 'display_startup_errors=0', '${CLAUDE_PROJECT_DIR}/vendor/petar-spasic/laravel-house/bin/kanban-guard'], 'timeout' => 10],
             ]],
         ])
-        ->and($settings['hooks']['SubagentStop'])->toBe([['matcher' => 'kanban-worker|kanban-evaluator', 'hooks' => [$kanban('subagent-stop') + ['timeout' => 300]]]])
+        ->and($settings['hooks']['SubagentStop'])->toBe([['matcher' => 'kanban-planner|kanban-worker|kanban-evaluator', 'hooks' => [$kanban('subagent-stop') + ['timeout' => 300]]]])
         ->and($settings['hooks']['Stop'])->toBe([['hooks' => [$kanban('stop') + ['timeout' => 300]]]])
         ->and($settings['hooks']['WorktreeCreate'][0]['hooks'][0])->toBe($kanban('worktree-create') + ['timeout' => 120])
         ->and($settings['permissions']['allow'])->toBe(['Bash(npm run check)', 'Bash(vendor/bin/kanban *)'])
@@ -92,7 +93,7 @@ it('gives the agents only built-in tools and Boost\'s docs search', function (st
     $builtIn = ['Read', 'Grep', 'Glob', 'LSP', 'Bash', 'Edit', 'Write', 'TodoWrite', 'Skill', 'Monitor', 'TaskStop', 'WebFetch', 'WebSearch'];
     expect(array_values(array_diff(explode(', ', $m[1]), $builtIn)))->toBe(['mcp__laravel-boost__search-docs'])
         ->and(explode(', ', $m[1]))->toContain('TaskStop', 'Monitor', 'Bash');
-})->with(['worker', 'evaluator']);
+})->with(['planner', 'worker', 'evaluator']);
 
 it('replaces an outdated CLAUDE.md block in place, never twice', function () {
     $sandbox = Sandbox::create();
@@ -176,22 +177,26 @@ it('leaves commit attribution alone when githooks.reject_co_authored is off', fu
 it('writes each agent\'s model and effort from kanban.agents, and doctor --fix follows the project config', function () {
     $sandbox = Sandbox::create();
     $sandbox->install('ACME');
+    $planner = fn () => file_get_contents($sandbox->root.'/.claude/agents/kanban-planner.md');
     $worker = fn () => file_get_contents($sandbox->root.'/.claude/agents/kanban-worker.md');
     $evaluator = fn () => file_get_contents($sandbox->root.'/.claude/agents/kanban-evaluator.md');
 
-    expect($worker())->toContain("model: sonnet\neffort: high\n")
+    expect($planner())->toContain("model: opus\neffort: high\n")
+        ->and($worker())->toContain("model: sonnet\neffort: high\n")
         ->and($evaluator())->toContain("model: opus\neffort: medium\n")
         ->and($worker())->not->toContain('isolation:');
 
     @mkdir($sandbox->root.'/config', 0775, true);
-    file_put_contents($sandbox->root.'/config/kanban.php', "<?php return ['agents' => ['worker' => ['model' => 'opus', 'effort' => 'max']]];\n");
+    file_put_contents($sandbox->root.'/config/kanban.php', "<?php return ['agents' => ['worker' => ['model' => 'opus', 'effort' => 'max'], 'planner' => ['effort' => 'xhigh']]];\n");
 
     expect($sandbox->kanban(['doctor'])->getOutput())->toContain('warn .claude/agents/kanban-worker.md outdated')
+        ->toContain('warn .claude/agents/kanban-planner.md outdated')
         ->not->toContain('warn .claude/agents/kanban-evaluator.md');
 
     $sandbox->kanban(['doctor', '--fix']);
 
-    expect($worker())->toContain("model: opus\neffort: max\n")
+    expect($planner())->toContain("model: opus\neffort: xhigh\n")
+        ->and($worker())->toContain("model: opus\neffort: max\n")
         ->and($evaluator())->toContain("model: opus\neffort: medium\n")
         ->and($sandbox->kanban(['doctor'])->getOutput())->toContain("ok .claude/agents/kanban-worker.md\n");
 });

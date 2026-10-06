@@ -38,20 +38,38 @@ final class ProtocolSandbox
     }
 
     /**
-     * A ready card with the given criteria, started: in doing with its worktree.
+     * A planned card with the given criteria, started: in doing with its worktree.
      *
      * @param  list<string>  $accept
      * @return array{0: string, 1: string} id, worktree realpath
      */
     public function started(string $title, array $accept = ['It renders', 'It is tested']): array
     {
-        $id = $this->sandbox->card($title, Sandbox::withArea(['--body=Build it', '--stage=ready', ...array_map(fn ($a) => "--accept={$a}", $accept)]));
+        $id = $this->sandbox->card($title, Sandbox::withArea(['--body=Build it', '--stage=planning', ...array_map(fn ($a) => "--accept={$a}", $accept)]));
+        $this->sandbox->plan($id);
         $out = $this->sandbox->ok(['start', $id]);
         if (preg_match('/^worktree (.+)$/m', $out, $m) !== 1) {
             throw new RuntimeException("no worktree in: {$out}");
         }
 
         return [$id, realpath($m[1]) ?: $m[1]];
+    }
+
+    /**
+     * A card with the given criteria in planning, taken for its planner by `kanban start`: still in planning, held, with its clone.
+     *
+     * @param  list<string>  $accept
+     * @return array{0: string, 1: string, 2: string} id, worktree realpath, start's output
+     */
+    public function planning(string $title, array $accept = ['It renders', 'It is tested'], array $options = []): array
+    {
+        $id = $this->sandbox->card($title, Sandbox::withArea(['--body=Build it', '--stage=planning', ...array_map(fn ($a) => "--accept={$a}", $accept), ...$options]));
+        $out = $this->sandbox->ok(['start', $id]);
+        if (preg_match('/^worktree (.+)$/m', $out, $m) !== 1) {
+            throw new RuntimeException("no worktree in: {$out}");
+        }
+
+        return [$id, realpath($m[1]) ?: $m[1], $out];
     }
 
     /** Writes a file in the worktree and commits it. */

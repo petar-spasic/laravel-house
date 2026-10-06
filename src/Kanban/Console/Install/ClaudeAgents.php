@@ -3,12 +3,12 @@
 namespace PetarSpasic\LaravelHouse\Kanban\Console\Install;
 
 /**
- * Writes `.claude/agents/kanban-{worker,evaluator}.md` with `model` and `effort` from `kanban.agents.<role>`; a file
+ * Writes `.claude/agents/kanban-{planner,worker,evaluator}.md` with `model` and `effort` from `kanban.agents.<role>`; a file
  * without our marker is someone else's and is left alone.
  */
 final class ClaudeAgents extends Step
 {
-    public const AGENTS = ['kanban-worker', 'kanban-evaluator'];
+    public const AGENTS = ['kanban-planner', 'kanban-worker', 'kanban-evaluator'];
 
     public const MARKER = '<!-- laravel-house:kanban-agent';
 

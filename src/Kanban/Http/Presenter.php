@@ -2,8 +2,10 @@
 
 namespace PetarSpasic\LaravelHouse\Kanban\Http;
 
+use PetarSpasic\LaravelHouse\Kanban\Policy\Plan;
 use PetarSpasic\LaravelHouse\Kanban\Policy\PullPolicy;
 use PetarSpasic\LaravelHouse\Kanban\Policy\Shape;
+use PetarSpasic\LaravelHouse\Kanban\Protocol\Context;
 use PetarSpasic\LaravelHouse\Kanban\Store\Board;
 use PetarSpasic\LaravelHouse\Kanban\Store\BoardRef;
 use PetarSpasic\LaravelHouse\Kanban\Store\Card;
@@ -155,8 +157,8 @@ final class Presenter
     {
         $deps = $card->dependsOn();
         $acceptance = $card->acceptance();
-        // an agent record outlives its card's work; only a card in the work shows it
-        $agent = Stage::isActive($card->stage()) ? ($this->agents()[$card->id()] ?? null) : null;
+        // an agent record outlives its card's work; only a card at work shows it
+        $agent = $card->atWork() ? ($this->agents()[$card->id()] ?? null) : null;
 
         return [
             'id' => $card->id(),
@@ -173,7 +175,7 @@ final class Presenter
             'deps' => ['open' => count(array_filter($deps, fn (string $id) => ! $this->snapshot->isSatisfied($id))), 'total' => count($deps)],
             'progress' => ['done' => count(array_filter($acceptance, fn (array $c) => $c['done'])), 'total' => count($acceptance)],
             'agent' => $agent,
-            'url' => Stage::isActive($card->stage()) ? ($card->work()['stack']['url'] ?? null) : null,
+            'url' => $card->atWork() ? ($card->work()['stack']['url'] ?? null) : null,
             'since' => $this->timestamp($card->stageSince()),
             'rev' => (string) $card->rev,
         ];
@@ -185,12 +187,19 @@ final class Presenter
         $board = $this->snapshot->boardOf($card);
         $work = $card->work() ?? [];
         $body = (string) ($card->data['body'] ?? '');
+        $plan = $card->plan();
+        $planned = $card->planned();
         $log = $card->log();
         $fact = fn (string $key) => isset($work[$key]) && is_string($work[$key]) && $work[$key] !== '' ? $work[$key] : null;
 
         return $this->summary($card) + [
             'body' => $body,
             'body_html' => trim($body) === '' ? '' : Markdown::render($body),
+            'plan_html' => $plan === null ? '' : Markdown::render($plan),
+            'planned' => $plan === null || $planned === null ? null : [
+                'at' => (string) ($planned['at'] ?? ''), 'base' => is_string($planned['base'] ?? null) ? substr($planned['base'], 0, 7) : null,
+                'by' => Context::actor($planned), 'current' => Plan::current($card),
+            ],
             'acceptance' => $card->acceptance(),
             'depends_on' => array_map(function (string $id) {
                 $dep = $this->snapshot->card($id);
@@ -198,7 +207,8 @@ final class Presenter
                 return ['id' => $id, 'title' => $dep?->title() ?? '', 'stage' => $dep?->stage() ?? 'missing', 'satisfied' => $this->snapshot->isSatisfied($id)];
             }, $card->dependsOn()),
             'board' => $this->boardInfo($card, $board),
-            'targets' => Ui::moves()[$card->stage()] ?? [],
+            // a planner's card moves with `kanban stop`
+            'targets' => $card->atWork() ? [] : (Ui::moves()[$card->stage()] ?? []),
             'locked' => in_array($card->stage(), $this->snapshot->lockedStages(), true),
             'facts' => [
                 'branch' => $fact('branch'),

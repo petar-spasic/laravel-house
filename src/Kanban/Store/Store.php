@@ -41,14 +41,16 @@ interface Store
     public function saveEpic(string $slug, array $data, Actor $by): Epic;
 
     /**
-     * ready → doing with a claim; with sync=on the claim is pushed or the card is lost (LostClaim). $verify gets the
-     * snapshot the claim is made against (origin's, after the pull, when sync=on) and throws to refuse. $work is merged
-     * into the card in the claim's own commit, so a claim that lands always says where its work goes.
+     * A claim on the card; with sync=on the claim is pushed or the card is lost (LostClaim). $verify gets the snapshot the
+     * claim is made against (origin's, after the pull, when sync=on) and throws to refuse. $work is merged into the card in
+     * the claim's own commit, so a claim that lands always says where its work goes. $mutate makes the rest of the change:
+     * by default ready → doing (the card must be ready); a planner's claim keeps it in planning.
      *
      * @param  (Closure(Snapshot): void)|null  $verify
      * @param  array<string, mixed>|null  $work
+     * @param  (Closure(array<string, mixed>): array<string, mixed>)|null  $mutate
      */
-    public function claim(string $id, Claim $claim, Actor $by, ?Closure $verify = null, ?array $work = null): Card;
+    public function claim(string $id, Claim $claim, Actor $by, ?Closure $verify = null, ?array $work = null, ?Closure $mutate = null): Card;
 
     public function sync(): SyncResult;
 

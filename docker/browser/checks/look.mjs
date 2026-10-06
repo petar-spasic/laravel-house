@@ -118,11 +118,11 @@ async function oneOffs(t, page) {
     await t.shot(page, 'look-menu-priority');
     await page.keyboard.press('Escape');
 
-    // a refused move: a card without a body cannot enter ready
+    // a refused move: a card without a body cannot be planned
     await page.keyboard.press('j');
     await page.keyboard.press('m');
     await page.waitForSelector('.menu');
-    await page.click('.menu button:has-text("ready")');
+    await page.click('.menu button:has-text("planning")');
     await page.waitForSelector('.toast.err');
     await t.shot(page, 'look-toast-error');
 

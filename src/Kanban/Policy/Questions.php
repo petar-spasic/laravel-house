@@ -36,7 +36,8 @@ final class Questions
     private const HEADING = '/^## (Open question|Provisional decision)(?: \(([^)]*)\))?\s*$/';
 
     /**
-     * The question sections of a question file, validated: what `report --question-file` stages.
+     * The question sections of a question file, validated: what `report --question-file` and `plan --question-file` stage.
+     * $status is the report's (review, blocked) or the plan's (ready, blocked): only a blocked one takes an Open question.
      *
      * @return list<string> each section's text, its heading dated today when it had no date
      */
@@ -72,8 +73,8 @@ final class Questions
             if ($kind === self::PROVISIONAL && ($section['taken'] === null || ! isset($section['options'][$section['taken']]))) {
                 throw new Invalid("{$where}: Taken: names the option you went ahead with");
             }
-            if ($kind === self::OPEN && $status === 'review') {
-                throw new Invalid('an Open question blocks the card: report --status=blocked');
+            if ($kind === self::OPEN && in_array($status, ['review', 'ready'], true)) {
+                throw new Invalid('an Open question blocks the card: '.($status === 'ready' ? 'plan' : 'report').' --status=blocked');
             }
             $out[] = '## '.$kind.' ('.($section['ref'] ?? gmdate('Y-m-d')).")\n".$section['text'];
         }
@@ -140,6 +141,15 @@ final class Questions
         }
 
         return trim(implode('', $kept));
+    }
+
+    /** $body without its question sections and the owner's answers under them. */
+    public static function strip(string $body): string
+    {
+        $chunks = preg_split('/^(?=## )/m', str_replace("\r\n", "\n", $body)) ?: [$body];
+
+        return trim(implode('', array_filter($chunks, fn (string $chunk) => preg_match(self::HEADING, explode("\n", $chunk, 2)[0]) !== 1
+            && ! str_starts_with($chunk, '## '.self::ANSWER))));
     }
 
     /** How many Open questions of $body have no answer. */

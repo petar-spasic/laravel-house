@@ -69,7 +69,8 @@ final class CrossCardRules
         $errors = [];
         $stage = $card->stage();
         $work = $card->work();
-        if (Stage::isActive($stage) !== ($card->claim() !== null)) {
+        // a planning card holds a claim only while a planner works on it
+        if ($stage !== 'planning' && Stage::isActive($stage) !== ($card->claim() !== null)) {
             $errors[] = Stage::isActive($stage) ? "claim is required in {$stage}" : "claim must be null in {$stage}";
         }
         if ($work === null && in_array($stage, ['review', 'done'], true)) {
@@ -78,11 +79,12 @@ final class CrossCardRules
         if ($work !== null && $stage === 'done' && array_diff(array_keys($work), self::DONE_WORK_KEYS) !== []) {
             $errors[] = 'work must be trimmed to '.implode(', ', self::DONE_WORK_KEYS).' in done';
         }
-        if ($work !== null && in_array($stage, ['backlog', 'ready', 'dropped'], true) && array_keys($work) !== ['parked_branch']) {
-            $errors[] = "work must be null (or only parked_branch) in {$stage}";
+        $waiting = in_array($stage, ['backlog', 'ready', 'dropped'], true) || ($stage === 'planning' && ! $card->atWork());
+        if ($work !== null && $waiting && array_keys($work) !== ['parked_branch']) {
+            $errors[] = "work must be null (or only parked_branch) in {$stage}".($stage === 'planning' ? ' until a planner takes it' : '');
         }
-        if ($stage === 'ready' && $card->asks()) {
-            $errors[] = 'an open question (blocked="'.Card::QUESTION.'…") keeps it out of ready until the owner answers';
+        if (($stage === 'ready' || ($stage === 'planning' && ! $card->atWork())) && $card->asks()) {
+            $errors[] = 'an open question (blocked="'.Card::QUESTION.'…") keeps it out of '.$stage.' until the owner answers';
         }
 
         return $errors;

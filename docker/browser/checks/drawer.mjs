@@ -160,9 +160,9 @@ export default async (t) => {
     t.ok('the history gives times as how long ago, with the date and time on hover', times.length > 0 && times.every(([text, title]) => /^(just now|\d+[smhd] ago)$/.test(text) && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(title)));
     await t.shot(page, 'drawer-edited');
 
-    await pick(page, 'stage', 'ready');
+    await pick(page, 'stage', 'planning');
     await page.waitForTimeout(700);
-    t.ok('the stage select moves the card', (await page.locator(`.col[data-stage=ready] .card[data-id="${a}"]`).count()) === 1);
+    t.ok('the stage select moves the card', (await page.locator(`.col[data-stage=planning] .card[data-id="${a}"]`).count()) === 1);
     await page.locator('.d-title').focus();
     await page.keyboard.press('Escape');
     await page.waitForTimeout(300);
@@ -182,7 +182,7 @@ export default async (t) => {
     await page.click(`.card[data-id="${c}"] .c-title`);
     await page.waitForSelector('.drawer:not([hidden]) .d-title');
     await page.waitForTimeout(400);
-    t.ok('a card without criteria says what a criterion is for', /done/.test(await page.locator('.drawer .empty-note').innerText()) && /Ready/.test(await page.locator('.drawer .empty-note').innerText()));
+    t.ok('a card without criteria says what a criterion is for', /done/.test(await page.locator('.drawer .empty-note').innerText()) && /planned/.test(await page.locator('.drawer .empty-note').innerText()));
     await page.fill('input[aria-label="New criterion"]', 'First check');
     await page.click('.drawer button:has-text("Add")');
     await page.waitForTimeout(700);

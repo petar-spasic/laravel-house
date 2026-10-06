@@ -41,7 +41,7 @@ it('lists epics and boards with per-stage counts, uncached and unindexed', funct
         ->assertJsonPath('key', 'ACME')
         ->assertJsonPath('notices', [])
         ->assertJsonPath('boards.*.ref', ['work'])
-        ->assertJsonPath('boards.0.counts', ['backlog' => 1, 'ready' => 1, 'doing' => 0, 'review' => 0, 'done' => 0, 'dropped' => 0])
+        ->assertJsonPath('boards.0.counts', ['backlog' => 1, 'planning' => 0, 'ready' => 1, 'doing' => 0, 'review' => 0, 'done' => 0, 'dropped' => 0])
         ->assertJsonPath('epics', []);
     expect($response->headers->get('Cache-Control'))->toContain('no-store')->toContain('private');
 });
@@ -80,10 +80,10 @@ it('describes a board as columns of card summaries in pull order', function () {
 
     $response = $this->getJson('/kanban/_api/work')->assertOk()
         ->assertJsonPath('ref', 'work')
-        ->assertJsonPath('moves', ['backlog' => ['ready', 'dropped'], 'ready' => ['backlog', 'dropped'], 'doing' => [], 'review' => [], 'done' => [], 'dropped' => ['backlog']])
+        ->assertJsonPath('moves', ['backlog' => ['planning', 'dropped'], 'planning' => ['backlog', 'dropped'], 'ready' => ['planning', 'backlog', 'dropped'], 'doing' => [], 'review' => [], 'done' => [], 'dropped' => ['backlog']])
         ->assertJsonPath('locked', ['doing', 'review', 'done'])
-        ->assertJsonPath('stages.*.stage', ['backlog', 'ready', 'doing', 'review', 'done', 'dropped'])
-        ->assertJsonPath('stages.*.collapsed', [false, false, false, false, false, true])
+        ->assertJsonPath('stages.*.stage', ['backlog', 'planning', 'ready', 'doing', 'review', 'done', 'dropped'])
+        ->assertJsonPath('stages.*.collapsed', [false, false, false, false, false, false, true])
         ->assertJsonPath('stages.0.total', 3)
         ->assertJsonPath('stages.0.cards.*.id', [$backlog, $dep, $low]);
     $cards = collect($response->json('stages'))->pluck('cards')->flatten(1)->keyBy('id');
@@ -132,7 +132,7 @@ it('reports an agent with no recent heartbeat as stale and a finished one as sto
     touch(agent($s, 'a1', $stale), time() - 3600);
     agent($s, 'a2', $stopped, ['stopped_at' => gmdate('Y-m-d\TH:i:s.000+00:00')]);
 
-    $cards = collect($this->getJson('/kanban/_api/work')->json('stages.2.cards'))->keyBy('id');
+    $cards = collect($this->getJson('/kanban/_api/work')->json('stages.3.cards'))->keyBy('id');
 
     expect($cards[$stale]['agent']['state'])->toBe('stale')->and($cards[$stale]['agent']['beat'])->toBeLessThan(time() - 3500)
         ->and($cards[$stopped]['agent']['state'])->toBe('stopped');
@@ -146,7 +146,7 @@ it('shows no agent on a card that has left the work, whatever its agent record s
     touch(agent($s, 'a1', $id), time() - 3600);
     $transitions->stop($id, 'ready', new Actor('main', 's1'));
 
-    $ready = collect($this->getJson('/kanban/_api/work')->json('stages.1.cards'))->keyBy('id');
+    $ready = collect($this->getJson('/kanban/_api/work')->json('stages.2.cards'))->keyBy('id');
 
     expect($ready[$id]['stage'])->toBe('ready')->and($ready[$id]['agent'])->toBeNull();
 });
@@ -156,7 +156,7 @@ it('shows a WIP limit on doing and review', function () {
 
     $stages = $this->getJson('/kanban/_api/work')->json('stages');
 
-    expect($stages[2]['limit'])->toBe(2)->and($stages[3]['limit'])->toBeInt()->and($stages[0]['limit'])->toBeNull();
+    expect($stages[3]['limit'])->toBe(2)->and($stages[4]['limit'])->toBeInt()->and($stages[0]['limit'])->toBeNull()->and($stages[1]['limit'])->toBeNull();
 });
 
 it('shows only the last 20 done cards unless asked for all', function () {
@@ -166,15 +166,15 @@ it('shows only the last 20 done cards unless asked for all', function () {
     for ($i = 1; $i <= 21; $i++) {
         $card = $store->create(BoardRef::parse('work'), ['title' => "Shipped {$i}", 'body' => 'x', 'stage' => 'ready', 'labels' => ["area:a{$i}"],
             'acceptance' => [['id' => 1, 'text' => 'works', 'done' => false]]], $main);
-        $transitions->start($card->id(), $main, null, ['branch' => 'card/'.$card->id(), 'stack' => null]);
+        $transitions->start($card->id(), $main, null, ['branch' => 'card/'.$card->id(), 'stack' => null], force: true);
         $store->update($card->id(), fn (array $d) => Transitions::stage($d, 'review', 'apply'), $main);
         $store->update($card->id(), fn (array $d) => Transitions::stage($d, 'done', 'finish'), $main);
     }
 
-    $done = $this->getJson('/kanban/_api/work')->json('stages.4');
+    $done = $this->getJson('/kanban/_api/work')->json('stages.5');
     expect($done['total'])->toBe(21)->and($done['older'])->toBe(1)->and($done['cards'])->toHaveCount(20);
 
-    $all = $this->getJson('/kanban/_api/work?all=1')->json('stages.4');
+    $all = $this->getJson('/kanban/_api/work?all=1')->json('stages.5');
     expect($all['older'])->toBe(0)->and($all['cards'])->toHaveCount(21);
 });
 
@@ -201,7 +201,7 @@ it('answers 304 until the board changes, and keeps the same ETag across a heartb
     $s->ok(['set', $id, 'priority=urgent', '--force'], ['KANBAN_SESSION' => 's1']);
     $changed = $this->getJson('/kanban/_api/work', ['If-None-Match' => $stopped->headers->get('ETag')])->assertOk();
     expect($changed->headers->get('ETag'))->not->toBe($stopped->headers->get('ETag'))
-        ->and(collect($changed->json('stages.2.cards'))->firstWhere('id', $id)['priority'])->toBe('urgent');
+        ->and(collect($changed->json('stages.3.cards'))->firstWhere('id', $id)['priority'])->toBe('urgent');
 });
 
 it('gives the same board for 300 stopped agents as for none, in the same order', function () {
@@ -234,7 +234,7 @@ it('describes a card in full, rendering Markdown escaped and without unsafe link
         'acceptance' => [['id' => 1, 'text' => 'First', 'done' => false], ['id' => 2, 'text' => 'Second', 'done' => true]],
         'depends_on' => [['id' => $dep, 'title' => 'Upstream', 'stage' => 'backlog', 'satisfied' => false]],
         'board' => ['ref' => 'work', 'title' => 'Work'],
-        'targets' => ['ready', 'dropped'],
+        'targets' => ['planning', 'dropped'],
         'rev' => sha1_file($s->root."/docs/kanban/work/{$id}.json"),
     ])
         ->and($card['body'])->toContain('## Context')
@@ -244,6 +244,23 @@ it('describes a card in full, rendering Markdown escaped and without unsafe link
         ->and(collect($card['log'])->firstWhere('event', 'note'))->toMatchArray(['by' => 'owner', 'text' => 'Owner says <b>hi</b>'])
         ->and($card['log_total'])->toBeGreaterThanOrEqual(2)
         ->and($card['facts'])->toHaveKeys(['created', 'updated', 'stage_since']);
+});
+
+it('describes a card\'s plan, rendered, with who made it on which commit and whether it still covers the card', function () {
+    $s = $this->sandbox;
+    $id = $s->readyCard('Planned');
+    $base = substr(trim($s->git('rev-parse', 'main')), 0, 7);
+    $unplanned = $s->card('Unplanned');
+
+    $card = $this->getJson("/kanban/_api/cards/{$id}")->assertOk()->json('card');
+    expect($card['plan_html'])->toContain('<h2>Files</h2>')->toContain('<code>README.md</code>')
+        ->and($card['planned'])->toMatchArray(['base' => $base, 'current' => true])
+        ->and($card['planned']['by'])->toStartWith('owner')
+        ->and($this->getJson("/kanban/_api/cards/{$unplanned}")->json('card'))->toMatchArray(['plan_html' => '', 'planned' => null]);
+
+    $s->ok(['move', $id, 'backlog']);
+    $s->ok(['set', $id, 'body=Build it again']);
+    expect($this->getJson("/kanban/_api/cards/{$id}")->json('card.planned.current'))->toBeFalse();
 });
 
 it('says whether a card is in a locked stage', function () {
@@ -366,7 +383,7 @@ it('lists agents whose records are damaged, and reports board problems with the 
 
     $response = $this->getJson('/kanban/_api/work')->assertOk();
 
-    expect($response->json('stages.2.cards.0.agent.state'))->toBe('stopped')
+    expect($response->json('stages.3.cards.0.agent.state'))->toBe('stopped')
         ->and($response->json('notices.0'))->toContain('board files have problems');
 });
 

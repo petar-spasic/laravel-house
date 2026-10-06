@@ -4,6 +4,7 @@ namespace PetarSpasic\LaravelHouse\Kanban\Protocol;
 
 use PetarSpasic\LaravelHouse\Kanban\Code\AgentRun;
 use PetarSpasic\LaravelHouse\Kanban\Code\MainCheck;
+use PetarSpasic\LaravelHouse\Kanban\Policy\Plan;
 use PetarSpasic\LaravelHouse\Kanban\Policy\PullPolicy;
 use PetarSpasic\LaravelHouse\Kanban\Policy\Questions;
 use PetarSpasic\LaravelHouse\Kanban\Policy\Shape;
@@ -57,8 +58,8 @@ final class Brief
             $lines[] = $sync;
         }
         $elsewhere = $capacity['doing'] - $capacity['here'];
-        $lines[] = "WIP doing {$capacity['here']}/{$capacity['max_parallel']}".($elsewhere > 0 ? " (+{$elsewhere} elsewhere)" : '').", review {$capacity['review']}/{$capacity['review_limit']}"
-            .' · ready '.($counts['ready'] ?? 0).' · backlog '.($counts['backlog'] ?? 0).' · blocked '.count($blocked)
+        $lines[] = "WIP {$capacity['used']}".($elsewhere > 0 ? " (+{$elsewhere} elsewhere)" : '').", review {$capacity['review']}/{$capacity['review_limit']}"
+            .' · planning '.($counts['planning'] ?? 0).' · ready '.($counts['ready'] ?? 0).' · backlog '.($counts['backlog'] ?? 0).' · blocked '.count($blocked)
             .' · questions '.Questions::tally(Questions::pending($snapshot));
         if (($agents = $this->agents($runtime)) !== null) {
             $lines[] = $agents;
@@ -66,6 +67,10 @@ final class Brief
         if (($red = (new MainCheck($this->paths))->red()) !== null) {
             $lines[] = 'main red since '.substr((string) $red['sha'], 0, 7)." ({$red['after']} merged): `{$red['command']}` fails; finish waits for it ("
                 .($red['card'] ?? 'no card').')';
+        }
+        foreach (array_filter($work('planning'), fn (Card $c) => $c->atWork()) as $card) {
+            $lines[] = 'planning '.$this->short($card).': '.implode(', ', [...(Plan::madeUnderClaim($card) ? ['planned, not yet moved to ready'] : []),
+                ...$this->flight($card, $runtime, 'kanban-planner'), ...$this->trouble($card, $runtime)]);
         }
         foreach ($work('doing') as $card) {
             $lines[] = 'doing  '.$this->short($card).': '.implode(', ', [...$this->flight($card, $runtime, 'kanban-worker'), ...$this->trouble($card, $runtime)]);
@@ -98,6 +103,15 @@ final class Brief
         $lines[] = 'next: '.($next['cards'] === []
             ? 'none: '.$next['reason']
             : implode(', ', array_map(fn (Card $c) => $c->id().' '.Priority::short($c->priority()), $next['cards'])));
+        if ($snapshot->cards(fn (Card $c) => $c->stage() === 'planning' && ! $c->atWork()) !== []) {
+            $plan = $pull->nextPlanning($snapshot, 3);
+            $waiting = $pull->waiting($snapshot);
+            $lines[] = 'plan next: '.($plan['cards'] === []
+                ? 'none: '.$plan['reason']
+                : implode(', ', array_map(fn (Card $c) => $c->id().' '.Priority::short($c->priority()), $plan['cards'])))
+                .($waiting === [] ? '' : '; waiting: '.implode('; ', array_map(fn (string $id, string $why) => "{$id} {$why}", array_keys(array_slice($waiting, 0, 3)), array_slice($waiting, 0, 3)))
+                    .(count($waiting) > 3 ? '; '.(count($waiting) - 3).' more' : ''));
+        }
         $skipped = $pull->skipped($snapshot);
         if ($skipped !== []) {
             $lines[] = 'skipped: '.implode('; ', array_map(fn (string $id, string $why) => "{$id} {$why}", array_keys(array_slice($skipped, 0, 5)), array_slice($skipped, 0, 5)))
@@ -126,10 +140,10 @@ final class Brief
         return array_map(fn (string $file, int $size) => $file.' '.intdiv($size, 1024).' KB', array_keys($sizes), $sizes);
     }
 
-    /** `agents: 2 workers, 1 evaluator live; last 24h: 9 runs, 4.1M tokens, $3.20`, or null when there is neither. */
+    /** `agents: 1 planner, 2 workers, 1 evaluator live; last 24h: 9 runs, 4.1M tokens, $3.20`, or null when there is neither. */
     private function agents(Runtime $runtime): ?string
     {
-        $live = ['kanban-worker' => 0, 'kanban-evaluator' => 0];
+        $live = ['kanban-planner' => 0, 'kanban-worker' => 0, 'kanban-evaluator' => 0];
         foreach ($runtime->agents() as $agent) {
             if (isset($live[$agent['agent_type'] ?? '']) && $runtime->state($agent) === 'live') {
                 $live[$agent['agent_type']]++;
@@ -141,7 +155,8 @@ final class Brief
         }
         $plural = fn (int $n, string $word) => "{$n} {$word}".($n === 1 ? '' : 's');
 
-        return 'agents: '.$plural($live['kanban-worker'], 'worker').', '.$plural($live['kanban-evaluator'], 'evaluator').' live'
+        return 'agents: '.($live['kanban-planner'] > 0 ? $plural($live['kanban-planner'], 'planner').', ' : '')
+            .$plural($live['kanban-worker'], 'worker').', '.$plural($live['kanban-evaluator'], 'evaluator').' live'
             .($runs === [] ? '' : '; last 24h: '.$plural(count($runs), 'run').', '.self::tokens(array_sum(array_column($runs, 'tokens'))).' tokens, $'
                 .number_format(array_sum(array_column($runs, 'cost_usd')), 2));
     }
@@ -211,13 +226,13 @@ final class Brief
     {
         $parts = [];
         $worktree = $card->work()['worktree'] ?? null;
-        if (is_string($worktree) && $card->stage() === 'doing' && $card->host() === gethostname() && ! is_dir($this->paths->main.'/'.$worktree)) {
+        if (is_string($worktree) && $card->atWork() && $card->stage() !== 'review' && $card->host() === gethostname() && ! is_dir($this->paths->main.'/'.$worktree)) {
             $parts[] = "worktree missing (`kanban start {$card->id()}` resumes the start)";
         }
         if (is_string($worktree) && self::merging(str_starts_with($worktree, '/') ? $worktree : $this->paths->main.'/'.$worktree)) {
             $parts[] = 'merge in progress';
         }
-        foreach (['report', 'verdict'] as $kind) {
+        foreach (['plan', 'report', 'verdict'] as $kind) {
             if (($refused = $runtime->refusal($card->id(), $kind)) !== null) {
                 $parts[] = "{$kind} staged, not applied: ".mb_strimwidth(rtrim((string) strtok($refused['reason'], "\n"), ':'), 0, 200, '…');
             }
@@ -259,7 +274,7 @@ final class Brief
     }
 
     /**
-     * Card worktrees (named after a card id) whose card is not in doing/review with that worktree.
+     * Card worktrees (named after a card id) whose card is not at work in that worktree.
      *
      * @return list<string>
      */
@@ -272,7 +287,7 @@ final class Brief
                 continue;
             }
             $worktree = (string) ($card->work()['worktree'] ?? '');
-            if (! in_array($card->stage(), ['doing', 'review'], true) || $this->paths->relative($dir) !== $worktree) {
+            if (! $card->atWork() || $this->paths->relative($dir) !== $worktree) {
                 $orphans[] = basename($dir);
             }
         }

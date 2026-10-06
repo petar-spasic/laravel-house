@@ -17,6 +17,8 @@ final class GuardSandbox
 
     public const READY = 'ACME-K9M2P1';
 
+    public const PLANNING = 'ACME-P1A2N3';
+
     public readonly string $main;
 
     public readonly string $root;
@@ -25,7 +27,7 @@ final class GuardSandbox
 
     /**
      * One read-mostly sandbox for table-driven cases: `worker-agent` is bound to the doing card,
-     * `evaluator-agent` to the review card.
+     * `evaluator-agent` to the review card, `planner-agent` to the planning card.
      */
     public static function shared(): self
     {
@@ -33,13 +35,14 @@ final class GuardSandbox
             self::$shared = new self;
             self::$shared->bind('worker-agent', 'kanban-worker', self::DOING);
             self::$shared->bind('evaluator-agent', 'kanban-evaluator', self::REVIEW);
+            self::$shared->bind('planner-agent', 'kanban-planner', self::PLANNING);
         }
 
         return self::$shared;
     }
 
     /**
-     * Runs a table case: $actor is main | worker | evaluator | other, or `worker:<agent id>` for another worker.
+     * Runs a table case: $actor is main | worker | evaluator | planner | other, or `worker:<agent id>` for another worker.
      *
      * @param  array<string, mixed>  $input
      * @return array{decision: ?string, reason: ?string, out: string, ms: float, input: ?array}
@@ -80,9 +83,12 @@ final class GuardSandbox
         $this->card(self::DOING, 'doing', '.claude/worktrees/acme-7k2m9q');
         $this->card(self::REVIEW, 'review', '.claude/worktrees/acme-a1b2c3');
         $this->card(self::READY, 'ready', null);
+        $this->card(self::PLANNING, 'planning', '.claude/worktrees/acme-p1a2n3');
 
         $this->git('worktree add -q -b kanban/acme-7k2m9q-x .claude/worktrees/acme-7k2m9q');
         $this->git('worktree add -q -b kanban/acme-a1b2c3-y .claude/worktrees/acme-a1b2c3');
+        $this->git('worktree add -q -b kanban/acme-p1a2n3-z .claude/worktrees/acme-p1a2n3');
+        mkdir($this->wt(self::PLANNING).'/.tmp');
         file_put_contents($this->wt(self::DOING).'/.env', "DB_PORT=21011\n");
         file_put_contents($this->wt(self::REVIEW).'/.env', "DB_PORT=5435\n");
         mkdir($this->main.'/.git/laravel-house/agents', 0777, true);
@@ -112,7 +118,7 @@ final class GuardSandbox
     }
 
     /**
-     * Replaces {main}, {wt}, {review}, {board}, {outside} in a string.
+     * Replaces {main}, {wt}, {review}, {plan}, {board}, {outside} in a string.
      */
     public function expand(string $text): string
     {
@@ -120,6 +126,7 @@ final class GuardSandbox
             '{main}' => $this->main,
             '{wt}' => $this->wt(self::DOING),
             '{review}' => $this->wt(self::REVIEW),
+            '{plan}' => $this->wt(self::PLANNING),
             '{board}' => $this->main.'/docs/kanban',
             '{outside}' => $this->root.'/outside',
         ]);
@@ -147,7 +154,7 @@ final class GuardSandbox
     }
 
     /**
-     * Runs the guard. $actor: main | worker | evaluator | other (general-purpose).
+     * Runs the guard. $actor: main | worker | evaluator | planner | other (general-purpose).
      *
      * @param  array<string, mixed>  $input
      * @return array{decision: ?string, reason: ?string, out: string, ms: float, input: ?array}
@@ -170,6 +177,7 @@ final class GuardSandbox
             $payload['agent_type'] = match ($actor) {
                 'worker' => 'kanban-worker',
                 'evaluator' => 'kanban-evaluator',
+                'planner' => 'kanban-planner',
                 default => 'general-purpose',
             };
         }

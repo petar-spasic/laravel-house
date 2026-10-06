@@ -15,7 +15,7 @@ class ApplyCommand extends Command
         {id? : Only this card}
         {--all : Every staged item (the default)}';
 
-    protected $description = 'Apply staged reports and verdicts whose agent is gone; retry hook payloads left in the inbox';
+    protected $description = 'Apply staged reports, verdicts and plans whose agent is gone; retry hook payloads left in the inbox';
 
     protected function perform(): int
     {
@@ -35,7 +35,7 @@ class ApplyCommand extends Command
             if ($only !== null && $item['card'] !== $only) {
                 continue;
             }
-            $type = $item['kind'] === 'report' ? SubagentStop::WORKER : SubagentStop::EVALUATOR;
+            $type = (string) array_search($item['kind'], SubagentStop::KINDS, true);
             if (($agent = $runtime->agentFor($item['card'], $type)) !== null && $runtime->state($agent) === 'live') {
                 $refused = $runtime->refusal($item['card'], $item['kind']);
                 $this->say("{$item['card']}: {$item['kind']} waits for live agent {$agent['agent_id']} (applied when it stops)"

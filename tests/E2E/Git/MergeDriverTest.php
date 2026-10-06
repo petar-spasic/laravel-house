@@ -88,6 +88,22 @@ it('writes the text a true conflict displaces into the log, the same record from
         ->and($swapped)->toBe($merged);
 });
 
+it('merges a plan written on one side with an edit on the other, and records the plan a true conflict displaces', function () {
+    $o = baseCard(['stage' => 'planning']);
+    $mine = "## Files\n- read `README.md` — mine";
+    $a = baseCard(['stage' => 'planning', 'plan' => $mine, 'updated' => '2026-09-28T10:10:00.000+00:00']);
+    $edited = baseCard(['stage' => 'planning', 'priority' => 'high', 'updated' => '2026-09-28T10:20:00.000+00:00']);
+    $theirs = baseCard(['stage' => 'planning', 'plan' => "## Files\n- read `README.md` — theirs", 'updated' => '2026-09-28T10:20:00.000+00:00']);
+
+    [, $clean] = mergeDriver($o, $a, $edited);
+    [, $conflict] = mergeDriver($o, $a, $theirs);
+
+    expect($clean)->toMatchArray(['plan' => $mine, 'priority' => 'high'])
+        ->and(conflictEntries($clean))->toBe([])
+        ->and($conflict['plan'])->toBe($theirs['plan'])
+        ->and(array_map(fn ($e) => [$e['field'], $e['lost']], conflictEntries($conflict)))->toBe([['plan', $mine]]);
+});
+
 it('adds nothing when the merged result is merged with the same side again', function () {
     $o = baseCard();
     $a = baseCard(['title' => 'Mine', 'updated' => '2026-09-28T10:10:00.000+00:00']);

@@ -6,6 +6,7 @@ use PetarSpasic\LaravelHouse\Kanban\Code\DatabaseSteps;
 use PetarSpasic\LaravelHouse\Kanban\Code\MergeCheck;
 use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
 use PetarSpasic\LaravelHouse\Kanban\Console\Standalone;
+use PetarSpasic\LaravelHouse\Kanban\Policy\Plan;
 use PetarSpasic\LaravelHouse\Kanban\Store\Card;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
 use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
@@ -37,7 +38,7 @@ final class Context
     public function cardAt(Snapshot $snapshot, string $dir): ?Card
     {
         $dir = realpath($dir) ?: $dir;
-        foreach ($snapshot->cards(fn (Card $c) => in_array($c->stage(), ['doing', 'review'], true)) as $card) {
+        foreach ($snapshot->cards(fn (Card $c) => $c->atWork()) as $card) {
             $worktree = $this->worktree($card);
             if ($worktree !== null && ($dir === $worktree || str_starts_with($dir, $worktree.'/'))) {
                 return $card;
@@ -121,7 +122,7 @@ final class Context
                 fn (string $id) => $id.' '.mb_strimwidth($snapshot->card($id)?->title() ?? '?', 0, 60, '…').' ('.($snapshot->card($id)?->stage() ?? 'missing').')',
                 array_slice($earlier, -10))).(count($earlier) > 10 ? ' and '.(count($earlier) - 10).' older' : '');
         }
-        $flight = $snapshot->cards(fn (Card $c) => in_array($c->stage(), ['doing', 'review'], true) && $c->id() !== $card->id());
+        $flight = $snapshot->cards(fn (Card $c) => $c->atWork() && $c->id() !== $card->id());
         if ($flight !== []) {
             $lines[] = 'in flight (never file what one of these covers): '.implode(', ', array_map(
                 fn (Card $c) => $c->id().' '.mb_strimwidth($c->title(), 0, 60, '…')." ({$c->stage()})", array_slice($flight, 0, 12)))
@@ -176,6 +177,12 @@ final class Context
         if ($git !== null) {
             $lines = [...$lines, ...self::findings($git, $main, MergeCheck::approvals($card))];
         }
+        $planning = $card->stage() === 'planning';
+        if ($planning && $git !== null) {
+            $lines = [...$lines, ...$this->planning($card, $git, $main)];
+        } elseif (! $evaluate && $git !== null && $card->plan() !== null) {
+            $lines = [...$lines, ...$this->plan($card, $git, $main)];
+        }
         if (! is_array($stack) && $worktree !== null) {
             $lines[] = "database: main's (no stack of its own): never migrate:fresh, db:wipe or a test run that resets it";
         }
@@ -198,10 +205,11 @@ final class Context
                 }
             }
         }
-        $refused = (new Runtime($this->paths))->refusal($card->id(), $evaluate ? 'verdict' : 'report');
+        $kind = $planning ? 'plan' : ($evaluate ? 'verdict' : 'report');
+        $refused = (new Runtime($this->paths))->refusal($card->id(), $kind);
         if ($refused !== null) {
             [$first, $rest] = explode("\n", $refused['reason'], 2) + [1 => ''];
-            $lines[] = 'your staged '.($evaluate ? 'verdict' : 'report').' was not applied ('.substr($refused['at'], 0, 16).'):';
+            $lines[] = "your staged {$kind} was not applied (".substr($refused['at'], 0, 16).'):';
             $lines[] = '  '.$first;
             foreach ($rest === '' ? [] : explode("\n", mb_strlen($rest) > self::REFUSAL_LIMIT ? '…'.mb_substr($rest, -self::REFUSAL_LIMIT) : $rest) as $line) {
                 $lines[] = '  '.$line;
@@ -225,7 +233,9 @@ final class Context
                 $lines[] = '  '.$command;
             }
         }
-        if ($evaluate) {
+        if ($planning) {
+            $lines[] = "protocol: change no code, commit nothing; write the plan to .tmp/plan.md, then `vendor/bin/kanban plan {$card->id()} --plan-file=.tmp/plan.md` (questions: --question-file=.tmp/question.md, their format in your instructions; blocked: --status=blocked --reason=\"…\")";
+        } elseif ($evaluate) {
             $criteria = implode(' ', array_map(fn (array $c) => "--check={$c['id']}:pass|fail:\"evidence\"", $card->acceptance()));
             $lines[] = "protocol: read-only; verify each criterion, then `vendor/bin/kanban verdict {$card->id()} approve|reject {$criteria} [--issue=\"…\"] [--discovered=\"bug: Title — body\"]`";
         } else {
@@ -302,6 +312,56 @@ final class Context
         }
         foreach ($found as $what => $files) {
             $lines[] = "added lines with {$what}: ".implode(', ', array_slice(array_keys($files), 0, 10)).(count($files) > 10 ? ' …' : '');
+        }
+
+        return $lines;
+    }
+
+    /**
+     * For the card's planner: the plan it revises, and on a parked branch the work so far and what main changed beside it.
+     *
+     * @return list<string>
+     */
+    private function planning(Card $card, Git $git, string $main): array
+    {
+        $lines = [];
+        if (($plan = $card->plan()) !== null) {
+            $planned = $card->planned();
+            $lines[] = 'earlier plan in .tmp/plan.md'.($planned === null ? '' : ' (made @'.substr((string) ($planned['base'] ?? ''), 0, 7).' '.substr((string) ($planned['at'] ?? ''), 0, 10).')')
+                .': the card or its work changed since; revise it into a plan for the card as it is now';
+        }
+        $parked = $card->work()['parked_branch'] ?? null;
+        if (is_string($parked) && $parked === ($card->work()['branch'] ?? null)) {
+            $base = $git->line(['merge-base', 'HEAD', $main]);
+            $changed = $base === null ? [] : array_values(array_filter(explode("\n", trim($git->attempt(['diff', '--name-only', $base, $main])->out))));
+            $lines[] = "parked branch {$parked}: the work done so far (`git log {$main}..HEAD`, `git diff {$main}...HEAD`); plan what is left. The worker's start merges main into it"
+                .($changed === [] ? '' : '; main changed since: '.implode(', ', array_slice($changed, 0, 20)).(count($changed) > 20 ? ' and '.(count($changed) - 20).' more' : ''));
+        }
+
+        return $lines;
+    }
+
+    /**
+     * For the card's worker: the command that prints its plan, and where the plan may no longer hold.
+     *
+     * @return list<string>
+     */
+    private function plan(Card $card, Git $git, string $main): array
+    {
+        $planned = $card->planned() ?? [];
+        $base = is_string($planned['base'] ?? null) ? $planned['base'] : null;
+        $lines = ["plan: `vendor/bin/kanban show {$card->id()} --plan`".($base === null ? '' : ' (made @'.substr($base, 0, 7).')')
+            .': read it whole first and follow its steps; the criteria, an Owner answer and the CLAUDE.md rules outrank it'];
+        if (($planned['hash'] ?? null) !== Plan::hash($card->data)) {
+            $lines[] = 'the card changed since the plan (a reworded criterion, the body): where they differ, the card holds';
+        }
+        if ($base !== null) {
+            $named = array_column(Plan::files((string) $card->plan()), 1);
+            $moved = array_values(array_intersect($named, array_filter(explode("\n", trim($git->attempt(['diff', '--name-only', $base, $main])->out)))));
+            if ($moved !== []) {
+                $lines[] = 'main changed since the plan, in files it names: '.implode(', ', array_slice($moved, 0, 20)).(count($moved) > 20 ? ' …' : '')
+                    .': check what the plan says about them against the code';
+            }
         }
 
         return $lines;

@@ -3,7 +3,9 @@
 namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
 use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
+use PetarSpasic\LaravelHouse\Kanban\Policy\Plan;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Context;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\NotFound;
 use PetarSpasic\LaravelHouse\Kanban\Support\Clock;
 use Symfony\Component\Console\Attribute\AsCommand;
 
@@ -13,14 +15,20 @@ class ShowCommand extends Command
     protected $signature = 'kanban:show
         {id : Card id or unique prefix}
         {--json : JSON output}
-        {--log=10 : Log entries to show (0 = none)}';
+        {--log=10 : Log entries to show (0 = none)}
+        {--plan : Print only the plan}';
 
-    protected $description = 'Show one card: header, body, checklist, dependencies, claim, work, log';
+    protected $description = 'Show one card: header, body, checklist, plan, dependencies, claim, work, log';
 
     protected function perform(): int
     {
         $snapshot = $this->store()->snapshot();
         $card = $snapshot->resolve($this->argument('id'));
+        if ($this->option('plan')) {
+            $this->say(rtrim($card->plan() ?? throw new NotFound("{$card->id()} has no plan")));
+
+            return self::SUCCESS;
+        }
         if ($this->option('json')) {
             return $this->json($this->cardJson($card, $snapshot));
         }
@@ -55,8 +63,9 @@ class ShowCommand extends Command
         if (($agent = $this->agent($card->id(), $snapshot)) !== null) {
             $this->say("agent: {$agent}");
         }
-        if (in_array($card->stage(), ['doing', 'review'], true) && is_string($worktree = $card->work()['worktree'] ?? null)) {
-            $this->say('spawn: '.Worktrees::spawnLine($card, $card->stage() === 'doing' ? 'kanban-worker' : 'kanban-evaluator', $this->paths()->main.'/'.$worktree));
+        if ($card->atWork() && is_string($worktree = $card->work()['worktree'] ?? null)) {
+            $agent = ['planning' => 'kanban-planner', 'doing' => 'kanban-worker', 'review' => 'kanban-evaluator'][$card->stage()];
+            $this->say('spawn: '.Worktrees::spawnLine($card, $agent, $this->paths()->main.'/'.$worktree));
             $last = array_values(array_filter($card->log(), fn (array $e) => in_array($e['event'] ?? null, ['verdict', 'report', 'refresh'], true)));
             if ($card->stage() === 'doing' && ($last[count($last) - 1]['event'] ?? null) === 'verdict' && ($last[count($last) - 1]['decision'] ?? null) === 'reject') {
                 $this->say("SendMessage (its worker, or a fresh one): Evaluator rejected {$card->id()}; run `vendor/bin/kanban context` for the failed checks, fix them, then report again.");
@@ -68,6 +77,12 @@ class ShowCommand extends Command
         if (trim((string) ($data['body'] ?? '')) !== '') {
             $this->say('body:');
             $this->say(rtrim($data['body']));
+        }
+        if (($plan = $card->plan()) !== null) {
+            $planned = $card->planned() ?? [];
+            $this->say('plan: '.count(explode("\n", rtrim($plan))).' lines'.(isset($planned['base']) ? ' @'.substr((string) $planned['base'], 0, 7) : '')
+                .(isset($planned['at']) ? ' '.substr((string) $planned['at'], 0, 16) : '').(Plan::current($card) ? '' : ', no longer current')
+                ." (`kanban show {$card->id()} --plan` prints it)");
         }
         $this->say("created: {$card->created()}");
         $this->say("updated: {$card->updated()}");

@@ -129,27 +129,31 @@ it('moves cards through the transition table', function () {
         ->and($refused->getErrorOutput())->toContain("refused {$id}: R1 no area:* label; R3 empty body; R4 no acceptance criteria");
 
     $this->sandbox->ok(['set', $id, 'body=Do it', 'accept+=Done', 'labels=+area:api']);
-    expect($this->sandbox->ok(['move', $id, 'ready']))->toBe("{$id} backlog→ready\n");
+    expect($this->sandbox->ok(['move', $id, 'ready']))->toBe("{$id} backlog→planning\n");
+    $unplanned = $this->sandbox->kanban(['move', $id, 'ready']);
+    expect($unplanned->getExitCode())->toBe(3)->and($unplanned->getErrorOutput())->toContain('refused planning → ready: a plan moves it');
+    $this->sandbox->plan($id);
 
     $start = $this->sandbox->kanban(['move', $id, 'doing']);
     expect($start->getExitCode())->toBe(3)->and($start->getErrorOutput())->toContain('use `kanban start ID`');
     expect($this->sandbox->kanban(['move', $id, 'done'])->getErrorOutput())->toContain('ready → done is not a transition');
-    expect($this->sandbox->kanban(['move', $id, 'decided'])->getErrorOutput())->toContain("'decided' is not a stage (backlog, ready, doing, review, done, dropped)");
+    expect($this->sandbox->kanban(['move', $id, 'decided'])->getErrorOutput())->toContain("'decided' is not a stage (backlog, planning, ready, doing, review, done, dropped)");
 
     $drop = $this->sandbox->kanban(['move', $id, 'dropped']);
     expect($drop->getExitCode())->toBe(3)->and($drop->getErrorOutput())->toContain('dropping needs a reason');
     $this->sandbox->ok(['move', $id, 'dropped', '--reason=Not needed']);
     $this->sandbox->ok(['move', $id, 'backlog']);
 
-    $log = $this->sandbox->read($id)['log'];
+    $log = array_values(array_filter($this->sandbox->read($id)['log'], fn (array $e) => $e['event'] === 'stage'));
     expect(array_map(fn ($e) => [$e['event'], $e['to'] ?? null, $e['via'] ?? null, $e['reason'] ?? null], array_slice($log, -3)))->toBe([
-        ['stage', 'ready', 'promote', null],
+        ['stage', 'ready', 'plan', null],
         ['stage', 'dropped', null, 'Not needed'],
         ['stage', 'backlog', null, null],
-    ])->and(array_slice($this->sandbox->boardLog(), 0, 3))->toBe([
+    ])->and(array_slice($this->sandbox->boardLog(), 0, 4))->toBe([
         "{$id} stage dropped→backlog [owner]",
         "{$id} stage ready→dropped [owner]",
-        "{$id} stage backlog→ready [owner]",
+        "{$id} stage planning→ready [owner]",
+        "{$id} stage backlog→planning [owner]",
     ]);
 });
 
@@ -246,7 +250,7 @@ it('prints the board summary', function () {
 
     $status = $this->sandbox->ok('status');
     expect($status)->toMatch('/^Kanban ACME: branch kanban @[0-9a-f]{7}, not published, sync off, /')
-        ->toContain('WIP doing 0/6, review 0/6 · ready 1 · backlog 2 · blocked 2 · questions 1 open')
+        ->toContain('WIP doing 0/6, review 0/6 · planning 0 · ready 1 · backlog 2 · blocked 2 · questions 1 open')
         ->toContain("blocked {$blocked} Stuck: \"owner decision\"")
         ->toContain("next: {$ready} high")
         ->toContain('checks: merge driver ok · journal 0');
@@ -309,7 +313,7 @@ it('refuses to delete a criterion of a started card before it looks the criterio
 it('names the --stage flag when a card is created in a stage it cannot start in', function () {
     $refused = $this->sandbox->kanban(['new', 'work', 'Odd stage', '--stage=doing']);
 
-    expect($refused->getExitCode())->toBe(2)->and($refused->getErrorOutput())->toContain('--stage must be one of: backlog, ready');
+    expect($refused->getExitCode())->toBe(2)->and($refused->getErrorOutput())->toContain('--stage must be one of: backlog, planning (a card reaches ready through its plan)');
 });
 
 it('lets a card in doing take a note, a blocked reason and ticks, and nothing else', function () {
@@ -407,7 +411,7 @@ it('takes up to 24 acceptance criteria of up to 500 characters', function () {
     $long = str_repeat('x', 500);
     $full = array_map(fn (int $i) => "--accept={$i} ".substr($long, strlen("{$i} ")), range(1, 24));
 
-    $id = $s->card('Grouped', ['--body=All pages', '--label=area:pages', ...$full, '--stage=ready']);
+    $id = $s->card('Grouped', ['--body=All pages', '--label=area:pages', ...$full, '--stage=planning']);
     $more = $s->kanban(['new', 'work', 'Too many', ...$full, '--accept=one more']);
     $wide = $s->kanban(['new', 'work', 'Too wide', '--accept='.$long.'x']);
     $added = $s->kanban(['set', $id, 'accept+=one more']);

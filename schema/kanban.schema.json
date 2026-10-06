@@ -19,7 +19,7 @@
         "locked": {
             "type": "array",
             "uniqueItems": true,
-            "items": { "enum": ["backlog", "ready", "doing", "review", "done", "dropped"] }
+            "items": { "enum": ["backlog", "planning", "ready", "doing", "review", "done", "dropped"] }
         },
         "guard": {
             "type": "object",

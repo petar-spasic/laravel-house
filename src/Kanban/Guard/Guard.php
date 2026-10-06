@@ -9,9 +9,9 @@ use Throwable;
 /**
  * Claude Code PreToolUse hook. It keeps the runtime files the rest of kanban reads: the agent's heartbeat
  * (agents/<id>.json mtime), its binding to a card at EnterWorktree, and the spawn record that WorktreeCreate hands
- * to the next isolated kanban agent. For a bound worker or evaluator it routes every shell command but a plain
+ * to the next isolated kanban agent. For a bound worker, planner or evaluator it routes every shell command but a plain
  * `vendor/bin/kanban` one into the card's container (`updatedInput`), and fences its file tools to the card's
- * directory: the only thing it denies. Any error is swallowed and prints nothing.
+ * directory, a planner's writes to the card's `.tmp`: the only thing it denies. Any error is swallowed and prints nothing.
  */
 final class Guard
 {
@@ -21,6 +21,11 @@ final class Guard
     private const WORKER = 'kanban-worker';
 
     private const EVALUATOR = 'kanban-evaluator';
+
+    private const PLANNER = 'kanban-planner';
+
+    /** Each kanban agent and the stage of the cards it works on. */
+    private const STAGES = [self::WORKER => 'doing', self::EVALUATOR => 'review', self::PLANNER => 'planning'];
 
     private const HELD_SECONDS = 300;
 
@@ -34,6 +39,12 @@ final class Guard
     private const FILE_TOOLS = ['Read' => 'file_path', 'Edit' => 'file_path', 'Write' => 'file_path', 'NotebookEdit' => 'notebook_path', 'Glob' => 'path', 'Grep' => 'path'];
 
     private const WRITES = ['Edit', 'Write', 'NotebookEdit'];
+
+    /** A kanban agent's type: a worker, planner or evaluator. */
+    private static function isAgent(mixed $type): bool
+    {
+        return is_string($type) && isset(self::STAGES[$type]);
+    }
 
     /** The command a card agent's shell runs through; ClaudeSettings allows exactly this prefix. */
     public static function exec(string $main): string
@@ -121,7 +132,7 @@ final class Guard
         $input = is_array($payload['tool_input'] ?? null) ? $payload['tool_input'] : [];
         $agentId = is_string($payload['agent_id'] ?? null) ? $payload['agent_id'] : '';
         // a headless card session (`kanban run`) has no agent_id: it is bound by its session id
-        if ($agentId === '' && in_array($payload['agent_type'] ?? null, [self::WORKER, self::EVALUATOR], true) && is_string($payload['session_id'] ?? null)) {
+        if ($agentId === '' && self::isAgent($payload['agent_type'] ?? null) && is_string($payload['session_id'] ?? null)) {
             $agentId = $payload['session_id'];
         }
 
@@ -145,7 +156,7 @@ final class Guard
 
         $type = $payload['agent_type'] ?? null;
         $tool = $payload['tool_name'] ?? null;
-        if ($tool === 'EnterWorktree' && ($type === self::WORKER || $type === self::EVALUATOR)) {
+        if ($tool === 'EnterWorktree' && self::isAgent($type)) {
             $this->bind($main, $file, $agentId, $type, is_array($binding) ? $binding : [], $input, $cwd);
         } elseif (($tool === 'Bash' || $tool === 'Monitor') && is_array($binding)) {
             $this->route($main, $binding, $input, $cwd);
@@ -155,8 +166,9 @@ final class Guard
     }
 
     /**
-     * A bound worker's or evaluator's file tool outside its card's directory is denied, and so is a write into the card's
-     * `.git` or `.claude`. Reads may also reach Claude Code's own temp directory and the skill directories.
+     * A bound kanban agent's file tool outside its card's directory is denied, and so is a write into the card's `.git` or
+     * `.claude`, and a planner's write anywhere but the card's `.tmp`. Reads may also reach Claude Code's own temp
+     * directory and the skill directories.
      *
      * @param  array<string, mixed>  $binding
      * @param  array<string, mixed>  $input
@@ -164,7 +176,7 @@ final class Guard
     private function fence(string $main, array $binding, string $tool, array $input, string $cwd): void
     {
         $worktree = $binding['worktree'] ?? null;
-        if (! is_string($worktree) || $worktree === '' || ! in_array($binding['agent_type'] ?? null, [self::WORKER, self::EVALUATOR], true)) {
+        if (! is_string($worktree) || $worktree === '' || ! self::isAgent($binding['agent_type'] ?? null)) {
             return;
         }
         $root = self::canonical($worktree[0] === '/' ? $worktree : $main.'/'.$worktree);
@@ -176,7 +188,8 @@ final class Guard
         $write = in_array($tool, self::WRITES, true);
 
         if ($inside($root)) {
-            if (! $write || (! $inside($root.'/.git') && ! $inside($root.'/.claude'))) {
+            $planner = $binding['agent_type'] === self::PLANNER;
+            if (! $write || ($planner ? $inside($root.'/.tmp') : ! $inside($root.'/.git') && ! $inside($root.'/.claude'))) {
                 if ($given !== $path && ($given !== null || $tool === 'Glob' || $tool === 'Grep')) {
                     $input[$key] = $path;
                     echo json_encode(['hookSpecificOutput' => ['hookEventName' => 'PreToolUse', 'updatedInput' => $input]], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
@@ -184,7 +197,8 @@ final class Guard
 
                 return;
             }
-            $why = "{$path}: .git and .claude in your card's directory are kanban's; work in the code";
+            $why = $planner ? "{$path}: a planner writes only its plan and question files, in {$root}/.tmp; the code is the worker's"
+                : "{$path}: .git and .claude in your card's directory are kanban's; work in the code";
         } else {
             $home = getenv('HOME');
             // Claude Code's own files for this project: task outputs, the scratchpad
@@ -203,7 +217,7 @@ final class Guard
     }
 
     /**
-     * A bound worker's or evaluator's command → `<main>/vendor/bin/kanban-exec <container> <cwd> '<command>'`, when its
+     * A bound kanban agent's command → `<main>/vendor/bin/kanban-exec <container> <cwd> '<command>'`, when its
      * card's stack is up with `agents.shell` = container (the stack record); otherwise a command from outside the card's
      * directory is prefixed with `cd <card> && `. The whole input is returned with only the command replaced, and no
      * permission decision.
@@ -216,7 +230,7 @@ final class Guard
         $command = $input['command'] ?? null;
         $worktree = $binding['worktree'] ?? null;
         if (! is_string($command) || trim($command) === '' || ! is_string($worktree) || $worktree === ''
-            || ! in_array($binding['agent_type'] ?? null, [self::WORKER, self::EVALUATOR], true)) {
+            || ! self::isAgent($binding['agent_type'] ?? null)) {
             return;
         }
         if (($host = self::hostKanban($main, $command)) !== null) {
@@ -257,7 +271,7 @@ final class Guard
         }
 
         $target = self::canonical($path[0] === '/' ? $path : $cwd.'/'.$path);
-        $stage = $type === self::WORKER ? 'doing' : 'review';
+        $stage = self::STAGES[$type];
 
         foreach (self::cards($main) as $card) {
             $worktree = $card['work']['worktree'] ?? null;
@@ -315,11 +329,11 @@ final class Guard
     private function recordSpawn(string $main, array $input): void
     {
         $type = $input['subagent_type'] ?? null;
-        if ($type !== self::WORKER && $type !== self::EVALUATOR) {
+        if (! self::isAgent($type)) {
             return;
         }
 
-        $stage = $type === self::WORKER ? 'doing' : 'review';
+        $stage = self::STAGES[$type];
         $cards = self::cards($main);
         $named = [];
         $prompt = (string) ($input['prompt'] ?? '');

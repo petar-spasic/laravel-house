@@ -22,7 +22,7 @@ class NewCommand extends Command
         {--depends=* : Card id it depends on (repeatable)}
         {--body= : Markdown body}
         {--body-file= : Read the body from a file (- = stdin)}
-        {--stage= : Initial stage: backlog|ready}';
+        {--stage= : Initial stage: backlog|planning (a card reaches ready through its plan)}';
 
     protected $description = 'Create a card';
 

@@ -157,10 +157,10 @@ final class Runtime
         }
         foreach (glob($this->paths->runtime(StartCommand::STARTED).'/*') ?: [] as $file) {
             $card = $snapshot->card(basename($file));
-            // kept in backlog or ready, where a claim of this checkout may yet arrive (its mark comes before it, and this
-            // clone may not have pulled it), and at work under a start it lists
-            $kept = in_array($card?->stage(), ['backlog', 'ready'], true) || (in_array($card?->stage(), ['doing', 'review'], true)
-                && in_array($card->work()['started'] ?? null, StartCommand::marks($this->paths, $card->id()), true));
+            // kept while waiting, where a claim of this checkout may yet arrive (its mark comes before it, and this clone may
+            // not have pulled it), and at work under a start it lists
+            $kept = ($card !== null && ! $card->atWork() && in_array($card->stage(), ['backlog', 'planning', 'ready'], true))
+                || ($card?->atWork() && in_array($card->work()['started'] ?? null, StartCommand::marks($this->paths, $card->id()), true));
             $kept || $drop($file, -1);
         }
         foreach (glob($this->paths->staged('*.json')) ?: [] as $file) {
@@ -218,7 +218,7 @@ final class Runtime
     {
         $items = [];
         foreach (glob($this->paths->staged('*.json')) ?: [] as $file) {
-            if (preg_match('/^(.+)\.(report|verdict)\.json$/', basename($file), $m)) {
+            if (preg_match('/^(.+)\.(report|verdict|plan)\.json$/', basename($file), $m)) {
                 $items[] = ['card' => $m[1], 'kind' => $m[2], 'file' => $file];
             }
         }

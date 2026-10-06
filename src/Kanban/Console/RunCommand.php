@@ -7,6 +7,7 @@ use PetarSpasic\LaravelHouse\Kanban\Code\MainCheck;
 use PetarSpasic\LaravelHouse\Kanban\Code\PortRegistry;
 use PetarSpasic\LaravelHouse\Kanban\Code\Stack;
 use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
+use PetarSpasic\LaravelHouse\Kanban\Policy\Plan;
 use PetarSpasic\LaravelHouse\Kanban\Policy\PullPolicy;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Lease;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Runtime;
@@ -22,8 +23,9 @@ use Symfony\Component\Process\Process;
 use Throwable;
 
 /**
- * The board's driver: the run loop in code. Each pass reaps ended agents, finishes approved cards, starts evaluators and
- * workers headless (AgentRun), parks question cards in backlog and fills the free slots; every board change is a
+ * The board's driver: the run loop in code. Each pass reaps ended agents, finishes approved cards, starts evaluators,
+ * workers and planners headless (AgentRun), parks question cards in backlog, moves planned cards to ready and fills the
+ * free slots, workers first and planners on what they leave; every board change is a
  * `vendor/bin/kanban` command run as the orchestrating session (KANBAN_SESSION, else `run:<host>`), which holds the
  * lease. What needs the orchestrator's judgment is a notice; `--until-attention` returns with them. One run drives a
  * checkout at a time (`run.pid`); `kanban drain` (`run.drain`) makes it, and the runs after it, drain until one has.
@@ -37,7 +39,7 @@ class RunCommand extends Command
         {--timeout=1500 : Seconds --until-attention runs at most}
         {--drain : Start no new card, only parked work; return once none is in flight}';
 
-    protected $description = 'Drive the board until stopped: start cards, run their agents headless, evaluate, merge, park questions';
+    protected $description = 'Drive the board until stopped: plan and start cards, run their agents headless, evaluate, merge, park questions';
 
     private const PASS_SECONDS = 15;
 
@@ -238,30 +240,53 @@ class RunCommand extends Command
             }
         }
 
+        $snapshot = $this->store()->snapshot();
+        $running = array_column($this->agents->running(), 'card');
+        foreach ($this->local($snapshot, fn (Card $c) => $c->stage() === 'planning' && $c->atWork()) as $card) {
+            if (in_array($card->id(), $running, true) || $this->cutShort($card)) {
+                continue;
+            }
+            if ($card->asks()) {
+                $stop = $this->kanban(['stop', $card->id(), '--to=backlog']);
+                $stop->isSuccessful() ? $this->notice("{$card->id()} parked in backlog: {$card->blocked()}") : $this->block($card->id(), $stop);
+                $acted = true;
+            } elseif (Plan::madeUnderClaim($card) && Plan::current($card)) {
+                $ready = $this->kanban(['stop', $card->id(), '--to=ready']);
+                $ready->isSuccessful() ? $this->log("{$card->id()} planned: ready") : $this->block($card->id(), $ready);
+                $acted = true;
+            } elseif (! $paused) {
+                // no plan yet, or one the card has outgrown: its planner (re)writes it
+                $last = $runtime->agentFor($card->id(), AgentRun::PLANNER);
+                $resume = ! empty($last['headless']) ? (string) $last['agent_id'] : null;
+                $session = $this->agents->launch($card, AgentRun::PLANNER, $resume);
+                $this->log("{$card->id()} planner ".substr($session, 0, 8).($resume === null ? ' launched' : ' resumed'));
+                $acted = true;
+            }
+        }
+
         if (! $paused) {
             // a drain still starts parked work (a card back from its question, its branch kept): it is in flight
             $draining = $this->draining();
             $draining || $this->kanban(['promote', '--auto']);
             $this->capped = null;
             foreach ((new PullPolicy)->next($this->store()->snapshot(), 99)['cards'] as $card) {
-                if ($this->stackFull() !== null) {
-                    $this->freeLeakedSlots($this->store()->snapshot());
-                }
-                if (($this->capped = $this->stackFull()) !== null) {
-                    break;
-                }
-                if (isset($this->held[$card->id()]) || ($draining && ! PullPolicy::parked($card))) {
-                    continue;
-                }
-                $start = $this->kanban(['start', $card->id()]);
-                if (! $start->isSuccessful()) {
-                    $this->log($this->hold($card->id(), $start));
+                if (! $this->room() || isset($this->held[$card->id()]) || ($draining && ! PullPolicy::parked($card))) {
+                    if ($this->capped !== null) {
+                        break;
+                    }
 
                     continue;
                 }
-                $session = $this->agents->launch($this->store()->snapshot()->resolve($card->id()), AgentRun::WORKER);
-                $this->log("{$card->id()} started; worker ".substr($session, 0, 8).' launched');
-                $acted = true;
+                $acted = $this->begin($card, AgentRun::WORKER) || $acted;
+            }
+            // planners take the slots workers leave; a drain plans only parked work, which is in flight
+            foreach ($this->capped !== null ? [] : (new PullPolicy)->nextPlanning($this->store()->snapshot(), 99)['cards'] as $card) {
+                if (! $this->room()) {
+                    break;
+                }
+                if (! isset($this->held[$card->id()]) && (! $draining || PullPolicy::parked($card))) {
+                    $acted = $this->begin($card, AgentRun::PLANNER) || $acted;
+                }
             }
         }
 
@@ -273,6 +298,31 @@ class RunCommand extends Command
             $this->draining() || $this->notice('idle: '.($this->capped !== null ? "no card can start: {$this->capped}" : 'no agent runs and no card can start: plan or promote cards'));
         }
         $this->watch($state);
+    }
+
+    /** Whether a card stack fits under `stack.max_stacks` now, after freeing the slots a start lost; $capped says why not. */
+    private function room(): bool
+    {
+        if ($this->stackFull() !== null) {
+            $this->freeLeakedSlots($this->store()->snapshot());
+        }
+
+        return ($this->capped = $this->stackFull()) === null;
+    }
+
+    /** `start` for the card's next agent ($type), then that agent; a refused start holds the card for the rest of this run. */
+    private function begin(Card $card, string $type): bool
+    {
+        $start = $this->kanban(['start', $card->id()]);
+        if (! $start->isSuccessful()) {
+            $this->log($this->hold($card->id(), $start));
+
+            return false;
+        }
+        $session = $this->agents->launch($this->store()->snapshot()->resolve($card->id()), $type);
+        $this->log("{$card->id()} ".($type === AgentRun::PLANNER ? 'planning started; planner ' : 'started; worker ').substr($session, 0, 8).' launched');
+
+        return true;
     }
 
     /**
@@ -287,7 +337,7 @@ class RunCommand extends Command
         $snapshot = $this->store()->snapshot();
         $seen = (array) ($state['seen'] ?? []);
         $now = [];
-        foreach ($snapshot->cards(fn (Card $c) => in_array($c->stage(), ['doing', 'review'], true) && $c->blocked() !== null && ! $c->asks()) as $card) {
+        foreach ($snapshot->cards(fn (Card $c) => $c->atWork() && $c->blocked() !== null && ! $c->asks()) as $card) {
             $now[$card->id()] = (string) $card->blocked();
             if (($seen[$card->id()] ?? null) !== $now[$card->id()]) {
                 $this->notice("{$card->id()} blocked: {$card->blocked()}");
@@ -313,15 +363,15 @@ class RunCommand extends Command
     }
 
     /**
-     * No agent runs, no start of this checkout waits to be finished, and no card of this machine is in doing or review
-     * unblocked: one waiting on the owner is not in flight.
+     * No agent runs, no start of this checkout waits to be finished, and no card of this machine is at work (doing, review,
+     * held in planning) unblocked: one waiting on the owner is not in flight.
      */
     private function drained(): bool
     {
         $snapshot = $this->store()->snapshot();
 
         return $this->agents->running() === [] && $this->unstarted($snapshot) === []
-            && $this->local($snapshot, fn (Card $c) => in_array($c->stage(), ['doing', 'review'], true) && ! $c->asks()) === [];
+            && $this->local($snapshot, fn (Card $c) => $c->atWork() && ! $c->asks()) === [];
     }
 
     /** Merges an approved card; `main moved` sends it back to an evaluator. */
@@ -400,7 +450,7 @@ class RunCommand extends Command
         }
         $card = $this->store()->snapshot()->card($id);
         $moved = $card === null || $card->stage() !== $run['stage'] || $card->blocked() !== null
-            || ($card->work()['approved']['head'] ?? null) !== $run['approved'];
+            || ($card->work()['approved']['head'] ?? null) !== $run['approved'] || ($card->planned()['at'] ?? null) !== ($run['planned'] ?? null);
         $strikes = $moved ? 0 : (int) ($state['strikes'][$id] ?? 0) + 1;
         if ($strikes >= self::STRIKES) {
             $why = 'kanban run: no progress in '.self::STRIKES.' agent runs (last: '.($run['error'] ?? 'ended without a change').')';
@@ -425,15 +475,15 @@ class RunCommand extends Command
     }
 
     /**
-     * Cards in doing whose start from this checkout was cut short after the claim (another checkout on this machine keeps
-     * its own): blocked for want of a stack slot, or with no clone here once a block was cleared. They go before any new
-     * start.
+     * Cards in doing or held in planning whose start from this checkout was cut short after the claim (another checkout on
+     * this machine keeps its own): blocked for want of a stack slot, or with no clone here once a block was cleared. They go
+     * before any new start.
      *
      * @return list<Card>
      */
     private function unstarted(Snapshot $snapshot): array
     {
-        return array_values($snapshot->cards(fn (Card $c) => $c->stage() === 'doing' && ($c->work()['host'] ?? null) === gethostname()
+        return array_values($snapshot->cards(fn (Card $c) => $c->atWork() && $c->stage() !== 'review' && ($c->work()['host'] ?? null) === gethostname()
             && in_array($c->work()['started'] ?? null, StartCommand::marks($this->paths(), $c->id()), true)
             && ($c->blocked() === null ? $this->cutShort($c) : self::slotLost((string) $c->blocked()))));
     }
@@ -476,8 +526,7 @@ class RunCommand extends Command
     {
         foreach ($this->worktrees->registry()->all() as $entry) {
             $card = $snapshot->card((string) ($entry['card'] ?? ''));
-            if (($entry['repo'] ?? null) !== $this->paths()->main || is_dir((string) $entry['worktree'])
-                || ($card !== null && in_array($card->stage(), ['doing', 'review'], true))
+            if (($entry['repo'] ?? null) !== $this->paths()->main || is_dir((string) $entry['worktree']) || ($card?->atWork() ?? false)
                 || strtotime((string) ($entry['created_at'] ?? '')) > time() - self::LEAKED_SECONDS) {
                 continue;
             }
@@ -491,8 +540,8 @@ class RunCommand extends Command
     }
 
     /**
-     * `start` again finishes a start cut short; then its worker runs. A slot lost again is retried once one is free; any
-     * other failure blocks the card, which `watch` reports.
+     * `start` again finishes a start cut short; then its worker (planner) runs. A slot lost again is retried once one is
+     * free; any other failure blocks the card, which `watch` reports.
      */
     private function resumeStart(Card $card): bool
     {
@@ -505,8 +554,9 @@ class RunCommand extends Command
 
             return false;
         }
-        $session = $this->agents->launch($this->store()->snapshot()->resolve($card->id()), AgentRun::WORKER);
-        $this->log("{$card->id()} start resumed; worker ".substr($session, 0, 8).' launched');
+        $type = $card->stage() === 'planning' ? AgentRun::PLANNER : AgentRun::WORKER;
+        $session = $this->agents->launch($this->store()->snapshot()->resolve($card->id()), $type);
+        $this->log("{$card->id()} start resumed; ".str_replace('kanban-', '', $type).' '.substr($session, 0, 8).' launched');
 
         return true;
     }

@@ -1,6 +1,7 @@
 <?php
 
 use PetarSpasic\LaravelHouse\Tests\Support\CodeSandbox;
+use PetarSpasic\LaravelHouse\Tests\Support\Sandbox;
 
 beforeEach(function () {
     $this->code = CodeSandbox::create();
@@ -100,4 +101,43 @@ it('stops a card in review whose clone holds only untracked leftovers, and names
 
     expect($out)->toContain('removed with the clone, untracked: screenshot.png')
         ->and($code->sandbox->read($id)['stage'])->toBe('ready');
+});
+
+it('starts a planner on a stack of its own and frees it on release, the planning branch deleted', function () {
+    $code = $this->code;
+    $id = $code->sandbox->card('Add login page', ['--body=Build it', '--accept=It works', '--label=area:login', '--stage=planning']);
+    $started = $code->ok(['start', $id]);
+    $name = basename($code->worktree($id));
+    $lc = strtolower($id);
+    expect($started)->toContain("started planning {$id}\n")->toContain("stack acme-wt-{$name} slot ")
+        ->and($code->stacks())->toHaveCount(1)
+        ->and($code->sandbox->read($id)['work']['stack'])->not->toBeNull();
+
+    file_put_contents($code->worktree($id).'/.tmp/plan.md', Sandbox::planFor([1]));
+    $code->kanban(['plan', $id, '--plan-file=.tmp/plan.md'], [], $code->worktree($id))->mustRun();
+    $code->kanban(['apply', $id])->mustRun();
+    file_put_contents($code->worktree($id).'/scratch.txt', "a planner's notes\n");
+
+    expect($code->ok(['stop', $id, '--to=ready']))->toBe(implode("\n", [
+        "stack down .claude/worktrees/{$name}",
+        "removed worktree .claude/worktrees/{$name}",
+        "deleted branch card/{$lc}-add-login-page",
+        "{$id} planning→ready",
+    ])."\n")
+        ->and($code->sandbox->read($id))->toMatchArray(['stage' => 'ready', 'claim' => null, 'work' => null])
+        ->and($code->stacks())->toBe([]);
+});
+
+it('refuses ready for a planning card before its plan, and keeps its stack', function () {
+    $code = $this->code;
+    $id = $code->sandbox->card('Add login page', ['--body=Build it', '--accept=It works', '--label=area:login', '--stage=planning']);
+    $code->ok(['start', $id]);
+
+    $refused = $code->kanban(['stop', $id, '--to=ready']);
+
+    expect($refused->getExitCode())->toBe(3)
+        ->and($refused->getErrorOutput())->toContain("{$id} has no plan from its planner yet")
+        ->and($code->stacks())->toHaveCount(1)
+        ->and($code->ok(['stop', $id, '--to=backlog']))->toEndWith("{$id} planning→backlog\n")
+        ->and($code->stacks())->toBe([]);
 });

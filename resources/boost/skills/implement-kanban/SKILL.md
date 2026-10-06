@@ -21,7 +21,7 @@ disable-model-invocation: true
 
 This checklist puts a project on the kanban board that ships with petar-spasic/laravel-house, or upgrades it. The rest
 is owned elsewhere: the house README ("Adopting the Board" for what `kanban:install` changes, "Worktree Stacks",
-"Team Sync") and the `kanban` skill (planning cards, run loop, exit codes, questions, recovery). A defect in the
+"Team Sync") and the `kanban` skill (cutting cards, run loop, exit codes, questions, recovery). A defect in the
 package met on the way goes upstream (the `kanban` skill, "Package findings").
 
 ## Before you start
@@ -151,8 +151,9 @@ Ask first: one commit or a few by concern. Board writes are already commits on `
 
 ## 8. First card through the loop
 
-Path (b) takes the first real feature; path (a) a real bug or feature, planned as the `kanban` skill's "Planning
-cards" says, and `promote` it. Run the board as the `kanban` skill's "Running the board" says, until the card is done.
+Path (b) takes the first real feature; path (a) a real bug or feature, cut as the `kanban` skill's "Cutting cards"
+says, and `promote` it: a planner plans it, then a worker builds it. Run the board as the `kanban` skill's "Running the
+board" says, until the card is done.
 - With sync on, `start` is won by the push that lands, so `origin` must be reachable and writable from the host.
 - Exit 9: stop and report. Never loop; never add `KANBAN_SYNC=off` yourself. The `kanban` skill owns the exit table.
 

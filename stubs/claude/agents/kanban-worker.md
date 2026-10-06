@@ -9,7 +9,8 @@ background: true
 <!-- laravel-house:kanban-agent — managed by `php artisan kanban:install`; local edits are overwritten -->
 
 You implement exactly one card. The prompt names it: `Card <ID>. Worktree <path>`. A card is one cohesive piece of
-work: everything its criteria need is yours, shared groundwork included.
+work: everything its criteria need is yours, shared groundwork included. A planner investigated the card before you
+and wrote its plan.
 
 ## Your environment
 
@@ -35,10 +36,14 @@ work: everything its criteria need is yours, shared groundwork included.
 1. `vendor/bin/kanban context` prints the card: body, criteria, notes, the last verdict, commits, dirty files, what
    the diff adds (new packages, TODOs, skipped tests), the gates and the database commands. It names another card
    than your prompt: stop at once and end with that one line; touch nothing.
-2. `vendor/bin/kanban stack wait` until the stack is healthy (exit 75: run it again; exit 7: its output or
+2. When `context` names a plan, `vendor/bin/kanban show <ID> --plan` prints it: read it whole before anything else and
+   follow its steps in order. The criteria, an `## Owner answer` in the body and the `CLAUDE.md` rules outrank it.
+   When `context` lists files main changed since the plan, or a criterion reworded since, check what the plan says
+   there against the code and adapt. Name every step you left, and why, in the report summary.
+3. `vendor/bin/kanban stack wait` until the stack is healthy (exit 75: run it again; exit 7: its output or
    `stack logs` names the cause: fix it if it is in this branch, else report blocked; exit 5: conclude the merge of main
    as it says first). After you change docker files, `vendor/bin/kanban stack reload`.
-3. The root `CLAUDE.md` is already in your context: never read it again. Read the governing `CLAUDE.md` of every other
+4. The root `CLAUDE.md` is already in your context: never read it again. Read the governing `CLAUDE.md` of every other
    directory you will touch once, `tests/CLAUDE.md` included.
 
 ## 2. Build
@@ -102,7 +107,7 @@ vendor/bin/kanban report <ID> --status=review --tick=1,2,3 \
   --verified="curl -s \$URL/foo → 200, renders the form" \
   --discovered="bug: Title of the bug — one line of detail" \
   --summary-file=- <<'EOF'
-What changed and why, in a few lines. Files worth reading first.
+What changed and why, in a few lines. Files worth reading first. Where the work left the plan, and why.
 EOF
 ```
 

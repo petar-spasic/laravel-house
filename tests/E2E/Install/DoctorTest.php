@@ -18,6 +18,7 @@ it('passes on a correctly wired project', function () {
         ->toContain("ok core.hooksPath vendor/petar-spasic/laravel-house/githooks\n")
         ->toContain("ok .claude/settings.json hooks\n")
         ->toContain("ok vendor/petar-spasic/laravel-house/bin/kanban-guard executable\n")
+        ->toContain("ok .claude/agents/kanban-planner.md\n")
         ->toContain("ok .claude/agents/kanban-worker.md\n")
         ->toContain("ok CLAUDE.md kanban block\n")
         ->toContain("ok .gitignore /docs/kanban/ /.claude/worktrees /.claude/settings.local.json\n")

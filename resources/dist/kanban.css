@@ -43,6 +43,7 @@
     --purple: light-dark(#7c4dff, #a78bfa);
     --purple-soft: light-dark(#f2eeff, #2a2148);
     --purple-text: light-dark(#5b2fd0, #c6b4ff);
+    --teal: light-dark(#0f766e, #2dd4bf);
     /* areas: a card's area dot takes one of these in the order the areas first appeared; neighbours differ in hue */
     --area-0: light-dark(#2563eb, #60a5fa);
     --area-1: light-dark(#ea580c, #fb923c);
@@ -89,7 +90,8 @@
     --h-lg: 32px;
     --bar-h: 48px;
     --toolbar-h: calc(var(--h-md) + 12px);
-    --lane-w: clamp(248px, 17.5vw, 340px);
+    /* six lanes, the folded dropped lane, the gaps and the board's padding fit the window */
+    --lane-w: clamp(208px, calc((100vw - 144px) / 6), 340px);
     --drawer-max: 520px;
     --drawer-w: clamp(400px, 32vw, var(--drawer-max));
     /* motion */
@@ -335,6 +337,7 @@ input.field { width: 100%; }
 
 /* Board */
 [data-stage] { --stage: var(--text-3); }
+[data-stage="planning"] { --stage: var(--teal); }
 [data-stage="ready"] { --stage: var(--accent); }
 [data-stage="doing"] { --stage: var(--amber); }
 [data-stage="review"] { --stage: var(--purple); }
@@ -560,6 +563,7 @@ details.sec[open] > summary::before { transform: rotate(45deg); }
 .facts dt { color: var(--text-3); }
 .facts dd { margin: 0; overflow-wrap: anywhere; }
 details.sec > summary { display: flex; align-items: center; gap: 6px; height: var(--h-sm); margin-bottom: 6px; list-style: none; color: var(--text-3); font-size: var(--fs-xs); font-weight: 600; cursor: pointer; }
+details.plan > summary .muted { min-width: 0; overflow: hidden; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
 
 .log { display: flex; flex-direction: column; }
 .log li { position: relative; display: flex; gap: var(--sp-3); padding-bottom: var(--sp-3); }

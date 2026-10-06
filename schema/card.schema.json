@@ -8,12 +8,13 @@
         "id": { "$ref": "#/$defs/id" },
         "type": { "enum": ["feature", "bug", "chore", "spike"] },
         "title": { "$ref": "#/$defs/title" },
-        "stage": { "enum": ["backlog", "ready", "doing", "review", "done", "dropped"] },
+        "stage": { "enum": ["backlog", "planning", "ready", "doing", "review", "done", "dropped"] },
         "priority": { "$ref": "#/$defs/priority" },
         "epic": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
         "labels": { "$ref": "#/$defs/labels" },
         "body": { "type": "string", "maxLength": 20000 },
         "acceptance": { "type": "array", "maxItems": 24, "items": { "$ref": "#/$defs/criterion" } },
+        "plan": { "type": ["string", "null"], "maxLength": 20000 },
         "depends_on": { "type": "array", "maxItems": 20, "uniqueItems": true, "items": { "$ref": "#/$defs/id" } },
         "blocked": { "type": ["string", "null"], "minLength": 1, "maxLength": 500 },
         "claim": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/claim" }] },
@@ -87,7 +88,7 @@
                 "properties": {
                     "id": { "type": "string", "pattern": "^[0-9A-HJKMNP-TV-Z]{8}$" },
                     "at": { "$ref": "#/$defs/timestamp" },
-                    "by": { "enum": ["owner", "main", "worker", "evaluator", "hook", "import"] },
+                    "by": { "enum": ["owner", "main", "planner", "worker", "evaluator", "hook", "import"] },
                     "who": { "type": "string", "minLength": 1, "maxLength": 80 },
                     "event": { "type": "string", "minLength": 1 }
                 }

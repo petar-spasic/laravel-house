@@ -304,13 +304,13 @@ final class GitStore implements Store
     }
 
     /**
-     * Claims a ready card for $claim, with $work in the same commit. Online, the claim is won only by the push that lands:
+     * Claims a card for $claim, with $work in the same commit. Online, the claim is won only by the push that lands:
      * each round fetches, then rebases, checks the card and $verify against what origin now holds, and pushes a claim
      * commit no branch points at. The branch moves to it only once that push lands, so no other push of this clone can
      * carry a claim that has not won. A rejected push starts over, so a competing claim, or a card that left ready, is
      * found on fresh data.
      */
-    public function claim(string $id, Claim $claim, Actor $by, ?Closure $verify = null, ?array $work = null): Card
+    public function claim(string $id, Claim $claim, Actor $by, ?Closure $verify = null, ?array $work = null, ?Closure $mutate = null): Card
     {
         $online = $this->syncOn() && $this->repo->hasRemote();
         for ($round = 1; ; $round++) {
@@ -321,7 +321,7 @@ final class GitStore implements Store
                     throw new RemoteFailed($e->getMessage().' (while sync is on a claim needs the remote; to work on this machine only, run the same command with KANBAN_SYNC=off in front, and only when the owner agrees)');
                 }
             }
-            $claimed = $this->write(fn () => $this->claimRound($id, $claim, $by, $online, $verify, $work), self::CLAIM_TIMEOUT);
+            $claimed = $this->write(fn () => $this->claimRound($id, $claim, $by, $online, $verify, $work, $mutate), self::CLAIM_TIMEOUT);
             if ($claimed !== null) {
                 return $claimed;
             }
@@ -339,7 +339,7 @@ final class GitStore implements Store
      *
      * @param  array<string, mixed>|null  $work
      */
-    private function claimRound(string $id, Claim $claim, Actor $by, bool $online, ?Closure $verify, ?array $work): ?Card
+    private function claimRound(string $id, Claim $claim, Actor $by, bool $online, ?Closure $verify, ?array $work, ?Closure $mutate): ?Card
     {
         if ($online) {
             $this->repo->rebase();
@@ -350,25 +350,25 @@ final class GitStore implements Store
         if ($held !== null && [$held['by'], $held['session']] !== [$claim->by, $claim->session]) {
             throw new LostClaim("{$card->id()} is already claimed by {$held['by']}".($held['session'] ? " (session {$held['session']})" : ''));
         }
-        if ($card->stage() !== 'ready') {
+        if ($mutate === null && $card->stage() !== 'ready') {
             throw new PolicyRefused("{$card->id()} is {$card->stage()}, not ready");
         }
         if ($verify !== null) {
             $verify($snapshot);
         }
-        $mutate = function (array $data) use ($claim, $work) {
+        $change = function (array $data) use ($claim, $work, $mutate) {
             $data['claim'] = $claim->toArray();
             if ($work !== null) {
                 $data['work'] = array_merge($data['work'] ?? [], $work);
             }
 
-            return Transitions::stage($data, 'doing', 'start');
+            return $mutate === null ? Transitions::stage($data, 'doing', 'start') : $mutate($data);
         };
         if (! $online) {
-            return $this->update($card->id(), $mutate, $by);
+            return $this->update($card->id(), $change, $by);
         }
-        // never null: the stage changes
-        [$claimed, $message] = $this->changed($snapshot, $card, $mutate, $by);
+        // never null: the claim changes
+        [$claimed, $message] = $this->changed($snapshot, $card, $change, $by);
         $commit = $this->repo->commitAside([$card->path => Json::encode($claimed->data, Json::kindOf($card->path))], $message);
         try {
             // a stalled remote must not hold the board lock for the default two minutes
@@ -1169,7 +1169,7 @@ final class GitStore implements Store
         if ($new === [] && $changed === []) {
             return [$before, null];
         }
-        $explained = array_filter($new, fn (array $e) => in_array($e['event'], ['set', 'stage', 'moved', 'renamed'], true)) !== [];
+        $explained = array_filter($new, fn (array $e) => in_array($e['event'], ['set', 'stage', 'moved', 'renamed', 'claimed', 'planned'], true)) !== [];
         if (! $explained && $changed !== []) {
             sort($changed);
             $entry = $this->entry($by, $now) + ['event' => 'set', 'fields' => $changed];

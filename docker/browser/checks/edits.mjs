@@ -173,7 +173,7 @@ export default async (t) => {
     t.ok('a note posted while typing does not make the text stale', (await page.locator('.drawer .md', { hasText: 'Typed while posting' }).count()) === 1);
     await page.locator('.drawer .editable').first().click();
     await page.fill('.drawer textarea[aria-label="Description"]', 'Typed while moving');
-    await pick(page, 'stage', 'ready');
+    await pick(page, 'stage', 'planning');
     await page.waitForTimeout(900);
     await page.press('.drawer textarea[aria-label="Description"]', 'Control+Enter');
     await page.waitForTimeout(900);

@@ -19,7 +19,7 @@ class ListCommand extends Command
         {--all : Every stage}
         {--json : JSON output}';
 
-    protected $description = 'List cards (default: ready, doing and review, plus blocked anywhere)';
+    protected $description = 'List cards (default: planning, ready, doing and review, plus blocked anywhere)';
 
     protected function perform(): int
     {
@@ -32,9 +32,9 @@ class ListCommand extends Command
             && ($this->option('type') === null || $c->type() === $this->option('type'))
             && ($this->option('label') === null || in_array($this->option('label'), $c->labels(), true))
             && ($this->option('epic') === null || $c->epic() === $this->option('epic'))
-            && ($explicit || in_array($c->stage(), ['ready', 'doing', 'review'], true) || $c->blocked() !== null));
+            && ($explicit || in_array($c->stage(), ['planning', 'ready', 'doing', 'review'], true) || $c->blocked() !== null));
 
-        $order = array_flip(['doing', 'review', 'ready', 'backlog', 'done', 'dropped']);
+        $order = array_flip(['doing', 'review', 'ready', 'planning', 'backlog', 'done', 'dropped']);
         $sorted = (new PullPolicy)->sort($snapshot, $cards, 'ready');
         $position = array_flip(array_map(fn (Card $c) => $c->id(), $sorted));
         usort($cards, fn (Card $a, Card $b) => [$order[$a->stage()] ?? 99, $position[$a->id()]] <=> [$order[$b->stage()] ?? 99, $position[$b->id()]]);

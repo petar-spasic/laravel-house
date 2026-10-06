@@ -123,7 +123,7 @@ class CardsController
                 }
                 Edits::assertOpen($before, $data, $locked);
 
-                return Edits::recordRemoved($before, $data, $removed);
+                return Edits::replanned($before, Edits::recordRemoved($before, $data, $removed));
             }, Actor::owner(), $rev);
         });
     }

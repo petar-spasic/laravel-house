@@ -4,12 +4,12 @@ export const seed = 'rich';
 export default async (t) => {
     const { cand, low, labels } = t.seed.ids;
 
-    // dropped into ready, the card belongs below the higher priorities: the server's order arrives within a moment, not a poll later
+    // dropped into planning, the card belongs below the higher priorities: the server's order arrives within a moment, not a poll later
     const page = await t.open({ reducedMotion: 'reduce' });
     await page.goto(t.url + '/work', { waitUntil: 'networkidle' });
-    await page.dragAndDrop(`.card[data-id="${cand}"]`, '.col[data-stage=ready]');
+    await page.dragAndDrop(`.card[data-id="${cand}"]`, '.col[data-stage=planning]');
     const settled = await page.waitForFunction((id) => {
-        const cards = [...document.querySelectorAll('.col[data-stage=ready] .card')];
+        const cards = [...document.querySelectorAll('.col[data-stage=planning] .card')];
         return cards.length > 1 && cards[cards.length - 1].dataset.id === id;
     }, cand, { timeout: 900 }).then(() => true, () => false);
     t.ok('a dropped card takes its place in server order at once', settled);

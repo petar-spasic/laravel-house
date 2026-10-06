@@ -209,7 +209,7 @@ class DoctorCommand extends Command
         $orphans = 0;
         foreach (glob($paths->worktrees().'/*', GLOB_ONLYDIR) ?: [] as $dir) {
             $card = $snapshot->card(strtoupper(basename($dir)));
-            if ($card !== null && (! in_array($card->stage(), ['doing', 'review'], true) || ($card->work()['worktree'] ?? null) !== $paths->relative($dir))) {
+            if ($card !== null && (! $card->atWork() || ($card->work()['worktree'] ?? null) !== $paths->relative($dir))) {
                 $this->add('warn', "orphan worktree {$paths->relative($dir)}: {$card->id()} is {$card->stage()} (`kanban stop` or `git worktree remove`)");
                 $orphans++;
             }

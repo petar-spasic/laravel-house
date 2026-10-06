@@ -2,12 +2,13 @@
 
 namespace PetarSpasic\LaravelHouse\Kanban\Protocol;
 
+use PetarSpasic\LaravelHouse\Kanban\Policy\Plan;
 use PetarSpasic\LaravelHouse\Kanban\Store\Card;
 use PetarSpasic\LaravelHouse\Kanban\Store\CardType;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Invalid;
 use PetarSpasic\LaravelHouse\Kanban\Support\Clock;
 
-/** Builds and validates the staged report (worker) and verdict (evaluator) of a card. */
+/** Builds and validates the staged report (worker), verdict (evaluator) and plan (planner) of a card. */
 final class Staged
 {
     /** Characters of a report's summary the card log keeps. */
@@ -106,6 +107,45 @@ final class Staged
             'upstream' => $upstream,
             'note' => self::text($note),
         ] + $at);
+    }
+
+    /**
+     * The plan of a card in planning: ready with the plan (Plan::check passed) and `content`, the hash of the card it covers,
+     * or blocked with a reason or an Open question.
+     *
+     * @param  list<string>  $discovered  `type: Title — body`
+     * @param  array{head: string, base: ?string, worktree: string, session: ?string}  $at  base: the main commit the clone was made from
+     * @param  list<array{title: string, body: string}>  $upstream
+     * @param  list<string>  $questions  question sections for the card's body (Policy\Questions::file)
+     * @return array<string, mixed>
+     */
+    public static function plan(Card $card, string $status, ?string $plan, ?string $reason, array $discovered, ?string $note, array $at,
+        array $upstream = [], array $questions = []): array
+    {
+        if (! in_array($status, ['ready', 'blocked'], true)) {
+            throw new Invalid("--status must be ready or blocked, not '{$status}'");
+        }
+        $reason = self::text($reason);
+        if ($status === 'ready' && $plan === null) {
+            throw new Invalid('a plan needs --plan-file (the file you wrote it in, in your card\'s .tmp)');
+        }
+        if ($status === 'blocked' && $reason === null) {
+            throw new Invalid('a blocked plan needs --reason (what keeps the card from being planned) or an Open question in --question-file');
+        }
+        if ($reason !== null && mb_strlen($reason) > 480) {
+            throw new Invalid('--reason must be at most 480 characters');
+        }
+
+        return self::seal([
+            'card' => $card->id(),
+            'status' => $status,
+            'plan' => $status === 'ready' ? $plan : null,
+            'content' => Plan::hash($card->data),
+            'discovered' => array_map(fn (string $d) => self::discovered($d), $discovered),
+            'upstream' => $upstream,
+            'reason' => $reason,
+            'note' => self::text($note),
+        ] + ($questions === [] ? [] : ['questions' => $questions]) + $at);
     }
 
     /**

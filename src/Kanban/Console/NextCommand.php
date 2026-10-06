@@ -10,17 +10,19 @@ use Symfony\Component\Console\Attribute\AsCommand;
 #[AsCommand(name: 'kanban:next')]
 class NextCommand extends Command
 {
-    protected $signature = 'kanban:next {--count=1 : How many} {--json : JSON output}';
+    protected $signature = 'kanban:next {--count=1 : How many} {--planning : The planning cards for planners instead} {--json : JSON output}';
 
-    protected $description = 'The ready cards to start next, in pull order within capacity (-v: and why the others wait)';
+    protected $description = 'The ready cards to start next (--planning: the cards to plan next), in pull order within capacity (-v: and why the others wait)';
 
     protected function perform(): int
     {
         $this->gitStore()?->maybeSync();
         $snapshot = $this->store()->snapshot();
         $pull = new PullPolicy;
-        $next = $pull->next($snapshot, max(1, (int) $this->option('count')));
-        $skipped = $pull->skipped($snapshot);
+        $count = max(1, (int) $this->option('count'));
+        $planning = (bool) $this->option('planning');
+        $next = $planning ? $pull->nextPlanning($snapshot, $count) : $pull->next($snapshot, $count);
+        $skipped = $planning ? $pull->waiting($snapshot) : $pull->skipped($snapshot);
         if ($this->option('json')) {
             return $this->json([
                 'cards' => array_map(fn (Card $c) => $this->cardJson($c, $snapshot), $next['cards']),

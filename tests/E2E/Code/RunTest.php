@@ -19,6 +19,10 @@ beforeEach(function () {
     runAgent($this->claude, 'evaluator', <<<'SH'
         vendor/bin/kanban --in="$WORKTREE" verdict "$CARD" approve --check=1:pass:"feature.txt holds it"
         SH);
+    runAgent($this->claude, 'planner', <<<'SH'
+        printf '## Files\n- read `README.md` — the app\n\n## Steps\n1. Add feature.txt. Check: `cat feature.txt`\n\n## Criteria\n- 1: `cat feature.txt` holds it\n' > "$WORKTREE/.tmp/plan.md"
+        vendor/bin/kanban --in="$WORKTREE" plan "$CARD" --plan-file=.tmp/plan.md
+        SH);
 });
 
 /** What the fake claude does for a kanban agent of $type. */
@@ -82,6 +86,89 @@ it('takes a ready card to done: a headless worker, a headless evaluator, then th
     expect(array_values($runs)[0])->toMatchArray(['card' => $id, 'type' => 'kanban-worker', 'session' => $session, 'turns' => 3, 'tokens' => 21510, 'cost_usd' => 0.25, 'error' => null])
         ->and(runPass($this->code, $this->claude))->toContain('idle')
         ->and($this->code->ok(['lease']))->toContain('held by run:');
+});
+
+it('plans a backlog card with a headless planner, then starts its worker once the plan is on the card', function () {
+    runAgent($this->claude, 'worker', <<<'SH'
+        vendor/bin/kanban show "$CARD" --plan > "$FAKE_CLAUDE_DIR/plan-read.md"
+        SH);
+    $id = $this->code->sandbox->card('Add login page', ['--body=Build it', '--accept=It works', '--label=area:login']);
+
+    $first = runPass($this->code, $this->claude);
+    expect($first)->toMatch("/ {$id} planning started; planner [0-9a-f]{8} launched\n/")
+        ->and($this->code->sandbox->read($id)['stage'])->toBe('planning');
+
+    $second = runPass($this->code, $this->claude);
+    expect($second)->toMatch("/ {$id} planner [0-9a-f]{8} ended/")->toContain(" {$id} planned: ready\n")->toMatch("/ {$id} started; worker [0-9a-f]{8} launched\n/")
+        ->and(file_get_contents($this->claude.'/plan-read.md'))->toContain("## Criteria\n- 1: `cat feature.txt` holds it\n");
+
+    [$planner, $worker] = runLaunches($this->claude);
+    expect(array_slice($planner, 1, 6))->toBe(['--agent', 'kanban-planner', '--model', 'opus', '--effort', 'high'])
+        ->and(array_slice($worker, 1, 2))->toBe(['--agent', 'kanban-worker']);
+});
+
+it('gives planners only the slots workers leave', function () {
+    $board = $this->code->root().'/docs/kanban/kanban.json';
+    file_put_contents($board, str_replace('"max_parallel": 6', '"max_parallel": 2', (string) file_get_contents($board)));
+    $ready = $this->code->sandbox->readyCard('Ready work');
+    $first = $this->code->sandbox->card('Plan first', ['--body=Build it', '--accept=It works', '--label=area:pa', '--priority=high']);
+    $second = $this->code->sandbox->card('Plan later', ['--body=Build it', '--accept=It works', '--label=area:pb']);
+
+    $out = runPass($this->code, $this->claude);
+
+    expect($out)->toMatch("/ {$ready} started; worker [0-9a-f]{8} launched\n/")
+        ->and($out)->toMatch("/ {$first} planning started; planner [0-9a-f]{8} launched\n/")
+        ->and($out)->not->toContain("{$second} planning started")
+        ->and(array_column(runLaunches($this->claude), 2))->toBe(['kanban-worker', 'kanban-planner'])
+        ->and($this->code->sandbox->read($second))->toMatchArray(['stage' => 'planning', 'claim' => null]);
+});
+
+it('parks a card whose planner asks a question in the backlog', function () {
+    runAgent($this->claude, 'planner', <<<'SH'
+        printf '## Open question\nOne workspace per team, or many?\nExample: Acme has two departments that bill apart.\n1. One — simpler\n2. Many — departments split\nRecommended: 1 — simpler\n' > "$WORKTREE/.tmp/question.md"
+        vendor/bin/kanban --in="$WORKTREE" plan "$CARD" --status=blocked --question-file=.tmp/question.md
+        SH);
+    $id = $this->code->sandbox->card('Add workspaces', ['--body=Build it', '--accept=It works', '--label=area:spaces']);
+
+    runPass($this->code, $this->claude);
+    $out = runPass($this->code, $this->claude);
+
+    expect($out)->toContain("{$id} parked in backlog: question: One workspace per team, or many?")
+        ->and($this->code->sandbox->read($id))->toMatchArray(['stage' => 'backlog', 'claim' => null, 'work' => null])
+        ->and(runLaunches($this->claude))->toHaveCount(1);
+});
+
+it('blocks a card whose planner stops without a plan, and launches it no planner again', function () {
+    runAgent($this->claude, 'planner', 'true');
+    $id = $this->code->sandbox->card('Add login page', ['--body=Build it', '--accept=It works', '--label=area:login']);
+
+    runPass($this->code, $this->claude);
+    runPass($this->code, $this->claude);
+
+    expect($this->code->sandbox->read($id))->toMatchArray(['stage' => 'planning', 'blocked' => 'planner stopped without a plan'])
+        ->and(runLaunches($this->claude))->toHaveCount(1);
+});
+
+it('blocks a card after three planner runs that change nothing', function () {
+    file_put_contents("{$this->claude}/kanban-planner.error", json_encode(['subtype' => 'error_during_execution']));
+    $id = $this->code->sandbox->card('Add login page', ['--body=Build it', '--accept=It works', '--label=area:login']);
+
+    foreach (range(1, 4) as $n) {
+        runPass($this->code, $this->claude);
+    }
+
+    expect($this->code->sandbox->read($id)['blocked'])->toBe('kanban run: no progress in 3 agent runs (last: error_during_execution)')
+        ->and(array_column(runLaunches($this->claude), 2))->toBe(['kanban-planner', 'kanban-planner', 'kanban-planner']);
+});
+
+it('drains without taking a card waiting in planning', function () {
+    $id = $this->code->sandbox->card('Waits for a planner', ['--body=Build it', '--accept=It works', '--label=area:wait', '--stage=planning']);
+
+    $out = runPass($this->code, $this->claude, ['--drain', '--until-attention']);
+
+    expect($out)->toContain('drained: no card in flight')
+        ->and(runLaunches($this->claude))->toBe([])
+        ->and($this->code->sandbox->read($id))->toMatchArray(['stage' => 'planning', 'claim' => null]);
 });
 
 it('launches each agent on its configured model and effort, whatever the launching session runs on', function () {
@@ -487,7 +574,7 @@ it('parks a card whose worker asks a question in backlog, branch kept', function
         ->and(runLaunches($this->claude))->toHaveCount(1);
 });
 
-it('starts an answered question card on its kept branch ahead of new cards, in a drain too', function () {
+it('plans an answered question card on its kept branch and starts it ahead of new cards, in a drain too', function () {
     runAgent($this->claude, 'worker', <<<'SH'
         if [ -f "$FAKE_CLAUDE_DIR/asked" ]; then
             cd "$WORKTREE" && echo done >> feature.txt && git add -A && git commit -qm "$CARD: rest" && cd - > /dev/null
@@ -506,10 +593,13 @@ it('starts an answered question card on its kept branch ahead of new cards, in a
     file_put_contents($board, str_replace('"max_parallel": 6', '"max_parallel": 1', (string) file_get_contents($board)));
     $fresh = $this->code->sandbox->readyCard('Urgent new work', ['--priority=high']);
 
-    expect($this->code->sandbox->ok(['answer', $id, '--note=One per team.']))->toContain("promoted {$id}: its parked branch card/");
+    expect($this->code->sandbox->ok(['answer', $id, '--note=One per team.']))->toContain("promoted {$id} to planning: its parked branch card/");
+    $planned = runPass($this->code, $this->claude, ['--drain', '--once']);
     $out = runPass($this->code, $this->claude, ['--drain', '--once']);
 
-    expect($out)->toMatch("/ {$id} started; worker [0-9a-f]{8} launched\n/")
+    expect($planned)->toMatch("/ {$id} planning started; planner [0-9a-f]{8} launched\n/")
+        ->and($out)->toContain("{$id} planned: ready")
+        ->and($out)->toMatch("/ {$id} started; worker [0-9a-f]{8} launched\n/")
         ->and($this->code->sandbox->read($id)['stage'])->toBe('review')
         ->and(file_get_contents($this->code->worktree($id).'/feature.txt'))->toBe("half\ndone\n")
         ->and($this->code->sandbox->read($fresh)['stage'])->toBe('ready');

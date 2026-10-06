@@ -1,8 +1,8 @@
-# Planning cards
+# Cutting cards
 
-A card buys an agent bootstrap (instructions, `CLAUDE.md` files, skill), a clone, a Docker stack, a review by a second
-agent, a `refresh` and a `finish` with their merges. That cost is the same for a five-minute card and a two-hour
-one, so a card is sized to what one agent finishes in one session, and no smaller.
+A card buys a planner and a worker, each with its bootstrap (instructions, `CLAUDE.md` files, skill), a clone and a
+Docker stack, a review by a third agent, a `refresh` and a `finish` with their merges. That cost is the same for a
+five-minute card and a two-hour one, so a card is sized to what one worker finishes in one session, and no smaller.
 
 ## The rules
 
