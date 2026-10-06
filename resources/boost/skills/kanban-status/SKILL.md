@@ -22,6 +22,7 @@ Read-only: never start, stop, answer or change anything here.
    - **Driving:** yes (by which session, last action and how long ago) or no.
    - **In progress:** each card in doing or review, one line: id, title, worker or evaluator and for how long.
    - **Merged in the last 24 hours:** count and titles.
-   - **Needs the owner:** open questions (count; `questions` lists them), cards blocked and why, a red main.
+   - **Needs the owner:** questions (`N open, M provisional`; `questions` lists them, an approval of a change to the
+     agents' own files among them), discovered cards waiting for criteria, cards blocked and why, a red main.
    - **Spend:** agent runs, tokens and cost at list price in the last 24 hours, and per merged card.
 4. Offer the next step that fits: the morning when questions wait, starting the board when nothing drives it.

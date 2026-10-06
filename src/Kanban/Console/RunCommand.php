@@ -290,10 +290,10 @@ class RunCommand extends Command
         $finish = $this->kanban(['finish', $card->id(), '--ask']);
         if ($finish->isSuccessful()) {
             foreach (explode("\n", trim($finish->getOutput())) as $n => $line) {
-                // the merge line, what rebuilding main's stack did, and a warning (a failed rebuild, say) to act on
-                if (str_starts_with($line, 'warning:')) {
+                // the merge line, what rebuilding main's stack did and the warnings; a failed rebuild leaves main to act on
+                if (str_starts_with($line, 'warning: rebuild main')) {
                     $this->notice("{$card->id()} finish {$line}");
-                } elseif ($n === 0 || str_starts_with($line, 'rebuil')) {
+                } elseif ($n === 0 || str_starts_with($line, 'rebuil') || str_starts_with($line, 'warning:')) {
                     $this->log($line);
                 }
             }

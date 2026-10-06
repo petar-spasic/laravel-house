@@ -956,7 +956,8 @@ Do the morning.
 
 Claude shows what merged, what is blocked and what the agents spent, then asks every open question as a multiple
 choice, with a recommended answer and what each option means. Your answers go onto the cards, and the waiting cards
-move on. Tell Claude about new work, and the board carries on.
+move on. The cards the agents discovered wait for criteria, which you and Claude write. Tell Claude about new work, and
+the board carries on.
 
 <a name="planning-cards"></a>
 ### Planning Cards
@@ -1217,7 +1218,7 @@ The [protocol reference](resources/boost/skills/kanban/references/protocol.md) l
 | `show ID` | One card with its criteria, dependencies and history. |
 | `next` | The card that would be started next. `-v` says why the others wait. |
 | `upstream` | Package findings waiting to be filed. |
-| `morning` | What merged, what is blocked, the open questions and what the agents spent, since yesterday. |
+| `morning` | What merged, what is blocked, the questions, the discovered cards waiting for criteria and what the agents spent, since yesterday. |
 | `questions` | Every question waiting for you, with its options: open questions on unfinished cards, and provisional decisions until you answer them. |
 | `doctor` | Checks the installation. `--fix` repairs it. |
 | `validate` | Checks every board file. `--fix` rewrites them. |
