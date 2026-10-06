@@ -70,7 +70,8 @@ final class Applier
         if (($markers = (new MergeCheck($git, $main))->markers('refs/heads/'.$main)) !== []) {
             return MergeCheck::markersMessage($markers);
         }
-        if (($evil = (new MergeCheck($git, $main))->evilMerges($range)) !== []) {
+        // the card's own merges: what main brought along was judged when it merged there
+        if (($evil = (new MergeCheck($git, $main))->evilMerges("refs/heads/{$main}..HEAD")) !== []) {
             return 'A merge of '.$main.' carries changes neither side had (uncommitted work committed with it?), where no review sees them as the card\'s change:'
                 ."\n".implode("\n", $evil)."\n".'Run `vendor/bin/kanban rebuild-branch '.$card->id().'`: one commit on '.$main.' with the same files, so the whole change is reviewed; then report again.';
         }

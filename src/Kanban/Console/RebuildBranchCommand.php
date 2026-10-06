@@ -12,7 +12,7 @@ use Symfony\Component\Console\Attribute\AsCommand;
 /**
  * A card branch whose merge of main carries changes neither side had becomes one commit with the same files on the main
  * it last merged, so the whole change is reviewed as the card's. Its worker runs it in its clone when its stop gate
- * names such a merge; the main session for a card in doing whose agent has stopped.
+ * names such a merge; the main session for a card whose agent has stopped. An approval is of the old head: it goes.
  */
 #[AsCommand(name: 'kanban:rebuild-branch')]
 class RebuildBranchCommand extends Command
@@ -31,8 +31,8 @@ class RebuildBranchCommand extends Command
         if (! $own) {
             $this->requireMainOrOwner('rebuild-branch');
         }
-        if ($card->stage() !== 'doing') {
-            throw new PolicyRefused("{$id} is {$card->stage()}: rebuild-branch takes a card in doing");
+        if (! in_array($card->stage(), ['doing', 'review'], true)) {
+            throw new PolicyRefused("{$id} is {$card->stage()}: rebuild-branch takes a card in doing or review");
         }
         $worktrees = new Worktrees($this->paths(), $this->config());
         $path = $inside ?? throw new PolicyRefused("{$id} has no clone on this machine");
@@ -47,8 +47,7 @@ class RebuildBranchCommand extends Command
         $worktrees->sync($path, $branch);
         $git = $worktrees->git($path);
         $from = $worktrees->head('HEAD', $path);
-        $base = (string) ($card->work()['base'] ?? "refs/heads/{$main}");
-        if (trim($git->attempt(['rev-list', '--merges', '-n', '1', "{$base}..HEAD"])->out) === '') {
+        if (trim($git->attempt(['rev-list', '--merges', '-n', '1', "refs/heads/{$main}..HEAD"])->out) === '') {
             throw new PolicyRefused("{$id}: no merge of {$main} on the branch; nothing to rebuild");
         }
         // the main the branch last merged, so the one commit adds only the card's change and takes back nothing of main's
@@ -60,6 +59,8 @@ class RebuildBranchCommand extends Command
         $worktrees->sync($path, $branch);
 
         $this->store()->update($id, function (array $data) use ($from, $to, $onto) {
+            // an approval was of the old head
+            $data['work']['approved'] = null;
             $data['log'][] = ['event' => 'rebuilt', 'from' => $from, 'to' => $to, 'onto' => $onto];
 
             return $data;

@@ -744,8 +744,9 @@ A card that changes the files that steer the agents or git (`.claude/`, `config/
 vendor/bin/kanban allow-steering ACME-7K2QF9 config/kanban.php
 ```
 
-Otherwise `kanban run` asks you on the card once the evaluator approves it, with the diff to read, and your answer to
-`questions` merges the card or sends it back to its worker.
+An approval given before the card changes the file covers any change to it. Otherwise `kanban run` asks you on the
+card once the evaluator approves it, with the diff to read, and your answer to `questions` merges the card or sends it
+back to its worker. That answer approves the file as it is: a later change to it asks again.
 
 An approved card keeps its approval when `main` moved only in files that match `finish.overlap_ignore` (Markdown files
 and `docs/` by default); otherwise `finish` asks for a refresh and a new review.

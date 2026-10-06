@@ -160,6 +160,7 @@ it('prunes runtime files nothing reads any more and keeps the rest', function ()
     $lease = $write('lease.json', ['session' => 'gone', 'since' => '2026-01-01T00:00:00Z'], time() - 3600);
     $oldRun = $write('runs/old-session.json', [], $old);
     $oldPid = $write('runs/old-live.pid', ['pid' => 1], $old);
+    $goneStart = $write('starts/ACME-GONE', [], time());
 
     $p->hook('session-start', $p->payload('session-start'));
 
@@ -171,7 +172,9 @@ it('prunes runtime files nothing reads any more and keeps the rest', function ()
         ->and($oldRun)->not->toBeFile()
         ->and($oldPid)->toBeFile()
         ->and($liveButQuiet)->toBeFile()
-        ->and($keptStaged)->toBeFile();
+        ->and($keptStaged)->toBeFile()
+        ->and($goneStart)->not->toBeFile()
+        ->and($p->runtime("starts/{$id}"))->toBeFile();
 });
 
 it('cuts a very long card body so the gates and the protocol line survive', function () {

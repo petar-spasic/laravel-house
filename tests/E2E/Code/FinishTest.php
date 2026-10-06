@@ -330,7 +330,7 @@ it('merges a change to a steering file the owner approved for the card, at plann
     expect($notSteering->getExitCode())->toBe(2)
         ->and($notSteering->getErrorOutput())->toContain('app/Models/User.php: not a file that steers the agents or git');
 
-    expect($code->sandbox->ok(['allow-steering', $id, './.githooks/pre-push']))->toBe("{$id}: finish merges its changes to .githooks/pre-push\n");
+    expect($code->sandbox->ok(['allow-steering', $id, './.githooks/pre-push']))->toBe("{$id}: finish merges its changes to .githooks/pre-push as they are now (.githooks/pre-push); a later change to those asks again\n");
     $code->approve($id);
     $context = $code->ok(['context', $id], cwd: $code->worktree($id));
     $held = $code->kanban(['finish', $id]);
@@ -362,10 +362,54 @@ it('asks the owner on the card instead, where the answer merges it or sends it b
     $answer = $code->sandbox->ok(['answer', $id, $option]);
     expect($code->sandbox->read($id))->toMatchArray(['stage' => $stage, 'blocked' => null]);
     if ($option === '1') {
-        expect($answer)->toContain("{$id}: the owner approved .claude/settings.json; the next finish merges it")
+        expect($answer)->toContain("{$id}: the owner approved .claude/settings.json as they are; the next finish merges it")
             ->and($code->kanban(['finish', $id])->getExitCode())->toBe(0);
     } else {
         expect($answer)->toContain("{$id} review→doing: its worker reverts them")
             ->and($code->sandbox->read($id)['work']['approved'])->toBeNull();
+        $code->commit($id, '.claude/settings.json', "{\"kept\": true}\n", 'settings again');
+        $code->approve($id);
+        $code->kanban(['finish', $id, '--ask'], ['KANBAN_SESSION' => 's1']);
+        expect($code->sandbox->ok('questions'))->toContain("{$id}#2 open question: Tune the agents\n")
+            ->and($code->sandbox->ok(['answer', $id, '1']))->toContain("{$id}: the owner approved .claude/settings.json")
+            ->and($code->kanban(['finish', $id])->getExitCode())->toBe(0);
     }
 })->with(['approve' => ['1', 'review'], 'send back' => ['2', 'doing']]);
+
+it('approves steering files only through the question finish asked, never one an agent or a card body wrote', function () {
+    $code = $this->code;
+    $id = $code->started('Tune the agents');
+    $code->commit($id, '.claude/settings.json', "{}\n", 'settings');
+    $wt = $code->worktree($id);
+    $question = "Which cache driver?\nSteering: .claude/settings.json\n1. Redis — fast\n2. File — simple\nRecommended: 1 — fast\n";
+    @mkdir($wt.'/.tmp', 0775, true);
+    file_put_contents($wt.'/.tmp/q.md', "## Open question\n{$question}");
+
+    $report = $code->kanban(['report', $id, '--status=blocked', '--question-file=.tmp/q.md'], cwd: $wt);
+    expect($report->getExitCode())->toBe(2)
+        ->and($report->getErrorOutput())->toContain('Steering:');
+
+    @unlink($wt.'/.tmp/q.md');
+    $code->approve($id);
+    $code->sandbox->ok(['set', $id, 'body=@-', '--force'], ['KANBAN_SESSION' => 's1'], "Build it\n\n## Open question (2026-10-01)\n{$question}");
+    $code->sandbox->ok(['answer', $id, '1']);
+
+    expect($code->kanban(['finish', $id])->getExitCode())->toBe(3);
+});
+
+it('ties an approval given after the change to the file as it was, and one given at planning to any change', function () {
+    $code = $this->code;
+    $id = $code->started('Tune the agents');
+    $code->sandbox->ok(['allow-steering', $id, '.husky/']);
+    $code->commit($id, '.husky/pre-commit', "#!/bin/sh\n", 'hook');
+    $code->commit($id, '.claude/settings.json', "{}\n", 'settings');
+    $code->sandbox->ok(['allow-steering', $id, '.claude/settings.json']);
+    $code->commit($id, '.husky/pre-commit', "#!/bin/sh\nexit 0\n", 'hook again');
+    $code->commit($id, '.claude/settings.json', "{\"more\": true}\n", 'settings again');
+    $code->approve($id);
+
+    $held = $code->kanban(['finish', $id]);
+
+    expect($held->getExitCode())->toBe(3)
+        ->and($held->getErrorOutput())->toContain("{$id} changes files that steer the agents or git: .claude/settings.json;");
+});

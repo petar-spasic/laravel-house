@@ -44,8 +44,13 @@ final class Fold
         $added = 0;
         foreach ($sources as $source) {
             $section = "## Folded from {$source->id()}: {$source->title()}";
-            $body = Questions::without(trim((string) ($source->data['body'] ?? '')), (string) ($data['body'] ?? ''));
+            $own = trim((string) ($source->data['body'] ?? ''));
+            $body = Questions::without($own, (string) ($data['body'] ?? ''));
             $block = $source->blocked();
+            // its questions are all the target's already: the target's answers stand, and its block with them
+            if ($source->asks() && Questions::unanswered($own) > 0 && Questions::unanswered($body) === 0) {
+                $block = null;
+            }
             if ($block !== null && ($data['blocked'] ?? null) === null) {
                 $data['blocked'] = $block;
             } elseif ($block !== null && $block !== $data['blocked']) {

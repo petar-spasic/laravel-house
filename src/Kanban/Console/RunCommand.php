@@ -76,22 +76,41 @@ class RunCommand extends Command
         $this->session === $own ? $lease->acquire(new Actor('main', $this->session)) : $lease->takeover(new Actor('main', $this->session));
         $this->paths()->ensureRuntime();
         file_put_contents($this->paths()->runtime(self::PID), (string) getmypid());
-        try {
-            return $this->loop();
-        } finally {
+        $release = function (): void {
             if ((int) @file_get_contents($this->paths()->runtime(self::PID)) === getmypid()) {
                 @unlink($this->paths()->runtime(self::PID));
             }
+        };
+        // Ctrl-C, or the session stopping its background task: a `finally` does not run on a signal
+        if (function_exists('pcntl_signal')) {
+            pcntl_async_signals(true);
+            foreach ([SIGTERM => 143, SIGINT => 130, SIGHUP => 129] as $signal => $code) {
+                pcntl_signal($signal, function () use ($release, $code): void {
+                    $release();
+                    exit($code);
+                });
+            }
+        }
+        try {
+            return $this->loop();
+        } finally {
+            $release();
         }
     }
 
-    /** The pid of the run driving this checkout, or null. */
+    /** The pid of the run driving this checkout, or null: a live `kanban run` process, never another one that took its pid. */
     public static function running(Paths $paths): ?int
     {
         $pid = (int) @file_get_contents($paths->runtime(self::PID));
+        if ($pid <= 0 || $pid === getmypid() || ! posix_kill($pid, 0)) {
+            return null;
+        }
+        if (! is_dir('/proc')) {
+            return $pid;
+        }
+        $args = explode("\0", rtrim((string) @file_get_contents("/proc/{$pid}/cmdline"), "\0"));
 
-        return $pid > 0 && $pid !== getmypid() && posix_kill($pid, 0)
-            && (! is_dir('/proc') || str_contains((string) @file_get_contents("/proc/{$pid}/cmdline"), 'run')) ? $pid : null;
+        return array_intersect($args, ['run', 'kanban:run']) !== [] && array_filter($args, fn (string $a) => str_contains($a, 'kanban') || str_contains($a, 'artisan')) !== [] ? $pid : null;
     }
 
     private function loop(): int
@@ -175,6 +194,8 @@ class RunCommand extends Command
 
         $snapshot = $this->store()->snapshot();
         $runtime = new Runtime($this->paths(), $snapshot->staleMinutes());
+        // the agents launched so far in this pass run too
+        $running = array_column($this->agents->running(), 'card');
         foreach ($this->local($snapshot, fn (Card $c) => $c->stage() === 'doing') as $card) {
             if (in_array($card->id(), $running, true)) {
                 continue;
@@ -270,11 +291,11 @@ class RunCommand extends Command
         return $this->option('drain') || is_file($this->paths()->runtime(self::DRAIN));
     }
 
-    /** No agent runs, and no card of this machine is in doing or review unblocked. */
+    /** No agent runs, and no card of this machine is in doing or review unblocked: one waiting on the owner is not in flight. */
     private function drained(): bool
     {
         return $this->agents->running() === []
-            && $this->local($this->store()->snapshot(), fn (Card $c) => in_array($c->stage(), ['doing', 'review'], true)) === [];
+            && $this->local($this->store()->snapshot(), fn (Card $c) => in_array($c->stage(), ['doing', 'review'], true) && ! $c->asks()) === [];
     }
 
     /** Merges an approved card; `main moved` sends it back to an evaluator. */
@@ -376,14 +397,16 @@ class RunCommand extends Command
     }
 
     /**
-     * Cards in doing whose start on this machine was cut short after the claim: blocked for want of a stack slot, or with
-     * no clone here once a block was cleared. They go before any new start.
+     * Cards in doing whose start from this checkout was cut short after the claim (another checkout on this machine keeps
+     * its own): blocked for want of a stack slot, or with no clone here once a block was cleared. They go before any new
+     * start.
      *
      * @return list<Card>
      */
     private function unstarted(Snapshot $snapshot): array
     {
         return array_values($snapshot->cards(fn (Card $c) => $c->stage() === 'doing' && ($c->work()['host'] ?? null) === gethostname()
+            && is_file($this->paths()->runtime(StartCommand::STARTED.'/'.$c->id()))
             && ($c->blocked() === null ? ! is_dir($this->paths()->main.'/'.($c->work()['worktree'] ?? "\0")) : self::slotLost((string) $c->blocked()))));
     }
 

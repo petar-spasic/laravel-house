@@ -3,13 +3,14 @@
 namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
 use PetarSpasic\LaravelHouse\Kanban\Code\MergeCheck;
+use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Invalid;
 use Symfony\Component\Console\Attribute\AsCommand;
 
 /**
  * The owner's approval, in the card's log, of changes to files that steer the agents or git (MergeCheck::PROTECTED):
- * `finish` merges a card whose branch changes only approved ones. Given at planning for a change a criterion asks for,
- * or after reading the diff.
+ * `finish` merges a card whose branch changes only approved ones. Given at planning for a change a criterion asks for, it
+ * covers any change; given after reading the diff, the files as they are then.
  */
 #[AsCommand(name: 'kanban:allow-steering')]
 class AllowSteeringCommand extends Command
@@ -28,12 +29,15 @@ class AllowSteeringCommand extends Command
         if ($other !== []) {
             throw new Invalid(implode(', ', $other).': not a file that steers the agents or git ('.implode(', ', MergeCheck::PROTECTED).'); finish needs no approval for it');
         }
-        $card = $this->store()->update($this->store()->card($this->argument('id'))->id(), function (array $data) use ($paths) {
-            $data['log'][] = ['event' => 'steering_approved', 'files' => $paths];
+        $card = $this->store()->card($this->argument('id'));
+        $approval = MergeCheck::approvalOf(new Worktrees($this->paths(), $this->config()), $this->paths()->main, $card, $paths);
+        $card = $this->store()->update($card->id(), function (array $data) use ($approval) {
+            $data['log'][] = $approval;
 
             return $data;
         }, $this->actor());
-        $this->say("{$card->id()}: finish merges its changes to ".implode(', ', $paths));
+        $this->say("{$card->id()}: finish merges its changes to ".implode(', ', $paths)
+            .(isset($approval['blobs']) ? ' as they are now ('.implode(', ', array_keys($approval['blobs'])).'); a later change to those asks again' : ''));
 
         return self::SUCCESS;
     }

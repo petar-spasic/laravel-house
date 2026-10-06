@@ -174,7 +174,7 @@ final class Context
         }
 
         if ($git !== null) {
-            $lines = [...$lines, ...self::findings($git, $main, MergeCheck::allowed($card))];
+            $lines = [...$lines, ...self::findings($git, $main, MergeCheck::approvals($card))];
         }
         if (! is_array($stack) && $worktree !== null) {
             $lines[] = "database: main's (no stack of its own): never migrate:fresh, db:wipe or a test run that resets it";
@@ -243,10 +243,10 @@ final class Context
      * TODO or FIXME, a skipped test, or a private IPv4 address. The worker reports a package outside the approved set
      * as blocked; the evaluator weighs each line.
      *
-     * @param  list<string>  $allowed  the protected paths the owner approved for the card
+     * @param  list<array<string, mixed>>  $approvals  the owner's approvals of steering files for the card
      * @return list<string>
      */
-    public static function findings(Git $git, string $main, array $allowed = []): array
+    public static function findings(Git $git, string $main, array $approvals = []): array
     {
         $lines = [];
         $packages = [];
@@ -275,7 +275,7 @@ final class Context
             $lines[] = 'new packages: '.implode(', ', $packages);
         }
         $files = array_values(array_filter(explode("\n", $git->attempt(['diff', '--name-only', $main.'...HEAD'])->out)));
-        $held = MergeCheck::unapproved($files, $allowed);
+        $held = MergeCheck::unapproved($files, $approvals, fn (string $file) => (string) $git->line(['rev-parse', '--verify', '-q', "HEAD:{$file}"]));
         if ($held !== []) {
             $lines[] = "changes kanban's own files (finish needs the owner): ".implode(', ', $held);
         }

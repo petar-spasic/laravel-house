@@ -165,6 +165,51 @@ it('finishes a start cut short on this machine whose block was cleared, then run
         ->and($this->code->sandbox->read($id)['stage'])->toBe('review');
 });
 
+it('leaves the worker of a resumed start alone for the rest of the pass while it runs', function () {
+    runAgent($this->claude, 'worker', <<<'SH'
+        sleep 2
+        cd "$WORKTREE" && echo "$RANDOM" >> feature.txt && git add -A && git commit -qm "$CARD: feature" && cd - > /dev/null
+        vendor/bin/kanban --in="$WORKTREE" report "$CARD" --status=review --tick=1 --summary=Done
+        SH);
+    $id = $this->code->started('Add login page');
+    $this->code->ok(['stack', $id, 'down']);
+    (new Process(['rm', '-rf', $this->code->worktree($id)]))->mustRun();
+
+    $out = runPass($this->code, $this->claude);
+
+    expect($out)->toMatch("/ {$id} start resumed; worker [0-9a-f]{8} launched\n/")->not->toContain("{$id} blocked")
+        ->and($this->code->sandbox->read($id)['blocked'])->toBeNull()
+        ->and($this->code->sandbox->read($id)['stage'])->toBe('review');
+});
+
+it('takes a stale run.pid for no run, whatever process holds that pid now', function () {
+    $other = new Process(['bash', '-c', 'exec -a run sleep 30']);
+    $other->start();
+    usleep(200_000);
+    @mkdir($this->code->root().'/.git/laravel-house', 0775, true);
+    file_put_contents($this->code->root().'/.git/laravel-house/run.pid', (string) $other->getPid());
+
+    try {
+        $out = runPass($this->code, $this->claude);
+    } finally {
+        $other->stop(0);
+    }
+
+    expect($out)->toContain('driving the board as')->not->toContain('already drives');
+});
+
+it('leaves a card started from another checkout of this machine alone', function () {
+    $id = $this->code->started('Add login page');
+    $this->code->ok(['stack', $id, 'down']);
+    (new Process(['rm', '-rf', $this->code->worktree($id)]))->mustRun();
+    @unlink($this->code->root()."/.git/laravel-house/starts/{$id}");
+
+    $out = runPass($this->code, $this->claude);
+
+    expect($out)->not->toContain("{$id} start resumed")
+        ->and(runLaunches($this->claude))->toBe([]);
+});
+
 it('retries a start that lost its stack slot after the claim once a slot is free, before any new start', function () {
     $this->code->configure(['gates' => ['report' => []], 'stack' => ['max_stacks' => 1]]);
     $lost = $this->code->started('Lost its slot');
@@ -258,9 +303,10 @@ it('lets one run drive a checkout, and turns a live one into a drain without sto
             ->and($second->getErrorOutput())->toContain('kanban run already drives this checkout (pid '.trim((string) file_get_contents($pid)).'): `kanban drain` makes it drain')
             ->and($this->code->ok(['drain']))->toBe('drain on: kanban run (pid '.trim((string) file_get_contents($pid)).") starts no new card from its next pass and returns once none is in flight\n");
     } finally {
-        $live->stop(0);
+        $live->stop(5);
     }
-    expect($this->code->ok(['drain', '--off']))->toBe("drain off: kanban run starts new cards again\n")
+    expect(is_file($pid))->toBeFalse()
+        ->and($this->code->ok(['drain', '--off']))->toBe("drain off: kanban run starts new cards again\n")
         ->and(is_file($this->code->root().'/.git/laravel-house/run.drain'))->toBeFalse();
 });
 
@@ -279,6 +325,8 @@ it('asks the owner about an approved change to files that steer the agents, and 
     expect($asked)->toContain("attention:\n  {$id} waits on the owner: question: merge with changes to files that steer the agents or git?\n")
         ->and($again)->not->toContain("{$id} waits on the owner")
         ->and($this->code->sandbox->read($id))->toMatchArray(['stage' => 'review', 'blocked' => 'question: merge with changes to files that steer the agents or git?']);
+
+    expect(runPass($this->code, $this->claude, ['--drain', '--until-attention', '--timeout=0']))->toContain('drained: no card in flight');
 
     $this->code->sandbox->ok(['answer', $id, '1']);
     expect(runPass($this->code, $this->claude))->toContain("merged {$id} into main")

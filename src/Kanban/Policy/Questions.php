@@ -52,6 +52,9 @@ final class Questions
             if ($section['context'] === '') {
                 throw new Invalid("{$where}: a line before the options says what is decided, in plain words");
             }
+            if (self::steering($section) !== [] || str_contains("\n".$section['text'], "\n".self::STEERING)) {
+                throw new Invalid("{$where}: a `".self::STEERING."` line is kanban's own (finish asks the owner with it); leave it out");
+            }
             $count = count($section['options']);
             if ($count < 2 || $count > 4 || array_keys($section['options']) !== range(1, $count)) {
                 throw new Invalid("{$where} needs 2 to 4 numbered options (1. Option — what it means for users)");
@@ -133,6 +136,12 @@ final class Questions
         }
 
         return trim(implode('', $kept));
+    }
+
+    /** How many Open questions of $body have no answer. */
+    public static function unanswered(string $body): int
+    {
+        return count(array_filter(self::sections($body), fn (array $s) => $s['kind'] === self::OPEN && ! $s['answered']));
     }
 
     /**

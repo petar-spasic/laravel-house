@@ -241,3 +241,45 @@ it('lets a merge that resolves a modify/delete conflict through the stop gate', 
     expect(stopAgent($this->p, $this->wt)['out'])->toBe('')
         ->and($this->p->card($this->id)['stage'])->toBe('review');
 });
+
+it('judges only the card\'s own merges, not the merges main brought along', function () {
+    $this->p->git($this->p->main, 'checkout', '-q', '-b', 'side');
+    file_put_contents($this->p->main.'/side.txt', "side\n");
+    $this->p->git($this->p->main, 'add', 'side.txt');
+    $this->p->git($this->p->main, 'commit', '-q', '-m', 'side');
+    $this->p->git($this->p->main, 'checkout', '-q', 'main');
+    $this->p->git($this->p->main, 'merge', '-q', '--no-ff', '--no-commit', 'side');
+    file_put_contents($this->p->main.'/extra.txt', "made in the merge\n");
+    $this->p->git($this->p->main, 'add', 'extra.txt');
+    $this->p->git($this->p->main, 'commit', '-q', '--no-edit');
+    $this->p->commit($this->wt, 'app.php', "<?php\n", "{$this->id}: clauses");
+    gone($this->p, 'a4d2c0ffee');
+    $this->p->sandbox->ok(['refresh', $this->id]);
+    $this->p->hook('subagent-start', $this->p->payload('subagent-start'));
+    $this->p->in($this->wt, ['report', $this->id, '--status=review', '--tick=1,2', '--summary=Done'])->mustRun();
+
+    expect(stopAgent($this->p, $this->wt)['out'])->toBe('')
+        ->and($this->p->card($this->id)['stage'])->toBe('review');
+});
+
+it('rebuilds a card in review whose follow-up report the stop gate refused for a merge', function () {
+    $this->p->commit($this->wt, 'app.php', "<?php\n", "{$this->id}: clauses");
+    $this->p->in($this->wt, ['report', $this->id, '--status=review', '--tick=1,2', '--summary=Done'])->mustRun();
+    stopAgent($this->p, $this->wt);
+    commitMain($this->p, 'other.txt', "other\n");
+    $this->p->sandbox->ok(['refresh', $this->id]);
+    file_put_contents($this->wt.'/stray.php', "<?php\n");
+    $this->p->git($this->wt, 'add', 'stray.php');
+    $this->p->git($this->wt, 'commit', '-q', '--amend', '--no-edit');
+    $this->p->hook('subagent-start', $this->p->payload('subagent-start'));
+    $this->p->in($this->wt, ['report', $this->id, '--status=review', '--tick=1,2', '--summary=Follow-up'])->mustRun();
+    expect(stopAgent($this->p, $this->wt)['json']['reason'] ?? '')->toContain('rebuild-branch');
+
+    $rebuilt = $this->p->in($this->wt, ['rebuild-branch', $this->id]);
+
+    expect($rebuilt->getExitCode())->toBe(0)
+        ->and($this->p->card($this->id))->toMatchArray(['stage' => 'review'])
+        ->and($this->p->card($this->id)['work']['approved'])->toBeNull();
+    $this->p->in($this->wt, ['report', $this->id, '--status=review', '--tick=1,2', '--summary=Rebuilt'])->mustRun();
+    expect(stopAgent($this->p, $this->wt)['out'])->toBe('');
+});

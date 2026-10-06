@@ -2,6 +2,8 @@
 
 namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
+use PetarSpasic\LaravelHouse\Kanban\Code\MergeCheck;
+use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
 use PetarSpasic\LaravelHouse\Kanban\Policy\PullPolicy;
 use PetarSpasic\LaravelHouse\Kanban\Policy\Questions;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Invalid;
@@ -52,17 +54,17 @@ class AnswerCommand extends Command
         }, $this->actor());
         $this->say("{$handle} answered: ".strtok($answer, "\n"));
 
-        if (($steering = Questions::steering($question)) !== []) {
-            $card = $this->store()->update($card->id(), function (array $data) use ($steering, $option) {
-                if ((int) $option === 1) {
-                    $data['log'][] = ['event' => 'steering_approved', 'files' => $steering];
-                }
+        // only what `finish --ask` asked about: a Steering: line anywhere else approves nothing
+        $steering = array_values(array_intersect(Questions::steering($question), MergeCheck::asked($card)));
+        if ($steering !== [] && (int) $option === 1) {
+            $worktrees = new Worktrees($this->paths(), $this->config());
+            $approval = MergeCheck::approvalOf($worktrees, $this->paths()->main, $card, $steering);
+            $card = $this->store()->update($card->id(), function (array $data) use ($approval) {
+                $data['log'][] = $approval;
 
                 return $data;
             }, $this->actor());
-            if ((int) $option === 1) {
-                $this->say("{$card->id()}: the owner approved ".implode(', ', $steering).'; the next finish merges it');
-            }
+            $this->say("{$card->id()}: the owner approved ".implode(', ', $steering).' as they are; the next finish merges it');
         }
         if ($question['kind'] === Questions::PROVISIONAL) {
             if ((int) $option !== $question['taken']) {

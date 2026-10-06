@@ -114,8 +114,8 @@ final class Runtime
     }
 
     /**
-     * Removes runtime files nothing reads any more: stopped agents, applied reports, an expired lease, unclaimed spawns and staged
-     * files of cards that are gone, done or dropped.
+     * Removes runtime files nothing reads any more: stopped agents, applied reports, an expired lease, unclaimed spawns, and
+     * staged files and start marks of cards that are gone or finished.
      *
      * @return int files removed
      */
@@ -153,6 +153,11 @@ final class Runtime
         }
         foreach ([...glob($this->paths->runtime('runs/*.json')) ?: [], ...glob($this->paths->runtime('runs/*.log')) ?: []] as $file) {
             $drop($file, self::APPLIED_DAYS * 86400);
+        }
+        foreach (glob($this->paths->runtime('starts').'/*') ?: [] as $file) {
+            if (! in_array($snapshot->card(basename($file))?->stage(), ['doing', 'review'], true)) {
+                $drop($file, -1);
+            }
         }
         foreach (glob($this->paths->staged('*.json')) ?: [] as $file) {
             $card = $snapshot->card(strstr(basename($file), '.', true) ?: '');

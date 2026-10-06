@@ -80,9 +80,10 @@ class FinishCommand extends Command
             throw new PolicyRefused("{$id}: the branch holds leftover conflict markers; {$id} → doing, the worker resolves them and reports again", explode("\n", MergeCheck::markersMessage($markers)));
         }
         $files = $check->branchFiles($branch);
-        if (($touched = MergeCheck::unapproved($files, MergeCheck::allowed($card))) !== [] && ! $this->option('force')) {
+        $blob = fn (string $file) => $check->blob("refs/heads/{$branch}", $file);
+        if (($touched = MergeCheck::unapproved($files, MergeCheck::approvals($card), $blob)) !== [] && ! $this->option('force')) {
             if ($this->option('ask')) {
-                $this->askOwner($card, $touched, $main, $branch);
+                $this->askOwner($card, $touched, $main, $branch, $head);
             }
             throw new PolicyRefused("{$id} changes files that steer the agents or git: ".implode(', ', $touched)
                 .($this->option('ask') ? '; asked the owner on the card (`kanban questions`)' : "; the owner approves them after reading the diff: `kanban allow-steering {$id} ".implode(' ', $touched).'`'));
@@ -276,20 +277,25 @@ class FinishCommand extends Command
 
     /**
      * The owner's question for a branch that changes files steering the agents or git: answered 1, `answer` approves them
-     * and the next `finish` merges; 2 sends the card back to its worker.
+     * as they are and the next `finish` merges; 2 sends the card back to its worker. An open one is asked once; after an
+     * answer the next approval asks anew. The log names what was asked: an answer approves nothing else.
      *
      * @param  list<string>  $touched
      */
-    private function askOwner(Card $card, array $touched, string $main, string $branch): void
+    private function askOwner(Card $card, array $touched, string $main, string $branch, string $head): void
     {
+        $open = array_filter(Questions::open($card), fn (array $q) => Questions::steering($q) !== []);
         $question = '## '.Questions::OPEN.' ('.gmdate('Y-m-d').")\n"
-            .'The approved change also changes files that steer the agents or git; merge it with them? The diff: `git diff '
+            .'The approved change (head '.substr($head, 0, 7).') also changes files that steer the agents or git; merge it with them? The diff: `git diff '
             .$main.'...'.$branch.' -- '.implode(' ', $touched)."`\n"
             .Questions::STEERING.' '.implode(', ', $touched)."\n"
             ."1. Approve — finish merges the card with these changes\n"
             .'2. Send back — its worker reverts them, and the card is reviewed again';
-        $this->store()->update($card->id(), function (array $data) use ($question) {
-            $data['body'] = Questions::append((string) ($data['body'] ?? ''), [$question]);
+        $this->store()->update($card->id(), function (array $data) use ($question, $open, $touched) {
+            if ($open === []) {
+                $data['body'] = trim(rtrim((string) ($data['body'] ?? ''))."\n\n".$question);
+                $data['log'][] = ['event' => 'steering_asked', 'files' => $touched];
+            }
             $data['blocked'] = Card::QUESTION.'merge with changes to files that steer the agents or git?';
 
             return $data;

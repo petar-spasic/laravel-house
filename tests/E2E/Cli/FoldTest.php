@@ -72,6 +72,21 @@ it('keeps one copy of a question the folded cards share, answered once', functio
         ->and($s->ok('questions'))->toBe("no open questions\n");
 });
 
+it('takes no block for a question the target has already answered', function () {
+    $s = $this->sandbox;
+    $question = "Should a seat limit block invites?\n1. Block — invites wait for a seat\n2. Warn — invites go out\nRecommended: 2 — growth";
+    $into = $s->card('Seats', ['--label=area:seats', "--body=Seats.\n\n## Open question (2026-10-01)\n{$question}"]);
+    $s->ok(['set', $into, 'blocked=question: Should a seat limit block invites?']);
+    $s->ok(['answer', $into, '2']);
+    $from = $s->card('Seat part', ['--label=area:seats', "--body=Part.\n\n## Open question (2026-10-02)\n{$question}"]);
+    $s->ok(['set', $from, 'blocked=question: Should a seat limit block invites?']);
+
+    $s->ok(['fold', $from, "--into={$into}"]);
+
+    expect($s->read($into)['blocked'])->toBeNull()
+        ->and($s->ok('questions'))->toBe("no open questions\n");
+});
+
 it('refuses a fold past the card limits and writes nothing', function () {
     $s = $this->sandbox;
     $into = $s->card('Big', array_map(fn (int $i) => "--accept=Criterion {$i}", range(1, 20)));

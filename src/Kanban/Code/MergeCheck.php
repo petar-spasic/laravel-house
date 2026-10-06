@@ -22,34 +22,103 @@ final class MergeCheck
     }
 
     /**
-     * The files under PROTECTED the owner has not approved for this card: $allowed holds paths, or directories ending in
-     * `/`.
+     * The files under PROTECTED the owner has not approved for the card. An approval names paths (a directory ends in
+     * `/`). One given once the branch had changed a file holds that file's content then (`blobs`), so a later change asks
+     * again; one given before, at planning, covers any change.
      *
      * @param  list<string>  $files
-     * @param  list<string>  $allowed
+     * @param  list<array<string, mixed>>  $approvals  the card's `steering_approved` log entries
+     * @param  callable(string): string  $blob  a file's blob on the branch now, '' when it is deleted
      * @return list<string>
      */
-    public static function unapproved(array $files, array $allowed): array
+    public static function unapproved(array $files, array $approvals, callable $blob): array
     {
-        return array_values(array_filter(self::protected($files), fn (string $f) => array_filter($allowed,
-            fn (string $a) => $a === $f || (str_ends_with($a, '/') && str_starts_with($f, $a))) === []));
+        return array_values(array_filter(self::protected($files), function (string $file) use ($approvals, $blob) {
+            foreach ($approvals as $approval) {
+                $blobs = (array) ($approval['blobs'] ?? []);
+                if (array_key_exists($file, $blobs) ? $blobs[$file] === $blob($file) : $blobs === [] && self::covers((array) ($approval['files'] ?? []), $file)) {
+                    return false;
+                }
+            }
+
+            return true;
+        }));
     }
 
     /**
-     * What the owner approved for $card: `allow-steering`, or the answer to the question `finish --ask` put.
+     * The card's approvals (`allow-steering`, or answer 1 to the question `finish --ask` put).
+     *
+     * @return list<array<string, mixed>>
+     */
+    public static function approvals(Card $card): array
+    {
+        return array_values(array_filter($card->log(), fn (array $e) => ($e['event'] ?? null) === 'steering_approved'));
+    }
+
+    /**
+     * The files the last `finish --ask` asked the owner about: the only ones an answer approves.
      *
      * @return list<string>
      */
-    public static function allowed(Card $card): array
+    public static function asked(Card $card): array
     {
-        $paths = [];
+        $asked = [];
         foreach ($card->log() as $entry) {
-            if (($entry['event'] ?? null) === 'steering_approved') {
-                array_push($paths, ...array_map('strval', (array) ($entry['files'] ?? [])));
+            if (($entry['event'] ?? null) === 'steering_asked') {
+                $asked = array_map('strval', (array) ($entry['files'] ?? []));
             }
         }
 
-        return array_values(array_unique($paths));
+        return $asked;
+    }
+
+    /**
+     * The log entry approving $paths for the card on $branch, with the content of each file the branch has changed by now.
+     *
+     * @param  list<string>  $paths
+     * @return array<string, mixed>
+     */
+    public function approval(string $branch, array $paths): array
+    {
+        $blobs = [];
+        if ($branch !== '' && $this->git->line(['rev-parse', '--verify', '-q', "refs/heads/{$branch}"]) !== null) {
+            foreach (self::protected($this->branchFiles($branch)) as $file) {
+                if (self::covers($paths, $file)) {
+                    $blobs[$file] = $this->blob("refs/heads/{$branch}", $file);
+                }
+            }
+        }
+
+        return ['event' => 'steering_approved', 'files' => $paths] + ($blobs === [] ? [] : ['blobs' => $blobs]);
+    }
+
+    /**
+     * approval() for $card, its clone's branch brought into main first.
+     *
+     * @param  list<string>  $paths
+     * @return array<string, mixed>
+     */
+    public static function approvalOf(Worktrees $worktrees, string $main, Card $card, array $paths): array
+    {
+        $branch = (string) ($card->work()['branch'] ?? '');
+        $clone = $main.'/'.($card->work()['worktree'] ?? "\0");
+        if (is_dir($clone)) {
+            $worktrees->sync($clone, $branch === '' ? null : $branch);
+        }
+
+        return (new self($worktrees->git(), $worktrees->mainBranch()))->approval($branch, $paths);
+    }
+
+    /** $file's blob at $rev, '' when it is not there. */
+    public function blob(string $rev, string $file): string
+    {
+        return (string) $this->git->line(['rev-parse', '--verify', '-q', "{$rev}:{$file}"]);
+    }
+
+    /** @param  list<string>  $paths  files, or directories ending in `/` */
+    private static function covers(array $paths, string $file): bool
+    {
+        return array_filter($paths, fn (string $p) => $p === $file || (str_ends_with($p, '/') && str_starts_with($file, $p))) !== [];
     }
 
     /** Files whose change means a stack must be rebuilt and recreated; a lockfile at any depth. */
