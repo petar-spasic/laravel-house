@@ -667,13 +667,17 @@ change either one in the `agents` section of `config/kanban.php`:
 
 ```php
 'agents' => [
-    'worker' => ['model' => 'sonnet', 'effort' => 'high'],
+    'worker' => ['model' => 'sonnet', 'effort' => 'high', 'resume_context' => 100_000],
     'evaluator' => ['model' => 'opus', 'effort' => 'medium'],
 ],
 ```
 
 `kanban run` passes these values to every agent it starts as `--model` and `--effort`. The model and effort of the
 session that runs it never reach its agents, so a change applies from the next agent it starts.
+
+After a rejection, `kanban run` sends the work back to the same worker session. Each turn of a resumed session reads
+the whole session again, so once a session reads more than `resume_context` tokens a turn, a new session takes over
+the card instead. It starts from what the card says: the last verdict, the commits and what is left.
 
 The values are also written into the agent files, which decide for agents your session spawns itself. After changing
 them, run `vendor/bin/kanban doctor --fix` and restart Claude Code.

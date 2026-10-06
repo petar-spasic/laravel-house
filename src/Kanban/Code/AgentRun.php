@@ -44,15 +44,20 @@ final class AgentRun
         };
     }
 
-    /** Launches a new session for the card, or resumes $resume; returns the session id. */
-    public function launch(Card $card, string $type, ?string $resume = null): string
+    /**
+     * Launches a new session for the card, or resumes $resume; returns the session id. $again: a new session on work in
+     * progress, for a worker whose own session grew too large to resume.
+     */
+    public function launch(Card $card, string $type, ?string $resume = null, bool $again = false): string
     {
         $session = $resume ?? self::uuid();
         $worktree = (string) ($card->work()['worktree'] ?? '');
         $worktree = realpath($this->paths->main.'/'.$worktree) ?: $this->paths->main.'/'.$worktree;
-        $prompt = $resume === null
-            ? "Card {$card->id()}. Worktree {$worktree}"
-            : "Resumed for card {$card->id()}: run vendor/bin/kanban context and act on what it shows (section 5 of your instructions).";
+        $prompt = match (true) {
+            $resume !== null => "Resumed for card {$card->id()}: run vendor/bin/kanban context and act on what it shows (section 5 of your instructions).",
+            $again => "Card {$card->id()}. Worktree {$worktree} — a new session on work in progress: orient (section 1), then act on what vendor/bin/kanban context shows (section 5).",
+            default => "Card {$card->id()}. Worktree {$worktree}",
+        };
         (new Runtime($this->paths))->saveAgent(['agent_id' => $session, 'agent_type' => $type, 'card' => $card->id(), 'worktree' => $worktree,
             'bound_at' => Clock::now(), 'started_at' => Clock::now(), 'stopped_at' => null, 'stop_blocks' => 0, 'headless' => true]);
 
@@ -130,6 +135,22 @@ final class AgentRun
         }
 
         return $ended;
+    }
+
+    /**
+     * What each turn of a resumed $session reads again: its last run's tokens per turn, a measure of the session's size
+     * (a turn reads the whole session, mostly from the cache). Null when no run of it has ended.
+     */
+    public function context(string $session): ?int
+    {
+        $last = null;
+        foreach (@file($this->paths->runtime('runs.jsonl'), FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
+            if (str_contains($line, $session) && is_array($run = json_decode($line, true)) && ($run['session'] ?? null) === $session) {
+                $last = $run;
+            }
+        }
+
+        return $last === null || (int) ($last['turns'] ?? 0) < 1 ? null : intdiv((int) ($last['tokens'] ?? 0), (int) $last['turns']);
     }
 
     /** A usage limit or an overloaded API: worth waiting out, not the card's fault. @param  array<string, mixed>  $result */
