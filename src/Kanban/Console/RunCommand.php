@@ -194,15 +194,8 @@ class RunCommand extends Command
 
                     continue;
                 }
-                // every turn of a resumed session reads it whole again: past the limit a new session is cheaper
-                $size = $resume === null ? null : $this->agents->context($resume);
-                $fresh = $size !== null && $size >= (int) $this->setting('agents.worker.resume_context', 100_000);
-                $session = $this->agents->launch($card, AgentRun::WORKER, $fresh ? null : $resume, $fresh);
-                $this->log("{$card->id()} worker ".substr($session, 0, 8).match (true) {
-                    $fresh => " launched, a new session: the last one reads ~{$size} tokens a turn",
-                    $resume === null => ' launched',
-                    default => ' resumed',
-                }.($resume !== null && $dirty ? ', main not merged: uncommitted changes in its clone' : ''));
+                $session = $this->agents->launch($card, AgentRun::WORKER, $resume);
+                $this->log("{$card->id()} worker ".substr($session, 0, 8).($resume === null ? ' launched' : ' resumed').($resume !== null && $dirty ? ', main not merged: uncommitted changes in its clone' : ''));
                 $acted = true;
             }
         }

@@ -116,8 +116,7 @@ vendor/bin/kanban report <ID> --status=blocked --question-file=.tmp/question.md 
 
 ## 5. Resumed
 
-When the main session sends you a message (an evaluator reject, a merge of main after `refresh`), or you start as a new
-session on work in progress:
+When the main session sends you a message (an evaluator reject, a merge of main after `refresh`):
 
 1. `vendor/bin/kanban context` shows the failed checks, the issues and any conflicted files.
 2. A merge of main in progress: resolve each conflict keeping both sides' content and adding nothing neither side

@@ -111,29 +111,6 @@ it('resumes the same worker session after a reject', function () {
         ->and(end($workers[1]))->toStartWith("Resumed for card {$id}: run vendor/bin/kanban context");
 });
 
-it('starts a new worker session instead of resuming one that reads more than resume_context tokens a turn', function () {
-    $this->code->configure(['gates' => ['report' => []], 'agents' => ['worker' => ['resume_context' => 5000]]]);
-    runAgent($this->claude, 'evaluator', <<<'SH'
-        if [ -f "$FAKE_CLAUDE_DIR/rejected" ]; then verdict="approve --check=1:pass:ok"; else touch "$FAKE_CLAUDE_DIR/rejected"; verdict="reject --check=1:fail:missing"; fi
-        vendor/bin/kanban --in="$WORKTREE" verdict "$CARD" $verdict
-        SH);
-    $id = $this->code->sandbox->readyCard('Add login page');
-
-    $out = '';
-    foreach (range(1, 5) as $n) {
-        $out .= runPass($this->code, $this->claude);
-    }
-
-    $workers = array_values(array_filter(runLaunches($this->claude), fn ($a) => $a[2] === 'kanban-worker'));
-    $session = fn (array $argv) => $argv[array_search('--session-id', $argv, true) + 1];
-    expect($this->code->sandbox->read($id)['stage'])->toBe('done')
-        ->and($workers)->toHaveCount(2)
-        ->and($workers[1])->not->toContain('--resume')
-        ->and($session($workers[1]))->not->toBe($session($workers[0]))
-        ->and(end($workers[1]))->toStartWith("Card {$id}. Worktree ")->toContain(' — a new session on work in progress')
-        ->and($out)->toContain("launched, a new session: the last one reads ~7170 tokens a turn\n");
-});
-
 it('merges main into a card before resuming its worker, so a fix landed on main reaches it', function () {
     runAgent($this->claude, 'worker', <<<'SH'
         if [ -f "$WORKTREE/fix.txt" ]; then

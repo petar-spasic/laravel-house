@@ -22,9 +22,7 @@ return [
     'agents' => [
         // Passed as --model and --effort to the agents `kanban run` starts, and written into the frontmatter of
         // .claude/agents/kanban-{worker,evaluator}.md by kanban:install / doctor --fix.
-        // `kanban run` resumes a worker's own session after a reject or a merge of main while that session reads fewer
-        // than resume_context tokens a turn; past it, a new session starts from `kanban context`.
-        'worker' => ['model' => 'sonnet', 'effort' => 'high', 'resume_context' => 100_000],
+        'worker' => ['model' => 'sonnet', 'effort' => 'high'],
         'evaluator' => ['model' => 'opus', 'effort' => 'medium'],
         // container: a worker's or evaluator's Bash and Monitor commands run in its card stack's `stack.service`
         // container (vendor/bin/kanban-exec), except `git` and `vendor/bin/kanban`. host: they run on this machine.
