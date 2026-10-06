@@ -235,8 +235,8 @@ until it is consolidated.
 4. `vendor/bin/kanban fold-boards`. It runs the stored-name migration first, then makes one commit and pushes it. With
    sync off, `vendor/bin/kanban sync` once it is on.
 5. Cards that got the same question are usually one piece of work: `kanban fold A B --into=C`.
-6. Give every open card an `area:*` label (`set ID labels=+area:…`), with areas sized as the `kanban` skill's "Planning
-   cards" says; then re-plan with the owner: fold enabler cards, group small ones. An epic that is really a permanent
+6. Give every open card an `area:*` label (`set ID labels=+area:…`), with areas sized as the `kanban` skill's "Cutting
+   cards" says; then re-cut with the owner: fold enabler cards, group small ones. An epic that is really a permanent
    part of the product (UI, Backend) becomes an area instead: `set ID labels=+area:… epic=` on its cards.
 7. "Judging decisions", then `vendor/bin/kanban validate` and `doctor`.
 

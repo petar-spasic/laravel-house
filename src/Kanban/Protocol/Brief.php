@@ -69,7 +69,7 @@ final class Brief
                 .($red['card'] ?? 'no card').')';
         }
         foreach (array_filter($work('planning'), fn (Card $c) => $c->atWork()) as $card) {
-            $lines[] = 'planning '.$this->short($card).': '.implode(', ', [...(Plan::madeUnderClaim($card) ? ['planned, not yet moved to ready'] : []),
+            $lines[] = 'planning '.$this->short($card).': '.implode(', ', [...(Plan::madeUnderClaim($card) ? [Plan::current($card) ? 'planned, not yet moved to ready' : 'planned, then the card changed: its planner revises it'] : []),
                 ...$this->flight($card, $runtime, 'kanban-planner'), ...$this->trouble($card, $runtime)]);
         }
         foreach ($work('doing') as $card) {

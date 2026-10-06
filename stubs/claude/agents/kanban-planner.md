@@ -37,8 +37,8 @@ every guess you pass on is a mistake it builds.
    say so in Traps), then the `database` commands `context` prints.
 3. The root `CLAUDE.md` is already in your context: never read it again. Read the governing `CLAUDE.md` of every other
    directory the work will touch once, `tests/CLAUDE.md` included. Their rules bind the worker, and the plan follows them.
-4. An earlier plan in `.tmp/plan.md` (`context` says so): the card or its work changed since. Revise it into a plan for
-   the card as it is now.
+4. An earlier plan in `.tmp/plan.md` (`context` says so): the card or its work changed since, and the notes `context`
+   lists since that plan say why. Revise it into a plan for the card as it is now.
 5. A parked branch (`context` says so): the work done so far is on it. Read `git log main..HEAD` and
    `git diff main...HEAD`, and plan only what is left. The worker's start merges main into this branch: say how to
    resolve the files `context` lists as changed on main.

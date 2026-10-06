@@ -133,18 +133,17 @@ it('reuses a parked branch with main merged into it, once it is planned again', 
     $code = $this->code;
     $id = $code->started('Park me');
     $sha = $code->commit($id, 'feature.txt', "one\n");
-    $code->ok(['stop', $id, '--to=ready']);
+    $stopped = $code->ok(['stop', $id, '--to=ready']);
     $main = $code->commitMain('main.txt', "moved\n");
-    $unplanned = $code->kanban(['start', $id]);
-    $code->ok(['promote', '--auto']);
     $replanned = $code->sandbox->read($id)['stage'];
-    $code->sandbox->plan($id);
+    // the owner's own plan may name what only the parked branch holds: the worker's start merges main into it
+    $code->sandbox->ok(['plan', $id, '--plan-file=-'], [], Sandbox::planFor([1], 'feature.txt'));
 
     $output = $code->ok(['start', $id]);
 
     $card = $code->sandbox->read($id);
     $wt = $code->worktree($id);
-    expect($unplanned->getExitCode())->toBe(3)->and($unplanned->getErrorOutput())->toContain('no current plan')
+    expect($stopped)->toContain("{$id} doing→planning: its plan does not cover the work on its branch; a planner plans the rest\n")
         ->and($replanned)->toBe('planning')
         ->and($output)->toContain('(parked branch reused)')
         ->and($output)->toContain('merged main into the parked branch')

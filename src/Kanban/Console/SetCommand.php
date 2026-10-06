@@ -65,7 +65,8 @@ class SetCommand extends Command
 
             return self::SUCCESS;
         }
-        $this->say("{$updated->id()} updated".($updated->stage() !== $card->stage() ? ", {$card->stage()}→{$updated->stage()}: its plan does not cover the change" : ''));
+        $this->say("{$updated->id()} updated".($updated->stage() === $card->stage() ? '' : ", {$card->stage()}→{$updated->stage()}"
+            .($updated->stage() === 'planning' ? ': its plan does not cover the change' : '')));
         $areas = array_values(array_diff($updated->areas(), $card->areas()));
         $depends = array_values(array_diff($updated->dependsOn(), $card->dependsOn()));
         if ($areas !== [] || $depends !== []) {

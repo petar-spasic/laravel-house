@@ -58,6 +58,17 @@ final class PullPolicy
         return $this->sort($snapshot, $snapshot->cards(fn (Card $c) => $c->stage() === 'ready' && $c->claim() === null && ! isset($skipped[$c->id()])), 'ready');
     }
 
+    /**
+     * Ready cards that start once a slot and their area are free: unclaimed, with a current plan, nothing else in the way.
+     *
+     * @return list<Card>
+     */
+    public function queued(Snapshot $snapshot): array
+    {
+        return $this->sort($snapshot, $snapshot->cards(fn (Card $c) => $c->stage() === 'ready' && $c->claim() === null && $this->unfit($snapshot, $c) === null
+            && Plan::current($c)), 'ready');
+    }
+
     /** @return list<Card> planning cards a planner may take, in pull order: unclaimed, unblocked, on an area, their dependencies done */
     public function plannable(Snapshot $snapshot): array
     {
@@ -68,15 +79,18 @@ final class PullPolicy
 
     /**
      * Why each planning card no planner holds cannot be planned yet, in pull order: `no area:* label`, `blocked: …`,
-     * `waits on ACME-Z (doing)`. A busy area is no reason: planning changes no code.
+     * `waits on ACME-Z (doing)`, a ready-policy refusal (`R4 no acceptance criteria`). A busy area is no reason: planning
+     * changes no code.
      *
      * @return array<string, string> id => reason
      */
     public function waiting(Snapshot $snapshot): array
     {
+        $policy = new ReadyPolicy;
         $reasons = [];
         foreach ($this->sort($snapshot, $snapshot->cards(fn (Card $c) => $c->stage() === 'planning' && $c->claim() === null), 'planning') as $card) {
-            if (($reason = $this->unfit($snapshot, $card)) !== null) {
+            $reason = $this->unfit($snapshot, $card) ?? (($refusals = $policy->refusals($card, $snapshot, false)) === [] ? null : implode('; ', $refusals));
+            if ($reason !== null) {
                 $reasons[$card->id()] = $reason;
             }
         }
@@ -86,15 +100,16 @@ final class PullPolicy
 
     /**
      * Up to $count planning cards for planners now, in pull order, on the slots `max_parallel` leaves free (`urgent` one over
-     * when no urgent card is being planned).
+     * when no urgent card is at work), leaving out the ids in $skip.
      *
+     * @param  list<string>  $skip
      * @return array{cards: list<Card>, reason: string|null, capacity: array<string, mixed>, held: array<string, string>}
      */
-    public function nextPlanning(Snapshot $snapshot, int $count = 1, ?string $host = null): array
+    public function nextPlanning(Snapshot $snapshot, int $count = 1, ?string $host = null, array $skip = []): array
     {
         $capacity = $this->capacity($snapshot, $host);
-        $candidates = $this->plannable($snapshot);
-        $urgent = $snapshot->cards(fn (Card $c) => $c->stage() === 'planning' && $c->atWork() && $c->priority() === 'urgent') !== [];
+        $candidates = array_values(array_filter($this->plannable($snapshot), fn (Card $c) => ! in_array($c->id(), $skip, true)));
+        $urgent = $this->urgentAtWork($snapshot);
         $picked = [];
         $held = [];
         $expedited = false;
@@ -161,6 +176,12 @@ final class PullPolicy
         };
     }
 
+    /** An urgent card already over capacity, or within it: in doing, or held by a planner. */
+    private function urgentAtWork(Snapshot $snapshot): bool
+    {
+        return $snapshot->cards(fn (Card $c) => $c->priority() === 'urgent' && ($c->stage() === 'doing' || ($c->stage() === 'planning' && $c->atWork()))) !== [];
+    }
+
     /** A card that comes back to work in flight: `stop` kept its branch, with its commits. */
     public static function parked(Card $card): bool
     {
@@ -194,16 +215,18 @@ final class PullPolicy
     }
 
     /**
-     * Up to $count cards to start now. `urgent` may exceed capacity by one when no urgent card is in doing. `held` is the
-     * refusal for each startable card it passed over: the card ahead in its area, or the limit it hit.
+     * Up to $count cards to start now, leaving out the ids in $skip. `urgent` may exceed capacity by one when no urgent card
+     * is at work (in doing, or held by a planner: the one place over capacity is shared). `held` is the refusal for each
+     * startable card it passed over: the card ahead in its area, or the limit it hit.
      *
+     * @param  list<string>  $skip
      * @return array{cards: list<Card>, reason: string|null, capacity: array<string, mixed>, held: array<string, string>}
      */
-    public function next(Snapshot $snapshot, int $count = 1, ?string $host = null): array
+    public function next(Snapshot $snapshot, int $count = 1, ?string $host = null, array $skip = []): array
     {
         $capacity = $this->capacity($snapshot, $host);
-        $candidates = $this->candidates($snapshot);
-        $urgentDoing = $snapshot->cards(fn (Card $c) => $c->stage() === 'doing' && $c->priority() === 'urgent') !== [];
+        $candidates = array_values(array_filter($this->candidates($snapshot), fn (Card $c) => ! in_array($c->id(), $skip, true)));
+        $urgentDoing = $this->urgentAtWork($snapshot);
         $boardFree = [];
         foreach ($snapshot->boards() as $board) {
             $onBoard = count($snapshot->cards(fn (Card $c) => $c->stage() === 'doing' && $c->board->equals($board->ref)));

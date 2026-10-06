@@ -22,7 +22,7 @@ class RefreshCommand extends Command
         {id? : Card id or unique prefix}
         {--all : Every doing or review card with a worktree on this machine}';
 
-    protected $description = 'Merge main into a card branch; a conflict is left in progress and handed back to the worker';
+    protected $description = 'Merge main into a card branch (a conflict is left in progress and handed back to the worker); a planner\'s fresh branch moves to main';
 
     /** In the refusal while an agent of the card runs: `kanban run` waits for it rather than blocking the card. */
     public const LIVE = 'is still running';
@@ -46,7 +46,8 @@ class RefreshCommand extends Command
         foreach ($cards as $card) {
             if (($live = $this->live($card, $snapshot)) !== null) {
                 if (! $this->option('all')) {
-                    $failed = str_starts_with((new Runtime($this->paths()))->refusal($card->id(), $live === 'worker' ? 'report' : 'verdict')['reason'] ?? '', 'hook failed');
+                    $kind = ['worker' => 'report', 'planner' => 'plan'][$live] ?? 'verdict';
+                    $failed = str_starts_with((new Runtime($this->paths()))->refusal($card->id(), $kind)['reason'] ?? '', 'hook failed');
                     throw new PolicyRefused("{$card->id()}: its {$live} ".self::LIVE." (what it stages applies when it stops); `vendor/bin/kanban wait {$card->id()}`"
                         .($failed ? '; its stop hook failed, so `vendor/bin/kanban apply` settles it' : ''));
                 }
@@ -73,8 +74,11 @@ class RefreshCommand extends Command
         $id = $card->id();
         $relative = $card->work()['worktree'] ?? null;
         $path = $relative === null ? null : $this->paths()->main.'/'.$relative;
-        if (! Stage::isActive($card->stage()) || $path === null || ! is_dir($path)) {
+        if (! $card->atWork() || $path === null || ! is_dir($path)) {
             throw new NotFound("{$id} has no worktree on this machine");
+        }
+        if ($card->stage() === 'planning') {
+            return $this->follow($card, $worktrees, $path);
         }
         $main = $worktrees->mainBranch();
         // a merge would carry the edits into the merge commit, where nobody reviews them as the card's change. Untracked files
@@ -142,17 +146,56 @@ class RefreshCommand extends Command
         return self::SUCCESS;
     }
 
-    /** The agent the card in its stage takes next: its worker in doing, an evaluator in review. */
-    private function spawn(Card $card, string $path): void
+    /**
+     * A planner's clone follows main: a planner commits nothing, so its fresh branch moves to main's head. A parked branch
+     * stays as its worker left it, for the planner to read; the worker's start merges main into it.
+     */
+    private function follow(Card $card, Worktrees $worktrees, string $path): int
     {
-        $this->say('spawn: '.Worktrees::spawnLine($card, $card->stage() === 'review' ? 'kanban-evaluator' : 'kanban-worker', $path));
+        $id = $card->id();
+        $branch = $card->work()['branch'] ?? null;
+        if (! is_string($branch) || $branch === ($card->work()['parked_branch'] ?? null)) {
+            $this->say("up to date {$id}: its planner reads the parked branch as it is");
+            $this->spawn($card, $path);
+
+            return self::SUCCESS;
+        }
+        $main = $worktrees->mainBranch();
+        $git = $worktrees->git($path);
+        if ($git->line(['symbolic-ref', '--short', '-q', 'HEAD']) !== $branch) {
+            throw new PolicyRefused("{$id}: its clone is not on its branch {$branch}");
+        }
+        $worktrees->sync($path, $branch);
+        $before = $worktrees->head('HEAD', $path);
+        $after = $worktrees->head('refs/heads/'.$main, $path);
+        if ($before !== $after) {
+            $git->run(['reset', '-q', '--hard', 'refs/heads/'.$main]);
+            $worktrees->sync($path, $branch);
+            $this->say("refreshed {$id}: its planning branch moved to {$main} (".substr($before, 0, 7).'..'.substr($after, 0, 7).')');
+            $rebuild = MergeCheck::rebuildFiles(array_values(array_filter(explode("\n", trim($git->attempt(['diff', '--name-only', "{$before}...{$after}"])->out)))),
+                $this->config()['stack']['compose_file'] ?? null);
+            if ($rebuild !== [] && ($entry = $worktrees->freshen($path)) !== null) {
+                $this->say("reloaded {$entry['project']}: ".implode(', ', $rebuild).' changed');
+            }
+        } else {
+            $this->say("up to date {$id}");
+        }
+        $this->spawn($card, $path);
+
+        return self::SUCCESS;
     }
 
-    /** An agent of the card that has not stopped (`worker`, `evaluator`), or null. */
+    /** The agent the card in its stage takes next: its planner in planning, its worker in doing, an evaluator in review. */
+    private function spawn(Card $card, string $path): void
+    {
+        $this->say('spawn: '.Worktrees::spawnLine($card, ['planning' => 'kanban-planner', 'review' => 'kanban-evaluator'][$card->stage()] ?? 'kanban-worker', $path));
+    }
+
+    /** An agent of the card that has not stopped (`planner`, `worker`, `evaluator`), or null. */
     private function live(Card $card, Snapshot $snapshot): ?string
     {
         $runtime = new Runtime($this->paths(), $snapshot->staleMinutes());
-        foreach (['kanban-worker', 'kanban-evaluator'] as $type) {
+        foreach ($card->stage() === 'planning' ? ['kanban-planner'] : ['kanban-worker', 'kanban-evaluator'] as $type) {
             if (($agent = $runtime->agentFor($card->id(), $type)) !== null && $runtime->state($agent) === 'live') {
                 return str_replace('kanban-', '', $type);
             }

@@ -105,8 +105,9 @@ agent a headless `claude -p` session. It runs under your session's lease.
    - `kanban run failed: …`: read it; a defect in the package is `upstream new`; start it again.
 4. **Wrap up** ("stop", "drain"): `vendor/bin/kanban drain` (never kill a run: it may be mid-merge), then keep
    starting `run --until-attention` as above until it prints `drained`, then `publish` and one message to the owner. Agents already running finish on their own; a new `run` picks them up.
-- Keep the pipeline full: `promote --auto` fills planning, counting startable ready cards and the planning cards a
-  planner holds or may take; `next -v` says why ready cards wait, `next --planning -v` why planning cards do.
+- Keep the pipeline full: `promote --auto` fills planning, counting the ready cards waiting to start and the planning
+  cards a planner holds or may take, one card ahead per area; `next -v` says why ready cards wait, `next --planning -v`
+  why planning cards do.
 - Where a background command cannot run (a cloud session that ends turns), drive the board by hand:
   `references/protocol.md`, "Driving the board by hand".
 

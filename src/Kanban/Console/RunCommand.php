@@ -223,8 +223,7 @@ class RunCommand extends Command
                 $stop->isSuccessful() ? $this->notice("{$card->id()} parked in backlog: {$card->blocked()}") : $this->block($card->id(), $stop);
                 $acted = true;
             } elseif (! $paused) {
-                $last = $runtime->agentFor($card->id(), AgentRun::WORKER);
-                $resume = ! empty($last['headless']) ? (string) $last['agent_id'] : null;
+                $resume = $this->resumable($runtime, $card, AgentRun::WORKER);
                 // a fix that unblocked the card may have landed on main; 5: the worker concludes the conflict first. Not into
                 // uncommitted edits (a session that ended mid-work): the worker commits them first (its stop gate), and the
                 // next round merges. Untracked files stay out of a merge, and the stop gate catches one folded into it
@@ -255,9 +254,13 @@ class RunCommand extends Command
                 $ready->isSuccessful() ? $this->log("{$card->id()} planned: ready") : $this->block($card->id(), $ready);
                 $acted = true;
             } elseif (! $paused) {
-                // no plan yet, or one the card has outgrown: its planner (re)writes it
-                $last = $runtime->agentFor($card->id(), AgentRun::PLANNER);
-                $resume = ! empty($last['headless']) ? (string) $last['agent_id'] : null;
+                // no plan yet, or one the card has outgrown: its planner (re)writes it, on main as it is now
+                $resume = $this->resumable($runtime, $card, AgentRun::PLANNER);
+                if ($resume !== null && ! ($refresh = $this->kanban(['refresh', $card->id()]))->isSuccessful()) {
+                    str_contains($refresh->getErrorOutput(), RefreshCommand::LIVE) || $this->block($card->id(), $refresh);
+
+                    continue;
+                }
                 $session = $this->agents->launch($card, AgentRun::PLANNER, $resume);
                 $this->log("{$card->id()} planner ".substr($session, 0, 8).($resume === null ? ' launched' : ' resumed'));
                 $acted = true;
@@ -269,7 +272,7 @@ class RunCommand extends Command
             $draining = $this->draining();
             $draining || $this->kanban(['promote', '--auto']);
             $this->capped = null;
-            foreach ((new PullPolicy)->next($this->store()->snapshot(), 99)['cards'] as $card) {
+            foreach ((new PullPolicy)->next($this->store()->snapshot(), 99, skip: array_keys($this->held))['cards'] as $card) {
                 if (! $this->room() || isset($this->held[$card->id()]) || ($draining && ! PullPolicy::parked($card))) {
                     if ($this->capped !== null) {
                         break;
@@ -277,15 +280,15 @@ class RunCommand extends Command
 
                     continue;
                 }
-                $acted = $this->begin($card, AgentRun::WORKER) || $acted;
+                $acted = $this->begin($card) || $acted;
             }
             // planners take the slots workers leave; a drain plans only parked work, which is in flight
-            foreach ($this->capped !== null ? [] : (new PullPolicy)->nextPlanning($this->store()->snapshot(), 99)['cards'] as $card) {
+            foreach ($this->capped !== null ? [] : (new PullPolicy)->nextPlanning($this->store()->snapshot(), 99, skip: array_keys($this->held))['cards'] as $card) {
                 if (! $this->room()) {
                     break;
                 }
                 if (! isset($this->held[$card->id()]) && (! $draining || PullPolicy::parked($card))) {
-                    $acted = $this->begin($card, AgentRun::PLANNER) || $acted;
+                    $acted = $this->begin($card) || $acted;
                 }
             }
         }
@@ -300,6 +303,14 @@ class RunCommand extends Command
         $this->watch($state);
     }
 
+    /** The headless session of the card's agent of $type to resume: one started under the claim the card holds now. */
+    private function resumable(Runtime $runtime, Card $card, string $type): ?string
+    {
+        $last = $runtime->agentFor($card->id(), $type);
+
+        return ! empty($last['headless']) && (string) ($last['started_at'] ?? '') >= (string) ($card->claim()['at'] ?? '') ? (string) $last['agent_id'] : null;
+    }
+
     /** Whether a card stack fits under `stack.max_stacks` now, after freeing the slots a start lost; $capped says why not. */
     private function room(): bool
     {
@@ -310,8 +321,11 @@ class RunCommand extends Command
         return ($this->capped = $this->stackFull()) === null;
     }
 
-    /** `start` for the card's next agent ($type), then that agent; a refused start holds the card for the rest of this run. */
-    private function begin(Card $card, string $type): bool
+    /**
+     * `start`, then the agent the claim it made is for: a planner in planning, a worker in doing (the card may have moved
+     * between this pass's pick and its start). A refused start holds the card for the rest of this run.
+     */
+    private function begin(Card $card): bool
     {
         $start = $this->kanban(['start', $card->id()]);
         if (! $start->isSuccessful()) {
@@ -319,7 +333,9 @@ class RunCommand extends Command
 
             return false;
         }
-        $session = $this->agents->launch($this->store()->snapshot()->resolve($card->id()), $type);
+        $card = $this->store()->snapshot()->resolve($card->id());
+        $type = $card->stage() === 'planning' ? AgentRun::PLANNER : AgentRun::WORKER;
+        $session = $this->agents->launch($card, $type);
         $this->log("{$card->id()} ".($type === AgentRun::PLANNER ? 'planning started; planner ' : 'started; worker ').substr($session, 0, 8).' launched');
 
         return true;

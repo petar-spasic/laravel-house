@@ -14,13 +14,12 @@ default: the owner and the main session may add a note, block or unblock, tick o
 card in review holds its area until `finish`. → `next -v` names the wait; finish approved cards first, and plan one card
 per area (the kanban skill, "Cutting cards").
 
-**A ready card went back to planning.** → Its criteria or body changed after it was planned, or the owner answered a
-provisional decision with another option than its plan took. → Nothing to do: its planner revises the plan, and the
-card is ready again.
+**A ready card went back to planning.** → Its criteria or body changed after it was planned, or the owner answered
+one of its questions other than by confirming what its plan took (another option, or a note). → Nothing to do: its
+planner revises the plan, and the card is ready again.
 
-**`start` is refused: "no current plan".** → A ready card from before the planning stage, one stopped back to ready
-with work on its branch, or one its plan no longer covers. → `kanban promote --auto` (every `kanban run` pass runs it)
-sends it to planning.
+**`start` is refused: "no current plan".** → A ready card from before the planning stage, or one its plan no longer
+covers. → `kanban promote --auto` (every `kanban run` pass runs it) sends it to planning.
 
 **A card's commits are not on main's `card/…` branch while it is in progress.** → A card's directory is a clone of
 main; its branch reaches main when a kanban command needs it there (`report`, `context`, `refresh`, `finish`, `stop`).

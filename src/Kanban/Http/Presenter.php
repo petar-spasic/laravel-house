@@ -175,6 +175,8 @@ final class Presenter
             'deps' => ['open' => count(array_filter($deps, fn (string $id) => ! $this->snapshot->isSatisfied($id))), 'total' => count($deps)],
             'progress' => ['done' => count(array_filter($acceptance, fn (array $c) => $c['done'])), 'total' => count($acceptance)],
             'agent' => $agent,
+            // a planner holds it: `stop` moves it, never the board
+            'held' => $card->stage() === 'planning' && $card->claim() !== null,
             'url' => $card->atWork() ? ($card->work()['stack']['url'] ?? null) : null,
             'since' => $this->timestamp($card->stageSince()),
             'rev' => (string) $card->rev,

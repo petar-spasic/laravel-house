@@ -246,6 +246,22 @@ it('keeps the claim that is already on the upstream side when both sides claimed
         ->and($merged['stage'])->toBe('doing');
 });
 
+it('keeps a claim one side made though the other side moved the card meanwhile, and records the move', function () {
+    $o = baseCard();
+    $claim = ['by' => 'alice@laptop', 'session' => 'session-a', 'at' => '2026-09-28T10:05:00.000+00:00'];
+    $claimed = baseCard(['stage' => 'doing', 'claim' => $claim, 'work' => ['branch' => 'card/a'], 'updated' => '2026-09-28T10:05:00.000+00:00']);
+    $replanned = baseCard(['stage' => 'planning', 'acceptance' => [['id' => 1, 'text' => 'One, reworded', 'done' => false], ['id' => 2, 'text' => 'Two', 'done' => false]],
+        'updated' => '2026-09-28T10:20:00.000+00:00']);
+
+    [, $merged] = mergeDriver($o, $claimed, $replanned);
+    [, $swapped] = mergeDriver($o, $replanned, $claimed);
+
+    expect($merged)->toMatchArray(['stage' => 'doing', 'claim' => $claim, 'work' => ['branch' => 'card/a']])
+        ->and($merged['acceptance'][0]['text'])->toBe('One, reworded')
+        ->and(array_column(conflictEntries($merged), 'field'))->toBe(['flow'])
+        ->and($swapped)->toMatchArray(['stage' => 'doing', 'claim' => $claim]);
+});
+
 it('still takes the newer side when only one side claimed', function () {
     $o = baseCard();
     $claim = ['by' => 'alice@laptop', 'session' => 'session-a', 'at' => '2026-09-28T10:05:00.000+00:00'];

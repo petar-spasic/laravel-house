@@ -143,13 +143,47 @@ final class Questions
         return trim(implode('', $kept));
     }
 
-    /** $body without its question sections and the owner's answers under them. */
+    /**
+     * $body without what kanban wrote into it for a plan to stand on: each question section through its last `Recommended:`
+     * or `Taken:` line (a free-form one through its first paragraph), and an answer that confirms the option a Provisional
+     * decision took. Whatever follows those, an answer that chose otherwise, an answer to an Open question, a note under an
+     * answer, text the owner added, is the card's content.
+     */
     public static function strip(string $body): string
     {
-        $chunks = preg_split('/^(?=## )/m', str_replace("\r\n", "\n", $body)) ?: [$body];
+        $lines = explode("\n", str_replace("\r\n", "\n", $body));
+        $kept = [];
+        $taken = null;
+        for ($i = 0, $n = count($lines); $i < $n; $i++) {
+            if (preg_match(self::HEADING, $lines[$i]) === 1) {
+                $end = $i;
+                $taken = null;
+                for ($j = $i + 1; $j < $n && ! str_starts_with($lines[$j], '## '); $j++) {
+                    if (preg_match('/^(Recommended|Taken):\s*(\d*)/i', trim($lines[$j]), $m) === 1) {
+                        [$end, $taken] = [$j, strcasecmp($m[1], 'Taken') === 0 ? (int) $m[2] : $taken];
+                    }
+                }
+                if ($end === $i) {
+                    for ($end = $i + 1; $end < $n && trim($lines[$end]) !== '' && ! str_starts_with($lines[$end], '## '); $end++) {
+                    }
+                    $end--;
+                }
+                $i = $end;
 
-        return trim(implode('', array_filter($chunks, fn (string $chunk) => preg_match(self::HEADING, explode("\n", $chunk, 2)[0]) !== 1
-            && ! str_starts_with($chunk, '## '.self::ANSWER))));
+                continue;
+            }
+            if (str_starts_with($lines[$i], '## '.self::ANSWER) && $taken !== null && preg_match('/^(\d+)\.\s/', $lines[$i + 1] ?? '', $m) === 1 && (int) $m[1] === $taken) {
+                $i++;
+
+                continue;
+            }
+            if (str_starts_with($lines[$i], '## ')) {
+                $taken = null;
+            }
+            $kept[] = $lines[$i];
+        }
+
+        return trim(implode("\n", $kept));
     }
 
     /** How many Open questions of $body have no answer. */

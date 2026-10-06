@@ -39,6 +39,15 @@ export default async (t) => {
     t.ok('a card waiting in planning has no Plan section', (await page.locator(`${panel} details.plan:visible`).count()) === 0);
     await open(planning);
     t.ok('the stage of a card being planned cannot be changed here', (await page.locator(`${panel} button[data-field=stage]:disabled`).count()) === 1);
+    await page.goto(t.url + '/work', { waitUntil: 'networkidle' });
+    t.ok('nor on the board: it has no Move… button', (await page.locator(`.card[data-id="${planning}"] .c-more`).count()) === 0);
+    await page.locator(`.card[data-id="${planning}"] .c-title`).click();
+    await page.waitForSelector('.panel.is-top .d-title');
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('m');
+    await page.waitForSelector('.toast');
+    t.ok('and its move key says a planner is working on it, offering no stage', (await page.locator('.menu [role=menuitem]').count()) === 0
+        && /A planner is working on it/.test(await page.locator('.toast').last().innerText()));
 
     // out of the backlog a card goes to planning: the move menu offers it, and the card lands there
     await page.goto(t.url + '/work', { waitUntil: 'networkidle' });

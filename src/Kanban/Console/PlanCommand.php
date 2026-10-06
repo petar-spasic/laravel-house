@@ -60,12 +60,16 @@ class PlanCommand extends Command
         $plan = null;
         if ($status === 'ready') {
             $file = $this->option('plan-file') ?? throw new Invalid('a plan needs --plan-file=.tmp/plan.md (the file you wrote it in)');
+            // the worker's clone holds main's files too: a fresh one is cloned from main, a parked branch gets main merged in
+            $main = 'refs/heads/'.$this->setting('main_branch', 'main');
             $plan = Plan::check($this->readFile($this->inside($worktree, (string) $file)), array_column($card->acceptance(), 'id'),
-                fn (string $path) => $git->attempt(['cat-file', '-e', "HEAD:{$path}"])->ok());
+                fn (string $path) => $git->attempt(['cat-file', '-e', "HEAD:{$path}"])->ok() || $git->attempt(['cat-file', '-e', "{$main}:{$path}"])->ok());
         }
         $staged = Staged::plan($card, $status, $plan, $this->option('reason') ?? Questions::block($questions), $this->option('discovered'), $this->option('note'), [
             'head' => (string) $git->line(['rev-parse', 'HEAD']),
             'base' => is_string($card->work()['base'] ?? null) ? $card->work()['base'] : null,
+            // one claim's plan is never another's: the same text staged again under a new claim is applied again
+            'claim' => $card->claim()['at'] ?? null,
             'worktree' => $this->paths()->relative($worktree),
             'session' => (getenv('KANBAN_SESSION') ?: null),
         ], $this->upstream($card), $questions);
@@ -101,8 +105,11 @@ class PlanCommand extends Command
         $git = new Git($this->paths()->main);
         $main = (string) $this->setting('main_branch', 'main');
         $base = $git->line(['rev-parse', '--verify', '-q', "refs/heads/{$main}"]) ?? throw new NotFound("no branch {$main} to check the plan against");
+        // a card back from a question keeps its work on a parked branch, which the worker's start merges main into
+        $parked = $card->work()['parked_branch'] ?? null;
+        $parked = is_string($parked) ? $git->line(['rev-parse', '--verify', '-q', "refs/heads/{$parked}"]) : null;
         $plan = Plan::check($this->readFile((string) $file), array_column($card->acceptance(), 'id'),
-            fn (string $path) => $git->attempt(['cat-file', '-e', "{$base}:{$path}"])->ok());
+            fn (string $path) => $git->attempt(['cat-file', '-e', "{$base}:{$path}"])->ok() || ($parked !== null && $git->attempt(['cat-file', '-e', "{$parked}:{$path}"])->ok()));
         $planned = $this->transitions()->plan($card->id(), $plan, $base, $this->actor());
         $this->say("planned {$planned->id()}: ".count(explode("\n", $plan)).' lines, made on '.$main.' @'.substr($base, 0, 7)."; {$card->stage()}→{$planned->stage()}");
         foreach (Plan::hints($plan) as $hint) {

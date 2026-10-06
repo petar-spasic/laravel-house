@@ -38,27 +38,21 @@ class StartCommand extends Command
         $id = $card->id();
         $planning = $card->stage() === 'planning';
         $resumed = $this->resumable($card, $worktrees);
+        $elsewhere = null;
         if (! $resumed) {
             $path = $this->paths()->worktree($id, $card->title());
             if (file_exists($path)) {
                 throw new PolicyRefused("{$this->paths()->relative($path)} already exists; remove it or run `kanban stack gc` first");
             }
             $parked = $card->work()['parked_branch'] ?? null;
-            $branch = is_string($parked) && $worktrees->branchExists($parked) ? $parked : $worktrees->branchFor($id, $card->title());
+            // a parked branch lives where its worker ran: on another machine the card starts from main
+            $elsewhere = is_string($parked) && ! $worktrees->branchExists($parked) ? $parked : null;
+            $parked = $elsewhere === null ? $parked : null;
+            $branch = is_string($parked) ? $parked : $worktrees->branchFor($id, $card->title());
             $attempt = 1 + count(array_filter($card->log(), fn (array $e) => ($e['event'] ?? null) === 'stage' && ($e['to'] ?? null) === 'doing' && ($e['via'] ?? null) === 'start'));
 
             if ($worktrees->stackEnabled() && ($wrong = (new StackUser($this->paths()->main, (string) $this->setting('stack.compose_file')))->problem()) !== null) {
                 throw new PolicyRefused("refused {$id}: {$wrong}");
-            }
-            // the slot is taken before the claim, so a start that claims the card has its slot
-            $reserved = false;
-            if ($worktrees->stackEnabled() && in_array($card->stage(), ['planning', 'ready'], true) && $card->claim() === null && $worktrees->registry()->find($path) === null) {
-                try {
-                    $worktrees->registry()->allocate($path, ['project' => $worktrees->env()->project($path), 'repo' => $this->paths()->main, 'branch' => $branch, 'card' => $id]);
-                    $reserved = true;
-                } catch (StackFailed $e) {
-                    throw new PolicyRefused("refused {$id}: {$e->getMessage()}");
-                }
             }
             // where the work goes is on the card from the claim on, so a start cut short is resumed by running it again
             $work = [
@@ -67,9 +61,21 @@ class StartCommand extends Command
                 'started' => Clock::now(), 'finished' => null,
             ];
             // a planner's clone of a parked branch keeps it parked and records its head: planning changes no commit, and
-            // `stop` holds the branch to that
-            if ($planning && $branch === $parked) {
+            // `stop` holds the branch to that. A planner of a card parked elsewhere plans it from main, the branch forgotten
+            if ($planning && $parked !== null) {
                 $work = ['head' => $worktrees->head('refs/heads/'.$branch), 'parked_branch' => $parked] + $work;
+            } elseif ($planning && $elsewhere !== null) {
+                $work['parked_branch'] = null;
+            }
+            // the slot is taken last before the claim, so a start that claims the card has its slot
+            $reserved = false;
+            if ($worktrees->stackEnabled() && in_array($card->stage(), ['planning', 'ready'], true) && $card->claim() === null && $worktrees->registry()->find($path) === null) {
+                try {
+                    $worktrees->registry()->allocate($path, ['project' => $worktrees->env()->project($path), 'repo' => $this->paths()->main, 'branch' => $branch, 'card' => $id]);
+                    $reserved = true;
+                } catch (StackFailed $e) {
+                    throw new PolicyRefused("refused {$id}: {$e->getMessage()}");
+                }
             }
             // before the claim: a claim that lands though its start fails or is killed is still this checkout's to finish
             self::mark($this->paths(), $id, $work['started']);
@@ -145,7 +151,8 @@ class StartCommand extends Command
 
         $this->say(($resumed ? 'resumed' : 'started').($planning ? ' planning' : '')." {$id}");
         $this->say("worktree {$path}");
-        $this->say("branch {$branch}".($branch === $parked ? ' (parked branch reused)' : ''));
+        $this->say("branch {$branch}".($branch === $parked ? ' (parked branch reused)' : '')
+            .($elsewhere !== null ? " (its parked branch {$elsewhere} is not on this machine: from {$worktrees->mainBranch()})" : ''));
         foreach ($merged as $line) {
             $this->say($line);
         }

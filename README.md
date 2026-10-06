@@ -846,9 +846,8 @@ the worker. `kanban plan` refuses a plan that names a file the code does not hav
 runs long or writes the code itself, it prints a hint, and the planner trims what the card does not need.
 
 A plan holds while the card stays as it was planned. A ready card goes back to `planning` when you change its criteria
-or description, or answer a provisional decision with another option than the one its plan took. A card that comes
-back from a question with work on its branch is planned again too: its planner reads the work so far and plans the
-rest.
+or description, or answer one of its questions other than by confirming the option its plan took. A card that comes
+back from a question is planned again too: its planner reads your answer and any work so far, and plans the rest.
 
 If you already have a plan for a card, give it one yourself. The file needs the same sections:
 
@@ -874,6 +873,8 @@ To edit a card in `doing` or `review`, put it back first:
 ```shell
 vendor/bin/kanban stop ACME-7K2QF9 --to=ready
 ```
+
+A card with work on its branch goes on to `planning`, where its planner plans the rest.
 
 The list of locked stages is the `locked` setting in `docs/kanban/kanban.json`.
 

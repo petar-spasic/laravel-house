@@ -56,7 +56,7 @@ it('fills planning in pull order with --auto', function () {
     $s->card('Not ready yet');
     file_put_contents($s->root.'/docs/kanban/kanban.json', str_replace('"ready_buffer": 12', '"ready_buffer": 1', file_get_contents($s->root.'/docs/kanban/kanban.json')));
 
-    expect($s->ok(['promote', '--auto']))->toBe("promoted {$high} to planning\nready 0 startable, planning 1: 1/1\n")
+    expect($s->ok(['promote', '--auto']))->toBe("promoted {$high} to planning\nready 0, planning 1: 1/1\n")
         ->and($s->read($low)['stage'])->toBe('backlog');
 });
 
@@ -241,7 +241,7 @@ it('plans ahead of a busy area but not of unfinished dependencies, and names eac
     expect($out)->toContain("skipped {$later}: waits on {$busy} (doing)\n")
         ->and($out)->toContain("promoted {$pdf} to planning\n")
         ->and($out)->toContain("skipped {$bare}: R")
-        ->and($out)->toEndWith("promoted {$next} to planning\nready 0 startable, planning 2: 2/2\n")
+        ->and($out)->toEndWith("promoted {$next} to planning\nready 0, planning 2: 2/2\n")
         ->and(array_map(fn (string $id) => $s->read($id)['stage'], [$waiting, $later, $pdf, $bare, $next]))->toBe(['ready', 'backlog', 'planning', 'backlog', 'planning']);
 });
 

@@ -171,6 +171,44 @@ it('drains without taking a card waiting in planning', function () {
         ->and($this->code->sandbox->read($id))->toMatchArray(['stage' => 'planning', 'claim' => null]);
 });
 
+it('launches the agent the claim is for when a card changed stage while the pass started another', function () {
+    $first = $this->code->sandbox->readyCard('Add login page');
+    $second = $this->code->sandbox->readyCard('Add logout page');
+    $run = $this->code->sandbox->start(['run', '--once'], $this->code->env([
+        'PATH' => Sandbox::package().'/tests/Support/FakeClaude:'.Sandbox::package().'/tests/Support/FakeDocker:'.getenv('PATH'),
+        'FAKE_CLAUDE_DIR' => $this->claude, 'FAKE_DOCKER_DELAY' => '2',
+    ]));
+    $deadline = microtime(true) + 30;
+    while ($this->code->sandbox->read($first)['stage'] !== 'doing' && microtime(true) < $deadline) {
+        usleep(50_000);
+    }
+    // while the first card's stack comes up, the owner rewords the second: it goes back to planning
+    $this->code->ok(['set', $second, 'accept[1]=It works on a phone']);
+    $run->wait();
+    $out = runPass($this->code, $this->claude, ['--drain', '--until-attention', '--timeout=0']);
+
+    expect(array_slice(array_column(runLaunches($this->claude), 2), 0, 2))->toBe(['kanban-worker', 'kanban-planner'])
+        ->and($out)->toContain("{$second} planned: ready")
+        ->and($this->code->sandbox->read($second)['plan'])->toContain('## Criteria');
+});
+
+it('resumes a planner only under the claim it started with', function () {
+    file_put_contents("{$this->claude}/kanban-planner.error", json_encode(['subtype' => 'error_during_execution']));
+    $id = $this->code->sandbox->card('Add login page', ['--body=Build it', '--accept=It works', '--label=area:login']);
+    runPass($this->code, $this->claude);
+    runPass($this->code, $this->claude);
+    $this->code->ok(['stop', $id, '--to=backlog']);
+    unlink("{$this->claude}/kanban-planner.error");
+
+    runPass($this->code, $this->claude);
+
+    $planners = array_values(array_filter(runLaunches($this->claude), fn (array $a) => $a[2] === 'kanban-planner'));
+    expect($planners)->toHaveCount(3)
+        ->and($planners[1])->toContain('--resume')
+        ->and($planners[2])->not->toContain('--resume')
+        ->and($this->code->sandbox->read($id)['plan'])->not->toBeNull();
+});
+
 it('launches each agent on its configured model and effort, whatever the launching session runs on', function () {
     $this->code->configure(['gates' => ['report' => []], 'agents' => ['worker' => ['model' => 'opus', 'effort' => 'xhigh']]]);
     $this->code->sandbox->readyCard('Add login page');

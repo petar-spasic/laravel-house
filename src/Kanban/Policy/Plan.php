@@ -72,7 +72,7 @@ final class Plan
                 throw new Invalid("## Files: '".mb_strimwidth(strtok($item, "\n") ?: '', 0, 120, '…')."' is not a file line: - create|change|delete|read `path` — why");
             }
             $path = rtrim($m[2], '/');
-            if ($path === '' || str_starts_with($path, '/') || in_array('..', explode('/', $path), true) || preg_match('/[*?\[]/', $path) === 1
+            if ($path === '' || str_starts_with($path, '/') || in_array('..', explode('/', $path), true) || preg_match('/[*?]/', $path) === 1
                 || $path === '.git' || str_starts_with($path, '.git/') || str_starts_with($path, '.claude/worktrees')) {
                 throw new Invalid("## Files: `{$m[2]}`: name one path relative to the repository root, outside .git and .claude/worktrees, without wildcards");
             }
@@ -81,7 +81,7 @@ final class Plan
                 throw new Invalid("## Files: `{$path}` already exists: `change` it, or `create` a new path");
             }
             if ($m[1] !== 'create' && ! $there) {
-                throw new Invalid("## Files: `{$path}` is not in the commit the plan is made on: {$m[1]} names a tracked file or directory (check the path; a new file is `create`)");
+                throw new Invalid("## Files: `{$path}` is tracked neither on main nor on the card's branch: {$m[1]} names a tracked file or directory (check the path; a new file is `create`)");
             }
             $files++;
         }
@@ -136,8 +136,8 @@ final class Plan
     }
 
     /**
-     * What a plan covers: the criteria and the body, without the questions and the owner's answers (an answer that changes
-     * the work rewrites the criteria), whitespace aside.
+     * What a plan covers: the criteria and the body, whitespace aside, without the questions kanban wrote and the owner's
+     * confirmations of what a Provisional decision took (Questions::strip). Any other answer changes it.
      *
      * @param  array<string, mixed>  $data  card data
      */
@@ -162,6 +162,16 @@ final class Plan
         $started = $card->lastEntered('doing');
 
         return ! is_string($card->work()['parked_branch'] ?? null) || $started === null || (string) ($planned['at'] ?? '') > $started;
+    }
+
+    /** Why the card a planner holds may not go to ready yet, or null once its planner's plan is on it and covers it. */
+    public static function unreleased(Card $card): ?string
+    {
+        return match (true) {
+            $card->stage() !== 'planning' || ! self::madeUnderClaim($card) => "{$card->id()} has no plan from its planner yet: it moves to ready once its planner's plan is applied",
+            ! self::current($card) => "{$card->id()}'s plan no longer covers it (its criteria or body changed since): its planner revises it",
+            default => null,
+        };
     }
 
     /** Its planner's plan, made under the claim it holds now, is on the card: the planning is done once it is current. */

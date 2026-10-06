@@ -71,8 +71,17 @@ final class MergeDriver
                 }
                 $claims = in_array('claim', $present, true) && ($a['claim'] ?? null) !== null && ($b['claim'] ?? null) !== null && ! $this->same($a['claim'], $b['claim'])
                     && ! $this->same($o['claim'] ?? null, $a['claim']) && ! $this->same($o['claim'] ?? null, $b['claim']);
+                // A claim one side made where the ancestor had none won its push: an edit that moved the card meanwhile
+                // (a ready card back to planning, say) does not take it from its agent
+                $claimed = fn (array $side) => in_array('claim', $present, true) && ($o['claim'] ?? null) === null && ($side['claim'] ?? null) !== null;
                 // Two different claims: the one already on the upstream side (%A in a rebase) won its push, not the later one.
-                $picked = $this->threeWay($this->pick($o, $present), $this->pick($a, $present), $this->pick($b, $present), $this->pick($claims ? $a : $newer, $present));
+                $winner = match (true) {
+                    $claims => $a,
+                    $claimed($a) && ! $claimed($b) => $a,
+                    $claimed($b) && ! $claimed($a) => $b,
+                    default => $newer,
+                };
+                $picked = $this->threeWay($this->pick($o, $present), $this->pick($a, $present), $this->pick($b, $present), $this->pick($winner, $present));
                 foreach ($present as $key) {
                     if (array_key_exists($key, $picked)) {
                         $result[$key] = $picked[$key];

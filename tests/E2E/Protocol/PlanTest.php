@@ -75,7 +75,7 @@ it('stages a plan only from the card\'s clone, checked against its HEAD', functi
     file_put_contents($this->wt.'/notes.md', "on disk, never committed\n");
     $untracked = stagePlan($this->p, $this->wt, $this->id, Sandbox::planFor([1, 2], 'notes.md'));
     expect($untracked->getExitCode())->toBe(2)
-        ->and($untracked->getErrorOutput())->toContain('## Files: `notes.md` is not in the commit the plan is made on');
+        ->and($untracked->getErrorOutput())->toContain('## Files: `notes.md` is tracked neither on main nor on the card\'s branch');
 
     $staged = stagePlan($this->p, $this->wt, $this->id, Sandbox::planFor([1, 2]));
     expect($staged->getOutput())->toBe("staged plan for {$this->id}: 9 lines, 1 file\napplied when you stop\n")
@@ -93,7 +93,7 @@ it('refuses a plan that misses what the worker needs, and says what to fix', fun
     'no steps' => ["## Files\n- read `README.md` — x\n\n## Criteria\n- 1: `true`\n- 2: `true`\n", 'the plan has no `## Steps` section'],
     'a step unnumbered' => ["## Files\n- read `README.md` — x\n\n## Steps\n- Do it\n\n## Criteria\n- 1: `true`\n- 2: `true`\n", '## Steps has no numbered step'],
     'a file line without why' => ["## Files\n- read `README.md`\n\n## Steps\n1. Do it\n\n## Criteria\n- 1: `true`\n- 2: `true`\n", 'is not a file line: - create|change|delete|read `path` — why'],
-    'a change to a file not there' => [Sandbox::planFor([1, 2], 'app/Missing.php'), '## Files: `app/Missing.php` is not in the commit the plan is made on'],
+    'a change to a file not there' => [Sandbox::planFor([1, 2], 'app/Missing.php'), '## Files: `app/Missing.php` is tracked neither on main nor on the card\'s branch'],
     'a create of a file there' => [str_replace('- read `README.md`', '- create `README.md`', Sandbox::planFor([1, 2])), '## Files: `README.md` already exists'],
     'a path out of the repository' => [Sandbox::planFor([1, 2], '../etc/hosts'), 'name one path relative to the repository root'],
     'a wildcard' => [Sandbox::planFor([1, 2], 'app/*.php'), 'without wildcards'],
@@ -180,6 +180,9 @@ it('refuses a staged plan once the card changed, so the planner plans the card a
     stagePlan($this->p, $this->wt, $this->id, Sandbox::planFor([1, 2]))->mustRun();
     expect(plannerStop($this->p, $this->wt)['json'])->toBeNull()
         ->and($this->p->card($this->id)['plan'])->toBe(trim(Sandbox::planFor([1, 2])));
+
+    $this->p->sandbox->ok(['set', $this->id, 'body=Build it as a zip']);
+    expect($this->p->sandbox->ok('status'))->toContain('planned, then the card changed: its planner revises it');
 });
 
 it('blocks the card on a planner\'s open question, and the main session parks it in the backlog', function () {
@@ -263,6 +266,7 @@ it('plans a half-done card on its parked branch as it is, and keeps the branch w
     $planner = realpath($m[1]);
     $card = $this->p->card($id);
     $branch = $card['work']['branch'];
+    expect($this->p->sandbox->ok(['refresh', $id]))->toStartWith("up to date {$id}: its planner reads the parked branch as it is\n");
     $this->p->hook('subagent-start', $this->p->payload('subagent-start', ['agent' => 'p2', 'type' => 'kanban-planner']));
     $this->p->enter($planner, 'p2', 'kanban-planner');
     $context = $this->p->in($planner, ['context'])->getOutput();
@@ -272,6 +276,11 @@ it('plans a half-done card on its parked branch as it is, and keeps the branch w
         ->and(file_get_contents($planner.'/.tmp/plan.md'))->toBe(Sandbox::planFor([1, 2]))
         ->and($context)->toContain('earlier plan in .tmp/plan.md (made @')
         ->and($context)->toContain("parked branch {$branch}: the work done so far (`git log refs/heads/main..HEAD`, `git diff refs/heads/main...HEAD`); plan what is left. The worker's start merges main into it; main changed since: main.txt");
+
+    // what main added since the park is the worker's too: its start merges main in
+    stagePlan($this->p, $planner, $id, Sandbox::planFor([1, 2], 'main.txt'))->mustRun();
+    expect(stagePlan($this->p, $planner, $id, str_replace('- read `main.txt`', '- create `main.txt`', Sandbox::planFor([1, 2], 'main.txt')))->getErrorOutput())
+        ->toContain('## Files: `main.txt` already exists');
 
     $this->p->commit($planner, 'stray.txt', "a planner commits nothing\n", 'stray');
     stagePlan($this->p, $planner, $id, Sandbox::planFor([1, 2], 'seats.php'))->mustRun();
@@ -295,4 +304,105 @@ it('counts only a plan made under the claim the planner holds now', function () 
 
     expect($refused->getExitCode())->toBe(3)
         ->and($refused->getErrorOutput())->toContain("{$id} has no plan from its planner yet");
+});
+
+it('refuses a plan staged before the owner overruled a decision on the card', function () {
+    $this->p->sandbox->ok(['set', $this->id, 'body=@-'], [], "Build it\n\n".PLAN_PROVISIONAL."\n");
+    stagePlan($this->p, $this->wt, $this->id, Sandbox::planFor([1, 2]))->mustRun();
+
+    expect($this->p->sandbox->ok(['answer', $this->id, '2']))->toContain("{$this->id}#1: the agent took 1; the card is planned again for 2");
+    $stop = plannerStop($this->p, $this->wt);
+
+    expect($stop['json']['decision'])->toBe('block')
+        ->and($stop['json']['reason'])->toContain("{$this->id} changed since the plan was staged");
+});
+
+it('plans a card parked on another machine from main, and says so', function () {
+    [$id, $wt] = $this->p->started('Seat limits');
+    $this->p->commit($wt, 'seats.php', "<?php\n", "{$id}: half");
+    $this->p->hook('subagent-start', $this->p->payload('subagent-start', ['agent' => 'w1']));
+    $this->p->enter($wt, 'w1');
+    $this->p->in($wt, ['report', $id, '--status=blocked', '--reason=question: one seat limit per team?'])->mustRun();
+    $this->p->hook('subagent-stop', $this->p->payload('subagent-stop', ['cwd' => $wt, 'agent' => 'w1']))->mustRun();
+    $this->p->sandbox->ok(['stop', $id, '--to=backlog']);
+    $branch = $this->p->card($id)['work']['parked_branch'];
+    // a card branch lives on the machine its worker ran on
+    $this->p->git($this->p->main, 'branch', '-q', '-D', $branch);
+    $this->p->sandbox->ok(['answer', $id, '--note=One per team.']);
+
+    $out = $this->p->sandbox->ok(['start', $id]);
+
+    expect($out)->toContain("started planning {$id}\n")
+        ->and($out)->toContain("branch {$branch} (its parked branch {$branch} is not on this machine: from main)\n")
+        ->and($this->p->card($id)['work']['parked_branch'] ?? null)->toBeNull();
+});
+
+it('moves a planner\'s fresh branch to main on refresh, but not while its planner runs', function () {
+    [$id, $wt] = $this->p->planning('Tag notes');
+    $main = $this->p->commit($this->p->main, 'main.txt', "moved\n", 'main moves');
+
+    $out = $this->p->sandbox->ok(['refresh', $id]);
+    $live = $this->p->sandbox->kanban(['refresh', $this->id]);
+
+    expect($out)->toContain("refreshed {$id}: its planning branch moved to main (")
+        ->and($out)->toContain('spawn: Agent(subagent_type="kanban-planner"')
+        ->and(trim($this->p->git($wt, 'rev-parse', 'HEAD')))->toBe($main)
+        ->and($live->getExitCode())->toBe(3)
+        ->and($live->getErrorOutput())->toContain("{$this->id}: its planner is still running");
+});
+
+it('shows a planner what was said since the earlier plan, and applies the same plan staged under a new claim', function () {
+    stagePlan($this->p, $this->wt, $this->id, Sandbox::planFor([1, 2]))->mustRun();
+    plannerStop($this->p, $this->wt);
+    $this->p->sandbox->ok(['stop', $this->id, '--to=ready']);
+    $this->p->sandbox->ok(['set', $this->id, 'note=Reuse the PDF layout, no new class']);
+    $this->p->sandbox->ok(['move', $this->id, 'planning', '--reason=plan it with the PDF layout']);
+
+    preg_match('/^worktree (.+)$/m', $this->p->sandbox->ok(['start', $this->id]), $m);
+    $wt = realpath($m[1]);
+    $this->p->hook('subagent-start', $this->p->payload('subagent-start', ['agent' => 'p3', 'type' => 'kanban-planner']));
+    $this->p->enter($wt, 'p3', 'kanban-planner');
+    $context = $this->p->in($wt, ['context'])->getOutput();
+    stagePlan($this->p, $wt, $this->id, Sandbox::planFor([1, 2]))->mustRun();
+
+    expect($context)->toContain('Reuse the PDF layout, no new class')
+        ->and($context)->toContain('ready→planning: plan it with the PDF layout')
+        ->and(plannerStop($this->p, $wt, 'p3')['json'])->toBeNull()
+        ->and($this->p->sandbox->ok(['stop', $this->id, '--to=ready']))->toContain("{$this->id} planning→ready");
+});
+
+it('clears a block that is not a question when its planner\'s plan moves the card to ready', function () {
+    stagePlan($this->p, $this->wt, $this->id, Sandbox::planFor([1, 2]))->mustRun();
+    plannerStop($this->p, $this->wt);
+    $this->p->sandbox->ok(['set', $this->id, 'blocked=kanban run: docker compose down failed']);
+
+    $this->p->sandbox->ok(['stop', $this->id, '--to=ready']);
+
+    $card = $this->p->card($this->id);
+    expect($card)->toMatchArray(['stage' => 'ready', 'blocked' => null])
+        ->and(end($card['log']))->toMatchArray(['to' => 'ready', 'via' => 'plan', 'unblocked' => 'kanban run: docker compose down failed']);
+});
+
+it('warns the worker when main changed a file under a directory its plan names', function () {
+    $this->p->commit($this->p->main, 'app/Models/Note.php', "<?php\n", 'models');
+    $id = $this->p->sandbox->card('Note export', ['--body=Build it', '--accept=It exports', '--stage=planning', '--label=area:notes']);
+    $this->p->sandbox->ok(['plan', $id, '--plan-file=-'], [], Sandbox::planFor([1], 'app/Models'));
+    preg_match('/^worktree (.+)$/m', $this->p->sandbox->ok(['start', $id]), $m);
+    $wt = realpath($m[1]);
+    $this->p->commit($this->p->main, 'app/Models/Note.php', "<?php // changed\n", 'models change');
+    $this->p->hook('subagent-start', $this->p->payload('subagent-start', ['agent' => 'w2']));
+    $this->p->enter($wt, 'w2');
+
+    expect($this->p->in($wt, ['context'])->getOutput())->toContain('main changed since the plan, in files it names: app/Models/Note.php');
+});
+
+it('says a reworded criterion sends a card in review back to its worker, not to planning', function () {
+    [$id, $wt] = $this->p->started('Invoice totals');
+    $this->p->commit($wt, 'totals.php', "<?php\n", "{$id}: totals");
+    $this->p->hook('subagent-start', $this->p->payload('subagent-start', ['agent' => 'w3']));
+    $this->p->enter($wt, 'w3');
+    $this->p->in($wt, ['report', $id, '--status=review', '--tick=1,2', '--summary=Done'])->mustRun();
+    $this->p->hook('subagent-stop', $this->p->payload('subagent-stop', ['cwd' => $wt, 'agent' => 'w3']))->mustRun();
+
+    expect($this->p->sandbox->ok(['set', $id, 'accept[1]=It renders the totals', '--reason=the owner wants totals']))->toBe("{$id} updated, review→doing\n");
 });

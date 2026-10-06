@@ -21,7 +21,7 @@
     };
     const CLI_ONWARD = {
         doing: 'It moves to review when a worker reports: vendor/bin/kanban apply ID', review: 'It moves to done with vendor/bin/kanban finish ID',
-        done: 'Finished cards stay done',
+        done: 'Finished cards stay done', held: 'A planner is working on it: it moves to ready with its plan; vendor/bin/kanban stop ID --to=backlog takes the planner off',
     };
     const TYPES = ['feature', 'bug', 'chore', 'spike'];
 
@@ -666,7 +666,7 @@
         col.el.addEventListener('drop', (e) => {
             const id = S.drag;
             clearDrag();
-            if (!id || !(S.board.moves[(findCard(id) || {}).stage] || []).includes(col.stage)) return;
+            if (!id || !movesOf(findCard(id)).includes(col.stage)) return;
             e.preventDefault();
             moveCard(id, col.stage, col.el);
         });
@@ -734,7 +734,9 @@
 
     /** A UTC timestamp as `2026-09-29 18:02`. */
     const when = (seconds) => new Date(seconds * 1000).toISOString().slice(0, 16).replace('T', ' ');
-    const hasMoves = (c) => S.board && (S.board.moves[c.stage] || []).length > 0;
+    /** Where the board can move a card: none while a planner holds it. */
+    const movesOf = (c) => (S.board && c && !c.held && S.board.moves[c.stage]) || [];
+    const hasMoves = (c) => movesOf(c).length > 0;
     const isLocked = (c) => !!S.board && (S.board.locked || []).includes(c.stage);
 
     /** Whether the card waits on the owner's answer (its block is a question). */
@@ -948,7 +950,7 @@
     }
     function dragAllowed(stage) {
         const card = S.drag && findCard(S.drag);
-        return !!card && (S.board.moves[card.stage] || []).includes(stage);
+        return !!card && movesOf(card).includes(stage);
     }
 
     /* ---------- moving cards ---------- */
@@ -1283,8 +1285,8 @@
         const card = findCard(id);
         const el = document.querySelector('.card[data-id="' + CSS.escape(id) + '"]');
         if (!card || !el) return;
-        const stages = S.board.moves[card.stage] || [];
-        if (!stages.length) { toast(CLI_ONWARD[card.stage] || 'The command line moves this card'); return; }
+        const stages = movesOf(card);
+        if (!stages.length) { toast(CLI_ONWARD[card.held ? 'held' : card.stage] || 'The command line moves this card'); return; }
         openList(el, [{ heading: 'Move ' + id + ' to' }, ...stages.map((stage) => ({ value: stage, label: stage }))], { kind: 'menu', numbered: true, search: false, trigger, onPick: (item) => moveCard(id, item.value, el) });
     }
 
@@ -1782,7 +1784,8 @@
         const wasOpen = P.plan.open;
         P.plan.replaceChildren(h('summary', {}, h('span', { text: 'Plan' }),
             h('span', { class: 'muted', text: [p.by, p.base && '@' + p.base, p.at && text(p.at).slice(0, 16).replace('T', ' ')].filter(Boolean).join(' · ') }),
-            p.current === false ? h('span', { class: 'tag amber', title: 'The criteria or the description changed since it was written: it is planned again', text: 'Outdated' }) : null), view);
+            p.current === false ? h('span', { class: 'tag amber', text: 'Outdated', title: 'The criteria or the description changed since it was written: '
+                + (['backlog', 'planning', 'ready'].includes(c.stage) ? 'it is planned again' : 'where they differ, the card holds') }) : null), view);
         P.plan.open = wasOpen;
     }
 

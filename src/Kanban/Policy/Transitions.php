@@ -36,6 +36,8 @@ final class Transitions
         'review>done' => ['finish'],
         'doing>ready' => ['stop'], 'doing>backlog' => ['stop'], 'doing>dropped' => ['stop'],
         'review>ready' => ['stop'], 'review>backlog' => ['stop'], 'review>dropped' => ['stop'],
+        // stopped to ready with work its plan does not cover: planned again
+        'doing>planning' => ['stop'], 'review>planning' => ['stop'],
         'backlog>dropped' => ['move', 'fold'], 'ready>dropped' => ['move', 'fold'],
         'dropped>backlog' => ['move'],
         // an open question of a version 1 board becomes a backlog spike
@@ -46,6 +48,8 @@ final class Transitions
         'backlog>ready' => 'use `kanban promote ID`: a card without a current plan goes to planning first',
         'planning>ready' => 'a plan moves it: its planner\'s (`kanban stop ID --to=ready` once staged and applied), or `kanban plan ID --plan-file=…`',
         'ready>doing' => 'use `kanban start ID`',
+        'doing>planning' => 'use `kanban stop ID --to=ready` (with work on its branch it goes on to planning), then `kanban move ID planning`',
+        'review>planning' => 'use `kanban stop ID --to=ready` (with work on its branch it goes on to planning), then `kanban move ID planning`',
         'doing>review' => 'a worker report moves it (`kanban apply ID`)',
         'review>done' => 'use `kanban finish ID`',
     ];
@@ -324,19 +328,11 @@ final class Transitions
         $found = $this->store->card($id);
 
         return $this->store->update($found->id(), function (array $data) use ($parkedBranch, $found) {
-            $card = new Card($data, $found->board, $found->path, $found->rev);
-            if ($card->stage() !== 'planning' || ! Plan::madeUnderClaim($card)) {
-                throw new PolicyRefused("{$card->id()} has no plan from its planner yet: it moves to ready once its planner's plan is applied");
-            }
-            if (! Plan::current($card)) {
-                throw new PolicyRefused("{$card->id()}'s plan no longer covers it (its criteria or body changed since): its planner revises it");
-            }
-            $data = self::stage($data, 'ready', 'plan');
-            if ($parkedBranch !== null) {
-                $data['work'] = ['parked_branch' => $parkedBranch];
+            if (($why = Plan::unreleased(new Card($data, $found->board, $found->path, $found->rev))) !== null) {
+                throw new PolicyRefused($why);
             }
 
-            return $data;
+            return self::unblocked($data, 'ready', 'plan', $parkedBranch);
         }, $by);
     }
 
@@ -360,19 +356,43 @@ final class Transitions
     /** doing/review → ready (unblocked), backlog or dropped; a branch with commits is kept as work.parked_branch. planning → backlog or dropped. */
     public function stop(string $id, string $to, Actor $by, ?string $reason = null, ?string $parkedBranch = null, bool $force = false): Card
     {
-        return $this->store->update($id, function (array $data) use ($to, $reason, $parkedBranch, $force) {
-            $blocked = $data['blocked'] ?? null;
-            $data = self::stage($data, $to, 'stop', $reason, $force);
-            // back in ready it is to be started again, so what blocked the last attempt goes; an open question stays and keeps it out
-            if (is_string($blocked) && (str_starts_with($blocked, 'start failed:') || ($to === 'ready' && ! str_starts_with($blocked, Card::QUESTION)))) {
-                $data['blocked'] = null;
-                $data['log'][array_key_last($data['log'])]['unblocked'] = $blocked;
-            }
-            if ($parkedBranch !== null) {
-                $data['work'] = ['parked_branch' => $parkedBranch];
+        $found = $this->store->card($id);
+
+        return $this->store->update($found->id(), function (array $data) use ($to, $reason, $parkedBranch, $force, $found) {
+            // back to ready without a plan that covers it (none, an outgrown one, work on its branch since): planned again
+            $ready = new Card(['stage' => 'ready', 'work' => $parkedBranch === null ? null : ['parked_branch' => $parkedBranch]] + $data, $found->board, $found->path, $found->rev);
+            if ($to === 'ready' && ! Plan::current($ready)) {
+                $why = match (true) {
+                    $ready->plan() === null || $ready->planned() === null => 'it has no plan',
+                    ($ready->planned()['hash'] ?? null) !== Plan::hash($ready->data) => 'its plan no longer covers it',
+                    default => 'its plan does not cover the work on its branch',
+                };
+                [$to, $reason] = ['planning', $reason ?? $why];
             }
 
-            return $data;
+            return self::unblocked($data, $to, 'stop', $parkedBranch, $reason, $force);
         }, $by);
+    }
+
+    /**
+     * The card moved to $to, parked work kept. Back in ready or planning it is to be started again, so what blocked the last
+     * attempt goes; an open question stays and keeps it out. A failed start's block goes wherever the card goes.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    private static function unblocked(array $data, string $to, string $via, ?string $parkedBranch, ?string $reason = null, bool $force = false): array
+    {
+        $blocked = $data['blocked'] ?? null;
+        $data = self::stage($data, $to, $via, $reason, $force);
+        if (is_string($blocked) && (str_starts_with($blocked, 'start failed:') || (in_array($to, ['ready', 'planning'], true) && ! str_starts_with($blocked, Card::QUESTION)))) {
+            $data['blocked'] = null;
+            $data['log'][array_key_last($data['log'])]['unblocked'] = $blocked;
+        }
+        if ($parkedBranch !== null) {
+            $data['work'] = ['parked_branch' => $parkedBranch];
+        }
+
+        return $data;
     }
 }

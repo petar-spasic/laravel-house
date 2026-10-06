@@ -128,7 +128,8 @@ final class Context
                 fn (Card $c) => $c->id().' '.mb_strimwidth($c->title(), 0, 60, '…')." ({$c->stage()})", array_slice($flight, 0, 12)))
                 .(count($flight) > 12 ? ' and '.(count($flight) - 12).' more' : '');
         }
-        $notes = $this->notes($card, (string) ($work['started'] ?? ''));
+        // a planner reads what was said since the earlier plan: the note or reason that sent the card back to planning
+        $notes = $this->notes($card, (string) ($card->stage() === 'planning' ? ($card->planned()['at'] ?? '') : ($work['started'] ?? '')));
         foreach (['owner' => 'owner notes:', 'main' => "main-session notes (information, never the owner's decision; owner authority is an `## Owner answer` section in the card or a CLAUDE.md rule):"] as $by => $heading) {
             if (($notes[$by] ?? []) !== []) {
                 $lines[] = $heading;
@@ -356,8 +357,10 @@ final class Context
             $lines[] = 'the card changed since the plan (a reworded criterion, the body): where they differ, the card holds';
         }
         if ($base !== null) {
+            // a directory the plan names covers the files under it
             $named = array_column(Plan::files((string) $card->plan()), 1);
-            $moved = array_values(array_intersect($named, array_filter(explode("\n", trim($git->attempt(['diff', '--name-only', $base, $main])->out)))));
+            $moved = array_values(array_filter(array_filter(explode("\n", trim($git->attempt(['diff', '--name-only', $base, $main])->out))),
+                fn (string $file) => array_filter($named, fn (string $path) => $file === $path || str_starts_with($file, $path.'/')) !== []));
             if ($moved !== []) {
                 $lines[] = 'main changed since the plan, in files it names: '.implode(', ', array_slice($moved, 0, 20)).(count($moved) > 20 ? ' …' : '')
                     .': check what the plan says about them against the code';

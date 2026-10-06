@@ -130,7 +130,7 @@ it('leaves out a finished card\'s open questions but keeps its provisional decis
         ->and($this->p->sandbox->ok(['morning']))->toContain("\nquestions 1 open, 1 provisional: `kanban questions`\n");
 });
 
-it('answers an open question: the answer goes under it, the block clears and the card is promoted', function () {
+it('answers an open question: the answer goes under it, the block clears and the card is planned again with it', function () {
     $this->p->in($this->wt, ['report', $this->id, '--status=blocked', questionFile($this->p, $this->wt, OPEN)])->mustRun();
     applyStop($this->p, $this->wt);
     $this->p->sandbox->ok(['stop', $this->id, '--to=backlog']);
@@ -139,8 +139,8 @@ it('answers an open question: the answer goes under it, the block clears and the
 
     $card = $this->p->card($this->id);
     expect($out)->toContain("{$this->id}#1 answered: 2. Every member — anyone on the team downloads it")
-        ->and($out)->toContain("promoted {$this->id}")
-        ->and($card['stage'])->toBe('ready')
+        ->and($out)->toContain("promoted {$this->id} to planning")
+        ->and($card['stage'])->toBe('planning')
         ->and($card['blocked'])->toBeNull()
         ->and($card['body'])->toContain("Recommended: 2 — teams share billing work\n\n## Owner answer (".gmdate('Y-m-d').")\n2. Every member — anyone on the team downloads it\n\nMembers see only their own team.")
         ->and($this->p->sandbox->ok('questions'))->toBe("no open questions\n");

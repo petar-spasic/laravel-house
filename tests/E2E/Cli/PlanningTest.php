@@ -142,7 +142,7 @@ it('refuses a plan of the owner\'s own for a card not waiting in planning, or wi
     expect($notPlanning->getExitCode())->toBe(3)
         ->and($notPlanning->getErrorOutput())->toContain("{$backlog} is backlog: a plan is given to a card waiting in planning")
         ->and($untracked->getExitCode())->toBe(2)
-        ->and($untracked->getErrorOutput())->toContain('## Files: `notes.md` is not in the commit the plan is made on')
+        ->and($untracked->getErrorOutput())->toContain('## Files: `notes.md` is tracked neither on main nor on the card\'s branch')
         ->and($note->getErrorOutput())->toContain("--note is for the card's planner")
         ->and($blocked->getErrorOutput())->toContain("a card that cannot be planned is blocked: `kanban set {$id} blocked=\"…\"`")
         ->and($s->read($id)['stage'])->toBe('planning');
@@ -164,7 +164,7 @@ it('plans a ready card again when the owner picks another option than its provis
         ."{$id}#1: the agent took 1; the card is planned again for 2 (ready→planning)\n");
     $card = $s->read($id);
     expect($card['stage'])->toBe('planning')
-        ->and($card)->not->toHaveKey('plan')
+        ->and($s->ok(['show', $id]))->toContain(', no longer current')
         ->and(lastStageChange($card))->toMatchArray(['from' => 'ready', 'to' => 'planning', 'via' => 'replan', 'reason' => "the owner chose 2 for {$id}#1, not 1"]);
 });
 
@@ -176,4 +176,82 @@ it('drops the plan of a card that is done or dropped, and keeps it in git', func
 
     expect($s->read($id))->not->toHaveKey('plan')
         ->and($s->boardGit('log', '-p', '--format=', '-S', '## Steps', '--', "work/{$id}.json"))->toContain('"plan": "## Files');
+});
+
+/** A Provisional decision as a planner records it, its option 1 taken. */
+function provisionalDecision(): string
+{
+    return "## Provisional decision\nWhich date an export file names?\nExample: an invoice from 3 March exported on 9 April.\n"
+        ."1. Invoice date — files sort by billing period\n2. Export date — files sort by when they were made\nRecommended: 1 — billing periods\nTaken: 1";
+}
+
+it('plans a ready card again for text added after its questions or a note on an answer, never for a confirmation', function () {
+    $s = $this->sandbox;
+    $planned = fn (string $title, string $area) => tap($s->card($title, ['--body=Build it'."\n\n".provisionalDecision(), '--accept=It exports', "--label={$area}", '--stage=planning']), fn ($id) => $s->plan($id));
+    $edited = $planned('Export invoices', 'area:invoices');
+    $confirmed = $planned('Export receipts', 'area:receipts');
+    $noted = $planned('Export credit notes', 'area:credits');
+
+    $s->ok(['set', $edited, 'body=@-'], [], "Build it\n\n".provisionalDecision()."\nAlso: add a totals row.");
+    $s->ok(['answer', $confirmed, '1']);
+    $note = $s->ok(['answer', $noted, '1', '--note=Keep the old file names too.']);
+
+    expect($s->read($edited)['stage'])->toBe('planning')
+        ->and($s->read($confirmed)['stage'])->toBe('ready')
+        ->and($s->read($noted)['stage'])->toBe('planning')
+        ->and($note)->toContain("{$noted}: planned again with your note (ready→planning)");
+});
+
+it('takes a plan path with brackets, as a SvelteKit route file has', function () {
+    $s = $this->sandbox;
+    $id = $s->card('Invoice page', ['--body=x', '--accept=y', '--label=area:invoices', '--stage=planning']);
+    $plan = str_replace('## Steps', "- create `frontend/src/routes/invoices/[id]/+page.svelte` — the invoice page\n\n## Steps", Sandbox::planFor([1]));
+
+    expect($s->ok(['plan', $id, '--plan-file=-'], [], $plan))->toStartWith("planned {$id}: ");
+});
+
+it('plans one card ahead per area, and counts a planned card waiting on its area toward the buffer', function () {
+    $s = $this->sandbox;
+    $busy = $s->readyCard('Busy', ['--label=area:app']);
+    $s->ok(['claim', $busy], ['KANBAN_SESSION' => 's1']);
+    $first = $s->card('First', ['--body=x', '--accept=y', '--label=area:app', '--priority=high']);
+    $second = $s->card('Second', ['--body=x', '--accept=y', '--label=area:app']);
+
+    expect($s->ok(['promote', '--auto']))->toBe("promoted {$first} to planning\nskipped {$second}: area:app takes {$first} next (planning)\nready 0, planning 1: 1/12\n");
+
+    $s->plan($first);
+
+    expect($s->ok(['promote', '--auto']))->toBe("skipped {$second}: area:app takes {$first} next (ready)\nready 1, planning 0: 1/12\n");
+});
+
+it('leaves a planning card without a description to wait, naming why', function () {
+    $s = $this->sandbox;
+    $id = $s->card('Half written', ['--body=x', '--accept=y', '--label=area:half', '--stage=planning']);
+
+    $s->ok(['set', $id, 'body=']);
+
+    expect($s->ok(['next', '--planning']))->toBe("none: no plannable cards\nskipped {$id} R3 empty body\n");
+});
+
+it('lets workers and planners share the one place over capacity an urgent card may take', function () {
+    $s = $this->sandbox;
+    $main = ['KANBAN_SESSION' => 's1'];
+    file_put_contents($s->root.'/docs/kanban/kanban.json', str_replace('"max_parallel": 6', '"max_parallel": 1', file_get_contents($s->root.'/docs/kanban/kanban.json')));
+    $s->ok(['claim', $s->readyCard('Doing')], $main);
+    $planning = $s->card('Urgent plan', ['--body=x', '--accept=y', '--label=area:urgent', '--priority=urgent', '--stage=planning']);
+    $s->ok(['claim', $planning], $main);
+    $s->readyCard('Urgent work', ['--priority=urgent']);
+
+    expect($s->ok('next'))->toStartWith("none: doing 1 + planning 1/1\n");
+});
+
+it('sends a card stopped back to ready without a plan to planning, saying why', function () {
+    $s = $this->sandbox;
+    $main = ['KANBAN_SESSION' => 's1'];
+    $id = $s->card('Older card', ['--body=x', '--accept=y', '--label=area:old', '--stage=planning']);
+    $s->ok(['move', $id, 'ready', '--force'], $main);
+    $s->ok(['claim', $id, '--force'], $main);
+
+    expect($s->ok(['stop', $id, '--to=ready'], $main))->toContain("{$id} doing→planning: it has no plan; a planner plans it\n")
+        ->and($s->read($id))->toMatchArray(['stage' => 'planning', 'claim' => null]);
 });

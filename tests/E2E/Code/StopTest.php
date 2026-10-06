@@ -100,7 +100,8 @@ it('stops a card in review whose clone holds only untracked leftovers, and names
     $out = $code->ok(['stop', $id, '--to=ready']);
 
     expect($out)->toContain('removed with the clone, untracked: screenshot.png')
-        ->and($code->sandbox->read($id)['stage'])->toBe('ready');
+        ->and($out)->toContain("{$id} review→planning: its plan does not cover the work on its branch")
+        ->and($code->sandbox->read($id)['stage'])->toBe('planning');
 });
 
 it('starts a planner on a stack of its own and frees it on release, the planning branch deleted', function () {

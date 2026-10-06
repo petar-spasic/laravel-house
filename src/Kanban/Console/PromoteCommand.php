@@ -49,9 +49,10 @@ class PromoteCommand extends Command
 
     /**
      * Ready cards whose plan does not cover them (never planned, or the card or its parked work changed since) go back to
-     * planning. Then backlog cards are promoted in pull order until startable ready cards and the planning cards a planner
-     * holds or may take reach `ready_buffer`. A card whose dependencies are not done stays in the backlog for a later run
-     * (a busy area is no reason: it is planned ahead), and every card passed over is named.
+     * planning. Then backlog cards are promoted in pull order until the cards waiting to start (ready, a current plan) and
+     * those in planning a planner holds or may take reach `ready_buffer`, one card ahead per area: an area runs one card at
+     * a time, so a second would wait on a plan going stale. A card whose dependencies are not done stays in the backlog for a
+     * later run, and every card passed over is named.
      */
     private function auto(): void
     {
@@ -62,11 +63,11 @@ class PromoteCommand extends Command
         $snapshot = $this->store()->snapshot();
         $buffer = (int) $snapshot->setting('ready_buffer', 12);
         $pull = new PullPolicy;
-        $count = fn (Snapshot $s) => [count($pull->candidates($s)), count($pull->plannable($s)) + count($s->cards(fn (Card $c) => $c->stage() === 'planning' && $c->atWork()))];
-        [$ready, $planning] = $count($snapshot);
+        $ahead = fn (Snapshot $s) => [...$pull->queued($s), ...$s->cards(fn (Card $c) => $c->stage() === 'planning' && $c->atWork()), ...$pull->plannable($s)];
+        $cards = $ahead($snapshot);
         $policy = new ReadyPolicy;
         foreach ($pull->sort($snapshot, $snapshot->cards(fn (Card $c) => $c->stage() === 'backlog'), 'backlog') as $card) {
-            if ($ready + $planning >= $buffer) {
+            if (count($cards) >= $buffer) {
                 break;
             }
             $refusals = $policy->refusals($card, $snapshot);
@@ -81,11 +82,18 @@ class PromoteCommand extends Command
 
                 continue;
             }
+            $next = array_values(array_filter($cards, fn (Card $c) => array_intersect($c->areas(), $card->areas()) !== []))[0] ?? null;
+            if ($next !== null) {
+                $this->say("skipped {$card->id()}: ".implode(', ', array_intersect($next->areas(), $card->areas()))." takes {$next->id()} next ({$next->stage()})");
+
+                continue;
+            }
             $promoted = $this->transitions()->promote($card->id(), $this->actor());
             $this->say("promoted {$card->id()} to {$promoted->stage()}");
             $snapshot = $this->store()->snapshot();
-            [$ready, $planning] = $count($snapshot);
+            $cards = $ahead($snapshot);
         }
-        $this->say("ready {$ready} startable, planning {$planning}: ".($ready + $planning)."/{$buffer}");
+        $ready = count(array_filter($cards, fn (Card $c) => $c->stage() === 'ready'));
+        $this->say("ready {$ready}, planning ".(count($cards) - $ready).': '.count($cards)."/{$buffer}");
     }
 }

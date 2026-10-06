@@ -42,11 +42,8 @@ class StopCommand extends Command
             throw new PolicyRefused($planning ? "{$id} is planning and no planner holds it: `kanban move {$id} backlog|dropped`" : "{$id} is {$card->stage()}; only doing or review cards are stopped");
         }
         // ready only once its planner's plan is on the card and covers it: checked before anything comes down
-        if ($planning && $to === 'ready' && ! Plan::madeUnderClaim($card)) {
-            throw new PolicyRefused("{$id} has no plan from its planner yet: it moves to ready once its planner's plan is applied (`--to=backlog|dropped` takes the planner off it)");
-        }
-        if ($planning && $to === 'ready' && ! Plan::current($card)) {
-            throw new PolicyRefused("{$id}'s plan no longer covers it (its criteria or body changed since): its planner revises it");
+        if ($planning && $to === 'ready' && ($why = Plan::unreleased($card)) !== null) {
+            throw new PolicyRefused($why.' (`--to=backlog|dropped` takes the planner off it)');
         }
         $host = $card->host();
         if ($host !== null && $host !== (string) gethostname() && ! $this->option('force')) {
@@ -105,7 +102,9 @@ class StopCommand extends Command
         $stopped = $planning && $to === 'ready'
             ? $this->transitions()->planned($id, $this->actor(), $parked)
             : $this->transitions()->stop($id, $to, $this->actor(), $reason, $parked);
-        $this->say("{$id} {$card->stage()}→{$stopped->stage()}");
+        $stages = array_values(array_filter($stopped->log(), fn (array $e) => ($e['event'] ?? null) === 'stage'));
+        $why = $to === 'ready' && $stopped->stage() === 'planning' ? (string) (end($stages)['reason'] ?? '') : null;
+        $this->say("{$id} {$card->stage()}→{$stopped->stage()}".($why === null ? '' : ": {$why}; a planner plans ".($parked === null ? 'it' : 'the rest')));
         $this->reportPending();
 
         return self::SUCCESS;
