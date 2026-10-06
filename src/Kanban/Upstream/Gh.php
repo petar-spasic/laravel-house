@@ -11,15 +11,15 @@ final class Gh
 {
     public function __construct(private readonly string $cwd) {}
 
-    /** Why gh cannot file an issue now (not installed, signed out), or null. */
-    public function unusable(): ?string
+    /** Why gh cannot file an issue on $host now (not installed, signed out), or null. */
+    public function unusable(string $host): ?string
     {
         if ((new ExecutableFinder)->find('gh') === null) {
             return 'gh is not installed (https://cli.github.com)';
         }
-        [$exit] = $this->run(['auth', 'status'], 30);
+        [$exit] = $this->run(['auth', 'status', '--hostname', $host], 30);
 
-        return $exit === 0 ? null : 'gh is not signed in (`gh auth login`)';
+        return $exit === 0 ? null : "gh is not signed in to {$host} (`gh auth login --hostname {$host}`)";
     }
 
     /**

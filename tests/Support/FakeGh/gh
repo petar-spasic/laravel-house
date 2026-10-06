@@ -15,7 +15,7 @@ $args = array_slice($argv, 1);
 file_put_contents($dir.'/calls.jsonl', json_encode($args, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)."\n", FILE_APPEND | LOCK_EX);
 
 $at = array_search('--repo', $args, true);
-$repo = $at === false ? 'owner/repo' : $args[$at + 1];
+$repo = $at === false ? 'owner/repo' : preg_replace('#^github\.com/#', '', $args[$at + 1]);
 $command = implode(' ', array_slice($args, 0, 2));
 if ($command === 'auth status') {
     exit(getenv('FAKE_GH_AUTH') === 'fail' ? 1 : 0);

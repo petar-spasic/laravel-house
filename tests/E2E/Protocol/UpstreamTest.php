@@ -126,15 +126,15 @@ it('lists pending findings and files one through gh with the label and the packa
         ->and($hits->getOutput())->toBe("open #7 Stack wait polls the root https://github.com/petar-spasic/laravel-house/issues/7\n")
         ->and($hits->getErrorOutput())->toContain('--comment=N adds the finding to one, --new files it anyway')
         ->and(($this->calls)())->toBe([
-            ['auth', 'status'],
-            ['issue', 'list', '--repo', 'petar-spasic/laravel-house', '--state', 'open', '--search', 'stack wait ignores health path', '--json', 'number,title,url', '--limit', '5'],
+            ['auth', 'status', '--hostname', 'github.com'],
+            ['issue', 'list', '--repo', 'github.com/petar-spasic/laravel-house', '--state', 'open', '--search', 'stack wait ignores health path', '--json', 'number,title,url', '--limit', '5'],
         ]);
 
     $filed = $this->p->sandbox->kanban(['upstream', 'file', $ref], $this->on);
     $version = InstalledVersions::getPrettyVersion('petar-spasic/laravel-house');
     expect($filed->getExitCode())->toBe(0)
         ->and($filed->getOutput())->toContain('filed #101 https://github.com/petar-spasic/laravel-house/issues/101')
-        ->and(lastOf(($this->calls)()))->toBe(['issue', 'create', '--repo', 'petar-spasic/laravel-house', '--title', 'Stack wait ignores the health path',
+        ->and(lastOf(($this->calls)()))->toBe(['issue', 'create', '--repo', 'github.com/petar-spasic/laravel-house', '--title', 'Stack wait ignores the health path',
             '--body', "it polls / instead\n\n---\nFlagged by an agent; laravel-house {$version}".(str_contains((string) $version, (string) InstalledVersions::getReference('petar-spasic/laravel-house')) ? '' : ' ('.substr((string) InstalledVersions::getReference('petar-spasic/laravel-house'), 0, 7).')'),
             '--label', 'agent-finding'])
         ->and(lastOf($this->p->card($this->id)['log']))->toMatchArray(['event' => 'upstream_filed', 'finding' => $finding, 'issue' => 101, 'url' => 'https://github.com/petar-spasic/laravel-house/issues/101'])
@@ -153,7 +153,7 @@ it('comments on an open issue, or files anyway, when asked', function () {
     expect($both->getExitCode())->toBe(2);
 
     $this->p->sandbox->ok(['upstream', 'file', "{$this->id}:{$first}", '--comment=7'], $this->on);
-    expect(lastOf(($this->calls)()))->toMatchArray([0 => 'issue', 1 => 'comment', 2 => '7', 3 => '--repo', 4 => 'petar-spasic/laravel-house', 5 => '--body'])
+    expect(lastOf(($this->calls)()))->toMatchArray([0 => 'issue', 1 => 'comment', 2 => '7', 3 => '--repo', 4 => 'github.com/petar-spasic/laravel-house', 5 => '--body'])
         ->and(lastOf(($this->calls)())[6])->toStartWith("**Gates run twice**\n\n---\nFlagged by an agent; laravel-house ")
         ->and(lastOf($this->p->card($this->id)['log']))->toMatchArray(['event' => 'upstream_filed', 'finding' => $first, 'issue' => 7]);
 
@@ -173,7 +173,7 @@ it('refuses to file when gh is missing or signed out, or the text names the proj
     expect($missing->getExitCode())->toBe(3)->and($missing->getErrorOutput())->toContain('gh is not installed');
 
     $signedOut = $this->p->sandbox->kanban(['upstream', 'file', $ref], ['FAKE_GH_AUTH' => 'fail'] + $this->on);
-    expect($signedOut->getExitCode())->toBe(3)->and($signedOut->getErrorOutput())->toContain('gh is not signed in');
+    expect($signedOut->getExitCode())->toBe(3)->and($signedOut->getErrorOutput())->toContain('gh is not signed in to github.com (`gh auth login --hostname github.com`)');
 
     file_put_contents($this->p->main.'/.env', "APP_NAME=\"Board Sync\"\n");
     $named = $this->p->sandbox->kanban(['upstream', 'file', $ref], $this->on);
@@ -237,6 +237,6 @@ it('doctor checks gh while filing is on', function () {
     $doctor = fn (array $env) => $this->p->sandbox->kanban(['doctor'], $env + ['KANBAN_STATE_DIR' => Sandbox::tmp()])->getOutput();
 
     expect($doctor($this->off))->not->toContain('gh ')
-        ->and($doctor($this->on))->toContain('ok gh signed in: `kanban upstream file` files findings on petar-spasic/laravel-house')
-        ->and($doctor(['FAKE_GH_AUTH' => 'fail'] + $this->on))->toContain('warn gh is not signed in (`gh auth login`)');
+        ->and($doctor($this->on))->toContain('ok gh signed in: `kanban upstream file` files findings on github.com/petar-spasic/laravel-house')
+        ->and($doctor(['FAKE_GH_AUTH' => 'fail'] + $this->on))->toContain('warn gh is not signed in to github.com (`gh auth login --hostname github.com`)');
 });

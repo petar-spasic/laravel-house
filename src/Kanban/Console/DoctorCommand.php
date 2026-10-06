@@ -310,7 +310,7 @@ class DoctorCommand extends Command
         if (! Findings::enabled($this->config())) {
             return;
         }
-        $problem = (new Gh($this->paths()->main))->unusable();
+        $problem = (new Gh($this->paths()->main))->unusable(Findings::host($this->config()));
         $this->add(...($problem === null
             ? ['ok', 'gh signed in: `kanban upstream file` files findings on '.Findings::repo($this->config())]
             : ['warn', "{$problem}: `kanban upstream file` cannot file findings (KANBAN_UPSTREAM is on)"]));

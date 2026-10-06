@@ -22,10 +22,22 @@ final class Findings
         return filter_var($config['upstream']['enabled'] ?? false, FILTER_VALIDATE_BOOL);
     }
 
-    /** @param  array<string, mixed>  $config */
+    /**
+     * `HOST/OWNER/REPO`: without a host gh would use its default one, which may be an enterprise server.
+     *
+     * @param  array<string, mixed>  $config
+     */
     public static function repo(array $config): string
     {
-        return (string) ($config['upstream']['repo'] ?? self::REPO);
+        $repo = trim((string) ($config['upstream']['repo'] ?? self::REPO), '/');
+
+        return substr_count($repo, '/') === 1 ? 'github.com/'.$repo : $repo;
+    }
+
+    /** @param  array<string, mixed>  $config */
+    public static function host(array $config): string
+    {
+        return strtok(self::repo($config), '/');
     }
 
     /**

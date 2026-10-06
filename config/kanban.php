@@ -136,8 +136,9 @@ return [
         ],
     ],
 
-    // Findings about this package that workers and evaluators flag (`--upstream`) are filed as issues on `repo` by
-    // `kanban upstream file`, through gh. Off: they stay in the card logs for the owner (`kanban upstream`).
+    // Findings about this package that workers and evaluators flag (`--upstream`) are filed as issues on `repo`
+    // (`[HOST/]OWNER/REPO`, github.com without a host) by `kanban upstream file`, through gh signed in to that host.
+    // Off: they stay in the card logs for the owner (`kanban upstream`).
     'upstream' => [
         'enabled' => env('KANBAN_UPSTREAM', false),
         'repo' => 'petar-spasic/laravel-house',

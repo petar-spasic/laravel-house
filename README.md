@@ -975,8 +975,8 @@ directory it governs. Every agent reads those files.
 ### Reporting Package Issues
 
 When a worker or an evaluator meets a problem in this package itself, it records it on the card. List these findings
-with `vendor/bin/kanban upstream`. With `KANBAN_UPSTREAM=true` and the GitHub CLI signed in, Claude files each one as
-an issue on this package's repository, after searching for an open one:
+with `vendor/bin/kanban upstream`. With `KANBAN_UPSTREAM=true` and the GitHub CLI signed in to github.com, Claude files
+each one as an issue on this package's repository, after searching for an open one:
 
 ```shell
 vendor/bin/kanban upstream file ACME-7K2QF9:3H8D2K1Q

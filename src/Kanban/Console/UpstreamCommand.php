@@ -109,7 +109,7 @@ class UpstreamCommand extends Command
         $scrubber->check($title."\n".$body, 'the finding');
         $scrubber->check($query, 'the search query');
         $gh = new Gh($this->paths()->main);
-        if (($problem = $gh->unusable()) !== null) {
+        if (($problem = $gh->unusable(Findings::host($this->config()))) !== null) {
             throw new PolicyRefused($problem);
         }
         $repo = Findings::repo($this->config());
