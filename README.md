@@ -1130,7 +1130,8 @@ vendor/bin/kanban doctor
 
 If your project has an `origin` remote, the board is shared through it. The installer pushes the `kanban` branch
 once. After that, every change is pushed as soon as it is made. Changes from others are pulled at most every 30
-seconds: while the board page is open, when a Claude Code session starts, and when `status` or `next` runs.
+seconds: while the board page is open, when a Claude Code session starts, when `status` or `next` runs, and while
+`kanban run` drives the board.
 
 Teammates join with `vendor/bin/kanban attach`, as in [Joining an Existing Board](#joining-an-existing-board). When
 two machines try to start the same card, only one of them gets it.

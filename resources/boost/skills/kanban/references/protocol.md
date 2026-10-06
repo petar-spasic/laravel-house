@@ -17,7 +17,7 @@ text, one fact per line; errors go to stderr. Card ids accept a unique prefix of
 | 6 | lock or lease | another writer or orchestrator; wait, or `lease --takeover` (your own previous session, or with the owner's OK) |
 | 7 | stack | `stack <ID> logs`, `doctor`; fix, then `stack <ID> up` |
 | 8 | claim lost | another machine took the card; `next`. A card that left `ready` is exit 3. A scheduler skips that card for the rest of its run |
-| 9 | remote | network down, or a push rejected 3 times in a row: transient, retry later with backoff; never force-push. A claim that exits 9 left no claim commit behind |
+| 9 | remote | network down, or a push rejected 3 times in a row: transient, retry later with backoff; never force-push. A claim that exits 9 left no claim commit behind here. A `start` whose push reached origin all the same (the remote failed before it could say so) is finished by running `start` again, or by `kanban run` |
 | 75 | stack still starting | run `stack wait` again |
 
 ## Actors

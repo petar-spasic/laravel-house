@@ -148,6 +148,37 @@ final class BoardRepo
         return $git->attempt(['commit', '-q', '--no-verify', '-m', $message, '--', ...$paths])->ok();
     }
 
+    /**
+     * A commit of $files (board path => bytes) on top of HEAD that no branch points at: built in an index of its own, so
+     * the branch, its index and the files stay as they are until it is pushed (then resetKeep() moves them to it).
+     *
+     * @param  array<string, string>  $files
+     */
+    public function commitAside(array $files, string $message): string
+    {
+        $git = $this->required();
+        $index = $this->paths->ensureRuntime().'/aside.'.getmypid().'.'.bin2hex(random_bytes(4)).'.index';
+        $aside = $git->withEnv(['GIT_INDEX_FILE' => $index]);
+        try {
+            $aside->run(['read-tree', 'HEAD']);
+            foreach ($files as $path => $bytes) {
+                $blob = trim($git->run(['hash-object', '-w', '--path='.$path, '--stdin'], $bytes));
+                $aside->run(['update-index', '--add', '--cacheinfo', "100644,{$blob},{$path}"]);
+            }
+
+            return trim($git->run(['commit-tree', trim($aside->run(['write-tree'])), '-p', 'HEAD', '-m', $message]));
+        } finally {
+            @unlink($index);
+            @unlink($index.'.lock');
+        }
+    }
+
+    /** True when $rev is in origin/kanban's history as last fetched. */
+    public function onRemote(string $rev): bool
+    {
+        return $this->hasRemoteRef() && $this->required()->attempt(['merge-base', '--is-ancestor', $rev, $this->remoteRef()])->code === 0;
+    }
+
     /** The full id of HEAD, or null. */
     public function headRev(): ?string
     {
@@ -188,10 +219,10 @@ final class BoardRepo
     }
 
     /** Fetches origin's kanban branch. False when origin has no such branch; RemoteFailed when unreachable. */
-    public function fetch(): bool
+    public function fetch(float $timeout = 120): bool
     {
         for ($attempt = 1; ; $attempt++) {
-            $result = $this->required()->attempt(['fetch', '-q', $this->remote(), '+refs/heads/'.self::BRANCH.':'.$this->remoteRef()]);
+            $result = $this->required()->attempt(['fetch', '-q', $this->remote(), '+refs/heads/'.self::BRANCH.':'.$this->remoteRef()], null, $timeout);
             if ($result->ok()) {
                 return true;
             }
@@ -258,10 +289,14 @@ final class BoardRepo
         return ['-c', 'merge.kanban.name=laravel-house kanban JSON merge', '-c', 'merge.kanban.driver='.$driver];
     }
 
-    /** 'ok' or 'rejected' (non-fast-forward); RemoteFailed for anything else. */
-    public function push(float $timeout = 120): string
+    /** 'ok' or 'rejected' (non-fast-forward); RemoteFailed for anything else. $rev pushes that commit instead of the branch. */
+    public function push(float $timeout = 120, ?string $rev = null): string
     {
-        $result = $this->required()->attempt(['push', '-q', '--set-upstream', $this->remote(), 'refs/heads/'.self::BRANCH.':refs/heads/'.self::BRANCH], null, $timeout);
+        // --set-upstream does nothing for a commit pushed by its id
+        $args = $rev === null
+            ? ['push', '-q', '--set-upstream', $this->remote(), 'refs/heads/'.self::BRANCH.':refs/heads/'.self::BRANCH]
+            : ['push', '-q', $this->remote(), $rev.':refs/heads/'.self::BRANCH];
+        $result = $this->required()->attempt($args, null, $timeout);
         if ($result->ok()) {
             return 'ok';
         }

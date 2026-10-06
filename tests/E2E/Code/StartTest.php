@@ -1,5 +1,7 @@
 <?php
 
+use PetarSpasic\LaravelHouse\Kanban\Console\StartCommand;
+use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
 use PetarSpasic\LaravelHouse\Tests\Support\CodeSandbox;
 use PetarSpasic\LaravelHouse\Tests\Support\Sandbox;
 use Symfony\Component\Process\Process;
@@ -352,6 +354,18 @@ it('records where the work goes with the claim, so a start killed before its sta
     expect($again->getExitCode())->toBe(0)
         ->and($again->getOutput())->toContain("resumed {$id}\n")
         ->and($code->sandbox->read($id)['work']['stack'])->not->toBeNull();
+});
+
+it('writes where the work goes in the commit that claims the card', function () {
+    $id = $this->code->started('One commit');
+
+    $claim = array_values(array_filter(explode("\n", trim($this->code->sandbox->boardGit('log', '--format=%H %s'))), fn (string $line) => str_contains($line, "{$id} stage ready→doing")));
+    expect($claim)->toHaveCount(1);
+    $card = json_decode($this->code->sandbox->boardGit('show', strtok($claim[0], ' ').":work/{$id}.json"), true);
+
+    expect($card['stage'])->toBe('doing')
+        ->and($card['work'])->toMatchArray(['host' => gethostname(), 'worktree' => '.claude/worktrees/'.basename($this->code->worktree($id))])
+        ->and(StartCommand::marks(Paths::discover($this->code->root()), $id))->toBe([$card['work']['started']]);
 });
 
 it("makes the card's worktree a clone of main that names main, carries main's identity and owns its own .git", function () {

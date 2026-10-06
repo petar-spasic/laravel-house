@@ -160,7 +160,7 @@ final class Transitions
 
     /**
      * ready → doing: preconditions (ready, unblocked, deps satisfied, capacity unless forced or urgent+1), then the
-     * claim (pushed first when sync=on), then `work` when given.
+     * claim with `work` when given, in one commit (pushed when sync=on).
      *
      * @param  array<string, mixed>|null  $work
      */
@@ -171,13 +171,7 @@ final class Transitions
         }
         $card = $this->assertReady($this->store->snapshot(), $id);
 
-        $claimed = $this->store->claim($card->id(), $claim ?? Claim::here($by), $by, fn (Snapshot $fresh) => $this->assertStartable($fresh, $card->id(), $force));
-
-        return $work === null ? $claimed : $this->store->update($claimed->id(), function (array $data) use ($work) {
-            $data['work'] = array_merge($data['work'] ?? [], $work);
-
-            return $data;
-        }, $by);
+        return $this->store->claim($card->id(), $claim ?? Claim::here($by), $by, fn (Snapshot $fresh) => $this->assertStartable($fresh, $card->id(), $force), $work);
     }
 
     /** The card when it is ready and unclaimed in $snapshot; PolicyRefused otherwise. */

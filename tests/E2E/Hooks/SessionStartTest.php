@@ -161,6 +161,10 @@ it('prunes runtime files nothing reads any more and keeps the rest', function ()
     $oldRun = $write('runs/old-session.json', [], $old);
     $oldPid = $write('runs/old-live.pid', ['pid' => 1], $old);
     $goneStart = $write('starts/ACME-GONE', [], time());
+    $readyStart = $write('starts/'.$p->sandbox->readyCard('Claim may still land'), [], $old);
+    [$other] = $p->started('Started under another claim');
+    $supersededStart = $p->runtime("starts/{$other}");
+    file_put_contents($supersededStart, "2026-01-01T00:00:00.000+00:00\n");
 
     $p->hook('session-start', $p->payload('session-start'));
 
@@ -174,6 +178,8 @@ it('prunes runtime files nothing reads any more and keeps the rest', function ()
         ->and($liveButQuiet)->toBeFile()
         ->and($keptStaged)->toBeFile()
         ->and($goneStart)->not->toBeFile()
+        ->and($readyStart)->toBeFile()
+        ->and($supersededStart)->not->toBeFile()
         ->and($p->runtime("starts/{$id}"))->toBeFile();
 });
 

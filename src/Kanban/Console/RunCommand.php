@@ -171,6 +171,9 @@ class RunCommand extends Command
 
     private function pass(): void
     {
+        // the pass works on what origin holds: cards readied on other machines, a claim of this checkout that landed
+        // although its start failed. No session or UI may be pulling for this machine
+        $this->gitStore()?->maybeSync(wait: true);
         $state = $this->state();
         foreach ($this->agents->ended() as $run) {
             $state = $this->reaped($run, $state);
@@ -431,7 +434,7 @@ class RunCommand extends Command
     private function unstarted(Snapshot $snapshot): array
     {
         return array_values($snapshot->cards(fn (Card $c) => $c->stage() === 'doing' && ($c->work()['host'] ?? null) === gethostname()
-            && @file_get_contents($this->paths()->runtime(StartCommand::STARTED.'/'.$c->id())) === ($c->work()['started'] ?? null)
+            && in_array($c->work()['started'] ?? null, StartCommand::marks($this->paths(), $c->id()), true)
             && ($c->blocked() === null ? $this->cutShort($c) : self::slotLost((string) $c->blocked()))));
     }
 

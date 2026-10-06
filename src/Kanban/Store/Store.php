@@ -42,16 +42,21 @@ interface Store
 
     /**
      * ready → doing with a claim; with sync=on the claim is pushed or the card is lost (LostClaim). $verify gets the
-     * snapshot the claim is made against (origin's, after the pull, when sync=on) and throws to refuse.
+     * snapshot the claim is made against (origin's, after the pull, when sync=on) and throws to refuse. $work is merged
+     * into the card in the claim's own commit, so a claim that lands always says where its work goes.
      *
      * @param  (Closure(Snapshot): void)|null  $verify
+     * @param  array<string, mixed>|null  $work
      */
-    public function claim(string $id, Claim $claim, Actor $by, ?Closure $verify = null): Card;
+    public function claim(string $id, Claim $claim, Actor $by, ?Closure $verify = null, ?array $work = null): Card;
 
     public function sync(): SyncResult;
 
-    /** With sync on: starts a background sync unless one was asked for within pull_seconds. Cheap, never waits for git, never throws. */
-    public function maybeSync(): void;
+    /**
+     * With sync on: starts a background sync unless one was asked for within pull_seconds. Cheap, never waits for git,
+     * never throws. $wait syncs here instead, for a caller that acts on the pulled board next (`kanban run`).
+     */
+    public function maybeSync(bool $wait = false): void;
 
     /** Writes waiting in the journal (not yet committed). */
     public function pending(): int;

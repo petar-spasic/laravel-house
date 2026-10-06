@@ -116,7 +116,7 @@ final class Runtime
 
     /**
      * Removes runtime files nothing reads any more: stopped agents, applied reports, an expired lease, unclaimed spawns, and
-     * staged files and start marks of cards that are gone or finished.
+     * staged files of cards that are gone or finished, and start marks of cards gone, finished or at work under another start.
      *
      * @return int files removed
      */
@@ -156,9 +156,12 @@ final class Runtime
             $drop($file, self::APPLIED_DAYS * 86400);
         }
         foreach (glob($this->paths->runtime(StartCommand::STARTED).'/*') ?: [] as $file) {
-            if (! in_array($snapshot->card(basename($file))?->stage(), ['doing', 'review'], true)) {
-                $drop($file, -1);
-            }
+            $card = $snapshot->card(basename($file));
+            // kept in backlog or ready, where a claim of this checkout may yet arrive (its mark comes before it, and this
+            // clone may not have pulled it), and at work under a start it lists
+            $kept = in_array($card?->stage(), ['backlog', 'ready'], true) || (in_array($card?->stage(), ['doing', 'review'], true)
+                && in_array($card->work()['started'] ?? null, StartCommand::marks($this->paths, $card->id()), true));
+            $kept || $drop($file, -1);
         }
         foreach (glob($this->paths->staged('*.json')) ?: [] as $file) {
             $card = $snapshot->card(strstr(basename($file), '.', true) ?: '');

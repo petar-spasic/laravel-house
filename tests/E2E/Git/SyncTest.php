@@ -241,6 +241,40 @@ it('keeps a claim whose push is rejected only because somebody pushed something 
         ->and(trim($b->boardGit('rev-parse', 'HEAD')))->toBe(trim($b->boardGit('rev-parse', 'origin/kanban')));
 });
 
+it('never lets another push of the clone carry a claim before the claim\'s own push lands', function () {
+    [$origin, $a, $b] = published();
+    $id = $a->readyCard('Raced card');
+    $a->ok('sync');
+    $b->ok('sync');
+    // what a background sync does: push the branch as it is at that moment
+    racingPush($b, 'git -C "'.$b->root.'/docs/kanban" push -q origin refs/heads/kanban:refs/heads/kanban');
+
+    $claim = $b->kanban(['claim', $id], ['KANBAN_SYNC' => 'on', 'KANBAN_SESSION' => 'session-b']);
+
+    expect($claim->getExitCode())->toBe(0, $claim->getErrorOutput())
+        ->and($claim->getOutput())->toStartWith("claimed {$id}")
+        ->and($origin->show("kanban:work/{$id}.json"))->toContain('"session": "session-b"')
+        ->and(array_filter($origin->log('kanban'), fn (string $subject) => str_starts_with($subject, "{$id} stage ready→doing")))->toHaveCount(1)
+        ->and(trim($b->boardGit('rev-parse', 'HEAD')))->toBe(trim($b->boardGit('rev-parse', 'origin/kanban')));
+});
+
+it('wins a claim whose push failed with an error after it reached origin', function () {
+    [$origin, $a, $b] = published();
+    $id = $a->readyCard('Lost answer');
+    $a->ok('sync');
+    $b->ok('sync');
+    // the claim commit reaches origin, then the push fails before it can say so
+    racingPush($b, 'read ref sha rest; git -C "'.$b->root.'/docs/kanban" push -q origin "$sha:refs/heads/kanban"; exit 1');
+
+    $claim = $b->kanban(['claim', $id], ['KANBAN_SYNC' => 'on', 'KANBAN_SESSION' => 'session-b']);
+
+    expect($claim->getExitCode())->toBe(0, $claim->getErrorOutput())
+        ->and($claim->getOutput())->toStartWith("claimed {$id}")
+        ->and($origin->show("kanban:work/{$id}.json"))->toContain('"session": "session-b"')
+        ->and($b->read($id)['stage'])->toBe('doing')
+        ->and(trim($b->boardGit('rev-parse', 'HEAD')))->toBe(trim($b->boardGit('rev-parse', 'origin/kanban')));
+});
+
 it('checks the area again after a lost push race, so two schedulers cannot both fill it', function () {
     [$origin, $a, $b] = published();
     $second = $a->readyCard('Second in the area', ['--label=area:billing']);

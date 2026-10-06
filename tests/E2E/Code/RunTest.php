@@ -4,6 +4,7 @@ use PetarSpasic\LaravelHouse\Kanban\Console\Install\ClaudeSettings;
 use PetarSpasic\LaravelHouse\Kanban\Guard\Guard;
 use PetarSpasic\LaravelHouse\Kanban\Support\Json;
 use PetarSpasic\LaravelHouse\Tests\Support\CodeSandbox;
+use PetarSpasic\LaravelHouse\Tests\Support\Origin;
 use PetarSpasic\LaravelHouse\Tests\Support\Sandbox;
 use Symfony\Component\Process\Process;
 
@@ -170,6 +171,69 @@ it('finishes a start cut short on this machine whose block was cleared, then run
     expect($out)->toMatch("/ {$id} start resumed; worker [0-9a-f]{8} launched\n/")
         ->and(is_dir($wt.'/.git'))->toBeTrue()
         ->and($this->code->sandbox->read($id)['stage'])->toBe('review');
+});
+
+/**
+ * A ready card of $code, published to $origin, whose `start` exits 9 although its claim reached origin: the push's hook
+ * lands the claim commit itself, takes the remote away and fails the push. The remote is back afterwards.
+ */
+function landedStart(CodeSandbox $code, Origin $origin): string
+{
+    $code->sandbox->addRemote($origin);
+    $code->ok(['sync']);
+    $id = $code->sandbox->readyCard('Add login page');
+    $code->ok(['sync']);
+    $hooks = Sandbox::tmp();
+    file_put_contents("{$hooks}/pre-push", implode("\n", [
+        '#!/bin/sh', "[ -f \"{$hooks}/done\" ] && exit 0", "touch \"{$hooks}/done\"", 'read ref sha rest',
+        "git -C \"{$code->root()}/docs/kanban\" push -q origin \"\$sha:refs/heads/kanban\"",
+        "git -C \"{$code->root()}\" remote set-url origin /nonexistent", 'exit 1', '',
+    ]));
+    chmod("{$hooks}/pre-push", 0755);
+    $code->sandbox->git('config', 'core.hooksPath', $hooks);
+
+    $start = $code->kanban(['start', $id], ['KANBAN_SYNC' => 'on']);
+
+    expect($start->getExitCode())->toBe(9, $start->getOutput().$start->getErrorOutput())
+        ->and($origin->show("kanban:work/{$id}.json"))->toContain('"stage": "doing"')
+        ->and($code->sandbox->read($id)['stage'])->toBe('ready');
+    $code->sandbox->git('remote', 'set-url', 'origin', $origin->path);
+
+    return $id;
+}
+
+it('finishes a start whose claim reached origin although the start failed, pulling the board itself', function () {
+    $id = landedStart($this->code, Origin::create());
+
+    $out = runPass($this->code, $this->claude, env: ['KANBAN_SYNC' => 'on']);
+
+    expect($out)->toMatch("/ {$id} start resumed; worker [0-9a-f]{8} launched\n/")
+        ->and($this->code->sandbox->read($id)['stage'])->toBe('review');
+});
+
+it('finishes, rather than refuses, a start run again whose earlier claim reached origin', function () {
+    $id = landedStart($this->code, Origin::create());
+
+    $again = $this->code->kanban(['start', $id], ['KANBAN_SYNC' => 'on', 'KANBAN_SESSION' => 'another-session']);
+
+    expect($again->getExitCode())->toBe(0, $again->getOutput().$again->getErrorOutput())
+        ->and($again->getOutput())->toStartWith("resumed {$id}\n")
+        ->and($this->code->sandbox->read($id)['work']['stack'])->not->toBeNull()
+        ->and(is_dir($this->code->worktree($id).'/.git'))->toBeTrue();
+});
+
+it('pulls the board in each pass, so a card readied on another machine starts with nothing else pulling', function () {
+    $origin = Origin::create();
+    $this->code->sandbox->addRemote($origin);
+    $this->code->ok(['sync']);
+    $peer = $origin->clone('peer');
+    $peer->ok('attach');
+    $id = $peer->readyCard('Readied elsewhere');
+    $peer->ok('sync');
+
+    $out = runPass($this->code, $this->claude, env: ['KANBAN_SYNC' => 'on']);
+
+    expect($out)->toMatch("/ {$id} started; worker [0-9a-f]{8} launched\n/");
 });
 
 it('leaves the worker of a resumed start alone for the rest of the pass while it runs', function () {

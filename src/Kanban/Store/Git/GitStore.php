@@ -48,6 +48,9 @@ final class GitStore implements Store
 
     private const CLAIM_PUSH_TIMEOUT = 30.0;
 
+    /** How long a claim whose push failed looks whether the push landed all the same. */
+    private const CLAIM_CHECK_TIMEOUT = 10.0;
+
     /** How often a background sync tries before it gives up, and the pause in seconds between tries. */
     private const SYNC_TRIES = 3;
 
@@ -145,16 +148,32 @@ final class GitStore implements Store
             if ($expected !== null && ! $expected->equals($card->rev)) {
                 throw new Changed("{$card->id()} changed since it was read; reload and retry");
             }
-            [$data, $summary] = $this->finalize($card->data, $mutate($card->data), $by);
-            if ($summary === null) {
+            $change = $this->changed($snapshot, $card, $mutate, $by);
+            if ($change === null) {
                 return $card;
             }
-            $updated = $this->cardFrom($data, $card->board, $card->path);
-            $this->validate($snapshot, $snapshot->withCard($updated), [$card->path => ['card', $updated->data]]);
-            $this->persist([$card->path => $updated->data], [], "{$card->id()} {$summary} [{$by->role}]", $by);
+            [$updated, $message] = $change;
+            $this->persist([$card->path => $updated->data], [], $message, $by);
 
             return $updated;
         });
+    }
+
+    /**
+     * $card with $mutate applied, finalized and validated against $snapshot, with its commit message; null when nothing changes.
+     *
+     * @return array{0: Card, 1: string}|null
+     */
+    private function changed(Snapshot $snapshot, Card $card, Closure $mutate, Actor $by): ?array
+    {
+        [$data, $summary] = $this->finalize($card->data, $mutate($card->data), $by);
+        if ($summary === null) {
+            return null;
+        }
+        $updated = $this->cardFrom($data, $card->board, $card->path);
+        $this->validate($snapshot, $snapshot->withCard($updated), [$card->path => ['card', $updated->data]]);
+
+        return [$updated, "{$card->id()} {$summary} [{$by->role}]"];
     }
 
     public function relocate(string $id, BoardRef $to, Actor $by): Card
@@ -285,11 +304,13 @@ final class GitStore implements Store
     }
 
     /**
-     * Claims a ready card for $claim. Online, the claim is won only by the push that lands: each round fetches, then
-     * rebases, checks the card and $verify against what origin now holds, commits the claim and pushes it once. A rejected
-     * push drops that claim commit and starts over, so a competing claim, or a card that left ready, is found on fresh data.
+     * Claims a ready card for $claim, with $work in the same commit. Online, the claim is won only by the push that lands:
+     * each round fetches, then rebases, checks the card and $verify against what origin now holds, and pushes a claim
+     * commit no branch points at. The branch moves to it only once that push lands, so no other push of this clone can
+     * carry a claim that has not won. A rejected push starts over, so a competing claim, or a card that left ready, is
+     * found on fresh data.
      */
-    public function claim(string $id, Claim $claim, Actor $by, ?Closure $verify = null): Card
+    public function claim(string $id, Claim $claim, Actor $by, ?Closure $verify = null, ?array $work = null): Card
     {
         $online = $this->syncOn() && $this->repo->hasRemote();
         for ($round = 1; ; $round++) {
@@ -300,7 +321,7 @@ final class GitStore implements Store
                     throw new RemoteFailed($e->getMessage().' (while sync is on a claim needs the remote; to work on this machine only, run the same command with KANBAN_SYNC=off in front, and only when the owner agrees)');
                 }
             }
-            $claimed = $this->write(fn () => $this->claimRound($id, $claim, $by, $online, $verify), self::CLAIM_TIMEOUT);
+            $claimed = $this->write(fn () => $this->claimRound($id, $claim, $by, $online, $verify, $work), self::CLAIM_TIMEOUT);
             if ($claimed !== null) {
                 return $claimed;
             }
@@ -312,8 +333,13 @@ final class GitStore implements Store
         }
     }
 
-    /** One round of claim(), under the write lock: the claimed card, or null when the push was rejected (nothing is left behind). */
-    private function claimRound(string $id, Claim $claim, Actor $by, bool $online, ?Closure $verify): ?Card
+    /**
+     * One round of claim(), under the write lock: the claimed card, or null when the push was rejected (the branch never
+     * moved, so nothing is left behind).
+     *
+     * @param  array<string, mixed>|null  $work
+     */
+    private function claimRound(string $id, Claim $claim, Actor $by, bool $online, ?Closure $verify, ?array $work): ?Card
     {
         if ($online) {
             $this->repo->rebase();
@@ -330,34 +356,54 @@ final class GitStore implements Store
         if ($verify !== null) {
             $verify($snapshot);
         }
-        $claimed = $this->update($card->id(), function (array $data) use ($claim) {
+        $mutate = function (array $data) use ($claim, $work) {
             $data['claim'] = $claim->toArray();
+            if ($work !== null) {
+                $data['work'] = array_merge($data['work'] ?? [], $work);
+            }
 
             return Transitions::stage($data, 'doing', 'start');
-        }, $by);
+        };
         if (! $online) {
-            return $claimed;
+            return $this->update($card->id(), $mutate, $by);
         }
-        if ($this->journal->count() > 0) {
-            throw new GitFailed('the claim could not be committed, so it cannot be pushed');
-        }
+        // never null: the stage changes
+        [$claimed, $message] = $this->changed($snapshot, $card, $mutate, $by);
+        $commit = $this->repo->commitAside([$card->path => Json::encode($claimed->data, Json::kindOf($card->path))], $message);
         try {
             // a stalled remote must not hold the board lock for the default two minutes
-            $pushed = $this->repo->push(self::CLAIM_PUSH_TIMEOUT);
+            $pushed = $this->repo->push(self::CLAIM_PUSH_TIMEOUT, $commit);
         } catch (Throwable $e) {
-            $this->repo->resetKeep('HEAD~1');
+            // the remote may have taken the commit before the error (a timeout, a dropped connection): then the claim is won
+            if ($this->landed($commit)) {
+                return $this->current()->resolve($card->id());
+            }
 
             throw $e instanceof RemoteFailed ? new RemoteFailed("claim of {$card->id()} dropped: ".$e->getMessage()) : $e;
         }
-        $this->wrote = false;
         if ($pushed === 'rejected') {
-            $this->repo->resetKeep('HEAD~1');
-
             return null;
         }
+        $this->repo->resetKeep($commit);
         $this->status->recordOk();
 
         return $claimed;
+    }
+
+    /** After a push of $commit that failed with an error: whether origin holds it all the same, pulled here when it does. */
+    private function landed(string $commit): bool
+    {
+        try {
+            // a short look: the remote just failed, and the board lock is held
+            if (! $this->repo->fetch(self::CLAIM_CHECK_TIMEOUT) || ! $this->repo->onRemote($commit)) {
+                return false;
+            }
+            $this->repo->rebase();
+
+            return true;
+        } catch (Throwable) {
+            return false;
+        }
     }
 
     public function sync(): SyncResult
@@ -572,7 +618,7 @@ final class GitStore implements Store
         return is_file($file) ? (string) file_get_contents($file) : null;
     }
 
-    public function maybeSync(): void
+    public function maybeSync(bool $wait = false): void
     {
         try {
             $every = (int) ($this->config['pull_seconds'] ?? 30);
@@ -593,14 +639,18 @@ final class GitStore implements Store
                     return;
                 }
                 touch($stamp);
-                if ($this->syncOn() && $this->repo->hasRemote()) {
-                    $this->requestSync();
-                }
+                $due = $this->syncOn() && $this->repo->hasRemote();
             } finally {
                 $gate->release();
             }
+            if ($due && $wait) {
+                // a failure is recorded for the notice, as a background sync's is
+                $this->sync();
+            } elseif ($due) {
+                $this->requestSync();
+            }
         } catch (Throwable) {
-            // a poll or a session start never fails because a sync could not be asked for
+            // a poll, a session start or a pass of `kanban run` never fails because a sync failed or could not be asked for
         }
     }
 

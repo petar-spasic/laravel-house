@@ -80,6 +80,8 @@ final class CodeSandbox
             'migrate' => null,
             'finish' => ['after' => []],
         ]);
+        // left to KANBAN_SYNC, as in every sandbox: the package file read here would write this process's value in
+        unset($config['sync']);
         file_put_contents($this->sandbox->root.'/config/kanban.php', "<?php\n\nreturn ".var_export(self::merge($config, $overrides), true).";\n");
     }
 

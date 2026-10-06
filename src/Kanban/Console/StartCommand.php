@@ -8,8 +8,10 @@ use PetarSpasic\LaravelHouse\Kanban\Code\StackUser;
 use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Lease;
 use PetarSpasic\LaravelHouse\Kanban\Store\Card;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\LostClaim;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
 use PetarSpasic\LaravelHouse\Kanban\Support\Clock;
+use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Throwable;
 
@@ -22,7 +24,7 @@ class StartCommand extends Command
 
     protected $description = 'Claim a ready card, create its worktree, .env and port slot, and start its Docker stack; run again, it finishes a start cut short';
 
-    /** Runtime directory of the claims this checkout made, each holding its `work.started`: `kanban run` finishes only these starts. */
+    /** Runtime directory of this checkout's starts: a file per card listing their `work.started`, one a line. */
     public const STARTED = 'starts';
 
     protected function perform(): int
@@ -35,15 +37,7 @@ class StartCommand extends Command
         $card = $this->store()->card($this->argument('id'));
         $id = $card->id();
         $resumed = $this->resumable($card, $worktrees);
-        if ($resumed) {
-            $work = $card->work();
-            $path = $this->paths()->main.'/'.$work['worktree'];
-            $branch = (string) $work['branch'];
-            $parked = null;
-            if (! $worktrees->isWorktree($path) && file_exists($path)) {
-                throw new PolicyRefused("{$work['worktree']} exists but is not a worktree; remove it, then run `kanban start {$id}` again");
-            }
-        } else {
+        if (! $resumed) {
             $path = $this->paths()->worktree($id, $card->title());
             if (file_exists($path)) {
                 throw new PolicyRefused("{$this->paths()->relative($path)} already exists; remove it or run `kanban stack gc` first");
@@ -71,14 +65,34 @@ class StartCommand extends Command
                 'host' => gethostname() ?: null, 'stack' => null, 'attempt' => $attempt, 'head' => null, 'approved' => null, 'merge' => null,
                 'started' => Clock::now(), 'finished' => null,
             ];
+            // before the claim: a claim that lands though its start fails or is killed is still this checkout's to finish
+            self::mark($this->paths(), $id, $work['started']);
             try {
                 $this->transitions()->start($id, $this->actor(), work: $work, force: (bool) $this->option('force'));
             } catch (Throwable $e) {
-                $reserved && $worktrees->registry()->release($path);
-                throw $e;
+                // refused by an earlier start of this checkout whose claim landed although that start failed: the claim
+                // round has just pulled it, so that start is finished instead
+                $landed = $e instanceof PolicyRefused || $e instanceof LostClaim ? $this->store()->card($id) : null;
+                $resumed = $landed !== null && $this->resumable($landed, $worktrees) && in_array($landed->work()['started'] ?? null, self::marks($this->paths(), $id), true);
+                if ($reserved && ! ($resumed && $this->paths()->main.'/'.$landed->work()['worktree'] === $path)) {
+                    $worktrees->registry()->release($path);
+                }
+                if (! $resumed) {
+                    throw $e;
+                }
+                $card = $landed;
             }
-            // this claim's start time: a mark left by an earlier claim of the card names another start
-            file_put_contents($this->paths()->ensureRuntime(self::STARTED).'/'.$id, $work['started']);
+        }
+        if ($resumed) {
+            $work = $card->work();
+            $path = $this->paths()->main.'/'.$work['worktree'];
+            $branch = (string) $work['branch'];
+            $parked = null;
+            if (! $worktrees->isWorktree($path) && file_exists($path)) {
+                throw new PolicyRefused("{$work['worktree']} exists but is not a worktree; remove it, then run `kanban start {$id}` again");
+            }
+            // finished here, the start is this checkout's from now on
+            self::mark($this->paths(), $id, (string) ($work['started'] ?? ''));
         }
 
         $merged = [];
@@ -167,6 +181,47 @@ class StartCommand extends Command
         $after = $worktrees->head('HEAD', $path);
 
         return $after === $before ? [] : ["merged {$main} into the parked branch (".substr($before, 0, 7).'..'.substr($after, 0, 7).')'];
+    }
+
+    /**
+     * The `work.started` of this checkout's starts of $id, oldest first: `kanban run`, and a start refused by its own earlier
+     * claim, finish only these.
+     *
+     * @return list<string>
+     */
+    public static function marks(Paths $paths, string $id): array
+    {
+        $handle = @fopen($paths->runtime(self::STARTED.'/'.$id), 'r');
+        if ($handle === false) {
+            return [];
+        }
+        try {
+            flock($handle, LOCK_SH);
+
+            return array_values(array_filter(array_map(trim(...), explode("\n", (string) stream_get_contents($handle)))));
+        } finally {
+            fclose($handle);
+        }
+    }
+
+    /** Adds $started to this checkout's starts of $id. */
+    private static function mark(Paths $paths, string $id, string $started): void
+    {
+        $handle = $started === '' ? false : @fopen($paths->ensureRuntime(self::STARTED).'/'.$id, 'c+');
+        if ($handle === false) {
+            return;
+        }
+        try {
+            flock($handle, LOCK_EX);
+            $marks = array_values(array_filter(array_map(trim(...), explode("\n", (string) stream_get_contents($handle)))));
+            if (! in_array($started, $marks, true)) {
+                ftruncate($handle, 0);
+                rewind($handle);
+                fwrite($handle, implode("\n", [...$marks, $started])."\n");
+            }
+        } finally {
+            fclose($handle);
+        }
     }
 
     /**
