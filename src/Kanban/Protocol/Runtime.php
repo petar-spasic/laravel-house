@@ -2,6 +2,7 @@
 
 namespace PetarSpasic\LaravelHouse\Kanban\Protocol;
 
+use PetarSpasic\LaravelHouse\Kanban\Console\StartCommand;
 use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
 use PetarSpasic\LaravelHouse\Kanban\Support\AgentStates;
 use PetarSpasic\LaravelHouse\Kanban\Support\Clock;
@@ -154,7 +155,7 @@ final class Runtime
         foreach ([...glob($this->paths->runtime('runs/*.json')) ?: [], ...glob($this->paths->runtime('runs/*.log')) ?: []] as $file) {
             $drop($file, self::APPLIED_DAYS * 86400);
         }
-        foreach (glob($this->paths->runtime('starts').'/*') ?: [] as $file) {
+        foreach (glob($this->paths->runtime(StartCommand::STARTED).'/*') ?: [] as $file) {
             if (! in_array($snapshot->card(basename($file))?->stage(), ['doing', 'review'], true)) {
                 $drop($file, -1);
             }

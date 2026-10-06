@@ -110,6 +110,8 @@ vendor/bin/kanban report <ID> --status=blocked --question-file=.tmp/question.md 
 
 - `--tick` only criteria you proved; `--verified` one line per proof, `command → result`, and one per item of a
   criterion that names several.
+- Blocked or not, commit what you have first: a report over uncommitted work is refused, since main is never merged
+  into it.
 - When `context` names `--upstream`: a defect in the house package itself, in generic terms, goes there.
 - The report is staged and applied when you stop. Final message, one line: `<ID> review: <≤ 20 words>` or
   `<ID> blocked: <≤ 20 words>`.

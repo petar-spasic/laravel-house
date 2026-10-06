@@ -74,9 +74,9 @@ class RefreshCommand extends Command
             throw new NotFound("{$id} has no worktree on this machine");
         }
         $main = $worktrees->mainBranch();
-        // a merge would carry the edits into the merge commit, where nobody reviews them as the card's change. In review
-        // only tracked files count: an untracked one is what a check left, and a merge leaves it alone
-        if (($dirty = $card->stage() === 'review' ? $worktrees->changed($path) : $worktrees->dirty($path)) !== []) {
+        // a merge would carry the edits into the merge commit, where nobody reviews them as the card's change. Untracked files
+        // stay out of a merge (and the stop gate catches one a resolution folds in)
+        if (($dirty = $worktrees->changed($path)) !== []) {
             throw new PolicyRefused($worktrees->merging($path) !== null
                 ? "{$id}: a merge of {$main} is in progress in its clone; its worker concludes it first"
                 : "{$id}: uncommitted changes in its clone; its worker commits them before {$main} is merged in", array_slice($dirty, 0, 20));

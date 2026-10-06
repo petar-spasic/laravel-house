@@ -439,3 +439,20 @@ it('finishes an approved card whose clone holds only untracked leftovers, and na
 
     expect($out)->toContain("merged {$id} into main")->toContain('screenshot.png');
 });
+
+it('asks again about every steering file when more changed before the owner answered, and one answer approves them all', function () {
+    $code = $this->code;
+    $id = $code->started('Tune the agents');
+    $code->commit($id, '.claude/settings.json', "{}\n", 'settings');
+    $code->approve($id);
+    $code->kanban(['finish', $id, '--ask'], ['KANBAN_SESSION' => 's1']);
+    $code->commit($id, '.husky/pre-commit', "#!/bin/sh\n", 'hook');
+    $code->approve($id);
+    $code->kanban(['finish', $id, '--ask'], ['KANBAN_SESSION' => 's1']);
+
+    $questions = $code->sandbox->ok('questions');
+    expect($questions)->toContain('Steering: .claude/settings.json, .husky/pre-commit')->toEndWith("1 open: `kanban answer <ID>#<n> <option> [--note=…]`\n");
+    $code->sandbox->ok(['answer', $id, '1']);
+
+    expect($code->kanban(['finish', $id])->getExitCode())->toBe(0);
+});

@@ -50,6 +50,13 @@ class RunCommand extends Command
 
     private const LOCK = 'run.lock';
 
+    private const LEAKED_SECONDS = 600;
+
+    private Worktrees $worktrees;
+
+    /** Why the stack cap stopped starts in this pass, for the idle notice. */
+    private ?string $capped = null;
+
     private string $session;
 
     private AgentRun $agents;
@@ -66,6 +73,7 @@ class RunCommand extends Command
     {
         $this->requireMainCheckout('run');
         $this->agents = new AgentRun($this->paths(), $this->config());
+        $this->worktrees = new Worktrees($this->paths(), $this->config());
         if (($why = $this->agents->unusable()) !== null) {
             throw new PolicyRefused($why);
         }
@@ -73,7 +81,11 @@ class RunCommand extends Command
         // so the agents it detaches never hold it. run.pid only names the process
         $this->paths()->ensureRuntime();
         $lock = fopen($this->paths()->runtime(self::LOCK), 'ce');
-        if ($lock === false || ! flock($lock, LOCK_EX | LOCK_NB)) {
+        // another process may be looking at the lock (`running()`, a moment's shared hold): a short retry
+        for ($try = 0; $lock !== false && ! ($locked = flock($lock, LOCK_EX | LOCK_NB)) && $try < 20; $try++) {
+            usleep(100_000);
+        }
+        if ($lock === false || ! ($locked ?? false)) {
             $pid = (int) @file_get_contents($this->paths()->runtime(self::PID));
             throw new PolicyRefused('kanban run already drives this checkout'.($pid > 0 ? " (pid {$pid})" : '').($this->option('drain') ? ': `kanban drain` makes it drain' : ''));
         }
@@ -100,7 +112,7 @@ class RunCommand extends Command
             return null;
         }
         try {
-            if (flock($lock, LOCK_EX | LOCK_NB)) {
+            if (flock($lock, LOCK_SH | LOCK_NB)) {
                 flock($lock, LOCK_UN);
 
                 return null;
@@ -186,7 +198,7 @@ class RunCommand extends Command
 
         $snapshot = $this->store()->snapshot();
         foreach ($this->unstarted($snapshot) as $card) {
-            if (! $paused && ! in_array($card->id(), $running, true) && ($this->stackFree() || $this->holdsSlot($card))) {
+            if (! $paused && ! in_array($card->id(), $running, true) && ($this->stackFull() === null || $this->holdsSlot($card))) {
                 $acted = $this->resumeStart($card) || $acted;
             }
         }
@@ -207,8 +219,9 @@ class RunCommand extends Command
                 $last = $runtime->agentFor($card->id(), AgentRun::WORKER);
                 $resume = ! empty($last['headless']) ? (string) $last['agent_id'] : null;
                 // a fix that unblocked the card may have landed on main; 5: the worker concludes the conflict first. Not into
-                // uncommitted edits: the worker commits them first (its stop gate), and the next round merges
-                $dirty = $this->dirty($card);
+                // uncommitted edits (a session that ended mid-work): the worker commits them first (its stop gate), and the
+                // next round merges. Untracked files stay out of a merge, and the stop gate catches one folded into it
+                $dirty = $this->changed($card);
                 if ($resume !== null && ! $dirty && ! in_array(($refresh = $this->kanban(['refresh', $card->id()]))->getExitCode(), [0, 5], true)) {
                     $this->block($card->id(), $refresh);
 
@@ -224,8 +237,12 @@ class RunCommand extends Command
             // a drain still starts parked work (a card back from its question, its branch kept): it is in flight
             $draining = $this->draining();
             $draining || $this->kanban(['promote', '--auto']);
+            $this->capped = null;
             foreach ((new PullPolicy)->next($this->store()->snapshot(), 99)['cards'] as $card) {
-                if (! $this->stackFree()) {
+                if ($this->stackFull() !== null) {
+                    $this->freeLeakedSlots($this->store()->snapshot());
+                }
+                if (($this->capped = $this->stackFull()) !== null) {
                     break;
                 }
                 if (isset($this->held[$card->id()]) || ($draining && ! PullPolicy::parked($card))) {
@@ -248,7 +265,7 @@ class RunCommand extends Command
         } elseif (! $this->published) {
             $this->published = true;
             $this->log('idle: '.strtok(trim($this->kanban(['publish'])->getOutput()) ?: 'published', "\n"));
-            $this->draining() || $this->notice('idle: no agent runs and no card can start: plan or promote cards');
+            $this->draining() || $this->notice('idle: '.($this->capped !== null ? "no card can start: {$this->capped}" : 'no agent runs and no card can start: plan or promote cards'));
         }
         $this->watch($state);
     }
@@ -338,8 +355,9 @@ class RunCommand extends Command
         }
         $refresh = $this->kanban(['refresh', $id]);
         if (! $refresh->isSuccessful()) {
-            // 5: a conflict sent the card back to doing, where its worker resumes; 3: its worker still runs
-            if (! in_array($refresh->getExitCode(), [3, 5], true)) {
+            // 5: a conflict sent the card back to doing, where its worker resumes; an agent of it still running settles on
+            // its own. Anything else (a clone off its branch, say) is the orchestrator's: blocked, so watch() reports it
+            if ($refresh->getExitCode() !== 5 && ! str_contains($refresh->getErrorOutput(), 'is still running')) {
                 $this->block($id, $refresh);
             }
 
@@ -417,28 +435,37 @@ class RunCommand extends Command
 
     private function changed(Card $card): bool
     {
-        return (new Worktrees($this->paths(), $this->config()))->changed($this->paths()->main.'/'.$card->work()['worktree']) !== [];
-    }
-
-    private function dirty(Card $card): bool
-    {
-        return (new Worktrees($this->paths(), $this->config()))->dirty($this->paths()->main.'/'.$card->work()['worktree']) !== [];
+        return $this->worktrees->changed($this->paths()->main.'/'.$card->work()['worktree']) !== [];
     }
 
     /** The card's start took its stack slot before it was cut short: resuming it takes no other. */
     private function holdsSlot(Card $card): bool
     {
-        $worktrees = new Worktrees($this->paths(), $this->config());
-
-        return $worktrees->stackEnabled() && $worktrees->registry()->find($this->paths()->main.'/'.($card->work()['worktree'] ?? "\0")) !== null;
+        return $this->worktrees->stackEnabled() && $this->worktrees->registry()->find($this->paths()->main.'/'.($card->work()['worktree'] ?? "\0")) !== null;
     }
 
-    /** True when a card stack fits under `stack.max_stacks`, or stacks are off. */
-    private function stackFree(): bool
+    /** Why no card stack fits under `stack.max_stacks` now, or null (stacks off included). */
+    private function stackFull(): ?string
     {
-        $worktrees = new Worktrees($this->paths(), $this->config());
+        return $this->worktrees->stackEnabled() ? $this->worktrees->registry()->full() : null;
+    }
 
-        return ! $worktrees->stackEnabled() || $worktrees->registry()->full() === null;
+    /**
+     * Frees this checkout's slots that a start took and lost before its claim (it was killed): no clone, and its card not
+     * at work here, for more than LEAKED_SECONDS. A start cut short after the claim keeps its slot.
+     */
+    private function freeLeakedSlots(Snapshot $snapshot): void
+    {
+        foreach ($this->worktrees->registry()->all() as $entry) {
+            $card = $snapshot->card((string) ($entry['card'] ?? ''));
+            if (($entry['repo'] ?? null) !== $this->paths()->main || is_dir((string) $entry['worktree'])
+                || ($card !== null && in_array($card->stage(), ['doing', 'review'], true))
+                || strtotime((string) ($entry['created_at'] ?? '')) > time() - self::LEAKED_SECONDS) {
+                continue;
+            }
+            $this->worktrees->registry()->release((string) $entry['worktree']);
+            $this->log("slot {$entry['slot']} freed: a start of ".($entry['card'] ?? '?').' took it and ended before its claim');
+        }
     }
 
     /**

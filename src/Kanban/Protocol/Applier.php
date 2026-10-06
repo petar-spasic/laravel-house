@@ -45,10 +45,11 @@ final class Applier
     /**
      * Why a review report cannot be applied (dirty tree, no commits, a leftover conflict marker), or null. With $staged,
      * also when its record does not show the gates passing at the worktree's HEAD; the gates themselves never run here.
+     * A blocked report needs only the clean tree: work left uncommitted would keep main from being merged in later.
      *
      * @param  array<string, mixed>|null  $staged
      */
-    public function refusal(Card $card, ?array $staged = null): ?string
+    public function refusal(Card $card, ?array $staged = null, bool $blocked = false): ?string
     {
         $worktree = $this->worktree($card);
         if ($worktree === null || ! is_dir($worktree)) {
@@ -60,6 +61,9 @@ final class Applier
         if ($dirty !== []) {
             return 'The worktree has uncommitted changes; commit them (git add … && git commit -m "'.$card->id().': …"):'."\n"
                 .implode("\n", array_slice($dirty, 0, 20)).(count($dirty) > 20 ? "\n… ".(count($dirty) - 20).' more' : '');
+        }
+        if ($blocked) {
+            return null;
         }
         $main = (string) ($this->config['main_branch'] ?? 'main');
         $base = $card->work()['base'] ?? null;

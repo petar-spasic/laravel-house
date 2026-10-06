@@ -484,6 +484,17 @@ final class Worktrees
         return array_values(array_filter(explode("\n", rtrim($this->git($path)->attempt(['status', '--porcelain', '--untracked-files=no'])->out))));
     }
 
+    /**
+     * Untracked files of a clone whose tracked files are committed: a check's leftovers, gone with the clone. The line
+     * that names them, or null.
+     */
+    public function leftovers(string $path): ?string
+    {
+        $untracked = is_dir($path) ? array_map(fn (string $l) => substr($l, 3), array_values(array_diff($this->dirty($path), $this->changed($path)))) : [];
+
+        return $untracked === [] ? null : 'removed with the clone, untracked: '.implode(', ', array_slice($untracked, 0, 10)).(count($untracked) > 10 ? ' …' : '');
+    }
+
     /** Tracked changes or untracked files (ignored files do not count). */
     public function dirty(string $path): array
     {

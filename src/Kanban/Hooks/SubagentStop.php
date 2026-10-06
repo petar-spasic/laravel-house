@@ -93,7 +93,7 @@ final class SubagentStop
 
             return self::done("kanban: report for {$cardId} stays staged: {$stale}");
         }
-        if ($worker && $staged['status'] === 'review' && ($refusal = $applier->refusal($snapshot->resolve($cardId), $staged)) !== null) {
+        if ($worker && ($refusal = $applier->refusal($snapshot->resolve($cardId), $staged, $staged['status'] === 'blocked')) !== null) {
             $runtime->noteRefusal($cardId, $kind, $refusal);
 
             return $this->block($runtime, $agent, $cardId, "Report for {$cardId} not applied. {$refusal}\nFix it, commit, run `vendor/bin/kanban report` again (it runs the gates), then finish again.");

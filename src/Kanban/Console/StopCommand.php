@@ -55,16 +55,16 @@ class StopCommand extends Command
         if ($exists && ! $force && ($dirty = $review ? $worktrees->changed($path) : $worktrees->dirty($path)) !== []) {
             throw new PolicyRefused("{$this->paths()->relative($path)} has uncommitted changes; commit them on the branch or use --force", $dirty);
         }
-        $leftovers = $exists && ! $force && $review ? array_values(array_diff($worktrees->dirty($path), $worktrees->changed($path))) : [];
+        $leftovers = $exists && ! $force && $review ? $worktrees->leftovers($path) : null;
         if (! $worktrees->down($path, $work['stack']['project'] ?? null)) {
             throw new StackFailed("docker compose down failed for {$path}; the slot is kept. Retry, or `kanban stack gc` later");
         }
         $this->say("stack down {$this->paths()->relative($path)}");
         if ($exists) {
-            $worktrees->remove($path, $force || $leftovers !== [], is_string($branch) ? $branch : null);
+            $worktrees->remove($path, $force || $leftovers !== null, is_string($branch) ? $branch : null);
             $this->say("removed worktree {$this->paths()->relative($path)}");
-            if ($leftovers !== []) {
-                $this->say('removed with the clone, untracked: '.implode(', ', array_map(fn (string $l) => substr($l, 3), array_slice($leftovers, 0, 10))).(count($leftovers) > 10 ? ' …' : ''));
+            if ($leftovers !== null) {
+                $this->say($leftovers);
             }
         }
         $worktrees->prune();

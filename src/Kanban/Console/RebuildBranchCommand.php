@@ -27,7 +27,8 @@ class RebuildBranchCommand extends Command
         $id = $card->id();
         $inside = (new Context($this->paths(), $this->config()))->worktree($card);
         $cwd = realpath($this->paths()->cwd) ?: $this->paths()->cwd;
-        $own = $inside !== null && ($cwd === $inside || str_starts_with($cwd, $inside.'/'));
+        // its worker, in its clone; the main session is never the worker, wherever it runs it
+        $own = $inside !== null && ! $this->actor()->isMain() && ($cwd === $inside || str_starts_with($cwd, $inside.'/'));
         if (! $own) {
             $this->requireMainOrOwner('rebuild-branch');
         }
@@ -37,13 +38,15 @@ class RebuildBranchCommand extends Command
         $worktrees = new Worktrees($this->paths(), $this->config());
         $path = $inside ?? throw new PolicyRefused("{$id} has no clone on this machine");
         $runtime = new Runtime($this->paths(), $this->store()->snapshot()->staleMinutes());
-        foreach ($own ? [] : ['kanban-worker', 'kanban-evaluator'] as $type) {
+        // an evaluator never rebuilds the branch it judges, and nobody rebuilds it under one
+        foreach ($own ? ['kanban-evaluator'] : ['kanban-worker', 'kanban-evaluator'] as $type) {
             if (($agent = $runtime->agentFor($id, $type)) !== null && $runtime->state($agent) === 'live') {
                 throw new PolicyRefused("{$id}: its ".substr($type, 7)." is still running; `vendor/bin/kanban wait {$id}`");
             }
         }
         $main = $worktrees->mainBranch();
-        if ($worktrees->merging($path) !== null || $worktrees->dirty($path) !== []) {
+        // a soft reset keeps the files: untracked ones (a check's leftovers) are no obstacle
+        if ($worktrees->merging($path) !== null || $worktrees->changed($path) !== []) {
             throw new PolicyRefused("{$id}: the clone has uncommitted changes or a merge in progress; commit or conclude it first");
         }
         $branch = (string) ($card->work()['branch'] ?? '');

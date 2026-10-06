@@ -221,6 +221,21 @@ final class Questions
         throw new NotFound("{$card->id()} has no open question #{$n}");
     }
 
+    /** $body without question $n (an open one: an answer under it would go too, and is not there). */
+    public static function drop(string $body, int $n): string
+    {
+        $chunks = preg_split('/^(?=## )/m', str_replace("\r\n", "\n", $body)) ?: [$body];
+        $seen = 0;
+        foreach ($chunks as $i => $chunk) {
+            if (preg_match(self::HEADING, strtok($chunk, "\n") ?: '') === 1 && ++$seen === $n) {
+                unset($chunks[$i]);
+                break;
+            }
+        }
+
+        return trim(implode('', $chunks));
+    }
+
     /** $body with the owner's answer under question $n (at the end for a bare `question:` block). */
     public static function answer(string $body, int $n, string $answer): string
     {

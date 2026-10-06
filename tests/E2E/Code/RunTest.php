@@ -270,7 +270,7 @@ it('refuses a run while another holds the run lock, started at the same moment o
         ->and($second->getErrorOutput())->toContain('kanban run already drives this checkout');
 });
 
-it('keeps the lease of a session that ends while its kanban run still drives the board', function () {
+it('frees the lease of a session that ends even while its own kanban run drives the board', function () {
     $env = $this->code->env(['PATH' => Sandbox::package().'/tests/Support/FakeClaude:'.Sandbox::package().'/tests/Support/FakeDocker:'.getenv('PATH'),
         'FAKE_CLAUDE_DIR' => $this->claude, 'KANBAN_SESSION' => 's1']);
     $live = new Process([PHP_BINARY, $this->code->root().'/vendor/bin/kanban', 'run'], $this->code->root(), $env);
@@ -286,7 +286,7 @@ it('keeps the lease of a session that ends while its kanban run still drives the
         $live->stop(5);
     }
 
-    expect($lease)->toContain('held by s1');
+    expect($lease)->toContain('lease: free');
 });
 
 it('evaluates a review card whose clone holds only untracked leftovers, and finishes it', function () {
@@ -300,6 +300,57 @@ it('evaluates a review card whose clone holds only untracked leftovers, and fini
     expect($evaluated)->not->toContain('back to doing')->toContain("{$id} evaluator")
         ->and($finished)->toContain("merged {$id} into main")
         ->and($this->code->sandbox->read($id)['stage'])->toBe('done');
+});
+
+it('blocks and reports a review card that refresh refuses, instead of waiting on it', function () {
+    $id = $this->code->sandbox->readyCard('Add login page');
+    runPass($this->code, $this->claude);
+    $this->code->gitIn($this->code->worktree($id), 'checkout', '-q', '--detach');
+
+    $out = runPass($this->code, $this->claude, ['--until-attention', '--timeout=0']);
+
+    expect($out)->toContain("attention:\n")->toContain("{$id} blocked: kanban run: ")->toContain('not on its branch');
+});
+
+it('merges main into a resumed worker whose clone holds only untracked files', function () {
+    runAgent($this->claude, 'evaluator', <<<'SH'
+        if [ -f "$FAKE_CLAUDE_DIR/rejected" ]; then verdict="approve --check=1:pass:ok"; else touch "$FAKE_CLAUDE_DIR/rejected"; verdict="reject --check=1:fail:missing"; echo png > "$WORKTREE/screenshot.png"; fi
+        vendor/bin/kanban --in="$WORKTREE" verdict "$CARD" $verdict
+        SH);
+    runAgent($this->claude, 'worker', <<<'SH'
+        cd "$WORKTREE" && echo "$RANDOM" >> feature.txt && git add feature.txt && git commit -qm "$CARD: feature" && cd - > /dev/null
+        vendor/bin/kanban --in="$WORKTREE" report "$CARD" --status=review --tick=1 --summary=Done
+        SH);
+    $id = $this->code->sandbox->readyCard('Add login page');
+    runPass($this->code, $this->claude);
+    runPass($this->code, $this->claude);
+    $this->code->commitMain('fix.txt', "fixed\n");
+
+    $out = runPass($this->code, $this->claude);
+
+    expect($out)->toMatch("/ {$id} worker [0-9a-f]{8} resumed\n/")
+        ->and(is_file($this->code->worktree($id).'/fix.txt'))->toBeTrue();
+});
+
+it('says the stack cap is why nothing starts, and frees a slot a start left behind without its card', function () {
+    $this->code->configure(['gates' => ['report' => []], 'stack' => ['max_stacks' => 1]]);
+    $left = $this->code->started('Left a slot');
+    $registry = (string) file_get_contents($this->code->state.'/stacks.json');
+    $this->code->ok(['stop', $left, '--to=ready']);
+    $blocked = $this->code->started('Holds the slot');
+    $this->code->sandbox->ok(['set', $blocked, 'blocked=waiting on the design']);
+
+    $full = runPass($this->code, $this->claude, ['--until-attention', '--timeout=0']);
+    expect($full)->toContain('stack.max_stacks')->toContain('kanban stack gc')->not->toContain('plan or promote cards');
+
+    $this->code->ok(['stop', $blocked, '--to=backlog']);
+    $data = json_decode($registry, true);
+    foreach ($data['stacks'] as &$entry) {
+        $entry['created_at'] = '2026-01-01T00:00:00.000+00:00';
+    }
+    file_put_contents($this->code->state.'/stacks.json', json_encode($data));
+
+    expect(runPass($this->code, $this->claude))->toMatch("/ {$left} started; worker [0-9a-f]{8} launched\n/");
 });
 
 it('retries a start that lost its stack slot after the claim once a slot is free, before any new start', function () {
@@ -377,6 +428,20 @@ it('drains on `kanban drain`, in the runs after it too, until one has drained', 
         ->and($this->code->sandbox->read($id)['stage'])->toBe('ready')
         ->and(is_file($this->code->root().'/.git/laravel-house/run.drain'))->toBeFalse()
         ->and(runPass($this->code, $this->claude))->toMatch("/ {$id} started; worker [0-9a-f]{8} launched\n/");
+});
+
+it('starts a run while another process only looks at the run lock', function () {
+    @mkdir($this->code->root().'/.git/laravel-house', 0775, true);
+    $lock = fopen($this->code->root().'/.git/laravel-house/run.lock', 'c');
+    flock($lock, LOCK_SH);
+    $run = new Process([PHP_BINARY, $this->code->root().'/vendor/bin/kanban', 'run', '--once'], $this->code->root(),
+        $this->code->env(['PATH' => Sandbox::package().'/tests/Support/FakeClaude:'.getenv('PATH'), 'FAKE_CLAUDE_DIR' => $this->claude]));
+    $run->start();
+    usleep(300_000);
+    flock($lock, LOCK_UN);
+    $run->wait();
+
+    expect($run->getExitCode())->toBe(0);
 });
 
 it('lets one run drive a checkout, and turns a live one into a drain without stopping it', function () {

@@ -49,7 +49,7 @@ class ReportCommand extends Command
                 'session' => (getenv('KANBAN_SESSION') ?: null),
             ], $this->upstream($card), $questions);
         $runtime = new Runtime($this->paths());
-        $refusal = $report['status'] === 'review' ? (new Applier($this->store(), $this->paths(), $this->config(), $runtime))->refusal($card) : null;
+        $refusal = (new Applier($this->store(), $this->paths(), $this->config(), $runtime))->refusal($card, blocked: $report['status'] === 'blocked');
         if ($report['status'] === 'review' && $refusal === null) {
             $report['gates'] = $this->gates($card->id(), $git, $report['head'], $runtime);
         }

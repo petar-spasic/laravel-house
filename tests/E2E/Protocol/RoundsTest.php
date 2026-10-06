@@ -173,7 +173,7 @@ it('asks only for a re-verify when nothing but a clean merge of main followed th
 
 it('never merges main into uncommitted changes', function () {
     $this->p->commit($this->wt, 'app.php', "<?php\n", "{$this->id}: clauses");
-    file_put_contents($this->wt.'/wip.php', "<?php\n");
+    file_put_contents($this->wt.'/app.php', "<?php\n\nreturn 'wip';\n");
     gone($this->p, 'a4d2c0ffee');
     commitMain($this->p, 'other.txt', "other\n");
     $head = trim($this->p->git($this->wt, 'rev-parse', 'HEAD'));
@@ -183,7 +183,7 @@ it('never merges main into uncommitted changes', function () {
 
     expect($one->getExitCode())->toBe(3)
         ->and($one->getErrorOutput())->toContain("{$this->id}: uncommitted changes in its clone; its worker commits them before main is merged in")
-        ->and($one->getErrorOutput())->toContain('wip.php')
+        ->and($one->getErrorOutput())->toContain('app.php')
         ->and($all->getExitCode())->toBe(3)
         ->and($all->getOutput())->toContain("skipped {$this->id}: {$this->id}: uncommitted changes in its clone")
         ->and(trim($this->p->git($this->wt, 'rev-parse', 'HEAD')))->toBe($head);
@@ -274,12 +274,16 @@ it('rebuilds a card in review whose follow-up report the stop gate refused for a
     $this->p->hook('subagent-start', $this->p->payload('subagent-start'));
     $this->p->in($this->wt, ['report', $this->id, '--status=review', '--tick=1,2', '--summary=Follow-up'])->mustRun();
     expect(stopAgent($this->p, $this->wt)['json']['reason'] ?? '')->toContain('rebuild-branch');
+    file_put_contents($this->wt.'/screenshot.png', "png\n");
+    $this->p->sandbox->ok(['set', $this->id, 'note=checked']);
 
     $rebuilt = $this->p->in($this->wt, ['rebuild-branch', $this->id]);
 
     expect($rebuilt->getExitCode())->toBe(0)
         ->and($this->p->card($this->id))->toMatchArray(['stage' => 'review'])
-        ->and($this->p->card($this->id)['work']['approved'])->toBeNull();
+        ->and($this->p->card($this->id)['work']['approved'])->toBeNull()
+        ->and(is_file($this->wt.'/screenshot.png'))->toBeTrue();
+    unlink($this->wt.'/screenshot.png');
     $this->p->in($this->wt, ['report', $this->id, '--status=review', '--tick=1,2', '--summary=Rebuilt'])->mustRun();
     expect(stopAgent($this->p, $this->wt)['out'])->toBe('');
 });
@@ -333,4 +337,37 @@ it('never merges main into a clone that is not on the card\'s branch', function 
     expect($refresh->getExitCode())->toBe(3)
         ->and($refresh->getErrorOutput())->toContain('not on its branch')
         ->and(trim($this->p->git($this->wt, 'rev-list', '--count', '--merges', 'HEAD')))->toBe('0');
+});
+
+it('takes no one in the clone but its worker for the worker', function () {
+    $this->p->commit($this->wt, 'app.php', "<?php\n", "{$this->id}: clauses");
+    $this->p->in($this->wt, ['report', $this->id, '--status=review', '--tick=1,2', '--summary=Done'])->mustRun();
+    stopAgent($this->p, $this->wt);
+    commitMain($this->p, 'other.txt', "other\n");
+    $this->p->sandbox->ok(['refresh', $this->id]);
+    file_put_contents($this->wt.'/stray.php', "<?php\n");
+    $this->p->git($this->wt, 'add', 'stray.php');
+    $this->p->git($this->wt, 'commit', '-q', '--amend', '--no-edit');
+    $this->p->hook('subagent-start', $this->p->payload('subagent-start', ['agent' => 'e1', 'type' => 'kanban-evaluator']));
+    $this->p->enter($this->wt, 'e1', 'kanban-evaluator');
+
+    $evaluator = $this->p->in($this->wt, ['rebuild-branch', $this->id]);
+    $main = $this->p->in($this->wt, ['rebuild-branch', $this->id], ['KANBAN_SESSION' => 's1']);
+
+    expect($evaluator->getExitCode())->toBe(3)
+        ->and($evaluator->getErrorOutput())->toContain('evaluator is still running')
+        ->and($main->getExitCode())->toBe(3)
+        ->and($main->getErrorOutput())->toContain('rebuild-branch runs from the main checkout');
+});
+
+it('refuses a blocked report over uncommitted work', function () {
+    $this->p->commit($this->wt, 'app.php', "<?php\n", "{$this->id}: clauses");
+    file_put_contents($this->wt.'/wip.php', "<?php\n");
+    $this->p->in($this->wt, ['report', $this->id, '--status=blocked', '--reason=needs the mailer on main'])->mustRun();
+
+    $stop = stopAgent($this->p, $this->wt);
+
+    expect($stop['json']['decision'] ?? null)->toBe('block')
+        ->and($stop['json']['reason'])->toContain('uncommitted changes')
+        ->and($this->p->card($this->id)['blocked'])->toBeNull();
 });

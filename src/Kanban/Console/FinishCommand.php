@@ -63,7 +63,7 @@ class FinishCommand extends Command
             throw new PolicyRefused("{$id}: the worktree has uncommitted changes", $dirty);
         }
         // the report needed a clean clone: untracked files since are what a check left, removed with the clone
-        $leftovers = isset($work['worktree']) && is_dir($path) ? array_values(array_diff($worktrees->dirty($path), $worktrees->changed($path))) : [];
+        $leftovers = isset($work['worktree']) ? $worktrees->leftovers($path) : null;
         if (($agent = $this->agent($id, $snapshot)) !== null && $agent !== 'stopped' && ! str_starts_with($agent, 'stale')) {
             throw new PolicyRefused("{$id}: an agent is still bound to the card ({$agent}); `vendor/bin/kanban wait {$id}`");
         }
@@ -105,8 +105,8 @@ class FinishCommand extends Command
         }
         $sha = $worktrees->head('HEAD');
         $this->say("merged {$id} into {$main} ".substr($sha, 0, 7));
-        if ($leftovers !== []) {
-            $this->say('removed with the clone, untracked: '.implode(', ', array_map(fn (string $l) => substr($l, 3), array_slice($leftovers, 0, 10))).(count($leftovers) > 10 ? ' …' : ''));
+        if ($leftovers !== null) {
+            $this->say($leftovers);
         }
         $this->transitions()->finish($id, $sha, $this->actor());
         $this->say("{$id} review→done");
@@ -126,7 +126,7 @@ class FinishCommand extends Command
         }
         if (isset($work['worktree']) && is_dir($path)) {
             try {
-                $worktrees->remove($path, $leftovers !== [], $branch);
+                $worktrees->remove($path, $leftovers !== null, $branch);
                 $this->say("removed worktree {$work['worktree']}");
             } catch (GitFailed $e) {
                 $this->fault("removing {$work['worktree']}: ".$e->getMessage());
@@ -282,23 +282,30 @@ class FinishCommand extends Command
 
     /**
      * The owner's question for a branch that changes files steering the agents or git: answered 1, `answer` approves them
-     * as they are and the next `finish` merges; 2 sends the card back to its worker. An open one is asked once; after an
-     * answer the next approval asks anew. The log names what was asked: an answer approves nothing else.
+     * as they are and the next `finish` merges; 2 sends the card back to its worker. An open one is asked once, and replaced
+     * when more files need it; after an answer the next approval asks anew. The log names what was asked: an answer
+     * approves nothing else.
      *
      * @param  list<string>  $touched
      */
     private function askOwner(Card $card, array $touched, string $main, string $branch, string $head): void
     {
-        $open = array_filter(Questions::open($card), fn (array $q) => Questions::steering($q) !== []);
+        // an open question that names every file stands; one that names fewer gives way to a question about them all
+        $open = array_values(array_filter(Questions::open($card), fn (array $q) => Questions::steering($q) !== []));
+        $covered = $open !== [] && array_diff($touched, Questions::steering($open[0])) === [];
         $question = '## '.Questions::OPEN.' ('.gmdate('Y-m-d').")\n"
             .'The approved change (head '.substr($head, 0, 7).') also changes files that steer the agents or git; merge it with them? The diff: `git diff '
             .$main.'...'.$branch.' -- '.implode(' ', $touched)."`\n"
             .Questions::STEERING.' '.implode(', ', $touched)."\n"
             ."1. Approve — finish merges the card with these changes\n"
             .'2. Send back — its worker reverts them, and the card is reviewed again';
-        $this->store()->update($card->id(), function (array $data) use ($question, $open, $touched) {
-            if ($open === []) {
-                $data['body'] = trim(rtrim((string) ($data['body'] ?? ''))."\n\n".$question);
+        $this->store()->update($card->id(), function (array $data) use ($question, $open, $covered, $touched) {
+            if (! $covered) {
+                $body = (string) ($data['body'] ?? '');
+                foreach (array_reverse($open) as $old) {
+                    $body = Questions::drop($body, $old['n']);
+                }
+                $data['body'] = trim(rtrim($body)."\n\n".$question);
                 $data['log'][] = ['event' => 'steering_asked', 'files' => $touched];
             }
             $data['blocked'] = Card::QUESTION.'merge with changes to files that steer the agents or git?';
