@@ -82,23 +82,31 @@ it('rebuilds main\'s stack when the merge touches lockfiles, docker files or the
     $code->commit($id, 'composer.lock', "{}\n");
     $code->approve($id);
 
-    expect($code->ok(['finish', $id]))->toContain("rebuild main: composer.lock changed; rebuilding\nrebuilt main's stack acme-local\n")
-        ->and($code->calls())->toContain("compose --project-directory {$root} -f {$root}/docker-compose.local.yml -p acme-local up -d --build --force-recreate --wait");
+    $before = count($code->calls());
+    expect($code->ok(['finish', $id]))->toContain("rebuild main: composer.lock changed; building its images, main keeps serving\n"
+        ."rebuild main: recreating its containers (`docker compose -p acme-local ps` follows them)\nrebuilt main's stack acme-local\n")
+        ->and(array_values(array_filter(array_slice($code->calls(), $before), fn ($call) => str_contains($call, ' -p acme-local '))))->toBe([
+            "compose --project-directory {$root} -f {$root}/docker-compose.local.yml -p acme-local build",
+            "compose --project-directory {$root} -f {$root}/docker-compose.local.yml -p acme-local up -d --force-recreate --wait",
+        ]);
 
     $frontend = $code->started('Bump frontend deps');
     @mkdir($code->worktree($frontend).'/frontend', 0775, true);
     $code->commit($frontend, 'frontend/package-lock.json', "{}\n");
     $code->approve($frontend);
 
-    expect($code->ok(['finish', $frontend], ['FAKE_DOCKER_FAIL' => 'up']))->toContain('rebuild main: frontend/package-lock.json changed; rebuilding')
-        ->toContain('warning: rebuild main failed: ')->toContain('; run `docker compose -f docker-compose.local.yml up -d --build --force-recreate --wait`');
+    $before = count($code->calls());
+    expect($code->ok(['finish', $frontend], ['FAKE_DOCKER_FAIL' => 'build']))->toContain('rebuild main: frontend/package-lock.json changed; building its images')
+        ->toContain('warning: rebuild main failed to build, main runs on its old images: failed to solve')
+        ->toContain('; run `docker compose -f docker-compose.local.yml build && docker compose -f docker-compose.local.yml up -d --force-recreate --wait`')
+        ->and(collect(array_slice($code->calls(), $before))->contains(fn ($call) => str_contains($call, '-p acme-local up')))->toBeFalse();
 
     $compose = $code->started('Publish the web port on IPv4 only');
     $code->commit($compose, 'docker-compose.local.yml', file_get_contents($code->sandbox->root.'/docker-compose.local.yml')."# ipv4\n");
     $code->approve($compose);
     $before = count($code->calls());
 
-    expect($code->ok(['finish', $compose, '--no-rebuild']))->toContain('rebuild main: docker-compose.local.yml changed; run `docker compose -f docker-compose.local.yml up -d --build --force-recreate --wait`')
+    expect($code->ok(['finish', $compose, '--no-rebuild']))->toContain('rebuild main: docker-compose.local.yml changed; run `docker compose -f docker-compose.local.yml build && docker compose -f docker-compose.local.yml up -d --force-recreate --wait`')
         ->and(collect(array_slice($code->calls(), $before))->contains(fn ($call) => str_contains($call, ' up ')))->toBeFalse();
 });
 

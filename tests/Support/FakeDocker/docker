@@ -10,7 +10,7 @@
  * FAKE_DOCKER_PROJECTS=a,b     extra compose projects listed by `compose ls` (not started by us)
  * FAKE_DOCKER_ALLOCATED=p,q    `up` fails with "port is already allocated" when WEB_PORT is one of these
  * FAKE_DOCKER_CONFIG_NAME=x    `compose config` reports this project name instead of -p
- * FAKE_DOCKER_FAIL=up|down|ps that subcommand exits 1
+ * FAKE_DOCKER_FAIL=up|down|ps|build that subcommand exits 1
  * FAKE_DOCKER_DELAY=n          every compose subcommand sleeps n seconds first
  * FAKE_DOCKER_CONTAINERS=json  {"name": ["bind source", …]}: running containers besides `<project>-app-1` of each
  *                              project that is up (which binds its directory)
@@ -170,6 +170,12 @@ switch ($sub) {
         exit(0);
     case 'start':
         exit(isset($state['projects'][$project]) ? 0 : 1);
+    case 'build':
+        if ($fail('build')) {
+            fwrite(STDERR, "failed to solve: process \"composer install\" did not complete successfully\n");
+            exit(1);
+        }
+        exit(0);
     case 'port':
         echo '0.0.0.0:'.($state['projects'][$project]['port'] ?? 0)."\n";
         exit(0);

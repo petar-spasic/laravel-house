@@ -269,8 +269,9 @@ class FinishCommand extends Command
     }
 
     /**
-     * Rebuilds main's stack when the merge changed what its image or compose file is built from. A failure only warns:
-     * the merge is done, and the owner runs the printed command.
+     * Rebuilds main's stack when the merge changed what its image or compose file is built from: the images first, while
+     * the old containers keep serving, then the containers are recreated on them. A failure only warns: the merge is
+     * done, and the owner runs the printed command.
      *
      * @param  list<string>  $files
      */
@@ -281,16 +282,23 @@ class FinishCommand extends Command
         if (($rebuild = MergeCheck::rebuildFiles($files, $compose)) === []) {
             return;
         }
-        $command = "docker compose -f {$compose} up -d --build --force-recreate --wait";
+        $command = "docker compose -f {$compose} build && docker compose -f {$compose} up -d --force-recreate --wait";
         $project = DotEnv::parse($this->paths()->main.'/.env')['COMPOSE_PROJECT_NAME'] ?? '';
         if ($this->option('no-rebuild') || $project === '' || ! Stack::enabled($stack, $this->paths()->main)) {
             $this->say('rebuild main: '.implode(', ', $rebuild)." changed; run `{$command}`");
 
             return;
         }
-        $this->say('rebuild main: '.implode(', ', $rebuild).' changed; rebuilding');
-        $result = (new Stack($this->paths()->main, $project, $stack, $this->paths()->main))
-            ->compose(['up', '-d', '--build', '--force-recreate', '--wait'], 1800);
+        $main = new Stack($this->paths()->main, $project, $stack, $this->paths()->main);
+        $this->say('rebuild main: '.implode(', ', $rebuild).' changed; building its images, main keeps serving');
+        $build = $main->compose(['build'], 1800);
+        if ($build['code'] !== 0) {
+            $this->say('warning: rebuild main failed to build, main runs on its old images: '.Worktrees::tail($build['err'] ?: "exit {$build['code']}")."; run `{$command}`");
+
+            return;
+        }
+        $this->say("rebuild main: recreating its containers (`docker compose -p {$project} ps` follows them)");
+        $result = $main->compose(['up', '-d', '--force-recreate', '--wait'], 600);
         $this->say($result['code'] === 0
             ? "rebuilt main's stack {$project}"
             : 'warning: rebuild main failed: '.Worktrees::tail($result['err'] ?: "exit {$result['code']}")."; run `{$command}`");
