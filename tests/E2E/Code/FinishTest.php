@@ -456,3 +456,26 @@ it('asks again about every steering file when more changed before the owner answ
 
     expect($code->kanban(['finish', $id])->getExitCode())->toBe(0);
 });
+
+it('holds an approval for a parked card to the files its parked branch changed', function () {
+    $code = $this->code;
+    $id = $code->started('Tune the agents');
+    $code->commit($id, '.claude/settings.json', "{}\n", 'settings');
+    $code->ok(['stop', $id, '--to=backlog']);
+
+    expect($code->sandbox->ok(['allow-steering', $id, '.claude/settings.json']))->toContain('as they are now (.claude/settings.json)');
+});
+
+it('answers a steering question in one board write', function () {
+    $code = $this->code;
+    $id = $code->started('Tune the agents');
+    $code->commit($id, '.claude/settings.json', "{}\n", 'settings');
+    $code->approve($id);
+    $code->kanban(['finish', $id, '--ask'], ['KANBAN_SESSION' => 's1']);
+    $before = count($code->sandbox->boardLog());
+
+    $code->sandbox->ok(['answer', $id, '1']);
+
+    expect(count($code->sandbox->boardLog()) - $before)->toBe(1)
+        ->and($code->sandbox->read($id)['blocked'])->toBeNull();
+});

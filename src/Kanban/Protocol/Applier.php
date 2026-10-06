@@ -55,8 +55,17 @@ final class Applier
         if ($worktree === null || ! is_dir($worktree)) {
             return "{$card->id()} has no worktree to check";
         }
-        (new Worktrees($this->paths, $this->config))->sync($worktree, $card->work()['branch'] ?? null);
+        $worktrees = new Worktrees($this->paths, $this->config);
+        $worktrees->sync($worktree, $card->work()['branch'] ?? null);
         $git = Git::untrusted($worktree);
+        $merging = $worktrees->merging($worktree) !== null;
+        // blocked on the merge of main it cannot resolve: the merge stays in progress for whoever answers
+        if ($blocked && $merging) {
+            return null;
+        }
+        if ($merging) {
+            return 'A merge of main is in progress: conclude it (`git add` the resolved files, `git commit --no-edit`), then report again.';
+        }
         $dirty = array_values(array_filter(explode("\n", rtrim($git->attempt(['status', '--porcelain', '--untracked-files=all'])->out))));
         if ($dirty !== []) {
             return 'The worktree has uncommitted changes; commit them (git add … && git commit -m "'.$card->id().': …"):'."\n"

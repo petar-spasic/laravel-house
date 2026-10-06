@@ -24,6 +24,9 @@ class RefreshCommand extends Command
 
     protected $description = 'Merge main into a card branch; a conflict is left in progress and handed back to the worker';
 
+    /** In the refusal while an agent of the card runs: `kanban run` waits for it rather than blocking the card. */
+    public const LIVE = 'is still running';
+
     protected function perform(): int
     {
         $this->requireMainOrOwner('refresh');
@@ -44,7 +47,7 @@ class RefreshCommand extends Command
             if (($live = $this->live($card, $snapshot)) !== null) {
                 if (! $this->option('all')) {
                     $failed = str_starts_with((new Runtime($this->paths()))->refusal($card->id(), $live === 'worker' ? 'report' : 'verdict')['reason'] ?? '', 'hook failed');
-                    throw new PolicyRefused("{$card->id()}: its {$live} is still running (what it stages applies when it stops); `vendor/bin/kanban wait {$card->id()}`"
+                    throw new PolicyRefused("{$card->id()}: its {$live} ".self::LIVE." (what it stages applies when it stops); `vendor/bin/kanban wait {$card->id()}`"
                         .($failed ? '; its stop hook failed, so `vendor/bin/kanban apply` settles it' : ''));
                 }
                 $this->say("skipped {$card->id()}: {$live} live");
@@ -76,7 +79,7 @@ class RefreshCommand extends Command
         $main = $worktrees->mainBranch();
         // a merge would carry the edits into the merge commit, where nobody reviews them as the card's change. Untracked files
         // stay out of a merge (and the stop gate catches one a resolution folds in)
-        if (($dirty = $worktrees->changed($path)) !== []) {
+        if (($dirty = $worktrees->changed($path)) !== [] || $worktrees->merging($path) !== null) {
             throw new PolicyRefused($worktrees->merging($path) !== null
                 ? "{$id}: a merge of {$main} is in progress in its clone; its worker concludes it first"
                 : "{$id}: uncommitted changes in its clone; its worker commits them before {$main} is merged in", array_slice($dirty, 0, 20));

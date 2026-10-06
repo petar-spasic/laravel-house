@@ -2,6 +2,7 @@
 
 use PetarSpasic\LaravelHouse\Kanban\Console\Install\ClaudeSettings;
 use PetarSpasic\LaravelHouse\Kanban\Guard\Guard;
+use PetarSpasic\LaravelHouse\Kanban\Support\Json;
 use PetarSpasic\LaravelHouse\Tests\Support\CodeSandbox;
 use PetarSpasic\LaravelHouse\Tests\Support\Sandbox;
 use Symfony\Component\Process\Process;
@@ -350,7 +351,33 @@ it('says the stack cap is why nothing starts, and frees a slot a start left behi
     }
     file_put_contents($this->code->state.'/stacks.json', json_encode($data));
 
-    expect(runPass($this->code, $this->claude))->toMatch("/ {$left} started; worker [0-9a-f]{8} launched\n/");
+    $project = array_values($data['stacks'])[0]['project'];
+    $freed = runPass($this->code, $this->claude);
+    expect($freed)->toContain("freed: {$project} down")->toMatch("/ {$left} started; worker [0-9a-f]{8} launched\n/")
+        ->and($this->code->calls())->toContain("compose -p {$project} down -v --remove-orphans");
+});
+
+it('finishes a start whose clone was made but whose stack never came up, instead of sending a worker into no container', function () {
+    $id = $this->code->started('Add login page');
+    $file = glob($this->code->root().'/docs/kanban/*/'.$id.'.json')[0];
+    $card = json_decode((string) file_get_contents($file), true);
+    $card['work']['stack'] = null;
+    Json::write($file, Json::encode($card, 'card'));
+    $this->code->sandbox->boardGit('commit', '-q', '-am', "{$id} stack lost (test)");
+
+    expect(runPass($this->code, $this->claude))->toMatch("/ {$id} start resumed; worker [0-9a-f]{8} launched\n/");
+});
+
+it('drains only once a start of this checkout cut short for want of a slot is finished too', function () {
+    $this->code->configure(['gates' => ['report' => []], 'stack' => ['max_stacks' => 1]]);
+    $lost = $this->code->started('Lost its slot');
+    $this->code->ok(['stack', $lost, 'down']);
+    (new Process(['rm', '-rf', $this->code->worktree($lost)]))->mustRun();
+    $this->code->sandbox->ok(['set', $lost, 'blocked=start failed: no stack slot: 1 stacks registered on this machine (stack.max_stacks)']);
+    $other = $this->code->started('Holds the slot');
+    $this->code->sandbox->ok(['set', $other, 'blocked=waiting on the design']);
+
+    expect(runPass($this->code, $this->claude, ['--drain', '--until-attention', '--timeout=0']))->not->toContain('drained');
 });
 
 it('retries a start that lost its stack slot after the claim once a slot is free, before any new start', function () {

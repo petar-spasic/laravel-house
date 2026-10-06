@@ -13,6 +13,11 @@ use PetarSpasic\LaravelHouse\Kanban\Support\Lock;
  */
 final class PortRegistry
 {
+    /** The starts of the refusals for want of a slot: `kanban run` retries a start cut short by one once a slot is free. */
+    public const NO_SLOT = 'no stack slot';
+
+    public const NO_FREE = 'no free slot';
+
     /** @param  array<string, mixed>  $stack  the `kanban.stack` config */
     public function __construct(private readonly array $stack, private readonly ?string $dir = null) {}
 
@@ -57,7 +62,7 @@ final class PortRegistry
         $max = (int) ($this->stack['max_stacks'] ?? 12);
 
         return $registered >= $max
-            ? "no stack slot: {$max} stacks registered on this machine (stack.max_stacks); finish or stop a card, or `kanban stack gc`"
+            ? self::NO_SLOT.": {$max} stacks registered on this machine (stack.max_stacks); finish or stop a card, or `kanban stack gc`"
             : null;
     }
 
@@ -125,7 +130,7 @@ final class PortRegistry
                 return [$data, $data['stacks'][(string) $slot]];
             }
 
-            throw new StackFailed("no free slot in ports {$pool['base']}+{$pool['block']}×[{$pool['first']}..{$pool['last']}]", $skipped);
+            throw new StackFailed(self::NO_FREE.' in ports '."{$pool['base']}+{$pool['block']}×[{$pool['first']}..{$pool['last']}]", $skipped);
         });
     }
 

@@ -4,6 +4,8 @@ namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
 use PetarSpasic\LaravelHouse\Kanban\Code\AgentRun;
 use PetarSpasic\LaravelHouse\Kanban\Code\MainCheck;
+use PetarSpasic\LaravelHouse\Kanban\Code\PortRegistry;
+use PetarSpasic\LaravelHouse\Kanban\Code\Stack;
 use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
 use PetarSpasic\LaravelHouse\Kanban\Policy\PullPolicy;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Lease;
@@ -307,11 +309,16 @@ class RunCommand extends Command
         return $this->option('drain') || is_file($this->paths()->runtime(self::DRAIN));
     }
 
-    /** No agent runs, and no card of this machine is in doing or review unblocked: one waiting on the owner is not in flight. */
+    /**
+     * No agent runs, no start of this checkout waits to be finished, and no card of this machine is in doing or review
+     * unblocked: one waiting on the owner is not in flight.
+     */
     private function drained(): bool
     {
-        return $this->agents->running() === []
-            && $this->local($this->store()->snapshot(), fn (Card $c) => in_array($c->stage(), ['doing', 'review'], true) && ! $c->asks()) === [];
+        $snapshot = $this->store()->snapshot();
+
+        return $this->agents->running() === [] && $this->unstarted($snapshot) === []
+            && $this->local($snapshot, fn (Card $c) => in_array($c->stage(), ['doing', 'review'], true) && ! $c->asks()) === [];
     }
 
     /** Merges an approved card; `main moved` sends it back to an evaluator. */
@@ -321,7 +328,7 @@ class RunCommand extends Command
         if ($finish->isSuccessful()) {
             foreach (explode("\n", trim($finish->getOutput())) as $n => $line) {
                 // the merge line, what rebuilding main's stack did and the warnings; a failed rebuild leaves main to act on
-                if (str_starts_with($line, 'warning: rebuild main')) {
+                if (str_starts_with($line, FinishCommand::REBUILD_FAILED)) {
                     $this->notice("{$card->id()} finish {$line}");
                 } elseif ($n === 0 || str_starts_with($line, 'rebuil') || str_starts_with($line, 'warning:')) {
                     $this->log($line);
@@ -330,7 +337,7 @@ class RunCommand extends Command
 
             return true;
         }
-        if ($finish->getExitCode() === 5 && str_contains($finish->getErrorOutput(), 'moved since approval') && ! $paused) {
+        if ($finish->getExitCode() === 5 && str_contains($finish->getErrorOutput(), FinishCommand::MOVED) && ! $paused) {
             return $this->evaluate($card->id());
         }
         if (($asks = $this->store()->snapshot()->resolve($card->id()))->asks()) {
@@ -357,7 +364,7 @@ class RunCommand extends Command
         if (! $refresh->isSuccessful()) {
             // 5: a conflict sent the card back to doing, where its worker resumes; an agent of it still running settles on
             // its own. Anything else (a clone off its branch, say) is the orchestrator's: blocked, so watch() reports it
-            if ($refresh->getExitCode() !== 5 && ! str_contains($refresh->getErrorOutput(), 'is still running')) {
+            if ($refresh->getExitCode() !== 5 && ! str_contains($refresh->getErrorOutput(), RefreshCommand::LIVE)) {
                 $this->block($id, $refresh);
             }
 
@@ -425,12 +432,19 @@ class RunCommand extends Command
     {
         return array_values($snapshot->cards(fn (Card $c) => $c->stage() === 'doing' && ($c->work()['host'] ?? null) === gethostname()
             && @file_get_contents($this->paths()->runtime(StartCommand::STARTED.'/'.$c->id())) === ($c->work()['started'] ?? null)
-            && ($c->blocked() === null ? ! is_dir($this->paths()->main.'/'.($c->work()['worktree'] ?? "\0")) : self::slotLost((string) $c->blocked()))));
+            && ($c->blocked() === null ? $this->cutShort($c) : self::slotLost((string) $c->blocked()))));
+    }
+
+    /** No clone yet, or a clone whose stack never came up: what `start` run again finishes. */
+    private function cutShort(Card $card): bool
+    {
+        return ! is_dir($this->paths()->main.'/'.($card->work()['worktree'] ?? "\0"))
+            || ($this->worktrees->stackEnabled() && ($card->work()['stack'] ?? null) === null);
     }
 
     private static function slotLost(string $blocked): bool
     {
-        return str_starts_with($blocked, 'start failed: no stack slot') || str_starts_with($blocked, 'start failed: no free slot');
+        return str_starts_with($blocked, 'start failed: '.PortRegistry::NO_SLOT) || str_starts_with($blocked, 'start failed: '.PortRegistry::NO_FREE);
     }
 
     private function changed(Card $card): bool
@@ -451,8 +465,9 @@ class RunCommand extends Command
     }
 
     /**
-     * Frees this checkout's slots that a start took and lost before its claim (it was killed): no clone, and its card not
-     * at work here, for more than LEAKED_SECONDS. A start cut short after the claim keeps its slot.
+     * Frees this checkout's slots whose clone is gone and whose card is not at work, for more than LEAKED_SECONDS: a start
+     * killed before its claim, or a finish whose stack down failed. The stack goes down first. A start cut short after
+     * the claim keeps its slot.
      */
     private function freeLeakedSlots(Snapshot $snapshot): void
     {
@@ -463,8 +478,12 @@ class RunCommand extends Command
                 || strtotime((string) ($entry['created_at'] ?? '')) > time() - self::LEAKED_SECONDS) {
                 continue;
             }
+            // its stack may still run (a stack down that failed): down first, as `stack gc` does, or the slot stays
+            if (Stack::downProject((string) $entry['project'], ['-v', '--remove-orphans'])['code'] !== 0) {
+                continue;
+            }
             $this->worktrees->registry()->release((string) $entry['worktree']);
-            $this->log("slot {$entry['slot']} freed: a start of ".($entry['card'] ?? '?').' took it and ended before its claim');
+            $this->log("slot {$entry['slot']} freed: {$entry['project']} down, its clone gone and ".($entry['card'] ?? '?').' not at work');
         }
     }
 

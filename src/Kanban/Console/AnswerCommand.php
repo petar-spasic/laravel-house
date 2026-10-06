@@ -6,6 +6,7 @@ use PetarSpasic\LaravelHouse\Kanban\Code\MergeCheck;
 use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
 use PetarSpasic\LaravelHouse\Kanban\Policy\PullPolicy;
 use PetarSpasic\LaravelHouse\Kanban\Policy\Questions;
+use PetarSpasic\LaravelHouse\Kanban\Store\Card;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Invalid;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -52,19 +53,21 @@ class AnswerCommand extends Command
         $steering = array_values(array_intersect(Questions::steering($question), MergeCheck::asked($card)));
         $approval = $steering !== [] && (int) $option === 1
             ? MergeCheck::approvalOf(new Worktrees($this->paths(), $this->config()), $this->paths()->main, $card, $steering) : null;
-        $card = $this->store()->update($card->id(), function (array $data) use ($question, $answer) {
+        // the answer, the approval it gives and the block it clears: one write, so none lands without the others
+        $asked = $card->asks();
+        $card = $this->store()->update($card->id(), function (array $data) use ($question, $answer, $approval) {
             $data['body'] = Questions::answer((string) ($data['body'] ?? ''), $question['n'], $answer);
+            if ($approval !== null) {
+                $data['log'][] = $approval;
+            }
+            if ($question['kind'] === Questions::OPEN && str_starts_with((string) ($data['blocked'] ?? ''), Card::QUESTION) && Questions::unanswered($data['body']) === 0) {
+                $data['blocked'] = null;
+            }
 
             return $data;
         }, $this->actor());
         $this->say("{$handle} answered: ".strtok($answer, "\n"));
-
         if ($approval !== null) {
-            $card = $this->store()->update($card->id(), function (array $data) use ($approval) {
-                $data['log'][] = $approval;
-
-                return $data;
-            }, $this->actor());
             $this->say("{$card->id()}: the owner approved ".implode(', ', $steering).' as they are; the next finish merges it');
         }
         if ($question['kind'] === Questions::PROVISIONAL) {
@@ -74,12 +77,7 @@ class AnswerCommand extends Command
 
             return self::SUCCESS;
         }
-        if ($card->asks() && array_filter(Questions::open($card), fn (array $q) => $q['kind'] === Questions::OPEN && $q['n'] > 0) === []) {
-            $card = $this->store()->update($card->id(), function (array $data) {
-                $data['blocked'] = null;
-
-                return $data;
-            }, $this->actor());
+        if ($asked && $card->blocked() === null) {
             $this->say("{$card->id()} unblocked");
             if ($steering !== [] && (int) $option === 2 && $card->stage() === 'review') {
                 $this->transitions()->sendBack($card->id(), 'move', $this->actor(), 'the owner sent it back: revert the changes to '.implode(', ', $steering));

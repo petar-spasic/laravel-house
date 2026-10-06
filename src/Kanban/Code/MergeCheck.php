@@ -101,7 +101,8 @@ final class MergeCheck
      */
     public static function approvalOf(Worktrees $worktrees, string $main, Card $card, array $paths): array
     {
-        $branch = (string) ($card->work()['branch'] ?? '');
+        // a parked card's branch has changed files as much as one at work
+        $branch = (string) ($card->work()['branch'] ?? $card->work()['parked_branch'] ?? '');
         $clone = $main.'/'.($card->work()['worktree'] ?? "\0");
         if (is_dir($clone)) {
             $worktrees->sync($clone, $branch === '' ? null : $branch);

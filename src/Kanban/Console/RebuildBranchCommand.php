@@ -27,8 +27,9 @@ class RebuildBranchCommand extends Command
         $id = $card->id();
         $inside = (new Context($this->paths(), $this->config()))->worktree($card);
         $cwd = realpath($this->paths()->cwd) ?: $this->paths()->cwd;
-        // its worker, in its clone; the main session is never the worker, wherever it runs it
-        $own = $inside !== null && ! $this->actor()->isMain() && ($cwd === $inside || str_starts_with($cwd, $inside.'/'));
+        // its worker: a card agent's command, which Guard runs with --in in its clone (a subagent's carries the main session's
+        // KANBAN_SESSION). Anyone else in the clone, the owner at a terminal say, runs it from the main checkout
+        $own = $inside !== null && getenv('KANBAN_IN') === '1' && ($cwd === $inside || str_starts_with($cwd, $inside.'/'));
         if (! $own) {
             $this->requireMainOrOwner('rebuild-branch');
         }

@@ -16,6 +16,8 @@ if (! class_exists(PetarSpasic\LaravelHouse\Kanban\Console\Standalone::class)) {
 // --in=<dir> first: run as if from <dir> (Guard runs a card agent's command this way, in its card)
 if (str_starts_with($_SERVER['argv'][1] ?? '', '--in=')) {
     chdir(substr(array_splice($_SERVER['argv'], 1, 1)[0], 5)) || exit(2);
+    // the command of the card's own agent: rebuild-branch takes it for its worker
+    putenv('KANBAN_IN=1');
 }
 
 if (PetarSpasic\LaravelHouse\Kanban\Support\Paths::inCardContainer((string) getcwd())) {

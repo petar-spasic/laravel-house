@@ -210,7 +210,7 @@ it('refuses a stop whose merge of main carries changes neither side had, and reb
         ->and($this->p->card($this->id)['stage'])->toBe('doing');
 
     $tree = trim($this->p->git($this->wt, 'rev-parse', 'HEAD^{tree}'));
-    $rebuilt = $this->p->in($this->wt, ['rebuild-branch', $this->id]);
+    $rebuilt = $this->p->in($this->wt, ['--in='.$this->wt, 'rebuild-branch', $this->id], ['KANBAN_SESSION' => 's1']);
     $onto = trim($this->p->git($this->wt, 'rev-parse', 'HEAD^'));
 
     expect($rebuilt->getExitCode())->toBe(0)
@@ -277,7 +277,7 @@ it('rebuilds a card in review whose follow-up report the stop gate refused for a
     file_put_contents($this->wt.'/screenshot.png', "png\n");
     $this->p->sandbox->ok(['set', $this->id, 'note=checked']);
 
-    $rebuilt = $this->p->in($this->wt, ['rebuild-branch', $this->id]);
+    $rebuilt = $this->p->in($this->wt, ['--in='.$this->wt, 'rebuild-branch', $this->id]);
 
     expect($rebuilt->getExitCode())->toBe(0)
         ->and($this->p->card($this->id))->toMatchArray(['stage' => 'review'])
@@ -314,7 +314,7 @@ it('refuses to rebuild a clone that is not on the card\'s branch, or whose evalu
     $this->p->git($this->wt, 'commit', '-q', '--amend', '--no-edit');
     $this->p->git($this->wt, 'checkout', '-q', '--detach');
 
-    $detached = $this->p->in($this->wt, ['rebuild-branch', $this->id]);
+    $detached = $this->p->in($this->wt, ['--in='.$this->wt, 'rebuild-branch', $this->id]);
     expect($detached->getExitCode())->toBe(3)
         ->and($detached->getErrorOutput())->toContain('not on its branch');
 
@@ -351,13 +351,16 @@ it('takes no one in the clone but its worker for the worker', function () {
     $this->p->hook('subagent-start', $this->p->payload('subagent-start', ['agent' => 'e1', 'type' => 'kanban-evaluator']));
     $this->p->enter($this->wt, 'e1', 'kanban-evaluator');
 
-    $evaluator = $this->p->in($this->wt, ['rebuild-branch', $this->id]);
+    $evaluator = $this->p->in($this->wt, ['--in='.$this->wt, 'rebuild-branch', $this->id]);
     $main = $this->p->in($this->wt, ['rebuild-branch', $this->id], ['KANBAN_SESSION' => 's1']);
+    $owner = $this->p->in($this->wt, ['rebuild-branch', $this->id]);
 
     expect($evaluator->getExitCode())->toBe(3)
         ->and($evaluator->getErrorOutput())->toContain('evaluator is still running')
         ->and($main->getExitCode())->toBe(3)
-        ->and($main->getErrorOutput())->toContain('rebuild-branch runs from the main checkout');
+        ->and($main->getErrorOutput())->toContain('rebuild-branch runs from the main checkout')
+        ->and($owner->getExitCode())->toBe(3)
+        ->and($owner->getErrorOutput())->toContain('rebuild-branch runs from the main checkout');
 });
 
 it('refuses a blocked report over uncommitted work', function () {
@@ -370,4 +373,35 @@ it('refuses a blocked report over uncommitted work', function () {
     expect($stop['json']['decision'] ?? null)->toBe('block')
         ->and($stop['json']['reason'])->toContain('uncommitted changes')
         ->and($this->p->card($this->id)['blocked'])->toBeNull();
+});
+
+it('lets a worker report blocked on a merge of main it cannot resolve, the merge kept in progress', function () {
+    $this->p->commit($this->wt, 'app.php', "<?php\n\nreturn 'branch';\n", "{$this->id}: clauses");
+    gone($this->p, 'a4d2c0ffee');
+    commitMain($this->p, 'app.php', "<?php\n\nreturn 'main';\n");
+    expect($this->p->sandbox->kanban(['refresh', $this->id])->getExitCode())->toBe(5);
+    $this->p->hook('subagent-start', $this->p->payload('subagent-start'));
+    $this->p->in($this->wt, ['report', $this->id, '--status=blocked', '--reason=which return value wins is the owner\'s call'])->mustRun();
+
+    expect(stopAgent($this->p, $this->wt)['out'])->toBe('')
+        ->and($this->p->card($this->id)['blocked'])->toBe('which return value wins is the owner\'s call')
+        ->and(trim($this->p->git($this->wt, 'rev-parse', '-q', '--verify', 'MERGE_HEAD')))->not->toBe('');
+});
+
+it('refuses a refresh and a review report while a merge is in progress, all of it staged', function () {
+    $this->p->commit($this->wt, 'app.php', "<?php\n\nreturn 'branch';\n", "{$this->id}: clauses");
+    gone($this->p, 'a4d2c0ffee');
+    commitMain($this->p, 'app.php', "<?php\n\nreturn 'main';\n");
+    $this->p->sandbox->kanban(['refresh', $this->id]);
+    $this->p->git($this->wt, 'checkout', '--ours', 'app.php');
+    $this->p->git($this->wt, 'add', 'app.php');
+    commitMain($this->p, 'other.txt', "other\n");
+
+    $refresh = $this->p->sandbox->kanban(['refresh', $this->id]);
+    $this->p->hook('subagent-start', $this->p->payload('subagent-start'));
+    $this->p->in($this->wt, ['report', $this->id, '--status=review', '--tick=1,2', '--summary=Done']);
+
+    expect($refresh->getExitCode())->toBe(3)
+        ->and($refresh->getErrorOutput())->toContain('a merge of main is in progress')
+        ->and(stopAgent($this->p, $this->wt)['json']['reason'] ?? '')->toContain('A merge of main is in progress');
 });

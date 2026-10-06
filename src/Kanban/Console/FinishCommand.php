@@ -31,6 +31,12 @@ class FinishCommand extends Command
 
     protected $description = 'Merge an approved card into main, mark it done, then tear down its stack, worktree and branch';
 
+    /** The start of the line that says main's stack was not rebuilt: `kanban run` raises it. */
+    public const REBUILD_FAILED = 'warning: rebuild main failed';
+
+    /** In the refusal when main moved under the approval: `kanban run` re-evaluates the card. */
+    public const MOVED = 'moved since approval';
+
     protected function perform(): int
     {
         $this->requireMainOrOwner('finish');
@@ -71,7 +77,7 @@ class FinishCommand extends Command
         $check = new MergeCheck($worktrees->git(), $main);
         $base = (string) ($approved['base'] ?? $work['base'] ?? '');
         if ($base !== '' && ($overlap = $check->movedOverlap($base, $branch, array_map('strval', (array) $this->merged()['finish']['overlap_ignore']))) !== []) {
-            throw new Conflict("{$id}: {$main} moved since approval and changed files the branch changes; `kanban refresh {$id}` and re-verify", $overlap);
+            throw new Conflict("{$id}: {$main} ".self::MOVED." and changed files the branch changes; `kanban refresh {$id}` and re-verify", $overlap);
         }
         if (($conflicts = $check->conflicts($branch)) !== null) {
             $this->transitions()->sendBack($id, 'refresh', $this->actor(), 'merge into '.$main.' conflicts in '.implode(', ', $conflicts));
@@ -339,7 +345,7 @@ class FinishCommand extends Command
         $this->say('rebuild main: '.implode(', ', $rebuild).' changed; building its images, main keeps serving');
         $build = $main->compose(['build'], 1800);
         if ($build['code'] !== 0) {
-            $this->say('warning: rebuild main failed to build, main runs on its old images: '.Worktrees::tail($build['err'] ?: "exit {$build['code']}")."; run `{$command}`");
+            $this->say(self::REBUILD_FAILED.' to build, main runs on its old images: '.Worktrees::tail($build['err'] ?: "exit {$build['code']}")."; run `{$command}`");
 
             return;
         }
@@ -347,6 +353,6 @@ class FinishCommand extends Command
         $result = $main->compose(['up', '-d', '--force-recreate', '--wait'], 600);
         $this->say($result['code'] === 0
             ? "rebuilt main's stack {$project}"
-            : 'warning: rebuild main failed: '.Worktrees::tail($result['err'] ?: "exit {$result['code']}")."; run `{$command}`");
+            : self::REBUILD_FAILED.': '.Worktrees::tail($result['err'] ?: "exit {$result['code']}")."; run `{$command}`");
     }
 }
