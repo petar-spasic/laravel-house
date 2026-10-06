@@ -74,13 +74,18 @@ class RefreshCommand extends Command
             throw new NotFound("{$id} has no worktree on this machine");
         }
         $main = $worktrees->mainBranch();
-        // a merge would carry the edits into the merge commit, where nobody reviews them as the card's change
-        if (($dirty = $worktrees->dirty($path)) !== []) {
+        // a merge would carry the edits into the merge commit, where nobody reviews them as the card's change. In review
+        // only tracked files count: an untracked one is what a check left, and a merge leaves it alone
+        if (($dirty = $card->stage() === 'review' ? $worktrees->changed($path) : $worktrees->dirty($path)) !== []) {
             throw new PolicyRefused($worktrees->merging($path) !== null
                 ? "{$id}: a merge of {$main} is in progress in its clone; its worker concludes it first"
                 : "{$id}: uncommitted changes in its clone; its worker commits them before {$main} is merged in", array_slice($dirty, 0, 20));
         }
         $git = $worktrees->git($path);
+        // the merge goes into what the clone has checked out: only ever the card's branch
+        if (($branch = $card->work()['branch'] ?? null) !== null && $git->line(['symbolic-ref', '--short', '-q', 'HEAD']) !== $branch) {
+            throw new PolicyRefused("{$id}: its clone is not on its branch {$branch}; its worker checks it out first");
+        }
         $worktrees->sync($path, $card->work()['branch'] ?? null);
         $before = $worktrees->head('HEAD', $path);
         $merge = $git->attempt(['merge', '--no-edit', $main]);

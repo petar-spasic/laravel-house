@@ -940,7 +940,8 @@ summary.
 > [!NOTE]
 > Only one Claude Code session per machine may run the board at a time. A session that ends lets go of the board, and
 > after `/compact` or a restart the new session takes over from the old one of the same conversation. If a session that
-> crashed still holds it, run `vendor/bin/kanban lease --takeover`, or wait 15 minutes.
+> crashed, or started before you updated the package, still holds it, run `vendor/bin/kanban lease --takeover`, or wait
+> 15 minutes.
 
 <a name="your-morning"></a>
 ### Your Morning

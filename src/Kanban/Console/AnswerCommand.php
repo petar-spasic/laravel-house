@@ -47,6 +47,11 @@ class AnswerCommand extends Command
             $answer = "{$option}. {$question['options'][(int) $option]}".($note === '' ? '' : "\n\n{$note}");
         }
 
+        // only what `finish --ask` asked about: a Steering: line anywhere else approves nothing. Worked out before the answer
+        // is written, so an approval that cannot be given here leaves the question open
+        $steering = array_values(array_intersect(Questions::steering($question), MergeCheck::asked($card)));
+        $approval = $steering !== [] && (int) $option === 1
+            ? MergeCheck::approvalOf(new Worktrees($this->paths(), $this->config()), $this->paths()->main, $card, $steering) : null;
         $card = $this->store()->update($card->id(), function (array $data) use ($question, $answer) {
             $data['body'] = Questions::answer((string) ($data['body'] ?? ''), $question['n'], $answer);
 
@@ -54,11 +59,7 @@ class AnswerCommand extends Command
         }, $this->actor());
         $this->say("{$handle} answered: ".strtok($answer, "\n"));
 
-        // only what `finish --ask` asked about: a Steering: line anywhere else approves nothing
-        $steering = array_values(array_intersect(Questions::steering($question), MergeCheck::asked($card)));
-        if ($steering !== [] && (int) $option === 1) {
-            $worktrees = new Worktrees($this->paths(), $this->config());
-            $approval = MergeCheck::approvalOf($worktrees, $this->paths()->main, $card, $steering);
+        if ($approval !== null) {
             $card = $this->store()->update($card->id(), function (array $data) use ($approval) {
                 $data['log'][] = $approval;
 

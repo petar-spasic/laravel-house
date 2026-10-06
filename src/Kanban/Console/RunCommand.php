@@ -48,6 +48,8 @@ class RunCommand extends Command
 
     private const PID = 'run.pid';
 
+    private const LOCK = 'run.lock';
+
     private string $session;
 
     private AgentRun $agents;
@@ -67,50 +69,47 @@ class RunCommand extends Command
         if (($why = $this->agents->unusable()) !== null) {
             throw new PolicyRefused($why);
         }
-        if (($other = self::running($this->paths())) !== null) {
-            throw new PolicyRefused("kanban run already drives this checkout (pid {$other})".($this->option('drain') ? ': `kanban drain` makes it drain' : ''));
-        }
-        $own = getenv('KANBAN_SESSION');
-        $this->session = is_string($own) && $own !== '' ? $own : 'run:'.gethostname();
-        $lease = new Lease($this->paths());
-        $this->session === $own ? $lease->acquire(new Actor('main', $this->session)) : $lease->takeover(new Actor('main', $this->session));
+        // one run per checkout: the lock is the truth, freed by the system however the run ends (Ctrl-C, a kill); close-on-exec,
+        // so the agents it detaches never hold it. run.pid only names the process
         $this->paths()->ensureRuntime();
-        file_put_contents($this->paths()->runtime(self::PID), (string) getmypid());
-        $release = function (): void {
-            if ((int) @file_get_contents($this->paths()->runtime(self::PID)) === getmypid()) {
-                @unlink($this->paths()->runtime(self::PID));
-            }
-        };
-        // Ctrl-C, or the session stopping its background task: a `finally` does not run on a signal
-        if (function_exists('pcntl_signal')) {
-            pcntl_async_signals(true);
-            foreach ([SIGTERM => 143, SIGINT => 130, SIGHUP => 129] as $signal => $code) {
-                pcntl_signal($signal, function () use ($release, $code): void {
-                    $release();
-                    exit($code);
-                });
-            }
+        $lock = fopen($this->paths()->runtime(self::LOCK), 'ce');
+        if ($lock === false || ! flock($lock, LOCK_EX | LOCK_NB)) {
+            $pid = (int) @file_get_contents($this->paths()->runtime(self::PID));
+            throw new PolicyRefused('kanban run already drives this checkout'.($pid > 0 ? " (pid {$pid})" : '').($this->option('drain') ? ': `kanban drain` makes it drain' : ''));
         }
         try {
+            file_put_contents($this->paths()->runtime(self::PID), (string) getmypid());
+            $own = getenv('KANBAN_SESSION');
+            $this->session = is_string($own) && $own !== '' ? $own : 'run:'.gethostname();
+            $lease = new Lease($this->paths());
+            $this->session === $own ? $lease->acquire(new Actor('main', $this->session)) : $lease->takeover(new Actor('main', $this->session));
+
             return $this->loop();
         } finally {
-            $release();
+            @unlink($this->paths()->runtime(self::PID));
+            flock($lock, LOCK_UN);
+            fclose($lock);
         }
     }
 
-    /** The pid of the run driving this checkout, or null: a live `kanban run` process, never another one that took its pid. */
+    /** The pid of the run driving this checkout (0 when it is not known), or null when none does. */
     public static function running(Paths $paths): ?int
     {
-        $pid = (int) @file_get_contents($paths->runtime(self::PID));
-        if ($pid <= 0 || $pid === getmypid() || ! posix_kill($pid, 0)) {
+        $lock = @fopen($paths->runtime(self::LOCK), 'ce');
+        if ($lock === false) {
             return null;
         }
-        if (! is_dir('/proc')) {
-            return $pid;
-        }
-        $args = explode("\0", rtrim((string) @file_get_contents("/proc/{$pid}/cmdline"), "\0"));
+        try {
+            if (flock($lock, LOCK_EX | LOCK_NB)) {
+                flock($lock, LOCK_UN);
 
-        return array_intersect($args, ['run', 'kanban:run']) !== [] && array_filter($args, fn (string $a) => str_contains($a, 'kanban') || str_contains($a, 'artisan')) !== [] ? $pid : null;
+                return null;
+            }
+
+            return (int) @file_get_contents($paths->runtime(self::PID));
+        } finally {
+            fclose($lock);
+        }
     }
 
     private function loop(): int
@@ -187,7 +186,7 @@ class RunCommand extends Command
 
         $snapshot = $this->store()->snapshot();
         foreach ($this->unstarted($snapshot) as $card) {
-            if (! $paused && ! in_array($card->id(), $running, true) && $this->stackFree()) {
+            if (! $paused && ! in_array($card->id(), $running, true) && ($this->stackFree() || $this->holdsSlot($card))) {
                 $acted = $this->resumeStart($card) || $acted;
             }
         }
@@ -330,7 +329,8 @@ class RunCommand extends Command
     /** Merges main into the card's branch, then launches an evaluator on it. A clone with uncommitted changes goes back to its worker. */
     private function evaluate(string $id): bool
     {
-        if ($this->dirty($this->store()->snapshot()->resolve($id))) {
+        // uncommitted changes to tracked files are the worker's; untracked files are what a check left, which a merge leaves alone
+        if ($this->changed($this->store()->snapshot()->resolve($id))) {
             $back = $this->kanban(['move', $id, 'doing', '--reason=uncommitted changes in its clone: its worker commits them']);
             $back->isSuccessful() ? $this->log("{$id} back to doing: uncommitted changes in its clone") : $this->block($id, $back);
 
@@ -406,7 +406,7 @@ class RunCommand extends Command
     private function unstarted(Snapshot $snapshot): array
     {
         return array_values($snapshot->cards(fn (Card $c) => $c->stage() === 'doing' && ($c->work()['host'] ?? null) === gethostname()
-            && is_file($this->paths()->runtime(StartCommand::STARTED.'/'.$c->id()))
+            && @file_get_contents($this->paths()->runtime(StartCommand::STARTED.'/'.$c->id())) === ($c->work()['started'] ?? null)
             && ($c->blocked() === null ? ! is_dir($this->paths()->main.'/'.($c->work()['worktree'] ?? "\0")) : self::slotLost((string) $c->blocked()))));
     }
 
@@ -415,9 +415,22 @@ class RunCommand extends Command
         return str_starts_with($blocked, 'start failed: no stack slot') || str_starts_with($blocked, 'start failed: no free slot');
     }
 
+    private function changed(Card $card): bool
+    {
+        return (new Worktrees($this->paths(), $this->config()))->changed($this->paths()->main.'/'.$card->work()['worktree']) !== [];
+    }
+
     private function dirty(Card $card): bool
     {
         return (new Worktrees($this->paths(), $this->config()))->dirty($this->paths()->main.'/'.$card->work()['worktree']) !== [];
+    }
+
+    /** The card's start took its stack slot before it was cut short: resuming it takes no other. */
+    private function holdsSlot(Card $card): bool
+    {
+        $worktrees = new Worktrees($this->paths(), $this->config());
+
+        return $worktrees->stackEnabled() && $worktrees->registry()->find($this->paths()->main.'/'.($card->work()['worktree'] ?? "\0")) !== null;
     }
 
     /** True when a card stack fits under `stack.max_stacks`, or stacks are off. */

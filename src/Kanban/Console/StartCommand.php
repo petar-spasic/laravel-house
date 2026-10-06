@@ -22,7 +22,7 @@ class StartCommand extends Command
 
     protected $description = 'Claim a ready card, create its worktree, .env and port slot, and start its Docker stack; run again, it finishes a start cut short';
 
-    /** Runtime directory of the cards this checkout claimed: `kanban run` finishes only these starts. */
+    /** Runtime directory of the claims this checkout made, each holding its `work.started`: `kanban run` finishes only these starts. */
     public const STARTED = 'starts';
 
     protected function perform(): int
@@ -77,7 +77,8 @@ class StartCommand extends Command
                 $reserved && $worktrees->registry()->release($path);
                 throw $e;
             }
-            touch($this->paths()->ensureRuntime(self::STARTED).'/'.$id);
+            // this claim's start time: a mark left by an earlier claim of the card names another start
+            file_put_contents($this->paths()->ensureRuntime(self::STARTED).'/'.$id, $work['started']);
         }
 
         $merged = [];

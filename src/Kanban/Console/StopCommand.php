@@ -50,16 +50,22 @@ class StopCommand extends Command
         $force = (bool) $this->option('force');
 
         $exists = is_dir($path);
-        if ($exists && ! $force && ($dirty = $worktrees->dirty($path)) !== []) {
+        // in review the worker left a clean clone: untracked files since are what a check left, removed with it
+        $review = $card->stage() === 'review';
+        if ($exists && ! $force && ($dirty = $review ? $worktrees->changed($path) : $worktrees->dirty($path)) !== []) {
             throw new PolicyRefused("{$this->paths()->relative($path)} has uncommitted changes; commit them on the branch or use --force", $dirty);
         }
+        $leftovers = $exists && ! $force && $review ? array_values(array_diff($worktrees->dirty($path), $worktrees->changed($path))) : [];
         if (! $worktrees->down($path, $work['stack']['project'] ?? null)) {
             throw new StackFailed("docker compose down failed for {$path}; the slot is kept. Retry, or `kanban stack gc` later");
         }
         $this->say("stack down {$this->paths()->relative($path)}");
         if ($exists) {
-            $worktrees->remove($path, $force, is_string($branch) ? $branch : null);
+            $worktrees->remove($path, $force || $leftovers !== [], is_string($branch) ? $branch : null);
             $this->say("removed worktree {$this->paths()->relative($path)}");
+            if ($leftovers !== []) {
+                $this->say('removed with the clone, untracked: '.implode(', ', array_map(fn (string $l) => substr($l, 3), array_slice($leftovers, 0, 10))).(count($leftovers) > 10 ? ' …' : ''));
+            }
         }
         $worktrees->prune();
 

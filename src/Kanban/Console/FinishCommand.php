@@ -59,9 +59,11 @@ class FinishCommand extends Command
         if (! is_array($approved) || ($approved['head'] ?? null) !== $head) {
             throw new PolicyRefused("{$id}: no approval for the branch head ".substr($head, 0, 7).(is_array($approved) ? ' (approved '.substr((string) ($approved['head'] ?? '?'), 0, 7).')' : '').'; run the evaluator again');
         }
-        if (isset($work['worktree']) && is_dir($path) && ($dirty = $worktrees->dirty($path)) !== []) {
+        if (isset($work['worktree']) && is_dir($path) && ($dirty = $worktrees->changed($path)) !== []) {
             throw new PolicyRefused("{$id}: the worktree has uncommitted changes", $dirty);
         }
+        // the report needed a clean clone: untracked files since are what a check left, removed with the clone
+        $leftovers = isset($work['worktree']) && is_dir($path) ? array_values(array_diff($worktrees->dirty($path), $worktrees->changed($path))) : [];
         if (($agent = $this->agent($id, $snapshot)) !== null && $agent !== 'stopped' && ! str_starts_with($agent, 'stale')) {
             throw new PolicyRefused("{$id}: an agent is still bound to the card ({$agent}); `vendor/bin/kanban wait {$id}`");
         }
@@ -103,6 +105,9 @@ class FinishCommand extends Command
         }
         $sha = $worktrees->head('HEAD');
         $this->say("merged {$id} into {$main} ".substr($sha, 0, 7));
+        if ($leftovers !== []) {
+            $this->say('removed with the clone, untracked: '.implode(', ', array_map(fn (string $l) => substr($l, 3), array_slice($leftovers, 0, 10))).(count($leftovers) > 10 ? ' …' : ''));
+        }
         $this->transitions()->finish($id, $sha, $this->actor());
         $this->say("{$id} review→done");
 
@@ -121,7 +126,7 @@ class FinishCommand extends Command
         }
         if (isset($work['worktree']) && is_dir($path)) {
             try {
-                $worktrees->remove($path, branch: $branch);
+                $worktrees->remove($path, $leftovers !== [], $branch);
                 $this->say("removed worktree {$work['worktree']}");
             } catch (GitFailed $e) {
                 $this->fault("removing {$work['worktree']}: ".$e->getMessage());

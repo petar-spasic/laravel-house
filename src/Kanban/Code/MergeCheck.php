@@ -3,6 +3,7 @@
 namespace PetarSpasic\LaravelHouse\Kanban\Code;
 
 use PetarSpasic\LaravelHouse\Kanban\Store\Card;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
 use PetarSpasic\LaravelHouse\Kanban\Support\Git;
 
 /** Read-only checks before a card branch is merged into main. */
@@ -104,6 +105,10 @@ final class MergeCheck
         $clone = $main.'/'.($card->work()['worktree'] ?? "\0");
         if (is_dir($clone)) {
             $worktrees->sync($clone, $branch === '' ? null : $branch);
+        }
+        // a card at work whose branch is elsewhere: what the approval covers is only known where the branch is
+        if (in_array($card->stage(), ['doing', 'review'], true) && ($branch === '' || $worktrees->git()->line(['rev-parse', '--verify', '-q', "refs/heads/{$branch}"]) === null)) {
+            throw new PolicyRefused("{$card->id()}'s branch is not here: approve it on the machine that holds it".(($card->work()['host'] ?? null) !== null ? " ({$card->work()['host']})" : ''));
         }
 
         return (new self($worktrees->git(), $worktrees->mainBranch()))->approval($branch, $paths);

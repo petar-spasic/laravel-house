@@ -1,6 +1,7 @@
 <?php
 
 use PetarSpasic\LaravelHouse\Tests\Support\CodeSandbox;
+use Symfony\Component\Process\Process;
 
 beforeEach(function () {
     $this->code = CodeSandbox::create();
@@ -132,7 +133,7 @@ it('refuses to finish', function (Closure $arrange, int $exit, string $message, 
     }, 3, 'no approval for the branch head', 'review'],
     'dirty worktree' => [function (CodeSandbox $c, string $id) {
         $c->approve($id);
-        file_put_contents($c->worktree($id).'/scratch.txt', "x\n");
+        file_put_contents($c->worktree($id).'/docker-compose.local.yml', "# x\n", FILE_APPEND);
     }, 3, 'the worktree has uncommitted changes', 'review'],
     'live agent' => [function (CodeSandbox $c, string $id) {
         $c->approve($id);
@@ -412,4 +413,29 @@ it('ties an approval given after the change to the file as it was, and one given
 
     expect($held->getExitCode())->toBe(3)
         ->and($held->getErrorOutput())->toContain("{$id} changes files that steer the agents or git: .claude/settings.json;");
+});
+
+it('refuses an approval of steering files for a card whose branch is on another machine', function () {
+    $code = $this->code;
+    $id = $code->started('Tune the agents');
+    $code->commit($id, '.claude/settings.json', "{}\n", 'settings');
+    $code->ok(['stack', $id, 'down']);
+    (new Process(['rm', '-rf', $code->worktree($id)]))->mustRun();
+
+    $allow = $code->sandbox->kanban(['allow-steering', $id, '.claude/settings.json']);
+
+    expect($allow->getExitCode())->toBe(3)
+        ->and($allow->getErrorOutput())->toContain('on the machine that holds it');
+});
+
+it('finishes an approved card whose clone holds only untracked leftovers, and names them', function () {
+    $code = $this->code;
+    $id = $code->started('Add login page');
+    $code->commit($id, 'app/Login.php', "<?php\n");
+    $code->approve($id);
+    file_put_contents($code->worktree($id).'/screenshot.png', "png\n");
+
+    $out = $code->ok(['finish', $id]);
+
+    expect($out)->toContain("merged {$id} into main")->toContain('screenshot.png');
 });

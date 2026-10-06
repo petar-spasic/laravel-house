@@ -36,16 +36,22 @@ class RebuildBranchCommand extends Command
         }
         $worktrees = new Worktrees($this->paths(), $this->config());
         $path = $inside ?? throw new PolicyRefused("{$id} has no clone on this machine");
-        if (! $own && ($agent = (new Runtime($this->paths()))->agentFor($id, 'kanban-worker')) !== null && (new Runtime($this->paths()))->state($agent) === 'live') {
-            throw new PolicyRefused("{$id}: its worker is still running; `vendor/bin/kanban wait {$id}`");
+        $runtime = new Runtime($this->paths(), $this->store()->snapshot()->staleMinutes());
+        foreach ($own ? [] : ['kanban-worker', 'kanban-evaluator'] as $type) {
+            if (($agent = $runtime->agentFor($id, $type)) !== null && $runtime->state($agent) === 'live') {
+                throw new PolicyRefused("{$id}: its ".substr($type, 7)." is still running; `vendor/bin/kanban wait {$id}`");
+            }
         }
         $main = $worktrees->mainBranch();
         if ($worktrees->merging($path) !== null || $worktrees->dirty($path) !== []) {
             throw new PolicyRefused("{$id}: the clone has uncommitted changes or a merge in progress; commit or conclude it first");
         }
         $branch = (string) ($card->work()['branch'] ?? '');
-        $worktrees->sync($path, $branch);
         $git = $worktrees->git($path);
+        if ($branch === '' || $git->line(['symbolic-ref', '--short', '-q', 'HEAD']) !== $branch) {
+            throw new PolicyRefused("{$id}: the clone is not on its branch {$branch}; `git checkout {$branch}` first");
+        }
+        $worktrees->sync($path, $branch);
         $from = $worktrees->head('HEAD', $path);
         if (trim($git->attempt(['rev-list', '--merges', '-n', '1', "refs/heads/{$main}..HEAD"])->out) === '') {
             throw new PolicyRefused("{$id}: no merge of {$main} on the branch; nothing to rebuild");

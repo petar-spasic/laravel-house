@@ -20,8 +20,9 @@ main; its branch reaches main when a kanban command needs it there (`report`, `c
 
 **"Agent type not found", hooks don't run, or `status` shows the lease held by another session after
 `kanban:install`, `doctor --fix` or an upgrade.** → Claude Code loads `.claude/agents` and settings hooks at session
-start. → Restart Claude Code: the old session frees the lease as it ends, and the new one takes it. `vendor/bin/kanban
-lease --takeover` covers an old session that crashed.
+start. → Restart Claude Code; the new session takes the lease from its own transcript's old session at SessionStart
+(`claude --continue`). A session that ends frees its lease, but one started before the upgrade has no SessionEnd hook
+loaded, so `vendor/bin/kanban lease --takeover` covers it, and any other old session.
 
 **A worker's stop is refused: "A merge of main carries changes neither side had".** → Work that was not committed
 went into a merge commit (a conflict resolved with `git add -A`), where no review sees it as the card's change. →

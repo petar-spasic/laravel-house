@@ -138,7 +138,7 @@ it('never merges main into a clone with uncommitted changes: its worker commits 
     runPass($this->code, $this->claude);
     expect($this->code->sandbox->read($id)['stage'])->toBe('review');
     $wt = $this->code->worktree($id);
-    file_put_contents($wt.'/stray.txt', "left over\n");
+    file_put_contents($wt.'/feature.txt', "left over\n", FILE_APPEND);
     $this->code->commitMain('fix.txt', "fixed\n");
 
     $back = runPass($this->code, $this->claude);
@@ -149,7 +149,7 @@ it('never merges main into a clone with uncommitted changes: its worker commits 
 
     runPass($this->code, $this->claude);
     expect(runPass($this->code, $this->claude))->toContain("merged {$id} into main")
-        ->and(is_file($this->code->root().'/stray.txt'))->toBeTrue();
+        ->and((string) file_get_contents($this->code->root().'/feature.txt'))->toContain("left over\n");
 });
 
 it('finishes a start cut short on this machine whose block was cleared, then runs its worker', function () {
@@ -208,6 +208,98 @@ it('leaves a card started from another checkout of this machine alone', function
 
     expect($out)->not->toContain("{$id} start resumed")
         ->and(runLaunches($this->claude))->toBe([]);
+});
+
+it('finishes a start cut short at the stack cap: the slot it holds is its own', function () {
+    $this->code->configure(['gates' => ['report' => []], 'stack' => ['max_stacks' => 1]]);
+    $id = $this->code->started('Add login page');
+    (new Process(['rm', '-rf', $this->code->worktree($id)]))->mustRun();
+
+    $out = runPass($this->code, $this->claude);
+
+    expect($out)->toMatch("/ {$id} start resumed; worker [0-9a-f]{8} launched\n/")
+        ->and($this->code->sandbox->read($id)['stage'])->toBe('review');
+});
+
+it('takes a start mark for a claim made since for no start of this checkout', function () {
+    $id = $this->code->started('Add login page');
+    $mark = $this->code->root()."/.git/laravel-house/starts/{$id}";
+    $old = (string) file_get_contents($mark);
+    $this->code->ok(['stop', $id, '--to=ready', '--force']);
+    sleep(1);
+    $this->code->ok(['start', $id]);
+    $this->code->ok(['stack', $id, 'down']);
+    (new Process(['rm', '-rf', $this->code->worktree($id)]))->mustRun();
+    file_put_contents($mark, $old);
+
+    expect(runPass($this->code, $this->claude))->not->toContain("{$id} start resumed")
+        ->and(runLaunches($this->claude))->toBe([]);
+});
+
+it('lets a child command a stopped run started finish its work', function () {
+    $id = $this->code->sandbox->readyCard('Add login page');
+    $env = $this->code->env(['PATH' => Sandbox::package().'/tests/Support/FakeClaude:'.Sandbox::package().'/tests/Support/FakeDocker:'.getenv('PATH'),
+        'FAKE_CLAUDE_DIR' => $this->claude, 'FAKE_DOCKER_DELAY' => '2']);
+    $live = new Process([PHP_BINARY, $this->code->root().'/vendor/bin/kanban', 'run'], $this->code->root(), $env);
+    $live->start();
+    $deadline = microtime(true) + 20;
+    while (($this->code->sandbox->read($id)['stage'] ?? null) !== 'doing' && microtime(true) < $deadline) {
+        usleep(100_000);
+    }
+    $live->stop(5);
+    $deadline = microtime(true) + 30;
+    while (($this->code->sandbox->read($id)['work']['stack'] ?? null) === null && microtime(true) < $deadline) {
+        usleep(200_000);
+    }
+
+    expect($this->code->sandbox->read($id)['work']['stack'])->not->toBeNull()
+        ->and($this->code->ok(['drain']))->toStartWith('drain on: the next `kanban run`');
+});
+
+it('refuses a run while another holds the run lock, started at the same moment or not', function () {
+    @mkdir($this->code->root().'/.git/laravel-house', 0775, true);
+    $lock = fopen($this->code->root().'/.git/laravel-house/run.lock', 'c');
+    flock($lock, LOCK_EX);
+    try {
+        $second = $this->code->kanban(['run', '--once'], ['PATH' => Sandbox::package().'/tests/Support/FakeClaude:'.getenv('PATH'), 'FAKE_CLAUDE_DIR' => $this->claude]);
+    } finally {
+        flock($lock, LOCK_UN);
+    }
+
+    expect($second->getExitCode())->toBe(3)
+        ->and($second->getErrorOutput())->toContain('kanban run already drives this checkout');
+});
+
+it('keeps the lease of a session that ends while its kanban run still drives the board', function () {
+    $env = $this->code->env(['PATH' => Sandbox::package().'/tests/Support/FakeClaude:'.Sandbox::package().'/tests/Support/FakeDocker:'.getenv('PATH'),
+        'FAKE_CLAUDE_DIR' => $this->claude, 'KANBAN_SESSION' => 's1']);
+    $live = new Process([PHP_BINARY, $this->code->root().'/vendor/bin/kanban', 'run'], $this->code->root(), $env);
+    $live->start();
+    $deadline = microtime(true) + 20;
+    while (! is_file($this->code->root().'/.git/laravel-house/run.pid') && microtime(true) < $deadline) {
+        usleep(50_000);
+    }
+    try {
+        $this->code->sandbox->kanban(['hook', 'session-end'], [], null, json_encode(['session_id' => 's1', 'cwd' => $this->code->root(), 'hook_event_name' => 'SessionEnd', 'reason' => 'clear']))->mustRun();
+        $lease = $this->code->ok(['lease']);
+    } finally {
+        $live->stop(5);
+    }
+
+    expect($lease)->toContain('held by s1');
+});
+
+it('evaluates a review card whose clone holds only untracked leftovers, and finishes it', function () {
+    $id = $this->code->sandbox->readyCard('Add login page');
+    runPass($this->code, $this->claude);
+    file_put_contents($this->code->worktree($id).'/screenshot.png', "png\n");
+
+    $evaluated = runPass($this->code, $this->claude);
+    $finished = runPass($this->code, $this->claude);
+
+    expect($evaluated)->not->toContain('back to doing')->toContain("{$id} evaluator")
+        ->and($finished)->toContain("merged {$id} into main")
+        ->and($this->code->sandbox->read($id)['stage'])->toBe('done');
 });
 
 it('retries a start that lost its stack slot after the claim once a slot is free, before any new start', function () {
@@ -305,7 +397,7 @@ it('lets one run drive a checkout, and turns a live one into a drain without sto
     } finally {
         $live->stop(5);
     }
-    expect(is_file($pid))->toBeFalse()
+    expect($this->code->ok(['drain']))->toStartWith('drain on: the next `kanban run`')
         ->and($this->code->ok(['drain', '--off']))->toBe("drain off: kanban run starts new cards again\n")
         ->and(is_file($this->code->root().'/.git/laravel-house/run.drain'))->toBeFalse();
 });

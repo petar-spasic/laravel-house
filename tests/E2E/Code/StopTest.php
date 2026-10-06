@@ -88,3 +88,16 @@ it('refuses to stop a card another machine is working on unless forced', functio
         ->and($code->sandbox->read($id)['stage'])->toBe('doing')
         ->and($code->calls())->not->toContain('compose --project-directory '.$code->worktree($id));
 });
+
+it('stops a card in review whose clone holds only untracked leftovers, and names them', function () {
+    $code = $this->code;
+    $id = $code->started('Add login page');
+    $code->commit($id, 'app/Login.php', "<?php\n");
+    $code->approve($id);
+    file_put_contents($code->worktree($id).'/screenshot.png', "png\n");
+
+    $out = $code->ok(['stop', $id, '--to=ready']);
+
+    expect($out)->toContain('removed with the clone, untracked: screenshot.png')
+        ->and($code->sandbox->read($id)['stage'])->toBe('ready');
+});

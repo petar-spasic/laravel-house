@@ -175,10 +175,12 @@ final class Worktrees
         }
         $main = $this->mainBranch();
         $clone = Git::untrusted($path);
-        $clone->attempt(['fetch', '-q', '--no-tags', 'origin', "+refs/heads/{$main}:refs/heads/{$main}"]);
+        // by path, never the clone's `origin`: its remote config (an upload-pack, a URL) is the agent's
+        $clone->attempt(['fetch', '-q', '--no-tags', $this->paths->main, "+refs/heads/{$main}:refs/heads/{$main}"]);
         $branch ??= $clone->line(['symbolic-ref', '--short', '-q', 'HEAD']);
         if ($branch !== null && $branch !== $main) {
-            $this->git()->attempt(['fetch', '-q', '--no-tags', $path, "+refs/heads/{$branch}:refs/heads/{$branch}"]);
+            // the upload-pack serving it runs in the clone, with the clone's config: untrusted
+            Git::untrusted($this->paths->main)->attempt(['fetch', '-q', '--no-tags', $path, "+refs/heads/{$branch}:refs/heads/{$branch}"]);
         }
     }
 
@@ -474,6 +476,12 @@ final class Worktrees
         $this->registry()->release($path);
 
         return true;
+    }
+
+    /** @return list<string> uncommitted changes to tracked files: what a merge would carry, or a removed clone lose */
+    public function changed(string $path): array
+    {
+        return array_values(array_filter(explode("\n", rtrim($this->git($path)->attempt(['status', '--porcelain', '--untracked-files=no'])->out))));
     }
 
     /** Tracked changes or untracked files (ignored files do not count). */

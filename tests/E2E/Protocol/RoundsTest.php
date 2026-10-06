@@ -283,3 +283,54 @@ it('rebuilds a card in review whose follow-up report the stop gate refused for a
     $this->p->in($this->wt, ['report', $this->id, '--status=review', '--tick=1,2', '--summary=Rebuilt'])->mustRun();
     expect(stopAgent($this->p, $this->wt)['out'])->toBe('');
 });
+
+it('runs none of the clone\'s signing config on this machine', function () {
+    $this->p->commit($this->wt, 'app.php', "<?php\n", "{$this->id}: clauses");
+    $marker = $this->p->main.'/.git/signed-on-host';
+    file_put_contents($this->p->main.'/.git/sign.sh', "#!/bin/sh\ntouch {$marker}\nexit 1\n");
+    chmod($this->p->main.'/.git/sign.sh', 0755);
+    $this->p->git($this->wt, 'config', 'commit.gpgSign', 'true');
+    $this->p->git($this->wt, 'config', 'gpg.program', $this->p->main.'/.git/sign.sh');
+    gone($this->p, 'a4d2c0ffee');
+    commitMain($this->p, 'other.txt', "other\n");
+
+    $this->p->sandbox->ok(['refresh', $this->id]);
+
+    expect($marker)->not->toBeFile();
+});
+
+it('refuses to rebuild a clone that is not on the card\'s branch, or whose evaluator runs', function () {
+    $this->p->commit($this->wt, 'app.php', "<?php\n", "{$this->id}: clauses");
+    $this->p->in($this->wt, ['report', $this->id, '--status=review', '--tick=1,2', '--summary=Done'])->mustRun();
+    stopAgent($this->p, $this->wt);
+    commitMain($this->p, 'other.txt', "other\n");
+    $this->p->sandbox->ok(['refresh', $this->id]);
+    file_put_contents($this->wt.'/stray.php', "<?php\n");
+    $this->p->git($this->wt, 'add', 'stray.php');
+    $this->p->git($this->wt, 'commit', '-q', '--amend', '--no-edit');
+    $this->p->git($this->wt, 'checkout', '-q', '--detach');
+
+    $detached = $this->p->in($this->wt, ['rebuild-branch', $this->id]);
+    expect($detached->getExitCode())->toBe(3)
+        ->and($detached->getErrorOutput())->toContain('not on its branch');
+
+    $this->p->git($this->wt, 'checkout', '-q', '-');
+    $this->p->hook('subagent-start', $this->p->payload('subagent-start', ['agent' => 'e1', 'type' => 'kanban-evaluator']));
+    $this->p->enter($this->wt, 'e1', 'kanban-evaluator');
+    $live = $this->p->sandbox->kanban(['rebuild-branch', $this->id], ['KANBAN_SESSION' => 's1']);
+    expect($live->getExitCode())->toBe(3)
+        ->and($live->getErrorOutput())->toContain('evaluator is still running');
+});
+
+it('never merges main into a clone that is not on the card\'s branch', function () {
+    $this->p->commit($this->wt, 'app.php', "<?php\n", "{$this->id}: clauses");
+    $this->p->git($this->wt, 'checkout', '-q', '-b', 'elsewhere');
+    gone($this->p, 'a4d2c0ffee');
+    commitMain($this->p, 'other.txt', "other\n");
+
+    $refresh = $this->p->sandbox->kanban(['refresh', $this->id]);
+
+    expect($refresh->getExitCode())->toBe(3)
+        ->and($refresh->getErrorOutput())->toContain('not on its branch')
+        ->and(trim($this->p->git($this->wt, 'rev-list', '--count', '--merges', 'HEAD')))->toBe('0');
+});
