@@ -2,6 +2,7 @@
 
 namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
+use PetarSpasic\LaravelHouse\Kanban\Hooks\SessionEnd;
 use PetarSpasic\LaravelHouse\Kanban\Hooks\SessionStart;
 use PetarSpasic\LaravelHouse\Kanban\Hooks\SubagentStart;
 use PetarSpasic\LaravelHouse\Kanban\Hooks\SubagentStop;
@@ -17,12 +18,13 @@ use Throwable;
 #[AsCommand(name: 'kanban:hook')]
 class HookCommand extends Command
 {
-    protected $signature = 'kanban:hook {event : session-start|subagent-start|subagent-stop|stop|worktree-create|worktree-remove}';
+    protected $signature = 'kanban:hook {event : session-start|session-end|subagent-start|subagent-stop|stop|worktree-create|worktree-remove}';
 
     protected $description = 'Claude Code hook handler (reads the hook JSON from stdin)';
 
     private const EVENTS = [
         'session-start' => SessionStart::class,
+        'session-end' => SessionEnd::class,
         'subagent-start' => SubagentStart::class,
         'subagent-stop' => SubagentStop::class,
         // a headless card session (`kanban run`) stops with Stop, not SubagentStop

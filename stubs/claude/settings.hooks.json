@@ -3,6 +3,9 @@
         "SessionStart": [
             { "matcher": "startup|resume|clear|compact|fork", "hooks": [ { "type": "command", "command": "php", "args": ["-d", "display_errors=0", "-d", "display_startup_errors=0", "${CLAUDE_PROJECT_DIR}/vendor/bin/kanban", "hook", "session-start"], "timeout": 30 } ] }
         ],
+        "SessionEnd": [
+            { "hooks": [ { "type": "command", "command": "php", "args": ["-d", "display_errors=0", "-d", "display_startup_errors=0", "${CLAUDE_PROJECT_DIR}/vendor/bin/kanban", "hook", "session-end"], "timeout": 15 } ] }
+        ],
         "SubagentStart": [
             { "hooks": [ { "type": "command", "command": "php", "args": ["-d", "display_errors=0", "-d", "display_startup_errors=0", "${CLAUDE_PROJECT_DIR}/vendor/bin/kanban", "hook", "subagent-start"], "timeout": 15 } ] }
         ],

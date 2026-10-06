@@ -25,7 +25,7 @@ Consumers read `README.md` and the skills. This file is for working **on** the p
 | `src/Kanban/Console/*`, `src/Kanban/Console/Install/*` | CLI commands; install steps (stored-name migration, settings hooks, agents, the `CLAUDE.md` block and Boost entry, `.gitignore`) |
 | `src/Kanban/Code/*` | Card clones and worktrees, their `.env`, machine-wide port registry, compose stacks, merge checks, main check and push, dependency checks |
 | `src/Kanban/Upstream/*` | Package findings: scrubber, findings on cards, `gh` |
-| `src/Kanban/Protocol/*`, `src/Kanban/Hooks/*` | Runtime files, staged reports and verdicts, stop gates, lease, SessionStart brief, context, the 5 hook handlers |
+| `src/Kanban/Protocol/*`, `src/Kanban/Hooks/*` | Runtime files, staged reports and verdicts, stop gates, lease, SessionStart brief, context, the 6 hook handlers |
 | `src/Kanban/Guard/Guard.php`, `bin/kanban-guard`, `githooks/*` | PreToolUse binder (binding, heartbeat, spawn record, a card agent's shell routing and file fence); commit-msg and pre-push hooks |
 | `bin/kanban-exec` | The kill-safe wrapper a card agent's shell runs through into its container |
 | `src/Kanban/Http/*`, `routes/web.php`, `resources/views`, `resources/dist` | Local UI: shell page, JSON API, `Presenter`, `UiGuard`; `kanban.js`/`kanban.css` (no build step, vanilla JS, CSP-safe) |

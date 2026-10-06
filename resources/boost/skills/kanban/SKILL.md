@@ -32,9 +32,9 @@ are in `references/protocol.md`; card sizing in depth is `references/planning.md
 - Only the main session (and the `kanban run` it starts) runs `start`, `refresh`, `finish`, `stop`, `publish`, `promote`, `new`, `set`,
   `move`, `fold`, `answer` and `upstream file|new|dismiss`, from the main checkout. One orchestrator per machine holds
   the lease; another one gets exit 6 from `start`, `refresh`, `finish`, `stop` and `apply`, and nothing changed. While
-  `kanban run` is running, leave starting, refreshing, finishing and stopping cards to it. A new session of the same
-  transcript (after `/compact` or a restart) takes the lease at SessionStart. `lease --takeover` when the holder is
-  your own previous session, otherwise only when the owner says so.
+  `kanban run` is running, leave starting, refreshing, finishing and stopping cards to it. A session that ends frees its lease;
+  a new session of the same transcript (after `/compact` or a restart) takes it at SessionStart. `lease --takeover`
+  when the holder is your own previous session, otherwise only when the owner says so.
 - Never edit `docs/kanban` by hand and never write code in the main checkout for a card.
 - Cards are for agents, not people: one card is one cohesive piece of work on one `area:*`. Every agent spawn costs a
   bootstrap, a clone, a stack and a review; a card that is too small wastes all four.

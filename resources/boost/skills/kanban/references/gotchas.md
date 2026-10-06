@@ -20,8 +20,8 @@ main; its branch reaches main when a kanban command needs it there (`report`, `c
 
 **"Agent type not found", hooks don't run, or `status` shows the lease held by another session after
 `kanban:install`, `doctor --fix` or an upgrade.** → Claude Code loads `.claude/agents` and settings hooks at session
-start. → Restart Claude Code; the new session takes the lease from its own transcript's old session at
-SessionStart, and `vendor/bin/kanban lease --takeover` covers any other old session.
+start. → Restart Claude Code: the old session frees the lease as it ends, and the new one takes it. `vendor/bin/kanban
+lease --takeover` covers an old session that crashed.
 
 **Copied `node_modules` get wiped on a card stack's first start.** → A card's checkout stamps the lockfiles with the
 current time, so mtime (`-nt`) sentinels in the entrypoint reinstall. → sha256 sentinels.

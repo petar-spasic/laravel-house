@@ -126,6 +126,19 @@ it('moves the lease to a new session of the same transcript, and names another t
         ->and($p->sandbox->ok('status', ['KANBAN_SESSION' => 'after-compact']))->toContain('lease: this session');
 });
 
+it('frees the lease when the session holding it ends, and only then', function () {
+    $p = ProtocolSandbox::create();
+    $p->sandbox->ok(['apply'], ['KANBAN_SESSION' => 'orchestrator-1']);
+
+    $p->hook('session-end', $p->payload('session-end', ['session' => 'worker-session']))->mustRun();
+    expect($p->sandbox->ok('status'))->toContain('lease: held by orchestrator-1 (idle ');
+
+    $p->hook('session-end', $p->payload('session-end', ['session' => 'orchestrator-1']))->mustRun();
+    expect($p->sandbox->ok('status'))->toContain('lease: free')
+        ->and($p->sandbox->ok(['apply'], ['KANBAN_SESSION' => 'next-session']))->toBe("nothing staged to apply\n")
+        ->and($p->sandbox->ok('status', ['KANBAN_SESSION' => 'next-session']))->toContain('lease: this session');
+});
+
 it('prunes runtime files nothing reads any more and keeps the rest', function () {
     $p = ProtocolSandbox::create();
     [$id] = $p->started('Conditional clauses');

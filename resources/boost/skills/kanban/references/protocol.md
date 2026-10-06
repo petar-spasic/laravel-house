@@ -44,7 +44,7 @@ text, one fact per line; errors go to stderr. Card ids accept a unique prefix of
 | `morning [--since=24h\|90m\|ISO]` | The brief, then since then: merged cards, cards blocked but not on a question, open questions, and the agent runs `kanban run` logged (tokens, list-price cost, per merged card) |
 | `validate [--fix]` | Schema and cross-card rules; `--fix` rewrites canonically, re-ids duplicates (one commit) |
 | `doctor [--fix]` | `ok\|warn\|fail` lines, exit 1 on any fail; `--fix` re-runs attach and the install steps, then Claude Code needs a restart |
-| `lease [--takeover --release]` | The orchestrator lease (15 min idle expiry; SessionStart hands it to a new session of the holder's transcript); `--takeover`/`--release` run from the main checkout |
+| `lease [--takeover --release]` | The orchestrator lease (15 min idle expiry; SessionEnd frees the ending session's; SessionStart hands it to a new session of the holder's transcript); `--takeover`/`--release` run from the main checkout |
 
 ## Write (main session or owner)
 

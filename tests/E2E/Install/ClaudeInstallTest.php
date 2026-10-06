@@ -33,7 +33,7 @@ it('merges settings, writes agents, .gitignore and the CLAUDE.md block, and is i
     $output = $sandbox->install('ACME');
 
     expect($output)
-        ->toContain('updated .claude/settings.json: hooks.SessionStart, hooks.SubagentStart, hooks.SubagentStop, hooks.Stop, hooks.PreToolUse, hooks.WorktreeCreate, hooks.WorktreeRemove, permissions.allow -Bash(/srv/ben/acme/vendor/bin/kanban-exec *), permissions.allow Bash(vendor/bin/kanban *), attribution off')
+        ->toContain('updated .claude/settings.json: hooks.SessionStart, hooks.SessionEnd, hooks.SubagentStart, hooks.SubagentStop, hooks.Stop, hooks.PreToolUse, hooks.WorktreeCreate, hooks.WorktreeRemove, permissions.allow -Bash(/srv/ben/acme/vendor/bin/kanban-exec *), permissions.allow Bash(vendor/bin/kanban *), attribution off')
         ->toContain("created .claude/settings.local.json: permissions.allow Bash({$sandbox->root}/vendor/bin/kanban *), permissions.allow Bash({$sandbox->root}/vendor/bin/kanban-exec *)")
         ->toContain('wrote .claude/agents/kanban-worker.md')
         ->toContain('wrote .claude/agents/kanban-evaluator.md')
