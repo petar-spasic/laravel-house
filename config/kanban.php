@@ -84,8 +84,9 @@ return [
         // `stack wait` gives up with exit 75 after this many seconds (fits the Bash tool's 120 s).
         'wait_timeout' => 110,
         'down' => ['-v', '--remove-orphans', '--rmi', 'local', '-t', '5'],
-        // Machine-wide caps and preconditions checked before `up`.
-        'max_stacks' => env('KANBAN_MAX_STACKS', 6),
+        // Machine-wide caps and preconditions checked before `up`. Cards in review keep their stacks, so the cap covers
+        // doing and review together (6 + 6 by default).
+        'max_stacks' => env('KANBAN_MAX_STACKS', 12),
         'min_mem_available_gib' => 8,
         'min_disk_free_gib' => 20,
         // Refuse `up`, and warn in doctor, while tmp has less than this share of its space or inodes free.

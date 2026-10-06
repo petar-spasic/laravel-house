@@ -4,6 +4,7 @@ use PetarSpasic\LaravelHouse\Kanban\Console\Install\ClaudeSettings;
 use PetarSpasic\LaravelHouse\Kanban\Guard\Guard;
 use PetarSpasic\LaravelHouse\Tests\Support\CodeSandbox;
 use PetarSpasic\LaravelHouse\Tests\Support\Sandbox;
+use Symfony\Component\Process\Process;
 
 beforeEach(function () {
     $this->code = CodeSandbox::create();
@@ -130,6 +131,41 @@ it('merges main into a card before resuming its worker, so a fix landed on main 
     runPass($this->code, $this->claude);
 
     expect($this->code->sandbox->read($id)['stage'])->toBe('review');
+});
+
+it('finishes a start cut short on this machine whose block was cleared, then runs its worker', function () {
+    $id = $this->code->started('Add login page');
+    $wt = $this->code->worktree($id);
+    $this->code->ok(['stack', $id, 'down']);
+    (new Process(['rm', '-rf', $wt]))->mustRun();
+
+    $out = runPass($this->code, $this->claude);
+
+    expect($out)->toMatch("/ {$id} start resumed; worker [0-9a-f]{8} launched\n/")
+        ->and(is_dir($wt.'/.git'))->toBeTrue()
+        ->and($this->code->sandbox->read($id)['stage'])->toBe('review');
+});
+
+it('retries a start that lost its stack slot after the claim once a slot is free, before any new start', function () {
+    $this->code->configure(['gates' => ['report' => []], 'stack' => ['max_stacks' => 1]]);
+    $lost = $this->code->started('Lost its slot');
+    $wt = $this->code->worktree($lost);
+    $this->code->ok(['stack', $lost, 'down']);
+    (new Process(['rm', '-rf', $wt]))->mustRun();
+    $this->code->sandbox->ok(['set', $lost, 'blocked=start failed: no stack slot: 1 stacks registered on this machine (stack.max_stacks)']);
+    $other = $this->code->started('Holds the slot');
+    $next = $this->code->sandbox->readyCard('Waits its turn');
+
+    $full = runPass($this->code, $this->claude);
+    expect($full)->not->toContain("{$lost} start")->not->toContain("{$next} started")
+        ->and($this->code->sandbox->read($lost)['stage'])->toBe('doing');
+
+    $this->code->ok(['stack', $other, 'down']);
+    $free = runPass($this->code, $this->claude);
+
+    expect($free)->toMatch("/ {$lost} start resumed; worker [0-9a-f]{8} launched\n/")->not->toContain("{$next} started")
+        ->and($this->code->sandbox->read($lost)['blocked'])->toBeNull()
+        ->and($this->code->sandbox->read($lost)['stage'])->toBe('review');
 });
 
 it('parks a card whose worker asks a question in backlog, branch kept', function () {

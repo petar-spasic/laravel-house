@@ -54,7 +54,7 @@ final class PortRegistry
 
     private function fullAt(int $registered): ?string
     {
-        $max = (int) ($this->stack['max_stacks'] ?? 6);
+        $max = (int) ($this->stack['max_stacks'] ?? 12);
 
         return $registered >= $max
             ? "no stack slot: {$max} stacks registered on this machine (stack.max_stacks); finish or stop a card, or `kanban stack gc`"

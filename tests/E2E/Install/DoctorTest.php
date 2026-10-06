@@ -51,7 +51,7 @@ it('fails each compose problem and the missing project name, and warns about a p
         ->toContain('fail docker-compose.local.yml: top-level name: must be "${COMPOSE_PROJECT_NAME:?…}"')
         ->toContain("fail COMPOSE_PROJECT_NAME missing from .env: the main stack has no project name (add e.g. COMPOSE_PROJECT_NAME=main-local)\n")
         ->toContain("warn phpunit.xml hardcodes DB_HOST, DB_PORT: tests in a worktree would hit the main database; remove them\n")
-        ->toContain("warn docker address pools: 1 free networks (< 6) in 198.18.0.0/15 (/16 networks): widen default-address-pools in /etc/docker/daemon.json (README)\n")
+        ->toContain("warn docker address pools: 1 free networks (< 12, stack.max_stacks) in 198.18.0.0/15 (/16 networks): widen default-address-pools in /etc/docker/daemon.json (README)\n")
         ->not->toContain('ok docker-compose.local.yml')
         ->and(substr_count($process->getOutput(), 'fixed host port'))->toBe(3);
 });

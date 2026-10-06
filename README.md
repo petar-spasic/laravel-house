@@ -650,7 +650,7 @@ You may also set the most common settings in your `.env` file:
 KANBAN_SYNC=auto          # auto, on or off. See "Team Sync".
 KANBAN_USER=Ana           # Your name in the board's history. Defaults to git's user.name.
 KANBAN_MAIN_BRANCH=main   # The branch cards are merged into.
-KANBAN_MAX_STACKS=6       # How many card stacks may run on this machine at once.
+KANBAN_MAX_STACKS=12      # How many card stacks may run on this machine at once.
 KANBAN_PULL_SECONDS=30    # How often an idle board asks for other people's changes.
 KANBAN_UI=true            # Set to false to turn off the /kanban page.
 KANBAN_UI_TOKEN=          # Set to make the /kanban page ask for this token once per browser.
@@ -1080,8 +1080,9 @@ across every project on the machine, so two projects never collide. Keep your ma
 
 `vendor/bin/kanban stack ACME-7K2QF9 url` prints a card's address.
 
-Before it starts a stack, the package checks that the machine has room: at most `KANBAN_MAX_STACKS` stacks (6 by
-default), at least 8 GiB of free memory, at least 20 GiB of free disk, and a load below 75% of the CPUs.
+Before it starts a stack, the package checks that the machine has room: at most `KANBAN_MAX_STACKS` stacks (12 by
+default, room for six cards in doing and six in review, which keep their stacks), at least 8 GiB of free memory, at
+least 20 GiB of free disk, and a load below 75% of the CPUs.
 
 <a name="docker-address-pools"></a>
 ### Docker Address Pools
@@ -1106,7 +1107,7 @@ sudo systemctl restart docker
 vendor/bin/kanban doctor
 ```
 
-`doctor` shows how many networks are free, and warns below six.
+`doctor` shows how many networks are free, and warns below `KANBAN_MAX_STACKS`.
 
 <a name="team-sync"></a>
 ## Team Sync

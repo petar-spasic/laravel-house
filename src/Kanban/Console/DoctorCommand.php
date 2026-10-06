@@ -35,8 +35,6 @@ class DoctorCommand extends Command
         ['Base' => '192.168.0.0/16', 'Size' => 20],
     ];
 
-    private const MIN_FREE_NETWORKS = 6;
-
     protected $signature = 'kanban:doctor {--fix : Re-run attach and the safe install steps first (main session or owner)}';
 
     protected $description = 'Check the board, git wiring, Claude Code hooks, agents, runtime, worktrees and the stack setup';
@@ -346,8 +344,10 @@ class DoctorCommand extends Command
             $free += self::freeBlocks((string) ($pool['Base'] ?? ''), (int) ($pool['Size'] ?? 0), $ranges);
         }
         $pools = implode(', ', array_map(fn (array $p) => "{$p['Base']} (/{$p['Size']} networks)", $pools));
-        $this->add(...($free < self::MIN_FREE_NETWORKS
-            ? ['warn', "docker address pools: {$free} free networks (< ".self::MIN_FREE_NETWORKS.") in {$pools}: widen default-address-pools in /etc/docker/daemon.json (README)"]
+        // one network per card stack, up to stack.max_stacks
+        $min = (int) $this->setting('stack.max_stacks', 12);
+        $this->add(...($free < $min
+            ? ['warn', "docker address pools: {$free} free networks (< {$min}, stack.max_stacks) in {$pools}: widen default-address-pools in /etc/docker/daemon.json (README)"]
             : ['ok', "docker address pools: {$free} free networks"]));
     }
 

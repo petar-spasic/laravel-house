@@ -3,6 +3,7 @@
 namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
 use PetarSpasic\LaravelHouse\Kanban\Code\Dependencies;
+use PetarSpasic\LaravelHouse\Kanban\Code\StackFailed;
 use PetarSpasic\LaravelHouse\Kanban\Code\StackUser;
 use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Lease;
@@ -48,11 +49,18 @@ class StartCommand extends Command
             $branch = is_string($parked) && $worktrees->branchExists($parked) ? $parked : $worktrees->branchFor($id, $card->title());
             $attempt = 1 + count(array_filter($card->log(), fn (array $e) => ($e['event'] ?? null) === 'stage' && ($e['to'] ?? null) === 'doing' && ($e['via'] ?? null) === 'start'));
 
-            if ($worktrees->stackEnabled() && $worktrees->registry()->find($path) === null && ($full = $worktrees->registry()->full()) !== null) {
-                throw new PolicyRefused("refused {$id}: {$full}");
-            }
             if ($worktrees->stackEnabled() && ($wrong = (new StackUser($this->paths()->main, (string) $this->setting('stack.compose_file')))->problem()) !== null) {
                 throw new PolicyRefused("refused {$id}: {$wrong}");
+            }
+            // the slot is taken before the claim, so a start that claims the card has its slot
+            $reserved = false;
+            if ($worktrees->stackEnabled() && $card->stage() === 'ready' && $card->claim() === null && $worktrees->registry()->find($path) === null) {
+                try {
+                    $worktrees->registry()->allocate($path, ['project' => $worktrees->env()->project($path), 'repo' => $this->paths()->main, 'branch' => $branch, 'card' => $id]);
+                    $reserved = true;
+                } catch (StackFailed $e) {
+                    throw new PolicyRefused("refused {$id}: {$e->getMessage()}");
+                }
             }
             // where the work goes is on the card from the claim on, so a start cut short is resumed by running it again
             $work = [
@@ -60,7 +68,12 @@ class StartCommand extends Command
                 'host' => gethostname() ?: null, 'stack' => null, 'attempt' => $attempt, 'head' => null, 'approved' => null, 'merge' => null,
                 'started' => Clock::now(), 'finished' => null,
             ];
-            $this->transitions()->start($id, $this->actor(), work: $work, force: (bool) $this->option('force'));
+            try {
+                $this->transitions()->start($id, $this->actor(), work: $work, force: (bool) $this->option('force'));
+            } catch (Throwable $e) {
+                $reserved && $worktrees->registry()->release($path);
+                throw $e;
+            }
         }
 
         $merged = [];

@@ -4,6 +4,7 @@ namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
 use PetarSpasic\LaravelHouse\Kanban\Code\AgentRun;
 use PetarSpasic\LaravelHouse\Kanban\Code\MainCheck;
+use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
 use PetarSpasic\LaravelHouse\Kanban\Policy\PullPolicy;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Lease;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Runtime;
@@ -128,6 +129,13 @@ class RunCommand extends Command
         }
 
         $snapshot = $this->store()->snapshot();
+        foreach ($this->unstarted($snapshot) as $card) {
+            if (! $paused && ! in_array($card->id(), $running, true) && $this->stackFree()) {
+                $acted = $this->resumeStart($card) || $acted;
+            }
+        }
+
+        $snapshot = $this->store()->snapshot();
         $runtime = new Runtime($this->paths(), $snapshot->staleMinutes());
         foreach ($this->local($snapshot, fn (Card $c) => $c->stage() === 'doing') as $card) {
             if (in_array($card->id(), $running, true)) {
@@ -155,6 +163,12 @@ class RunCommand extends Command
         if (! $paused && ! $this->option('drain')) {
             $this->kanban(['promote', '--auto']);
             foreach ((new PullPolicy)->next($this->store()->snapshot(), 99)['cards'] as $card) {
+                if (! $this->stackFree()) {
+                    break;
+                }
+                if (isset($this->held[$card->id()])) {
+                    continue;
+                }
                 $start = $this->kanban(['start', $card->id()]);
                 if (! $start->isSuccessful()) {
                     $this->log($this->hold($card->id(), $start));
@@ -292,11 +306,57 @@ class RunCommand extends Command
      */
     private function local(Snapshot $snapshot, callable $filter): array
     {
-        return array_values(array_filter($snapshot->cards($filter), fn (Card $c) => ! isset($this->held[$c->id()])
-            && ($c->blocked() === null || $c->asks()) && is_dir($this->paths()->main.'/'.($c->work()['worktree'] ?? "\0"))));
+        return array_values(array_filter($snapshot->cards($filter), fn (Card $c) => ($c->blocked() === null || $c->asks())
+            && is_dir($this->paths()->main.'/'.($c->work()['worktree'] ?? "\0"))));
     }
 
-    /** Skips a card whose start was refused for the rest of this run: a full stack pool or a lost claim passes. */
+    /**
+     * Cards in doing whose start on this machine was cut short after the claim: blocked for want of a stack slot, or with
+     * no clone here once a block was cleared. They go before any new start.
+     *
+     * @return list<Card>
+     */
+    private function unstarted(Snapshot $snapshot): array
+    {
+        return array_values($snapshot->cards(fn (Card $c) => $c->stage() === 'doing' && ($c->work()['host'] ?? null) === gethostname()
+            && ($c->blocked() === null ? ! is_dir($this->paths()->main.'/'.($c->work()['worktree'] ?? "\0")) : self::slotLost((string) $c->blocked()))));
+    }
+
+    private static function slotLost(string $blocked): bool
+    {
+        return str_starts_with($blocked, 'start failed: no stack slot') || str_starts_with($blocked, 'start failed: no free slot');
+    }
+
+    /** True when a card stack fits under `stack.max_stacks`, or stacks are off. */
+    private function stackFree(): bool
+    {
+        $worktrees = new Worktrees($this->paths(), $this->config());
+
+        return ! $worktrees->stackEnabled() || $worktrees->registry()->full() === null;
+    }
+
+    /**
+     * `start` again finishes a start cut short; then its worker runs. A slot lost again is retried once one is free; any
+     * other failure blocks the card, which `watch` reports.
+     */
+    private function resumeStart(Card $card): bool
+    {
+        $start = $this->kanban(['start', $card->id()]);
+        if (! $start->isSuccessful()) {
+            $this->log("{$card->id()} start not resumed: ".self::why($start));
+            if (! self::slotLost((string) $this->store()->snapshot()->resolve($card->id())->blocked())) {
+                $this->block($card->id(), $start);
+            }
+
+            return false;
+        }
+        $session = $this->agents->launch($this->store()->snapshot()->resolve($card->id()), AgentRun::WORKER);
+        $this->log("{$card->id()} start resumed; worker ".substr($session, 0, 8).' launched');
+
+        return true;
+    }
+
+    /** Skips starting a card whose start was refused for the rest of this run: a full stack pool or a lost claim passes. */
     private function hold(string $id, Process $process): string
     {
         $this->held[$id] = self::why($process);

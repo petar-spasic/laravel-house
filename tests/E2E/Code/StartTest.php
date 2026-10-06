@@ -229,6 +229,20 @@ it('keeps the card in doing, blocked, when the stack cannot start', function () 
         ->and($code->stacks())->toBe([]);
 });
 
+it('takes the stack slot before the claim and gives it back when the claim is refused', function () {
+    $code = $this->code;
+    $first = $code->sandbox->readyCard('First');
+    $id = $code->sandbox->readyCard('Not yet');
+    $code->sandbox->ok(['set', $id, "depends_on=+{$first}"]);
+
+    $run = $code->kanban(['start', $id]);
+
+    expect($run->getExitCode())->toBe(3)
+        ->and($run->getErrorOutput())->toContain('dependencies not satisfied')
+        ->and($code->calls())->toContain('ps -aq')
+        ->and($code->stacks())->toBe([]);
+});
+
 it('refuses a card over the machine stack cap before claiming it, and a stack on low resources', function () {
     $code = $this->code;
     $code->configure(['stack' => ['max_stacks' => 1]]);
