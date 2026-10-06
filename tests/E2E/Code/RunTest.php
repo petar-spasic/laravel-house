@@ -183,6 +183,68 @@ it('parks a card whose worker asks a question in backlog, branch kept', function
         ->and(runLaunches($this->claude))->toHaveCount(1);
 });
 
+it('starts an answered question card on its kept branch ahead of new cards, in a drain too', function () {
+    runAgent($this->claude, 'worker', <<<'SH'
+        if [ -f "$FAKE_CLAUDE_DIR/asked" ]; then
+            cd "$WORKTREE" && echo done >> feature.txt && git add -A && git commit -qm "$CARD: rest" && cd - > /dev/null
+            vendor/bin/kanban --in="$WORKTREE" report "$CARD" --status=review --tick=1 --summary=Done
+        else
+            touch "$FAKE_CLAUDE_DIR/asked"
+            cd "$WORKTREE" && echo half > feature.txt && git add -A && git commit -qm "$CARD: half" && cd - > /dev/null
+            vendor/bin/kanban --in="$WORKTREE" report "$CARD" --status=blocked --reason="question: one workspace per team?"
+        fi
+        SH);
+    $id = $this->code->sandbox->readyCard('Add login page');
+    runPass($this->code, $this->claude);
+    runPass($this->code, $this->claude);
+    expect($this->code->sandbox->read($id)['stage'])->toBe('backlog');
+    $board = $this->code->root().'/docs/kanban/kanban.json';
+    file_put_contents($board, str_replace('"max_parallel": 6', '"max_parallel": 1', (string) file_get_contents($board)));
+    $fresh = $this->code->sandbox->readyCard('Urgent new work', ['--priority=high']);
+
+    expect($this->code->sandbox->ok(['answer', $id, '--note=One per team.']))->toContain("promoted {$id}: its parked branch card/");
+    $out = runPass($this->code, $this->claude, ['--drain', '--once']);
+
+    expect($out)->toMatch("/ {$id} started; worker [0-9a-f]{8} launched\n/")
+        ->and($this->code->sandbox->read($id)['stage'])->toBe('review')
+        ->and(file_get_contents($this->code->worktree($id).'/feature.txt'))->toBe("half\ndone\n")
+        ->and($this->code->sandbox->read($fresh)['stage'])->toBe('ready');
+});
+
+it('drains on `kanban drain`, in the runs after it too, until one has drained', function () {
+    $id = $this->code->sandbox->readyCard('Add login page');
+
+    expect($this->code->ok(['drain']))->toBe("drain on: the next `kanban run` starts no new card and returns once none is in flight\n");
+    $out = runPass($this->code, $this->claude, ['--until-attention']);
+
+    expect($out)->toContain('draining: `kanban drain` asked for it')->toContain('drained: no card in flight')
+        ->and($this->code->sandbox->read($id)['stage'])->toBe('ready')
+        ->and(is_file($this->code->root().'/.git/laravel-house/run.drain'))->toBeFalse()
+        ->and(runPass($this->code, $this->claude))->toMatch("/ {$id} started; worker [0-9a-f]{8} launched\n/");
+});
+
+it('lets one run drive a checkout, and turns a live one into a drain without stopping it', function () {
+    $env = $this->code->env(['PATH' => Sandbox::package().'/tests/Support/FakeClaude:'.Sandbox::package().'/tests/Support/FakeDocker:'.getenv('PATH'), 'FAKE_CLAUDE_DIR' => $this->claude]);
+    $live = new Process([PHP_BINARY, $this->code->root().'/vendor/bin/kanban', 'run'], $this->code->root(), $env);
+    $live->start();
+    $pid = $this->code->root().'/.git/laravel-house/run.pid';
+    $deadline = microtime(true) + 20;
+    while (! is_file($pid) && $live->isRunning() && microtime(true) < $deadline) {
+        usleep(50_000);
+    }
+
+    try {
+        $second = $this->code->kanban(['run', '--once', '--drain'], $env);
+        expect($second->getExitCode())->toBe(3)
+            ->and($second->getErrorOutput())->toContain('kanban run already drives this checkout (pid '.trim((string) file_get_contents($pid)).'): `kanban drain` makes it drain')
+            ->and($this->code->ok(['drain']))->toBe('drain on: kanban run (pid '.trim((string) file_get_contents($pid)).") starts no new card from its next pass and returns once none is in flight\n");
+    } finally {
+        $live->stop(0);
+    }
+    expect($this->code->ok(['drain', '--off']))->toBe("drain off: kanban run starts new cards again\n")
+        ->and(is_file($this->code->root().'/.git/laravel-house/run.drain'))->toBeFalse();
+});
+
 it('blocks a card after three agent runs that change nothing', function () {
     file_put_contents("{$this->claude}/kanban-worker.error", json_encode(['subtype' => 'error_during_execution']));
     $id = $this->code->sandbox->readyCard('Add login page');

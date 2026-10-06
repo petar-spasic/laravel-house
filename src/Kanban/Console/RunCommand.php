@@ -13,6 +13,7 @@ use PetarSpasic\LaravelHouse\Kanban\Store\Card;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\LockTimeout;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
 use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
+use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
 use PetarSpasic\LaravelHouse\Kanban\Upstream\Findings;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Process\Process;
@@ -22,7 +23,8 @@ use Throwable;
  * The board's driver: the run loop in code. Each pass reaps ended agents, finishes approved cards, starts evaluators and
  * workers headless (AgentRun), parks question cards in backlog and fills the free slots; every board change is a
  * `vendor/bin/kanban` command run as the orchestrating session (KANBAN_SESSION, else `run:<host>`), which holds the
- * lease. What needs the orchestrator's judgment is a notice; `--until-attention` returns with them.
+ * lease. What needs the orchestrator's judgment is a notice; `--until-attention` returns with them. One run drives a
+ * checkout at a time (`run.pid`); `kanban drain` (`run.drain`) makes it, and the runs after it, drain until one has.
  */
 #[AsCommand(name: 'kanban:run')]
 class RunCommand extends Command
@@ -31,7 +33,7 @@ class RunCommand extends Command
         {--once : One pass, then exit}
         {--until-attention : Return when something needs the orchestrator, or after --timeout}
         {--timeout=1500 : Seconds --until-attention runs at most}
-        {--drain : Start no new card; return once none is in flight}';
+        {--drain : Start no new card, only parked work; return once none is in flight}';
 
     protected $description = 'Drive the board until stopped: start cards, run their agents headless, evaluate, merge, park questions';
 
@@ -40,6 +42,11 @@ class RunCommand extends Command
     private const PAUSE_SECONDS = 900;
 
     private const STRIKES = 3;
+
+    /** The runtime file `kanban drain` leaves: every run drains until one has. */
+    public const DRAIN = 'run.drain';
+
+    private const PID = 'run.pid';
 
     private string $session;
 
@@ -60,11 +67,40 @@ class RunCommand extends Command
         if (($why = $this->agents->unusable()) !== null) {
             throw new PolicyRefused($why);
         }
+        if (($other = self::running($this->paths())) !== null) {
+            throw new PolicyRefused("kanban run already drives this checkout (pid {$other})".($this->option('drain') ? ': `kanban drain` makes it drain' : ''));
+        }
         $own = getenv('KANBAN_SESSION');
         $this->session = is_string($own) && $own !== '' ? $own : 'run:'.gethostname();
         $lease = new Lease($this->paths());
         $this->session === $own ? $lease->acquire(new Actor('main', $this->session)) : $lease->takeover(new Actor('main', $this->session));
-        $this->log("driving the board as {$this->session}".($this->option('drain') ? ', draining' : ''));
+        $this->paths()->ensureRuntime();
+        file_put_contents($this->paths()->runtime(self::PID), (string) getmypid());
+        try {
+            return $this->loop();
+        } finally {
+            if ((int) @file_get_contents($this->paths()->runtime(self::PID)) === getmypid()) {
+                @unlink($this->paths()->runtime(self::PID));
+            }
+        }
+    }
+
+    /** The pid of the run driving this checkout, or null. */
+    public static function running(Paths $paths): ?int
+    {
+        $pid = (int) @file_get_contents($paths->runtime(self::PID));
+
+        return $pid > 0 && $pid !== getmypid() && posix_kill($pid, 0)
+            && (! is_dir('/proc') || str_contains((string) @file_get_contents("/proc/{$pid}/cmdline"), 'run')) ? $pid : null;
+    }
+
+    private function loop(): int
+    {
+        $this->log("driving the board as {$this->session}".match (true) {
+            (bool) $this->option('drain') => ', draining',
+            $this->draining() => ', draining: `kanban drain` asked for it (`kanban drain --off` runs normally)',
+            default => '',
+        });
         $until = time() + (int) $this->option('timeout');
         while (true) {
             $this->notices = [];
@@ -75,7 +111,8 @@ class RunCommand extends Command
             } catch (Throwable $e) {
                 $this->notice('kanban run failed: '.get_class($e).': '.$e->getMessage());
             }
-            if ($this->option('drain') && $this->drained()) {
+            if ($this->draining() && $this->drained()) {
+                @unlink($this->paths()->runtime(self::DRAIN));
                 $this->log('drained: no card in flight');
 
                 return self::SUCCESS;
@@ -160,13 +197,15 @@ class RunCommand extends Command
             }
         }
 
-        if (! $paused && ! $this->option('drain')) {
-            $this->kanban(['promote', '--auto']);
+        if (! $paused) {
+            // a drain still starts parked work (a card back from its question, its branch kept): it is in flight
+            $draining = $this->draining();
+            $draining || $this->kanban(['promote', '--auto']);
             foreach ((new PullPolicy)->next($this->store()->snapshot(), 99)['cards'] as $card) {
                 if (! $this->stackFree()) {
                     break;
                 }
-                if (isset($this->held[$card->id()])) {
+                if (isset($this->held[$card->id()]) || ($draining && ! PullPolicy::parked($card))) {
                     continue;
                 }
                 $start = $this->kanban(['start', $card->id()]);
@@ -186,7 +225,7 @@ class RunCommand extends Command
         } elseif (! $this->published) {
             $this->published = true;
             $this->log('idle: '.strtok(trim($this->kanban(['publish'])->getOutput()) ?: 'published', "\n"));
-            $this->option('drain') || $this->notice('idle: no agent runs and no card can start: plan or promote cards');
+            $this->draining() || $this->notice('idle: no agent runs and no card can start: plan or promote cards');
         }
         $this->watch($state);
     }
@@ -221,6 +260,11 @@ class RunCommand extends Command
         }
         $state['upstream'] = $pending;
         $this->saveState($state);
+    }
+
+    private function draining(): bool
+    {
+        return $this->option('drain') || is_file($this->paths()->runtime(self::DRAIN));
     }
 
     /** No agent runs, and no card of this machine is in doing or review unblocked. */

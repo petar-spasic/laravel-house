@@ -95,8 +95,8 @@ up to capacity, each agent a headless `claude -p` session. It runs under your se
    - `paused until …: usage limit`: nothing to do; start it again.
    - `idle: …`: plan or promote cards ("Planning cards"); with nothing to plan, report to the owner and stop.
    - `kanban run failed: …`: read it; a defect in the package is `upstream new`; start it again.
-4. **Wrap up** ("stop", "drain"): `vendor/bin/kanban run --drain --until-attention` until it prints `drained`, then
-   `publish` and one message to the owner. Agents already running finish on their own; a new `run` picks them up.
+4. **Wrap up** ("stop", "drain"): `vendor/bin/kanban drain` (never kill a run: it may be mid-merge), then keep
+   starting `run --until-attention` as above until it prints `drained`, then `publish` and one message to the owner. Agents already running finish on their own; a new `run` picks them up.
 - Keep ready full: at least the free capacity in startable cards on distinct areas (`promote --auto` counts only those;
   `next -v` says why ready cards wait).
 - Where a background command cannot run (a cloud session that ends turns), drive the board by hand:

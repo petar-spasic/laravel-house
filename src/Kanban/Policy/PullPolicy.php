@@ -84,8 +84,15 @@ final class PullPolicy
         return $reasons;
     }
 
+    /** A ready card that comes back to work in flight: `stop` kept its branch, with its commits. */
+    public static function parked(Card $card): bool
+    {
+        return is_string($card->work()['parked_branch'] ?? null);
+    }
+
     /**
-     * Pull order: priority → epic order → board order → oldest in the stage → id.
+     * Pull order: parked work first (finish what was started) → priority → epic order → board order → oldest in the
+     * stage → id.
      *
      * @param  list<Card>  $cards
      * @return list<Card>
@@ -93,6 +100,7 @@ final class PullPolicy
     public function sort(Snapshot $snapshot, array $cards, string $stage): array
     {
         $key = fn (Card $c) => [
+            self::parked($c) ? 0 : 1,
             Priority::rank($c->priority()),
             $snapshot->epicOf($c)?->order() ?? 0,
             $snapshot->boardOf($c)?->order() ?? 0,

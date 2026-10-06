@@ -910,12 +910,14 @@ The main session follows the `kanban` skill. The routine runs in code, in `vendo
 keeps going in the background:
 - it moves complete cards from `backlog` to `ready` and starts as many cards as the limits allow;
 - it starts a worker for each card, sends finished work to the evaluator and merges what is approved;
-- a card that waits on your answer goes back to `backlog`, and the board carries on with the others.
+- a card that waits on your answer goes back to `backlog`, and the board carries on with the others. Once you answer,
+  its kept branch starts again ahead of new cards.
 
 Each agent is a headless Claude Code session of its own. This needs Linux and card containers (see
 [Where Agents Run](#where-agents-run)). The main session steps in only when something needs judgment:
 a blocked card, a failing merge, a red `main`, a package finding, or nothing left to start. When it hits your usage
-limit, the board pauses and resumes later.
+limit, the board pauses and resumes later. When you tell Claude to wrap up, `vendor/bin/kanban drain` makes the run
+finish the cards in flight and start no new ones, without stopping it.
 
 To see what is happening at any time, ask Claude:
 
@@ -1227,6 +1229,7 @@ The [protocol reference](resources/boost/skills/kanban/references/protocol.md) l
 | Command | Description |
 |---|---|
 | `run` | The routine of running the board: starts cards, agents and merges. Claude runs it for you. |
+| `drain` | Makes `run` wrap up: it starts no new card and stops once none is in flight. `drain --off` undoes it. |
 | `start ID` | Claims a card and creates its clone and stack. A branch that `stop` kept is reused, with the latest `main` merged in. A refusal names the card ahead on the same area, or the limit it hit. |
 | `refresh ID` | Merges the latest `main` into the card's branch. When the merge changes a lockfile, a docker file or the compose file, it recreates the card's stack. |
 | `wait [ID]` | Waits until the card's agent has stopped and its report or verdict is on the board. Without an ID, it waits for any card in `doing` or `review`. |

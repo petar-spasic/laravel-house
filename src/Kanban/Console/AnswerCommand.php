@@ -2,6 +2,7 @@
 
 namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
+use PetarSpasic\LaravelHouse\Kanban\Policy\PullPolicy;
 use PetarSpasic\LaravelHouse\Kanban\Policy\Questions;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Invalid;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
@@ -68,8 +69,8 @@ class AnswerCommand extends Command
         }
         if ($card->stage() === 'backlog' && $card->blocked() === null) {
             try {
-                $this->transitions()->promote($card->id(), $this->actor());
-                $this->say("promoted {$card->id()}");
+                $card = $this->transitions()->promote($card->id(), $this->actor());
+                $this->say("promoted {$card->id()}".(PullPolicy::parked($card) ? ": its parked branch {$card->work()['parked_branch']} starts ahead of new cards, in a drain too" : ''));
             } catch (PolicyRefused $e) {
                 $this->say($e->getMessage());
             }
