@@ -83,7 +83,7 @@ text, one fact per line; errors go to stderr. Card ids accept a unique prefix of
 
 | Command | Who | Does |
 |---|---|---|
-| `report ID --status=review\|blocked [--tick=N* --summary= --summary-file=- --verified="cmd → result"* --discovered="bug: Title — body"* --upstream="Title — body"* --reason= --note= --question-file=PATH]` | worker, own card | `review` runs the gates first and refuses on a failure or a conflict marker; staged; applied at SubagentStop (Stop for a `kanban run` agent). `--question-file`: Provisional decisions (review) or an Open question (blocked; the block becomes `question: …`), checked when staged, appended to the body once. A worker may report again on its card in review |
+| `report ID --status=review\|blocked [--tick=N* --summary= --summary-file=- --verified="cmd → result"* --discovered="bug: Title — body"* --upstream="Title — body"* --reason= --note= --question-file=PATH]` | worker, own card | `review` runs the gates first and refuses on a failure or a conflict marker; staged; applied at SubagentStop (Stop for a `kanban run` agent). `--question-file`: Provisional decisions (review) or an Open question (blocked; the block becomes `question: …`), each in plain words with an `Example:` line, checked when staged, appended to the body once. A worker may report again on its card in review |
 | `verdict ID approve\|reject --check=N:pass\|fail:"evidence"* [--issue=* --discovered=* --upstream=* --note=]` | evaluator, own card | Every criterion needs one check; approve needs all pass and no issues; discovered items never decide it |
 | `gates` · `migrations [--base=]` · `data-ids [--base=]` · `stack status\|wait\|logs\|up\|reload` | worker, evaluator | Own card only; never `down` |
 

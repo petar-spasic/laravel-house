@@ -300,8 +300,10 @@ class FinishCommand extends Command
         $open = array_values(array_filter(Questions::open($card), fn (array $q) => Questions::steering($q) !== []));
         $covered = $open !== [] && array_diff($touched, Questions::steering($open[0])) === [];
         $question = '## '.Questions::OPEN.' ('.gmdate('Y-m-d').")\n"
-            .'The approved change (head '.substr($head, 0, 7).') also changes files that steer the agents or git; merge it with them? The diff: `git diff '
+            .'The approved change (head '.substr($head, 0, 7).') also edits files that control how the agents or git behave, not the app itself; '
+            .'a careless edit there can switch off a check every card must pass, so it is merged only with your yes. The diff: `git diff '
             .$main.'...'.$branch.' -- '.implode(' ', $touched)."`\n"
+            .'Example: an edit to config/kanban.php that removes a test from `gates.report` lets every later card skip that test.'."\n"
             .Questions::STEERING.' '.implode(', ', $touched)."\n"
             ."1. Approve — finish merges the card with these changes\n"
             .'2. Send back — its worker reverts them, and the card is reviewed again';

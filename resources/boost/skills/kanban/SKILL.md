@@ -111,9 +111,11 @@ While `kanban run` is not running (between hand-backs), so no answered card star
 
 1. `morning`: the board, what merged since, cards blocked without a question, questions, discovered cards waiting for
    criteria, agent runs and tokens.
-2. `questions`, then ask the owner through the multiple-choice prompt (AskUserQuestion), up to four per call: the
-   context as the question, each option as a choice with what it means as its description, the recommended option
-   first and marked "(Recommended)". A free-form question goes as it is.
+2. `questions`, then ask the owner through the multiple-choice prompt (AskUserQuestion), up to four per call. The
+   owner builds with AI and may not know the code, so each question says in plain words what is being decided, why
+   it matters and its example, with any term explained (never a class, file or field name unexplained). Each option
+   is a choice whose description says what changes for the owner's users; the recommended option first and marked
+   "(Recommended)". A free-form question goes as it is, rewritten the same way.
 3. `answer <ID>#<n> <option> [--note=…]` for each. An answer that changes a card's criteria: rewrite them (`set`). A
    provisional decision answered differently: the follow-up card that changes it. A standing rule: "Questions and
    rules".
@@ -127,7 +129,8 @@ While `kanban run` is not running (between hand-backs), so no answered card star
 - **One format**, in the card's body; 2–4 options, so each fits the multiple-choice prompt:
   ```markdown
   ## Open question
-  What is decided, in plain words: what the user sees, why it matters.
+  What is decided and why it matters, in plain words: what the user sees, what goes wrong if it is decided badly.
+  Example: one concrete case the owner can picture (a screen, a value, what a user does and sees).
   1. Option — what it means for users
   2. Option — what it means for users
   Recommended: 1 — why

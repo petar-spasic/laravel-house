@@ -12,6 +12,7 @@ beforeEach(function () {
 const OPEN = <<<'MD'
 ## Open question
 Who may download an invoice: the account owner only, or every member of the team?
+Example: Mia, a member of Acme's team, opens Billing and sees a Download button on each invoice, or none.
 1. Owner only — members ask the owner for a copy
 2. Every member — anyone on the team downloads it
 Recommended: 2 — teams share billing work
@@ -20,6 +21,7 @@ MD;
 const PROVISIONAL = <<<'MD'
 ## Provisional decision
 Which date an export file names: the invoice date or the day of the export?
+Example: an invoice from 3 March exported on 9 April is saved as invoice-2026-03-03.pdf, or as invoice-2026-04-09.pdf.
 1. Invoice date — files sort by billing period
 2. Export date — files sort by when they were made
 Recommended: 1 — accountants look for the billing period
@@ -45,13 +47,14 @@ it('refuses a question file that is not multiple choice', function (string $stat
     expect($report->getExitCode())->toBe(2)
         ->and($report->getErrorOutput())->toContain($error);
 })->with([
-    'one option' => ['blocked', "## Open question\nWhich engine?\n1. Dompdf — simple\nRecommended: 1 — simple", 'needs 2 to 4 numbered options'],
-    'five options' => ['blocked', "## Open question\nWhich engine?\n1. A — a\n2. B — b\n3. C — c\n4. D — d\n5. E — e\nRecommended: 1 — a", 'needs 2 to 4 numbered options'],
-    'recommended out of range' => ['blocked', "## Open question\nWhich engine?\n1. A — a\n2. B — b\nRecommended: 3 — c", 'Recommended: names no option'],
-    'taken on an open question' => ['blocked', "## Open question\nWhich engine?\n1. A — a\n2. B — b\nRecommended: 1 — a\nTaken: 1", 'Taken: belongs to a Provisional decision'],
+    'one option' => ['blocked', "## Open question\nWhich engine?\nExample: an invoice PDF\n1. Dompdf — simple\nRecommended: 1 — simple", 'needs 2 to 4 numbered options'],
+    'five options' => ['blocked', "## Open question\nWhich engine?\nExample: an invoice PDF\n1. A — a\n2. B — b\n3. C — c\n4. D — d\n5. E — e\nRecommended: 1 — a", 'needs 2 to 4 numbered options'],
+    'recommended out of range' => ['blocked', "## Open question\nWhich engine?\nExample: an invoice PDF\n1. A — a\n2. B — b\nRecommended: 3 — c", 'Recommended: names no option'],
+    'taken on an open question' => ['blocked', "## Open question\nWhich engine?\nExample: an invoice PDF\n1. A — a\n2. B — b\nRecommended: 1 — a\nTaken: 1", 'Taken: belongs to a Provisional decision'],
     'no context' => ['blocked', "## Open question\n1. A — a\n2. B — b\nRecommended: 1 — a", 'says what is decided'],
     'an open question in a review report' => ['review', OPEN, 'an Open question blocks the card: report --status=blocked'],
     'no section' => ['blocked', 'Which engine?', 'no ## Open question or ## Provisional decision section'],
+    'no example' => ['blocked', "## Open question\nWhich engine?\n1. A — a\n2. B — b\nRecommended: 1 — a", 'an `Example:` line before the options'],
 ]);
 
 it('writes a blocked report\'s Open question into the body and blocks the card on it', function () {
@@ -93,6 +96,7 @@ it('lists open questions, blocking ones first, with older free-form ones raw', f
     $provisional = implode("\n", [
         "{$this->id}#1 provisional decision: Invoice export",
         '  Which date an export file names: the invoice date or the day of the export?',
+        '  Example: an invoice from 3 March exported on 9 April is saved as invoice-2026-03-03.pdf, or as invoice-2026-04-09.pdf.',
         '  1. Invoice date — files sort by billing period (recommended, taken)',
         '  2. Export date — files sort by when they were made',
         '2 open, 1 provisional: `kanban answer <ID>#<n> <option> [--note=…]`',

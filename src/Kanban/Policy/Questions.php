@@ -13,7 +13,8 @@ use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
  *
  *     ## Open question (2026-10-05)            blocks the card
  *     ## Provisional decision (2026-10-05)     the agent went ahead with `Taken`
- *     What is decided, in plain words.
+ *     What is decided and why it matters, in plain words: the owner builds with AI and may not know the code.
+ *     Example: one concrete case the owner can picture.
  *     1. Option — what it means for users     (2–4 options)
  *     Recommended: 1 — why
  *     Taken: 1                                 (a provisional decision only)
@@ -50,7 +51,10 @@ final class Questions
             $kind = $section['kind'];
             $where = "## {$kind}";
             if ($section['context'] === '') {
-                throw new Invalid("{$where}: a line before the options says what is decided, in plain words");
+                throw new Invalid("{$where}: a line before the options says what is decided and why it matters, in plain words");
+            }
+            if ($section['example'] === null) {
+                throw new Invalid("{$where}: an `Example:` line before the options shows one concrete case the owner can picture (what a user sees, a value, a screen)");
             }
             if (self::steering($section) !== [] || str_contains("\n".$section['text'], "\n".self::STEERING)) {
                 throw new Invalid("{$where}: a `".self::STEERING."` line is kanban's own (finish asks the owner with it); leave it out");
@@ -191,7 +195,7 @@ final class Questions
         }
         if ($card->asks() && array_filter($open, fn (array $q) => $q['kind'] === self::OPEN) === []) {
             $text = substr((string) $card->blocked(), strlen(Card::QUESTION));
-            array_unshift($open, ['n' => 0, 'kind' => self::OPEN, 'context' => $text, 'options' => [], 'recommended' => null, 'taken' => null, 'text' => $text, 'answered' => false, 'ref' => null]);
+            array_unshift($open, ['n' => 0, 'kind' => self::OPEN, 'context' => $text, 'example' => null, 'options' => [], 'recommended' => null, 'taken' => null, 'text' => $text, 'answered' => false, 'ref' => null]);
         }
 
         return $open;
@@ -307,10 +311,12 @@ final class Questions
     {
         $context = [];
         $options = [];
-        $recommended = $taken = null;
+        $recommended = $taken = $example = null;
         foreach ($raw['lines'] as $line) {
             $line = trim($line);
-            if (preg_match('/^(\d+)\.\s+(.+)$/', $line, $m) === 1) {
+            if ($options === [] && preg_match('/^Example:\s*(.+)$/i', $line, $m) === 1) {
+                $example = $m[1];
+            } elseif (preg_match('/^(\d+)\.\s+(.+)$/', $line, $m) === 1) {
                 $options[(int) $m[1]] = $m[2];
             } elseif (preg_match('/^Recommended:\s*(\d+)/i', $line, $m) === 1) {
                 $recommended = (int) $m[1];
@@ -322,7 +328,7 @@ final class Questions
         }
 
         return [
-            'kind' => $raw['kind'], 'ref' => $raw['ref'], 'context' => implode("\n", $context), 'options' => $options,
+            'kind' => $raw['kind'], 'ref' => $raw['ref'], 'context' => implode("\n", $context), 'example' => $example, 'options' => $options,
             'recommended' => $recommended, 'taken' => $taken, 'text' => trim(implode("\n", $raw['lines'])), 'answered' => $raw['answered'] ?? false,
         ];
     }

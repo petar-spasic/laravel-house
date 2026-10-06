@@ -54,11 +54,13 @@ work: everything its criteria need is yours, shared groundwork included.
   confirms or changes it. One that is not: real data, production, accounts, money, publishing, legal, loosening
   security: finish every criterion it does not touch, then report blocked with an `## Open question`.
 - Write either into `<worktree>/.tmp/question.md` and pass `--question-file=.tmp/question.md`; one file may hold
-  several sections. Plain words for the owner, 2 to 4 options:
+  several sections. The owner builds with AI and may not know the code: plain words, no jargon, any term explained,
+  one concrete example, 2 to 4 options:
 
   ```markdown
   ## Provisional decision
-  What is decided, in plain words: what the user sees, why it matters.
+  What is decided and why it matters, in plain words: what the user sees, what goes wrong if it is decided badly.
+  Example: one concrete case the owner can picture (a screen, a value, what a user does and sees).
   1. Option — what it means for users
   2. Option — what it means for users
   Recommended: 1 — why

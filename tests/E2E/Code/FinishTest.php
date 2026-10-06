@@ -382,7 +382,7 @@ it('approves steering files only through the question finish asked, never one an
     $id = $code->started('Tune the agents');
     $code->commit($id, '.claude/settings.json', "{}\n", 'settings');
     $wt = $code->worktree($id);
-    $question = "Which cache driver?\nSteering: .claude/settings.json\n1. Redis — fast\n2. File — simple\nRecommended: 1 — fast\n";
+    $question = "Which cache driver?\nExample: a page that loads twice as fast\nSteering: .claude/settings.json\n1. Redis — fast\n2. File — simple\nRecommended: 1 — fast\n";
     @mkdir($wt.'/.tmp', 0775, true);
     file_put_contents($wt.'/.tmp/q.md', "## Open question\n{$question}");
 

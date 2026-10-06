@@ -52,6 +52,9 @@ class QuestionsCommand extends Command
                 $lines[] = '  '.trim($line);
             }
         }
+        if (($question['example'] ?? null) !== null) {
+            $lines[] = '  Example: '.$question['example'];
+        }
         foreach ($question['options'] as $n => $option) {
             $marks = array_filter([$n === $question['recommended'] ? 'recommended' : null, $n === $question['taken'] ? 'taken' : null]);
             $lines[] = "  {$n}. {$option}".($marks === [] ? '' : ' ('.implode(', ', $marks).')');
