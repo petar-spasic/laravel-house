@@ -315,7 +315,57 @@ it("holds a card that changes kanban's own files until the owner forces it, and 
 
     expect($context)->toContain("changes kanban's own files (finish needs the owner): .claude/settings.json\n")
         ->and($held->getExitCode())->toBe(3)
-        ->and($held->getErrorOutput())->toContain("{$id} changes files that steer the agents or git: .claude/settings.json")
+        ->and($held->getErrorOutput())->toContain("{$id} changes files that steer the agents or git: .claude/settings.json; the owner approves them after reading the diff: `kanban allow-steering {$id} .claude/settings.json`")
         ->and($forced->getExitCode())->toBe(0)
         ->and($code->sandbox->read($id)['stage'])->toBe('done');
 });
+
+it('merges a change to a steering file the owner approved for the card, at planning or after reading the diff', function () {
+    $code = $this->code;
+    $id = $code->started('Restore the gate');
+    $code->commit($id, '.githooks/pre-push', "#!/bin/sh\n", 'gate');
+    $code->commit($id, '.husky/pre-commit', "#!/bin/sh\n", 'hook');
+
+    $notSteering = $code->sandbox->kanban(['allow-steering', $id, 'app/Models/User.php']);
+    expect($notSteering->getExitCode())->toBe(2)
+        ->and($notSteering->getErrorOutput())->toContain('app/Models/User.php: not a file that steers the agents or git');
+
+    expect($code->sandbox->ok(['allow-steering', $id, './.githooks/pre-push']))->toBe("{$id}: finish merges its changes to .githooks/pre-push\n");
+    $code->approve($id);
+    $context = $code->ok(['context', $id], cwd: $code->worktree($id));
+    $held = $code->kanban(['finish', $id]);
+    $code->sandbox->ok(['allow-steering', $id, '.husky/']);
+
+    expect($context)->toContain("changes kanban's own files (finish needs the owner): .husky/pre-commit\n")
+        ->toContain("changes kanban's own files the owner approved: .githooks/pre-push\n")
+        ->and($held->getErrorOutput())->toContain("{$id} changes files that steer the agents or git: .husky/pre-commit;")
+        ->and($code->ok(['finish', $id]))->toContain("merged {$id} into main")
+        ->and($code->sandbox->read($id)['stage'])->toBe('done')
+        ->and(array_column(array_filter($code->sandbox->read($id)['log'], fn ($e) => $e['event'] === 'steering_approved'), 'files'))->toBe([['.githooks/pre-push'], ['.husky/']]);
+});
+
+it('asks the owner on the card instead, where the answer merges it or sends it back to its worker', function (string $option, string $stage) {
+    $code = $this->code;
+    $id = $code->started('Tune the agents');
+    $code->commit($id, '.claude/settings.json', "{}\n", 'settings');
+    $code->approve($id);
+
+    $asked = $code->kanban(['finish', $id, '--ask'], ['KANBAN_SESSION' => 's1']);
+
+    $card = $code->sandbox->read($id);
+    expect($asked->getExitCode())->toBe(3)
+        ->and($asked->getErrorOutput())->toContain("{$id} changes files that steer the agents or git: .claude/settings.json; asked the owner on the card (`kanban questions`)")
+        ->and($card)->toMatchArray(['stage' => 'review', 'blocked' => 'question: merge with changes to files that steer the agents or git?'])
+        ->and($code->sandbox->ok('questions'))->toContain("{$id}#1 open question: Tune the agents\n")
+        ->toContain('Steering: .claude/settings.json')->toContain('1. Approve — finish merges the card with these changes');
+
+    $answer = $code->sandbox->ok(['answer', $id, $option]);
+    expect($code->sandbox->read($id))->toMatchArray(['stage' => $stage, 'blocked' => null]);
+    if ($option === '1') {
+        expect($answer)->toContain("{$id}: the owner approved .claude/settings.json; the next finish merges it")
+            ->and($code->kanban(['finish', $id])->getExitCode())->toBe(0);
+    } else {
+        expect($answer)->toContain("{$id} review→doing: its worker reverts them")
+            ->and($code->sandbox->read($id)['work']['approved'])->toBeNull();
+    }
+})->with(['approve' => ['1', 'review'], 'send back' => ['2', 'doing']]);

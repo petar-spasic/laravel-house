@@ -29,6 +29,9 @@ final class Questions
 
     public const ANSWER = 'Owner answer';
 
+    /** The line of the question `finish --ask` puts, naming the files an approval covers. */
+    public const STEERING = 'Steering:';
+
     private const HEADING = '/^## (Open question|Provisional decision)(?: \(([^)]*)\))?\s*$/';
 
     /**
@@ -82,6 +85,23 @@ final class Questions
         }
 
         return null;
+    }
+
+    /**
+     * The files a steering question (`finish --ask`) asks about, or [] for any other question.
+     *
+     * @param  array<string, mixed>  $question
+     * @return list<string>
+     */
+    public static function steering(array $question): array
+    {
+        foreach (explode("\n", (string) $question['context']) as $line) {
+            if (str_starts_with($line, self::STEERING)) {
+                return array_values(array_filter(array_map('trim', explode(',', substr($line, strlen(self::STEERING))))));
+            }
+        }
+
+        return [];
     }
 
     /** $body with the sections it does not hold yet appended. */

@@ -742,7 +742,14 @@ recreates the containers. If that fails, it prints the command to run, and the c
 skip it.
 
 A card that changes the files that steer the agents or git (`.claude/`, `config/kanban.php`, a hooks directory,
-`.gitattributes`) waits for you: `finish` refuses it until you have read the diff and run `kanban finish ID --force`.
+`.gitattributes`) merges only with your approval. When you plan such a change, approve it up front:
+
+```shell
+vendor/bin/kanban allow-steering ACME-7K2QF9 config/kanban.php
+```
+
+Otherwise `kanban run` asks you on the card once the evaluator approves it, with the diff to read, and your answer to
+`questions` merges the card or sends it back to its worker.
 
 An approved card keeps its approval when `main` moved only in files that match `finish.overlap_ignore` (Markdown files
 and `docs/` by default); otherwise `finish` asks for a refresh and a new review.
@@ -1239,6 +1246,7 @@ The [protocol reference](resources/boost/skills/kanban/references/protocol.md) l
 | `refresh ID` | Merges the latest `main` into the card's branch. When the merge changes a lockfile, a docker file or the compose file, it recreates the card's stack. |
 | `wait [ID]` | Waits until the card's agent has stopped and its report or verdict is on the board. Without an ID, it waits for any card in `doing` or `review`. |
 | `finish ID` | Merges an approved card into `main` and cleans up. |
+| `allow-steering ID PATH` | Approves a card's change to a file that steers the agents or git, so `finish` merges it. |
 | `stop ID --to=STAGE` | Takes a card out of work and cleans up. A branch with commits is kept for the next `start`. |
 | `stack ID up\|down\|reload\|logs\|url` | Manages a card's stack. `stack ID exec -- CMD` runs a command in it. |
 | `gates` | Runs the quality gates in a card. |

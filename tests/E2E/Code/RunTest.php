@@ -268,6 +268,27 @@ it('lets one run drive a checkout, and turns a live one into a drain without sto
         ->and(is_file($this->code->root().'/.git/laravel-house/run.drain'))->toBeFalse();
 });
 
+it('asks the owner about an approved change to files that steer the agents, and merges it once approved', function () {
+    runAgent($this->claude, 'worker', <<<'SH'
+        cd "$WORKTREE" && mkdir -p .husky && echo '#!/bin/sh' > .husky/pre-commit && echo x > feature.txt && git add -A && git commit -qm "$CARD: hook" && cd - > /dev/null
+        vendor/bin/kanban --in="$WORKTREE" report "$CARD" --status=review --tick=1 --summary=Done
+        SH);
+    $id = $this->code->sandbox->readyCard('Add a commit hook');
+    runPass($this->code, $this->claude);
+    runPass($this->code, $this->claude);
+
+    $asked = runPass($this->code, $this->claude, ['--until-attention', '--timeout=0']);
+    $again = runPass($this->code, $this->claude, ['--until-attention', '--timeout=0']);
+
+    expect($asked)->toContain("attention:\n  {$id} waits on the owner: question: merge with changes to files that steer the agents or git?\n")
+        ->and($again)->not->toContain("{$id} waits on the owner")
+        ->and($this->code->sandbox->read($id))->toMatchArray(['stage' => 'review', 'blocked' => 'question: merge with changes to files that steer the agents or git?']);
+
+    $this->code->sandbox->ok(['answer', $id, '1']);
+    expect(runPass($this->code, $this->claude))->toContain("merged {$id} into main")
+        ->and($this->code->sandbox->read($id)['stage'])->toBe('done');
+});
+
 it('blocks a card after three agent runs that change nothing', function () {
     file_put_contents("{$this->claude}/kanban-worker.error", json_encode(['subtype' => 'error_during_execution']));
     $id = $this->code->sandbox->readyCard('Add login page');

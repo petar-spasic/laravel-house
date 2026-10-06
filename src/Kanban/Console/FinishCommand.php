@@ -8,6 +8,7 @@ use PetarSpasic\LaravelHouse\Kanban\Code\MainPush;
 use PetarSpasic\LaravelHouse\Kanban\Code\MergeCheck;
 use PetarSpasic\LaravelHouse\Kanban\Code\Stack;
 use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
+use PetarSpasic\LaravelHouse\Kanban\Policy\Questions;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Lease;
 use PetarSpasic\LaravelHouse\Kanban\Store\Card;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Conflict;
@@ -25,6 +26,7 @@ class FinishCommand extends Command
     protected $signature = 'kanban:finish
         {id : Card id or unique prefix}
         {--force : Merge anyway, with the owner: while main is red (finish.check failed after an earlier merge), or a branch that changes kanban\'s own files}
+        {--ask : A branch that changes kanban\'s own files the owner has not approved: ask the owner on the card (an Open question that blocks it) instead}
         {--no-rebuild : Leave main\'s stack alone when the merge changed its lockfiles, docker files or compose file}';
 
     protected $description = 'Merge an approved card into main, mark it done, then tear down its stack, worktree and branch';
@@ -78,8 +80,12 @@ class FinishCommand extends Command
             throw new PolicyRefused("{$id}: the branch holds leftover conflict markers; {$id} → doing, the worker resolves them and reports again", explode("\n", MergeCheck::markersMessage($markers)));
         }
         $files = $check->branchFiles($branch);
-        if (($touched = MergeCheck::protected($files)) !== [] && ! $this->option('force')) {
-            throw new PolicyRefused("{$id} changes files that steer the agents or git: ".implode(', ', $touched).'; show the owner the diff, then `kanban finish '.$id.' --force`');
+        if (($touched = MergeCheck::unapproved($files, MergeCheck::allowed($card))) !== [] && ! $this->option('force')) {
+            if ($this->option('ask')) {
+                $this->askOwner($card, $touched, $main, $branch);
+            }
+            throw new PolicyRefused("{$id} changes files that steer the agents or git: ".implode(', ', $touched)
+                .($this->option('ask') ? '; asked the owner on the card (`kanban questions`)' : "; the owner approves them after reading the diff: `kanban allow-steering {$id} ".implode(' ', $touched).'`'));
         }
         if (($uncommitted = $check->uncommittedOverlap($files)) !== []) {
             throw new PolicyRefused("{$id}: the main checkout has uncommitted changes to files the branch changes; commit or stash them first", $uncommitted);
@@ -266,6 +272,28 @@ class FinishCommand extends Command
         $this->fault("{$kind}: {$command}{$where} failed (exit {$process->getExitCode()}): ".Worktrees::tail($process->getErrorOutput() ?: $process->getOutput()));
 
         return false;
+    }
+
+    /**
+     * The owner's question for a branch that changes files steering the agents or git: answered 1, `answer` approves them
+     * and the next `finish` merges; 2 sends the card back to its worker.
+     *
+     * @param  list<string>  $touched
+     */
+    private function askOwner(Card $card, array $touched, string $main, string $branch): void
+    {
+        $question = '## '.Questions::OPEN.' ('.gmdate('Y-m-d').")\n"
+            .'The approved change also changes files that steer the agents or git; merge it with them? The diff: `git diff '
+            .$main.'...'.$branch.' -- '.implode(' ', $touched)."`\n"
+            .Questions::STEERING.' '.implode(', ', $touched)."\n"
+            ."1. Approve — finish merges the card with these changes\n"
+            .'2. Send back — its worker reverts them, and the card is reviewed again';
+        $this->store()->update($card->id(), function (array $data) use ($question) {
+            $data['body'] = Questions::append((string) ($data['body'] ?? ''), [$question]);
+            $data['blocked'] = Card::QUESTION.'merge with changes to files that steer the agents or git?';
+
+            return $data;
+        }, $this->actor());
     }
 
     /**

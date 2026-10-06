@@ -149,7 +149,8 @@ class RunCommand extends Command
         $acted = false;
 
         $snapshot = $this->store()->snapshot();
-        $approved = $this->local($snapshot, fn (Card $c) => $c->stage() === 'review' && is_string($c->work()['approved']['at'] ?? null));
+        // an approved card that asks the owner (a change to files that steer the agents) waits for the answer
+        $approved = $this->local($snapshot, fn (Card $c) => $c->stage() === 'review' && is_string($c->work()['approved']['at'] ?? null) && ! $c->asks());
         usort($approved, fn (Card $a, Card $b) => strcmp($a->work()['approved']['at'], $b->work()['approved']['at']));
         foreach ($approved as $card) {
             if (! in_array($card->id(), $running, true)) {
@@ -284,7 +285,7 @@ class RunCommand extends Command
     /** Merges an approved card; `main moved` sends it back to an evaluator. */
     private function finish(Card $card, bool $paused): bool
     {
-        $finish = $this->kanban(['finish', $card->id()]);
+        $finish = $this->kanban(['finish', $card->id(), '--ask']);
         if ($finish->isSuccessful()) {
             foreach (explode("\n", trim($finish->getOutput())) as $n => $line) {
                 // the merge line, what rebuilding main's stack did, and a warning (a failed rebuild, say) to act on
@@ -299,6 +300,11 @@ class RunCommand extends Command
         }
         if ($finish->getExitCode() === 5 && str_contains($finish->getErrorOutput(), 'moved since approval') && ! $paused) {
             return $this->evaluate($card->id());
+        }
+        if (($asks = $this->store()->snapshot()->resolve($card->id()))->asks()) {
+            $this->notice("{$card->id()} waits on the owner: {$asks->blocked()}");
+
+            return true;
         }
         $this->block($card->id(), $finish);
 

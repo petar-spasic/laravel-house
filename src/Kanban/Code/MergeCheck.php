@@ -2,6 +2,7 @@
 
 namespace PetarSpasic\LaravelHouse\Kanban\Code;
 
+use PetarSpasic\LaravelHouse\Kanban\Store\Card;
 use PetarSpasic\LaravelHouse\Kanban\Support\Git;
 
 /** Read-only checks before a card branch is merged into main. */
@@ -18,6 +19,37 @@ final class MergeCheck
     {
         return array_values(array_filter($files, fn (string $f) => array_filter(self::PROTECTED,
             fn (string $p) => str_ends_with($p, '/') ? str_starts_with($f, $p) : $f === $p) !== []));
+    }
+
+    /**
+     * The files under PROTECTED the owner has not approved for this card: $allowed holds paths, or directories ending in
+     * `/`.
+     *
+     * @param  list<string>  $files
+     * @param  list<string>  $allowed
+     * @return list<string>
+     */
+    public static function unapproved(array $files, array $allowed): array
+    {
+        return array_values(array_filter(self::protected($files), fn (string $f) => array_filter($allowed,
+            fn (string $a) => $a === $f || (str_ends_with($a, '/') && str_starts_with($f, $a))) === []));
+    }
+
+    /**
+     * What the owner approved for $card: `allow-steering`, or the answer to the question `finish --ask` put.
+     *
+     * @return list<string>
+     */
+    public static function allowed(Card $card): array
+    {
+        $paths = [];
+        foreach ($card->log() as $entry) {
+            if (($entry['event'] ?? null) === 'steering_approved') {
+                array_push($paths, ...array_map('strval', (array) ($entry['files'] ?? [])));
+            }
+        }
+
+        return array_values(array_unique($paths));
     }
 
     /** Files whose change means a stack must be rebuilt and recreated; a lockfile at any depth. */

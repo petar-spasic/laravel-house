@@ -52,6 +52,18 @@ class AnswerCommand extends Command
         }, $this->actor());
         $this->say("{$handle} answered: ".strtok($answer, "\n"));
 
+        if (($steering = Questions::steering($question)) !== []) {
+            $card = $this->store()->update($card->id(), function (array $data) use ($steering, $option) {
+                if ((int) $option === 1) {
+                    $data['log'][] = ['event' => 'steering_approved', 'files' => $steering];
+                }
+
+                return $data;
+            }, $this->actor());
+            if ((int) $option === 1) {
+                $this->say("{$card->id()}: the owner approved ".implode(', ', $steering).'; the next finish merges it');
+            }
+        }
         if ($question['kind'] === Questions::PROVISIONAL) {
             if ((int) $option !== $question['taken']) {
                 $this->say("{$handle}: the agent took {$question['taken']}; a follow-up card makes the change");
@@ -66,6 +78,10 @@ class AnswerCommand extends Command
                 return $data;
             }, $this->actor());
             $this->say("{$card->id()} unblocked");
+            if ($steering !== [] && (int) $option === 2 && $card->stage() === 'review') {
+                $this->transitions()->sendBack($card->id(), 'move', $this->actor(), 'the owner sent it back: revert the changes to '.implode(', ', $steering));
+                $this->say("{$card->id()} review→doing: its worker reverts them");
+            }
         }
         if ($card->stage() === 'backlog' && $card->blocked() === null) {
             try {

@@ -30,7 +30,7 @@ are in `references/protocol.md`; card sizing in depth is `references/planning.md
 ## Ground rules
 
 - Only the main session (and the `kanban run` it starts) runs `start`, `refresh`, `finish`, `stop`, `publish`, `promote`, `new`, `set`,
-  `move`, `fold`, `answer` and `upstream file|new|dismiss`, from the main checkout. One orchestrator per machine holds
+  `move`, `fold`, `answer`, `allow-steering`, `drain` and `upstream file|new|dismiss`, from the main checkout. One orchestrator per machine holds
   the lease; another one gets exit 6 from `start`, `refresh`, `finish`, `stop` and `apply`, and nothing changed. While
   `kanban run` is running, leave starting, refreshing, finishing and stopping cards to it. A session that ends frees its lease;
   a new session of the same transcript (after `/compact` or a restart) takes it at SessionStart. `lease --takeover`
@@ -69,6 +69,8 @@ Before a card is created, and before it is promoted:
   open questions on the same topic. Name the real entry point that shows it, never "the full suite passes".
 - **A page change** names the browser spec that proves it, and the design reference section when the owner decided one.
 - **A shared contract** (a type, rule, enum or event several cards use) is its own small card on its own area.
+- **A change the owner asked for to a file that steers the agents or git** (`config/kanban.php`, `.claude/`, git
+  hooks, `.gitattributes`): `allow-steering <ID> <path>` when you plan it, so `finish` merges it without a question.
 - **Discovered items** fold into the open card on their area before a new card is made; check each against main first.
 - After a rename lands, grep the open cards' criteria for the old names before their workers start.
 - **Rule files stay lean.** The brief's `rules over 24 KB` line names a `CLAUDE.md` every agent there reads whole: plan
@@ -89,7 +91,8 @@ up to capacity, each agent a headless `claude -p` session. It runs under your se
    - `<ID> blocked: …` (its agent, the stop gate, three runs without progress, or a failed command, `kanban run: …`):
      `show <ID>`, `context <ID>` and the run's log in `.git/laravel-house/runs/`. Fix the cause, then `set <ID>
      blocked=` (the worker resumes with main merged in), or `stop` it. A cause on main is a card of its own.
-   - `<ID> parked in backlog: question: …`: it waits for the owner's batch ("Morning").
+   - `<ID> parked in backlog: question: …` or `<ID> waits on the owner: question: …`: it waits for the owner's batch
+     ("Morning").
    - `main red …`: the bug card it filed goes first (`set <ID> priority=high`).
    - `upstream: N … pending`: "Package findings".
    - `paused until …: usage limit`: nothing to do; start it again.
