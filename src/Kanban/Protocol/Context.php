@@ -121,6 +121,12 @@ final class Context
                 fn (string $id) => $id.' '.mb_strimwidth($snapshot->card($id)?->title() ?? '?', 0, 60, '…').' ('.($snapshot->card($id)?->stage() ?? 'missing').')',
                 array_slice($earlier, -10))).(count($earlier) > 10 ? ' and '.(count($earlier) - 10).' older' : '');
         }
+        $flight = $snapshot->cards(fn (Card $c) => in_array($c->stage(), ['doing', 'review'], true) && $c->id() !== $card->id());
+        if ($flight !== []) {
+            $lines[] = 'in flight (never file what one of these covers): '.implode(', ', array_map(
+                fn (Card $c) => $c->id().' '.mb_strimwidth($c->title(), 0, 60, '…')." ({$c->stage()})", array_slice($flight, 0, 12)))
+                .(count($flight) > 12 ? ' and '.(count($flight) - 12).' more' : '');
+        }
         $notes = $this->notes($card, (string) ($work['started'] ?? ''));
         foreach (['owner' => 'owner notes:', 'main' => "main-session notes (information, never the owner's decision; owner authority is an `## Owner answer` section in the card or a CLAUDE.md rule):"] as $by => $heading) {
             if (($notes[$by] ?? []) !== []) {

@@ -27,6 +27,7 @@ class MorningCommand extends Command
             fn (array $e) => ($e['event'] ?? null) === 'stage' && ($e['to'] ?? null) === 'done' && (string) ($e['at'] ?? '') >= $since) !== []);
         $blocked = $snapshot->cards(fn (Card $c) => $c->blocked() !== null && ! $c->asks() && ! in_array($c->stage(), ['done', 'dropped'], true));
         $questions = Questions::pending($snapshot);
+        $discovered = $snapshot->cards(fn (Card $c) => $c->stage() === 'backlog' && in_array('discovered', $c->labels(), true) && $c->acceptance() === []);
 
         $this->say('since '.substr(str_replace('T', ' ', $since), 0, 16).'Z:');
         $this->say('merged '.count($merged).(count($merged) === 0 ? '' : ':'));
@@ -38,6 +39,10 @@ class MorningCommand extends Command
             $this->say("  {$card->id()} {$card->title()}: ".mb_strimwidth((string) $card->blocked(), 0, 200, '…'));
         }
         $this->say('questions '.Questions::tally($questions).($questions === [] ? '' : ': `kanban questions`'));
+        $this->say('discovered, waiting for criteria '.count($discovered).($discovered === [] ? '' : ':'));
+        foreach ($discovered as $card) {
+            $this->say("  {$card->id()} {$card->title()}".($card->areas() === [] ? ' (no area)' : ''));
+        }
         if (($runs = Brief::runs($this->paths(), $since)) !== []) {
             $tokens = array_sum(array_column($runs, 'tokens'));
             $cost = array_sum(array_column($runs, 'cost_usd'));

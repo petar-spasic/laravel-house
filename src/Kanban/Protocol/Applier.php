@@ -377,8 +377,9 @@ final class Applier
 
                 continue;
             }
+            // its area is the filing card's, so promote takes it once the owner writes its criteria
             $created[] = $titles[$title] = $this->store->create($card->board, [
-                'type' => $found['type'], 'title' => $found['title'], 'labels' => ['discovered'],
+                'type' => $found['type'], 'title' => $found['title'], 'labels' => ['discovered', ...$card->areas()],
                 'body' => trim("Discovered by {$card->id()} ({$card->title()}) while {$while} it.\n\n".($found['body'] ?? '')),
             ], $by)->id();
         }

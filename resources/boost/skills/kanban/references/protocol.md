@@ -41,7 +41,7 @@ text, one fact per line; errors go to stderr. Card ids accept a unique prefix of
 | `gates [ID]` | Runs every gate in the card's clone (in its container when its shell is there); `pass\|fail <command>` lines |
 | `upstream` | Pending package findings, `ID:logid Title` |
 | `questions` | What waits for the owner, blocking first: the open questions of cards not done or dropped, then provisional decisions until answered (merged cards' too); `<ID>#<n>` with the card, the context and the options (recommended, taken); an older free-form question raw. Ends with `N open, M provisional`, the count `status` and `morning` print |
-| `morning [--since=24h\|90m\|ISO]` | The brief, then since then: merged cards, cards blocked but not on a question, open questions, and the agent runs `kanban run` logged (tokens, list-price cost, per merged card) |
+| `morning [--since=24h\|90m\|ISO]` | The brief, then since then: merged cards, cards blocked but not on a question, questions, discovered cards in backlog without criteria (they carry the filing card's `area:*`), and the agent runs `kanban run` logged (tokens, list-price cost, per merged card) |
 | `validate [--fix]` | Schema and cross-card rules; `--fix` rewrites canonically, re-ids duplicates (one commit) |
 | `doctor [--fix]` | `ok\|warn\|fail` lines, exit 1 on any fail; `--fix` re-runs attach and the install steps, then Claude Code needs a restart |
 | `lease [--takeover --release]` | The orchestrator lease (15 min idle expiry; SessionEnd frees the ending session's; SessionStart hands it to a new session of the holder's transcript); `--takeover`/`--release` run from the main checkout |

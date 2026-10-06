@@ -106,7 +106,8 @@ up to capacity, each agent a headless `claude -p` session. It runs under your se
 
 While `kanban run` is not running (between hand-backs), so no answered card starts before its criteria are rewritten:
 
-1. `morning`: the board, what merged since, cards blocked without a question, open questions, agent runs and tokens.
+1. `morning`: the board, what merged since, cards blocked without a question, questions, discovered cards waiting for
+   criteria, agent runs and tokens.
 2. `questions`, then ask the owner through the multiple-choice prompt (AskUserQuestion), up to four per call: the
    context as the question, each option as a choice with what it means as its description, the recommended option
    first and marked "(Recommended)". A free-form question goes as it is.
@@ -114,7 +115,8 @@ While `kanban run` is not running (between hand-backs), so no answered card star
    provisional decision answered differently: the follow-up card that changes it. A standing rule: "Questions and
    rules".
 4. Cards blocked without a question: as in step 3 of "Running the board". Pending package findings: "Package findings".
-5. Plan new cards from the owner's notes, `promote --auto`, start `kanban run --until-attention` again.
+5. Plan new cards from the owner's notes; give each discovered card criteria, or fold it into the open card on its
+   area; `promote --auto`, start `kanban run --until-attention` again.
 6. One message: what merged, what you decided, what still waits on the owner. Facts only.
 
 ## Questions and rules

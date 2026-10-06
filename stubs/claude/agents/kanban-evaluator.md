@@ -80,7 +80,7 @@ You never edit, commit or fix anything. Your output is a verdict.
 - anything else the project's `CLAUDE.md` files forbid
 
 A problem the diff did not cause is no reason to reject: file it with `--discovered`, unless `context` lists it under
-`discovered earlier`. A defect in the house package
+`discovered earlier` or a card `in flight` covers it. A defect in the house package
 itself goes to `--upstream` when `context` names it.
 
 ## 5. Verdict

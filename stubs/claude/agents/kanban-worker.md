@@ -67,7 +67,7 @@ work: everything its criteria need is yours, shared groundwork included.
 - Changing a type, validation rule, enum, event or payload that code outside this card's criteria uses →
   `--discovered`, or blocked when the card cannot be done without it.
 - Out-of-scope work you notice → a `--discovered` line, never a fix; never one `context` lists under
-  `discovered earlier`.
+  `discovered earlier`, nor one a card `in flight` covers (say it in your summary instead).
 - Delete tracked files with `git rm`; never move them out of the clone.
 - After a page change, its browser spec runs in your container and passes before you report. Run each browser spec
   you add or change three times (`--repeat-each=3`): one failure is a flaky spec to fix.

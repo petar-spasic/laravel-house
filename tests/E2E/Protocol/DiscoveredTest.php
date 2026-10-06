@@ -62,3 +62,20 @@ it('files what an approval found when the card was finished on an earlier approv
         ->and($card['stage'])->toBe('done')
         ->and(end($card['log']))->toMatchArray(['event' => 'verdict_moot', 'decision' => 'approve', 'discovered' => [$filed[0]['id']]]);
 });
+
+it('files a discovered card on the filing card\'s area, names the cards in flight, and lists it in the morning until it has criteria', function () {
+    $p = $this->p;
+    [$other] = $p->started('Signature pad');
+    $p->in($this->wt, ['report', $this->id, '--status=blocked', '--reason=Waiting', '--discovered=bug: Totals round wrong'])->mustRun();
+    $p->hook('subagent-stop', $p->payload('subagent-stop', ['cwd' => $this->wt]))->mustRun();
+    $filed = discoveredCards($p)[0];
+    $areas = array_values(array_filter($p->card($this->id)['labels'], fn (string $l) => str_starts_with($l, 'area:')));
+
+    expect($areas)->not->toBe([])
+        ->and($filed['labels'])->toBe([...$areas, 'discovered'])
+        ->and($p->in($this->wt, ['context'])->getOutput())->toContain("in flight (never file what one of these covers): {$other} Signature pad (doing)\n")
+        ->and($p->sandbox->ok('morning'))->toContain("discovered, waiting for criteria 1:\n  {$filed['id']} Totals round wrong\n");
+
+    $p->sandbox->ok(['set', $filed['id'], 'accept+=Totals round half up']);
+    expect($p->sandbox->ok('morning'))->toContain("discovered, waiting for criteria 0\n");
+});
