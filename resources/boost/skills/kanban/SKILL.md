@@ -134,7 +134,8 @@ While `kanban run` is not running (between hand-backs), so no answered card star
   easy to change later: the agent took the recommended option and went on; the owner confirms it in the morning.
 - Any other question you answer yourself: `## Decision (YYYY-MM-DD)` in the card's body, with the reason.
 - Before asking, check the `CLAUDE.md` rules and `docs/kanban/decisions.md`: a question they settle is not asked;
-  write the answer onto the card and cite the rule.
+  `answer <ID>#<n> <option> --note="<the rule>"` records it. Only `answer` closes a question; a section written by
+  hand leaves it open.
 - **The owner answers:** `answer` records it, clears the block and promotes the card; rewrite the criteria it changes,
   and the other open cards it changes too.
 - **A standing rule** the owner states goes into the `CLAUDE.md` of the directory it governs, as a criterion on the

@@ -11,32 +11,29 @@ class QuestionsCommand extends Command
 {
     protected $signature = 'kanban:questions';
 
-    protected $description = 'The open questions for the owner, blocking ones first, each with its options';
+    protected $description = 'The questions waiting for the owner, blocking ones first, each with its options';
 
     protected function perform(): int
     {
         $this->gitStore()?->maybeSync();
-        $blocking = $provisional = [];
-        foreach ($this->store()->snapshot()->cards(fn (Card $c) => $c->stage() !== 'dropped') as $card) {
-            foreach (Questions::open($card) as $question) {
-                $lines = $this->lines($card, $question);
-                if ($question['kind'] === Questions::OPEN) {
-                    $blocking[] = $lines;
-                } else {
-                    $provisional[] = $lines;
-                }
-            }
-        }
-        $all = [...$blocking, ...$provisional];
-        if ($all === []) {
+        $pending = Questions::pending($this->store()->snapshot());
+        if ($pending === []) {
             $this->say('no open questions');
 
             return self::SUCCESS;
         }
-        foreach (array_merge(...$all) as $line) {
+        $blocking = $provisional = [];
+        foreach ($pending as ['card' => $card, 'question' => $question]) {
+            if ($question['kind'] === Questions::OPEN) {
+                $blocking[] = $this->lines($card, $question);
+            } else {
+                $provisional[] = $this->lines($card, $question);
+            }
+        }
+        foreach (array_merge(...$blocking, ...$provisional) as $line) {
             $this->say($line);
         }
-        $this->say(count($all).' open: `kanban answer <ID>#<n> <option> [--note=…]`');
+        $this->say(Questions::tally($pending).': `kanban answer <ID>#<n> <option> [--note=…]`');
 
         return self::SUCCESS;
     }

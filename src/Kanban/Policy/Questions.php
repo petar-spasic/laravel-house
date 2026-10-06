@@ -6,6 +6,7 @@ use PetarSpasic\LaravelHouse\Kanban\Store\Card;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Invalid;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\NotFound;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
+use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
 
 /**
  * Questions for the owner, as sections of a card's body:
@@ -87,13 +88,63 @@ final class Questions
     public static function append(string $body, array $sections): string
     {
         foreach ($sections as $text) {
-            $content = substr($text, strpos($text, "\n") + 1);
-            if (! str_contains($body, rtrim($content))) {
+            if (! self::holds($body, substr($text, strpos($text, "\n") + 1))) {
                 $body = trim(rtrim($body)."\n\n".rtrim($text));
             }
         }
 
         return $body;
+    }
+
+    /**
+     * $body without the unanswered question sections $existing already holds, whatever their headings say (a date, a
+     * decision's id): what a card folded into another keeps, so one question is asked once.
+     */
+    public static function without(string $body, string $existing): string
+    {
+        $chunks = preg_split('/^(?=## )/m', str_replace("\r\n", "\n", $body)) ?: [$body];
+        $kept = [];
+        foreach ($chunks as $i => $chunk) {
+            [$heading, $content] = explode("\n", $chunk, 2) + [1 => ''];
+            if (preg_match(self::HEADING, $heading) === 1 && ! str_starts_with($chunks[$i + 1] ?? '', '## '.self::ANSWER) && self::holds($existing, $content)) {
+                continue;
+            }
+            $kept[] = $chunk;
+        }
+
+        return trim(implode('', $kept));
+    }
+
+    /**
+     * What waits for the owner: the open questions of cards not done or dropped (a finished card's are moot), and the
+     * provisional decisions of every card not dropped until they are answered, merged work included.
+     *
+     * @return list<array{card: Card, question: array<string, mixed>}>
+     */
+    public static function pending(Snapshot $snapshot): array
+    {
+        $pending = [];
+        foreach ($snapshot->cards(fn (Card $c) => $c->stage() !== 'dropped') as $card) {
+            foreach (self::open($card) as $question) {
+                if ($question['kind'] === self::PROVISIONAL || $card->stage() !== 'done') {
+                    $pending[] = ['card' => $card, 'question' => $question];
+                }
+            }
+        }
+
+        return $pending;
+    }
+
+    /**
+     * `2 open, 1 provisional`: the one count `questions`, `status` and `morning` print.
+     *
+     * @param  list<array{card: Card, question: array<string, mixed>}>  $pending
+     */
+    public static function tally(array $pending): string
+    {
+        $provisional = count(array_filter($pending, fn (array $p) => $p['question']['kind'] === self::PROVISIONAL));
+
+        return (count($pending) - $provisional).' open'.($provisional === 0 ? '' : ", {$provisional} provisional");
     }
 
     /**
@@ -163,6 +214,13 @@ final class Questions
         $after = ltrim(implode("\n", array_slice($lines, $at)), "\n");
 
         return $before."\n\n".$section.($after === '' ? '' : "\n\n".$after);
+    }
+
+    private static function holds(string $body, string $content): bool
+    {
+        $content = trim($content);
+
+        return $content !== '' && str_contains($body, $content);
     }
 
     /**

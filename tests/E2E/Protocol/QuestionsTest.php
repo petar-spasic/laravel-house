@@ -95,11 +95,35 @@ it('lists open questions, blocking ones first, with older free-form ones raw', f
         '  Which date an export file names: the invoice date or the day of the export?',
         '  1. Invoice date — files sort by billing period (recommended, taken)',
         '  2. Export date — files sort by when they were made',
-        '3 open: `kanban answer <ID>#<n> <option> [--note=…]`',
+        '2 open, 1 provisional: `kanban answer <ID>#<n> <option> [--note=…]`',
     ])."\n";
     expect($out)->toContain("{$old}#1 open question: Seat limits (free-form: answer with --note)\n  Should a seat limit block invites? It would stop growth.\n")
         ->and($out)->toContain("{$bare} open question: Trial length (free-form: answer with --note)\n  14 or 30 days?\n")
         ->and($out)->toEndWith($provisional);
+});
+
+it('leaves out a finished card\'s open questions but keeps its provisional decisions, one count everywhere', function () {
+    $done = $this->id;
+    $this->p->sandbox->ok(['set', $done, 'body=@-', '--force'], ['KANBAN_SESSION' => 's1'], "Build it\n\n".OPEN."\n\n".PROVISIONAL."\n");
+    $this->p->commit($this->wt, 'app.php', "<?php\n", "{$done}: export");
+    $this->p->in($this->wt, ['report', $done, '--status=review', '--tick=1,2', '--summary=Done'])->mustRun();
+    applyStop($this->p, $this->wt);
+    $this->p->hook('subagent-start', $this->p->payload('subagent-start', ['agent' => 'e1', 'type' => 'kanban-evaluator']));
+    $this->p->enter($this->wt, 'e1', 'kanban-evaluator');
+    $this->p->in($this->wt, ['verdict', $done, 'approve', '--check=1:pass:ok', '--check=2:pass:ok'])->mustRun();
+    $this->p->hook('subagent-stop', $this->p->payload('subagent-stop', ['cwd' => $this->wt, 'agent' => 'e1', 'type' => 'kanban-evaluator']))->mustRun();
+    $this->p->sandbox->ok(['finish', $done], ['KANBAN_SESSION' => 's1']);
+    $asks = $this->p->sandbox->card('Seat limits', ['--body=Seats.'."\n\n".OPEN, '--label=area:seats']);
+    $this->p->sandbox->ok(['set', $asks, 'blocked=question: who may download an invoice?']);
+
+    $questions = $this->p->sandbox->ok('questions');
+
+    expect($questions)->toContain("{$asks}#1 open question: Seat limits\n")
+        ->and($questions)->toContain("{$done}#2 provisional decision: Invoice export\n")
+        ->and($questions)->not->toContain("{$done}#1")
+        ->and($questions)->toEndWith("1 open, 1 provisional: `kanban answer <ID>#<n> <option> [--note=…]`\n")
+        ->and($this->p->sandbox->ok('status'))->toContain('· questions 1 open, 1 provisional')
+        ->and($this->p->sandbox->ok(['morning']))->toContain("\nquestions 1 open, 1 provisional: `kanban questions`\n");
 });
 
 it('answers an open question: the answer goes under it, the block clears and the card is promoted', function () {

@@ -1204,7 +1204,7 @@ The [protocol reference](resources/boost/skills/kanban/references/protocol.md) l
 | `next` | The card that would be started next. `-v` says why the others wait. |
 | `upstream` | Package findings waiting to be filed. |
 | `morning` | What merged, what is blocked, the open questions and what the agents spent, since yesterday. |
-| `questions` | Every open question with its options. |
+| `questions` | Every question waiting for you, with its options: open questions on unfinished cards, and provisional decisions until you answer them. |
 | `doctor` | Checks the installation. `--fix` repairs it. |
 | `validate` | Checks every board file. `--fix` rewrites them. |
 

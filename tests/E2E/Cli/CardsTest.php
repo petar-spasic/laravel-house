@@ -246,7 +246,7 @@ it('prints the board summary', function () {
 
     $status = $this->sandbox->ok('status');
     expect($status)->toMatch('/^Kanban ACME: branch kanban @[0-9a-f]{7}, not published, sync off, /')
-        ->toContain('WIP doing 0/6, review 0/6 · ready 1 · backlog 2 · blocked 2 · questions 1')
+        ->toContain('WIP doing 0/6, review 0/6 · ready 1 · backlog 2 · blocked 2 · questions 1 open')
         ->toContain("blocked {$blocked} Stuck: \"owner decision\"")
         ->toContain("next: {$ready} high")
         ->toContain('checks: merge driver ok · journal 0');

@@ -51,7 +51,25 @@ it('sends a ready card back to backlog when it takes an open question', function
     expect($out)->toContain("{$into} goes back to backlog: it carries an open question")
         ->and($s->read($into))->toMatchArray(['stage' => 'backlog', 'blocked' => 'question: PDF or HTML?'])
         ->and($s->read($from))->toMatchArray(['stage' => 'dropped', 'blocked' => null])
-        ->and($s->ok(['status']))->toContain('blocked 1 · questions 1');
+        ->and($s->ok(['status']))->toContain('blocked 1 · questions 1 open');
+});
+
+it('keeps one copy of a question the folded cards share, answered once', function () {
+    $s = $this->sandbox;
+    $question = "Should a seat limit block invites?\n1. Block — invites wait for a seat\n2. Warn — invites go out\nRecommended: 2 — growth";
+    $into = $s->card('Seats', ['--label=area:seats', "--body=Seats.\n\n## Open question (2026-10-01)\n{$question}"]);
+    $s->ok(['set', $into, 'blocked=question: Should a seat limit block invites?']);
+    $from = array_map(fn (string $day) => $s->card("Seat part {$day}", ['--label=area:seats', "--body=Part.\n\n## Open question (2026-10-{$day})\n{$question}"]), ['02', '03']);
+
+    $s->ok(['fold', ...$from, "--into={$into}"]);
+
+    expect(substr_count($s->read($into)['body'], '## Open question'))->toBe(1)
+        ->and($s->read($into)['body'])->toContain("## Folded from {$from[0]}: Seat part 02\n\nPart.\n")
+        ->and($s->ok('questions'))->toContain("{$into}#1 open question: Seats\n");
+
+    $s->ok(['answer', $into, '2']);
+    expect($s->read($into)['blocked'])->toBeNull()
+        ->and($s->ok('questions'))->toBe("no open questions\n");
 });
 
 it('refuses a fold past the card limits and writes nothing', function () {

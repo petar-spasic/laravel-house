@@ -4,6 +4,7 @@ namespace PetarSpasic\LaravelHouse\Kanban\Protocol;
 
 use PetarSpasic\LaravelHouse\Kanban\Code\MainCheck;
 use PetarSpasic\LaravelHouse\Kanban\Policy\PullPolicy;
+use PetarSpasic\LaravelHouse\Kanban\Policy\Questions;
 use PetarSpasic\LaravelHouse\Kanban\Policy\Shape;
 use PetarSpasic\LaravelHouse\Kanban\Store\Card;
 use PetarSpasic\LaravelHouse\Kanban\Store\Git\Bootstrap;
@@ -57,7 +58,7 @@ final class Brief
         $elsewhere = $capacity['doing'] - $capacity['here'];
         $lines[] = "WIP doing {$capacity['here']}/{$capacity['max_parallel']}".($elsewhere > 0 ? " (+{$elsewhere} elsewhere)" : '').", review {$capacity['review']}/{$capacity['review_limit']}"
             .' · ready '.($counts['ready'] ?? 0).' · backlog '.($counts['backlog'] ?? 0).' · blocked '.count($blocked)
-            .' · questions '.count(array_filter($blocked, fn (Card $c) => $c->asks()));
+            .' · questions '.Questions::tally(Questions::pending($snapshot));
         if (($agents = $this->agents($runtime)) !== null) {
             $lines[] = $agents;
         }

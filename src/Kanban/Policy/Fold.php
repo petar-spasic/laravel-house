@@ -44,7 +44,7 @@ final class Fold
         $added = 0;
         foreach ($sources as $source) {
             $section = "## Folded from {$source->id()}: {$source->title()}";
-            $body = trim((string) ($source->data['body'] ?? ''));
+            $body = Questions::without(trim((string) ($source->data['body'] ?? '')), (string) ($data['body'] ?? ''));
             $block = $source->blocked();
             if ($block !== null && ($data['blocked'] ?? null) === null) {
                 $data['blocked'] = $block;

@@ -21,7 +21,7 @@ it('prints the brief and exports KANBAN_SESSION into CLAUDE_ENV_FILE', function 
         ->and(file_get_contents($envFile))->toBe("export FOO=1\nexport KANBAN_SESSION='".ProtocolSandbox::SESSION."'\nexport KANBAN_TRANSCRIPT='{$p->main}/.git/transcript.jsonl'\n");
     $lines = explode("\n", rtrim($start->getOutput()));
     expect($lines[0])->toMatch('/^Kanban ACME: branch kanban @[0-9a-f]{7}, not published, sync off, \d{4}-\d\d-\d\d \d\d:\d\dZ$/')
-        ->and($lines[1])->toBe('WIP doing 1/6, review 0/6 · ready 1 · backlog 1 · blocked 1 · questions 1')
+        ->and($lines[1])->toBe('WIP doing 1/6, review 0/6 · ready 1 · backlog 1 · blocked 1 · questions 1 open')
         ->and($lines[2])->toBe('agents: 1 worker, 0 evaluators live')
         ->and($lines[3])->toMatch("/^doing  {$id} norm work Conditional clauses: worker a4d2 live \d+s, wt ".basename($wt).'$/')
         ->and($lines[4])->toBe("blocked {$blocked} Waiting on owner: \"question: one workspace per team?\"")
