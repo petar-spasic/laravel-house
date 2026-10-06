@@ -56,8 +56,8 @@ or `npm run check` fails. Upload fields stay server-only.
 - Every `*` field has a name in `attributes()`.
 - **Arrays are never nullable in the schema**: an empty one posts `[]`. A list that needs items is
   `required|array|min:N`; an optional one carries no lower bound (the export refuses one).
-- **Arrays of arrays**, and keyed maps (`maps:` on the attribute), make the form's `dataType` `'json'`
-  (`references/validation-export.md`).
+- **An array keyed by strings is a map:** name it in `maps:` on the attribute, or the export takes it for a list. Maps
+  and arrays of arrays make the form's `dataType` `'json'` (`references/validation-export.md`).
 - **A `regex` with the `i` modifier also needs `u`. Never the `m` modifier.** The export refuses both.
 - A refusal is fixed in the rule, or the check moves into a rule object, which stays server-only. Never drop the
   attribute to silence it.

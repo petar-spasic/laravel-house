@@ -100,7 +100,9 @@ it('refuses any data type but json', function () {
 });
 
 it('exports a named map as a record and posts it as json', function () {
-    acmeForm($this->sandbox, 'AcmeSettingsRequest', 'acme-settings', "['settings' => 'required|array|min:2', 'settings.*' => 'required|string|max:40', 'tags' => 'array', 'tags.*' => 'required|string']", ", maps: ['settings']", "['settings.*' => 'setting', 'tags.*' => 'tag']");
+    acmeForm($this->sandbox, 'AcmeSettingsRequest', 'acme-settings', "['settings' => 'required|array|min:2', 'settings.*' => 'required|string|max:40', 'tags' => 'array', 'tags.*' => 'required|string', "
+        ."'steps' => 'required|array', 'steps.*.config' => 'array', 'steps.*.config.*' => 'nullable|string', 'fields' => 'array', 'fields.*.label' => 'required|string', 'values' => ['array', fn (\$attribute, \$value, \$fail) => null]]",
+        ", maps: ['settings', 'steps.*.config', 'fields', 'values']", "['settings.*' => 'setting', 'tags.*' => 'tag', 'steps.*.config' => 'step config', 'steps.*.config.*' => 'step setting', 'fields.*.label' => 'label']");
 
     [$code, $output] = $this->sandbox->export();
     $module = $this->sandbox->module('acme-settings');
@@ -110,6 +112,9 @@ it('exports a named map as a record and posts it as json', function () {
         ->and($module)->toContain('field<Record<string, unknown>>')
         ->and($module)->toContain('(v) => Object.keys(v).length >= 2')
         ->and($module)->toContain('tags: z.array(z.string(')
+        ->and($module)->toContain('config: z.record(z.string(), z.string(')
+        ->and($module)->toContain('fields: z.record(z.string(), z.object(')
+        ->and($module)->toContain('values: z.record(z.string(), z.unknown()')
         ->and($module)->toContain("export const dataType: 'form' | 'json' = \"json\";");
 });
 

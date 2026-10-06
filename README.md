@@ -524,6 +524,8 @@ php artisan validation:export
   `register.ts`. It holds a Zod schema, plus the messages and field names of each locale.
 - Rules that need the database or the user, such as `unique`, `exists`, closures and custom rule objects, stay on the
   server. The file lists them in a comment. Their errors reach the form through Laravel's 422 response.
+- An array whose keys are names you choose is a map, such as `settings` with one entry per setting. Name it on the
+  attribute, `#[ExportValidation('preferences', maps: ['settings'])]`, or the file treats it as a list.
 - When a rule cannot be translated, the command fails and names the class, the field and the rule.
 - Commit the generated files. `php artisan validation:export --check` fails when they no longer match the requests,
   and when an exported form has no parity spec at `frontend/e2e/parity/<name>.spec.ts`.

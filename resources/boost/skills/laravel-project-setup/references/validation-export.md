@@ -23,10 +23,13 @@ final class RegisterRequest extends FormRequest
   already `'form'`, and nested data never travels as FormData.
 - `maps: ['settings']` names the array fields keyed by strings (`settings => array`, `settings.* => string`).
   Rules alone cannot tell such a map from a list, so without it `settings` is exported as a list. A map is an
-  `array` field with no named keys, never a `list`.
+  `array` field with no named keys, never a `list`. A map inside a list is named by its path (`steps.*.config`), and
+  its values may be objects (`settings.*.label`).
+- Values whose type changes with the key (a string for one key, a number for another) get no `settings.*` rule. A
+  rule object on `settings` checks them on the server, and the module accepts any value there.
 
 ```php
-#[ExportValidation('preferences', maps: ['settings'])]
+#[ExportValidation('preferences', maps: ['settings', 'steps.*.config'])]
 ```
 
 ## Running it
