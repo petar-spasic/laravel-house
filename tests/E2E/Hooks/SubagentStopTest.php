@@ -82,7 +82,7 @@ it('applies a review report once: ticks, head, discovered cards, applied file, u
         ->and($report)->toMatchArray(['by' => 'worker', 'status' => 'review', 'summary' => 'Built the clauses.', 'ticks' => [1, 2]]);
 
     $found = $this->p->card($report['discovered'][0]);
-    expect($found)->toMatchArray(['type' => 'bug', 'title' => 'Footer overlaps', 'stage' => 'backlog', 'labels' => ['discovered']])
+    expect($found)->toMatchArray(['type' => 'bug', 'title' => 'Footer overlaps', 'stage' => 'backlog', 'labels' => [...areaLabels($card), 'discovered']])
         ->and($found['body'])->toContain("Discovered by {$this->id} (Conditional clauses)")->toContain('on mobile the footer covers the button')
         ->and(glob($this->p->runtime('staged/*')))->toBe([])
         ->and(glob($this->p->runtime("applied/{$this->id}.*.report.json")))->toHaveCount(1)
@@ -157,7 +157,7 @@ it('files an evaluator\'s discovered cards when its approval is applied, once', 
     expect($card['work']['approved']['head'])->toBe($head)
         ->and($verdict)->toMatchArray(['by' => 'evaluator', 'decision' => 'approve'])
         ->and($verdict['discovered'])->toHaveCount(2);
-    expect($this->p->card($verdict['discovered'][0]))->toMatchArray(['type' => 'bug', 'title' => 'Login fails on main', 'stage' => 'backlog', 'labels' => ['discovered']])
+    expect($this->p->card($verdict['discovered'][0]))->toMatchArray(['type' => 'bug', 'title' => 'Login fails on main', 'stage' => 'backlog', 'labels' => [...areaLabels($card), 'discovered']])
         ->and($this->p->card($verdict['discovered'][0])['body'])->toBe("Discovered by {$this->id} (Conditional clauses) while evaluating it.\n\n/login answers 500 without this change")
         ->and($this->p->card($verdict['discovered'][1]))->toMatchArray(['type' => 'feature', 'title' => 'Export as CSV', 'stage' => 'backlog']);
 
@@ -324,3 +324,9 @@ it('lets an evaluator with nothing staged stop once its card has left review', f
         ->and($stop['err'])->toContain("kanban: {$this->id}: no verdict needed: the card is doing")
         ->and($this->p->agent('e1')['stopped_at'])->not->toBeNull();
 });
+
+/** @return list<string> the card's `area:*` labels, which a card it discovers carries too */
+function areaLabels(array $card): array
+{
+    return array_values(array_filter($card['labels'], fn (string $l) => str_starts_with($l, 'area:')));
+}
