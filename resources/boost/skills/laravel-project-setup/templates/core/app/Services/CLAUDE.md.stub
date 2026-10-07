@@ -5,7 +5,7 @@
 |------|--------------------|---------|
 | List query | `Services/{Resource}ListQuery.php` — `build(array $params): Builder` (unexecuted) | Index filtering/sorting + export, allow-list defined ONCE and shared |
 | Domain service | Named for the WORKFLOW (`OrderCheckout`, `InvoiceIssuer`) | Multi-model transactional workflows; owns the transaction and event dispatch |
-| Client (port impl) | `Services/{X}Client.php` implementing `Contracts/{X}Client.php` | Anything talking to an external system (HTTP APIs, git, mail providers, LLMs) |
+| Client (port impl) | `Services/{X}Client.php` implementing `Contracts/{X}Client.php` | Anything talking to an external system (HTTP APIs, git, LLMs); mail goes through Laravel's mailer (`app/CLAUDE.md`) |
 
 Never an `{Entity}Service` grab-bag: a class collecting unrelated verbs splits along workflows.
 

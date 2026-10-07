@@ -119,7 +119,15 @@ it('stages a plan that runs long or writes the code, with a hint for each, and r
     'a block left open' => [Sandbox::planFor([1, 2])."\n## Facts\n~~~\n".str_repeat("x\n", 13), '## Facts, line 12: a code block of 13 lines'],
     'code in many blocks' => [Sandbox::planFor([1, 2])."\n## Facts\n".str_repeat("```php\n".str_repeat("\$a = 1;\n", 11)."```\n", 4), 'code blocks hold 44 lines in all'],
     'code inline' => [Sandbox::planFor([1, 2])."\n## Facts\n- `".str_repeat('$rows[] = $row; ', 13)."`\n", '## Facts, line 12: an inline code span of 207 characters'],
+    'a docker command' => [Sandbox::planFor([1, 2])."\n## Facts\n- e2e: `docker compose -f docker-compose.local.yml exec app docker/e2e.sh`\n",
+        '## Facts, line 12: a docker command: the card\'s shell runs inside its container, which has no docker'],
 ]);
+
+it('gives no hint for a compose file the plan names', function () {
+    $staged = stagePlan($this->p, $this->wt, $this->id, Sandbox::planFor([1, 2])."\n## Facts\n- `docker-compose.local.yml` maps `docker/e2e.sh`; `docker run` is the image's own entrypoint test\n");
+
+    expect($staged->getExitCode())->toBe(0)->and($staged->getOutput())->not->toContain('hint:');
+});
 
 it('applies the plan when its planner stops, and stop --to=ready takes the clone down and deletes the planning branch', function () {
     stagePlan($this->p, $this->wt, $this->id, Sandbox::planFor([1, 2]))->mustRun();

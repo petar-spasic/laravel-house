@@ -853,7 +853,8 @@ the card moves to `ready`.
 
 The worker is a smaller model, so the plan is short and exact. It says what to build and where, and leaves the code to
 the worker. `kanban plan` refuses a plan that names a file the code does not have or leaves a criterion out. When a plan
-runs long or writes the code itself, it prints a hint, and the planner trims what the card does not need.
+runs long, writes the code itself, or names a `docker` command the worker cannot run inside its container, it prints a
+hint, and the planner revises it.
 
 A plan holds while the card stays as it was planned. A ready card goes back to `planning` when you change its criteria
 or description, or answer one of its questions other than by confirming the option its plan took. A card that comes

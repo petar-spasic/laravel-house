@@ -18,7 +18,7 @@ use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Invalid;
  *     - 1: `tests/Feature/ExportTest.php` asserts …; `php artisan test --compact --filter=Export`
  *
  * It says what to build, where, in which order and how to check it; the worker writes the code. hints() names where a
- * plan runs long or writes the code, and never refuses one: the planner judges.
+ * plan runs long, writes the code or runs docker, and never refuses one: the planner judges.
  *
  * A plan is current while it covers the card as it is: its `planned` entry holds the hash of the card's content then.
  */
@@ -38,6 +38,9 @@ final class Plan
     public const HINT_SPAN = 200;
 
     private const CODE = 'the plan pins contracts (a signature, a route, columns) and names a file whose pattern to copy; the worker writes the code';
+
+    /** A card's shell runs inside its container, which has no docker of its own. */
+    private const SHELL = 'a docker command: the card\'s shell runs inside its container, which has no docker; write the command as it runs there (`php artisan test …`, not `docker compose exec app php artisan test …`), unless the context says `shell on this machine`';
 
     private const REQUIRED = ['Files', 'Steps', 'Criteria'];
 
@@ -183,7 +186,7 @@ final class Plan
     }
 
     /**
-     * Where the plan runs long or writes the code, one line each. None refuses the plan: a card may need it.
+     * Where the plan runs long, writes the code or runs docker, one line each. None refuses the plan: a card may need it.
      *
      * @return list<string>
      */
@@ -192,7 +195,7 @@ final class Plan
         $plan = trim(str_replace("\r\n", "\n", $plan));
         $hints = [];
         if (($length = mb_strlen($plan)) > self::HINT_CHARS) {
-            $hints[] = "the plan is {$length} characters; most take 3000 to ".self::HINT_CHARS.': cut prose and code, keep the facts the worker cannot find quickly';
+            $hints[] = "the plan is {$length} characters; most take 3000 to ".self::HINT_CHARS.': cut prose and code, keep the facts the worker cannot find quickly; a card that holds unrelated work is reported blocked, proposing the split';
         }
         if (($steps = count(preg_grep('/^\d+\.\s+\S/', self::sections($plan)['Steps'] ?? []))) > self::HINT_STEPS) {
             $hints[] = "## Steps has {$steps} steps; a step is one change the worker can check: merge the small ones";
@@ -211,6 +214,9 @@ final class Plan
             }
             if ($line === null) {
                 break;
+            }
+            if (preg_match('/\bdocker(?:-compose|\s+compose|\s+exec|\s+run)(?=\s)/', $line) === 1) {
+                $hints[] = self::where($section, $i + 1).': '.self::SHELL;
             }
             if ($fence !== null) {
                 $count++;

@@ -22,6 +22,8 @@ every guess you pass on is a mistake it builds.
 - **Your shell runs inside the card's container**: artisan, tinker, composer, npm and tests run there, against the
   card's own database. The task output shows `…/vendor/bin/kanban-exec …` around your command; that is expected. `cd`
   does not carry over: use absolute paths. When the context says `shell on this machine`, there is no container.
+  The worker's shell is the same, so a command in the plan is written as it runs there: `php artisan test …`, never
+  `docker compose exec app …` (there is no `docker` inside).
 - git reads only (`log`, `show`, `diff`, `grep`, `blame`): never commit, merge, stash, reset or check out.
 - **`vendor/bin/kanban`** runs on this machine, as a command of its own, never chained to or piped into another, never
   inside a script. Use only `context`, `show`, `list`, `status`, `plan` and `stack up|wait|logs|url`.
@@ -135,8 +137,8 @@ Taken: 1
 
 An `## Open question` has the same form without `Taken:`.
 
-- A card that is more than one worker session's work (a plan far past the hints is a sign): report blocked, proposing
-  the split by area.
+- A card that holds unrelated work: report blocked, proposing the split by area. Related work stays one card however
+  long its plan: a plan far past the hints asks only whether its parts are unrelated.
 - Out-of-scope work you notice → a `--discovered` line, never a step of the plan; never one `context` lists under
   `discovered earlier`, nor one a card `in flight` covers.
 

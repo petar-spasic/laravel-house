@@ -16,19 +16,26 @@ app/
 ├── Contracts/          # interfaces — the seams to outside systems
 ├── Enums/              # domain vocabulary + lifecycle state machines
 ├── Events/             # domain events
+├── Exceptions/         # domain exceptions
 ├── Http/
 │   ├── Controllers/    # thin HTTP translation
 │   └── Middleware/     # request-scoped cross-cutting only
 ├── Jobs/               # queued work
 ├── Listeners/
+├── Mail/               # Mailables: an email that is no message to a person (Mail and notifications)
 ├── Models/
+├── Notifications/      # what the app tells a person, by mail or another channel
 ├── Policies/
 ├── Providers/
 ├── Requests/           # FormRequests — one per endpoint
 ├── Resources/          # API Resources — one per exposed entity
+├── Rules/              # validation rule objects
 ├── Services/           # domain services, list queries, external clients
 └── Support/            # small, security-relevant helpers only
 ```
+
+A class a `make:*` command generates goes where it puts it, created when the work first needs one; the tree names
+where code goes, not all that may exist.
 
 FormRequests live in `app/Requests` and Resources in `app/Resources`, **never** `app/Http/Requests` or
 `app/Http/Resources`: a second home would fragment them. `app/Http/` holds framework plumbing only.
@@ -87,6 +94,20 @@ deltas**, stamped when *observed*, not inserted. Which tables get this is record
 **Single-model invariant → model method; multi-model workflow → domain service; external system → a contract-backed
 client; reusable filter → ListQuery** (`app/Services/CLAUDE.md`). Every external system sits behind a contract in
 `Contracts/`; what an E2E test fakes is `tests/CLAUDE.md`'s.
+
+## Mail and notifications
+
+- What the app tells a person is a Notification (`make:notification`), its text in `lang/`: `toMail()` returns a
+  `MailMessage`. A user gets it with `$user->notify()`; an address with no user yet (a sign-up still to confirm)
+  with `Notification::route('mail', $email)->notify()`.
+- A Mailable (`make:mail`) only for an email that is no message to a person: a document sent on, a report to an
+  outside address. A notification's `toMail()` may return one when it needs the Mailable's own view or attachments.
+- Laravel's mailer is the seam, never a contract of our own: the transport is config, and the tests read what was
+  sent (`tests/CLAUDE.md`).
+- Queued (`ShouldQueue`) and sent after the commit (`afterCommit()`), so a rolled-back write mails nothing; in the
+  recipient's language (`HasLocalePreference` on the user, `->locale()` on demand): queued work has no request
+  locale. A flow that must know the mail went (a link the person needs to go on) sends it at once and handles the
+  failure itself.
 
 ## Octane: no request state in shared position
 

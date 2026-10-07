@@ -96,9 +96,10 @@ characters. A Files line is ``- create|change|delete|read `path` — why``: one 
 `.git` and `.claude/worktrees`, looked up in git (`change`, `delete` and `read` in the commit the plan is made on,
 `create` not). Criteria holds one `- N: …` line per criterion of the card, each naming its proof in a code span.
 
-The plan pins contracts and names files to copy from; the worker writes the code. `plan` stages a plan that runs long or
-writes the code with a `hint:` line for each: over 8 000 characters or 20 steps, a code block over 12 lines, more than
-40 lines of code blocks in all, an inline code span over 200 characters.
+The plan pins contracts and names files to copy from; the worker writes the code. `plan` stages a plan that runs long,
+writes the code or runs docker with a `hint:` line for each: over 8 000 characters or 20 steps, a code block over 12
+lines, more than 40 lines of code blocks in all, an inline code span over 200 characters, a `docker compose`, `exec` or
+`run` command (the worker's shell is inside its container).
 
 A plan is current while its `planned` entry's hash is the card's content (the criteria and the body, without the
 question sections and an answer that confirms what a Provisional decision took), and for a card with a parked branch,
