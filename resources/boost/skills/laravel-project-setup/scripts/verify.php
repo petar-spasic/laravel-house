@@ -105,11 +105,10 @@ if (preg_match('#<laravel-boost-guidelines>(.*)</laravel-boost-guidelines>\s*$#s
         str_contains($block[1], $advice) && $fail("Boost's guidelines in CLAUDE.md still say \"{$advice}\": an override is missing (references/boost.md)");
     }
     // a house section kept above the block says the rule twice, and the copy goes stale
-    $house = [];
-    foreach (glob("{$package}/resources/boost/guidelines/*.blade.php") ?: [] as $guideline) {
-        preg_match_all('/^##+ (.+)$/m', (string) file_get_contents($guideline), $headings);
-        $house = [...$house, ...$headings[1]];
-    }
+    // (the sections Boost rendered for this project's modules, not every guideline: an htmx-only section is the project's own in an spa app)
+    preg_match_all('#^=== petar-spasic/laravel-house/\S+ rules ===$(.*?)(?=^=== |\z)#ms', $block[1], $sections);
+    preg_match_all('/^##+ (.+?)\s*$/m', implode("\n", $sections[1]), $headings);
+    $house = $headings[1];
     preg_match_all('/^##+ (.+?)\s*$/m', (string) strstr($read('CLAUDE.md'), '<laravel-boost-guidelines>', true), $headings);
     foreach (array_intersect($headings[1], $house) as $heading) {
         $fail("CLAUDE.md keeps the house section \"{$heading}\" above Boost's block: delete it, or move a project rule into a section of its own (references/adopt.md, Rendered rules)");

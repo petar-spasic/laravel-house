@@ -378,7 +378,12 @@ it('verifies what setup leaves, one line per failure', function () {
     file_put_contents("{$repo}/phpunit.xml", "<phpunit><testsuites><testsuite name=\"Unit\"/><testsuite name=\"E2E\"/></testsuites></phpunit>\n");
     file_put_contents("{$repo}/routes/CLAUDE.md", "# Routes\n");
     file_put_contents("{$repo}/CLAUDE.md", str_replace("=== petar-spasic/laravel-house/tenancy rules ===\n", '', file_get_contents("{$repo}/CLAUDE.md")));
-    file_put_contents("{$repo}/CLAUDE.md", str_replace('<laravel-boost-guidelines>', "## Non-negotiables — SPEED, SEO, SMOOTHNESS\n\nKept.\n\n<laravel-boost-guidelines>", file_get_contents("{$repo}/CLAUDE.md")));
+    // a section the block renders, kept above it, is named; a house heading the block does not render is the project's own
+    file_put_contents("{$repo}/CLAUDE.md", str_replace(
+        ['<laravel-boost-guidelines>', "=== petar-spasic/laravel-house/frontend rules ===\n"],
+        ["## Non-negotiables — SPEED, SEO, SMOOTHNESS\n\nKept.\n\n## Frontend — SvelteKit\n\nOurs.\n\n<laravel-boost-guidelines>", "=== petar-spasic/laravel-house/frontend rules ===\n\n## Non-negotiables — SPEED, SEO, SMOOTHNESS\n"],
+        file_get_contents("{$repo}/CLAUDE.md"),
+    ));
     $broken = verifySetup($repo);
 
     expect($broken->getExitCode())->toBe(1)
