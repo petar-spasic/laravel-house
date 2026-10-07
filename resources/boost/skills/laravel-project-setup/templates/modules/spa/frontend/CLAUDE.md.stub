@@ -287,7 +287,8 @@ check of an anonymous call from Node. These pages need JavaScript and say so in 
 - SSR is the default. **Prerender** only where the data exists at build time: the build stage has no Laravel or
   database, and a build never calls `/api`. Where that data comes from is a per-project decision on the board. Pages
   with form actions or reading `url.searchParams` are not prerendered.
-- **A prerendered page is public**: the same for every visitor, no personal data. `handle` never runs for it.
+- **A prerendered page is public**: the same for every visitor, no personal data. `handle` runs for it only while
+  building, with no user; at request time Caddy serves the file.
 - **Redirects** belong in SSR (`redirect()`) or Caddy, never a prerendered route (it becomes a 200 meta-refresh
   page).
 - **Cache headers.** Caddy sets them for prerendered files and `/_app/immutable/*` (Hosting); a `setHeaders` during

@@ -5,8 +5,8 @@ declare(strict_types=1);
 /*
  * Checks what setup must have left in a project: no template marker or placeholder but {{hosting}}, the skeleton's
  * deletions done, `.env` on Postgres and Redis, the `.gitignore` lines, `boost.json`, the house files in sync with
- * `config/house.php`, Boost's guidelines with the house ones and without the advice the house overrides, one E2E test
- * suite, and an app that boots. Prints one ✗ line per failure and exits 1.
+ * `config/house.php`, Boost's guidelines with the house ones, no house section above them and none of the advice the
+ * house overrides, one E2E test suite, and an app that boots. Prints one ✗ line per failure and exits 1.
  *
  * php verify.php <repo>
  */
@@ -103,6 +103,16 @@ if (preg_match('#<laravel-boost-guidelines>(.*)</laravel-boost-guidelines>\s*$#s
     }
     foreach (['Test every code change', 'Unit and feature tests are more important', 'make:test', 'Laravel Cloud', 'composer run dev'] as $advice) {
         str_contains($block[1], $advice) && $fail("Boost's guidelines in CLAUDE.md still say \"{$advice}\": an override is missing (references/boost.md)");
+    }
+    // a house section kept above the block says the rule twice, and the copy goes stale
+    $house = [];
+    foreach (glob("{$package}/resources/boost/guidelines/*.blade.php") ?: [] as $guideline) {
+        preg_match_all('/^##+ (.+)$/m', (string) file_get_contents($guideline), $headings);
+        $house = [...$house, ...$headings[1]];
+    }
+    preg_match_all('/^##+ (.+?)\s*$/m', (string) strstr($read('CLAUDE.md'), '<laravel-boost-guidelines>', true), $headings);
+    foreach (array_intersect($headings[1], $house) as $heading) {
+        $fail("CLAUDE.md keeps the house section \"{$heading}\" above Boost's block: delete it, or move a project rule into a section of its own (references/adopt.md, Rendered rules)");
     }
 }
 str_contains($read('.claude/skills/testing-best-practices/SKILL.md'), 'end to end or not at all')

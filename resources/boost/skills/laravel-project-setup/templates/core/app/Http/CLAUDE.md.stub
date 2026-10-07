@@ -69,13 +69,15 @@ reads it after `$next`).
 - Fragment routes pass a `PageMeta` too (tags only), or their entry lives on TTL alone.
 
 **Authenticated responses are `Cache-Control: private, no-store`**, no exceptions: a personalised page in a shared
-cache is a data leak. `bootstrap/app.php` applies it to the `web` and `api` groups (Registered).
+cache is a data leak. `bootstrap/app.php` applies it to the `web` group, and `routes/api.php` to the authenticated
+api routes' group (Registered; `routes/CLAUDE.md`).
 <!-- endif -->
 <!-- unless:htmx -->
 ## Caching
 
 **Authenticated responses are `Cache-Control: private, no-store`**, no exceptions: a personalised response in a shared
-cache is a data leak. `bootstrap/app.php` applies it to the `web` and `api` groups (Registered).
+cache is a data leak. `bootstrap/app.php` applies it to the `web` group, and `routes/api.php` to the authenticated
+api routes' group (Registered; `routes/CLAUDE.md`).
 <!-- endif -->
 
 ## Registered (`bootstrap/app.php`)

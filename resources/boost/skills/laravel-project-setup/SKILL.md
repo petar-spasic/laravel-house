@@ -153,7 +153,7 @@ This table owns the combination rules. `install.php` enforces them and refuses a
    project. Detail: `references/boost.md`.
 8. **Verify.** `php "${CLAUDE_SKILL_DIR}/scripts/verify.php" .` prints nothing: no marker or placeholder but
    `{{hosting}}`, the deletions, `.env`, `.gitignore`, the house files in sync, Boost with the house guidelines and its
-   overrides, one E2E suite, and `route:list` boots. Then:
+   overrides, no house section above Boost's block, one E2E suite, and `route:list` boots. Then:
    - `vendor/bin/pint --dirty --format agent`;
    - the module checks in `references/modules.md`;
    - the E2E tests need the stack's `{{app}}_test` (step 9).

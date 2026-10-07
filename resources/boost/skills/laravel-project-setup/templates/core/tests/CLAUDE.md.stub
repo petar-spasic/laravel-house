@@ -21,13 +21,14 @@ Behaviour-named (`it('…')`), `uses(RefreshDatabase::class)`.
 
 - Seed the world with the factories; drive it through the entry point, never by calling a service, model or job.
 - Auth state comes through its route: `actingAs($user)` for a signed-in user, `POST route('password.confirm.store')`
-  for a confirmation (as `TwoFactorAuthenticationTest` does). Never `withSession([...])` to forge a gate's state
-  (`auth.password_confirmed_at`, `login.id`, a stored OAuth flow).
+  for a confirmation. Never `withSession([...])` to forge a gate's state (`auth.password_confirmed_at`, `login.id`, a
+  stored OAuth flow).
 - Reference data is already there: `TestCase` carries `#[Seeder(ReferenceDataSeeder::class)]` (once per process).
   Look reference rows up by slug; never factory them.
 - Fake only what is paid or outside; nothing of our own code:
   - LLM calls: the SDK's fakes.
   - Outbound HTTP: `Http::fake` + `Http::preventStrayRequests()`.
+  - Mail: the `array` mailer (`phpunit.xml`) keeps what was sent.
   - OAuth providers: `Socialite::fake('<provider>', Two\User::fake([...]))`, with `services.<provider>` `client_id`,
     `client_secret` and `redirect` set in the test (the fake forwards `with()` and `scopes()` to the real driver) and
     the provider on via `config(['services.socialite.providers' => [...]])`.
@@ -98,7 +99,8 @@ stack. The e2e site runs Laravel's CSRF token path, as a LAN http origin does (l
 - One user flow per test, named for what the user does. Each makes its own data (unique emails) through the UI or
   Laravel's public API (Playwright's `request` fixture); no shared leftovers, no test-only endpoints. Data no flow
   can make (a record from an outside system, an aged state) comes from one fixtures seeder that throws unless
-  `config('app.e2e')`, run by `docker/e2e-reset.sh` (laravel-deployment's `references/spa.md`).
+  `config('app.e2e')`, run by the project's `docker/e2e-reset.sh`, which `docker/e2e.sh` runs when it exists
+  (laravel-deployment's `references/spa.md`). A project with no such data has neither.
 <!-- if:tenancy -->
   It sets the tenant of each row it writes: it runs as the app role under row-level security.
 <!-- endif -->

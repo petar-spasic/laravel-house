@@ -86,7 +86,7 @@ deltas**, stamped when *observed*, not inserted. Which tables get this is record
 
 **Single-model invariant → model method; multi-model workflow → domain service; external system → a contract-backed
 client; reusable filter → ListQuery** (`app/Services/CLAUDE.md`). Every external system sits behind a contract in
-`Contracts/`: the one seam an E2E test fakes.
+`Contracts/`; what an E2E test fakes is `tests/CLAUDE.md`'s.
 
 ## Octane: no request state in shared position
 

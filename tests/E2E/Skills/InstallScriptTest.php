@@ -378,6 +378,7 @@ it('verifies what setup leaves, one line per failure', function () {
     file_put_contents("{$repo}/phpunit.xml", "<phpunit><testsuites><testsuite name=\"Unit\"/><testsuite name=\"E2E\"/></testsuites></phpunit>\n");
     file_put_contents("{$repo}/routes/CLAUDE.md", "# Routes\n");
     file_put_contents("{$repo}/CLAUDE.md", str_replace("=== petar-spasic/laravel-house/tenancy rules ===\n", '', file_get_contents("{$repo}/CLAUDE.md")));
+    file_put_contents("{$repo}/CLAUDE.md", str_replace('<laravel-boost-guidelines>', "## Non-negotiables — SPEED, SEO, SMOOTHNESS\n\nKept.\n\n<laravel-boost-guidelines>", file_get_contents("{$repo}/CLAUDE.md")));
     $broken = verifySetup($repo);
 
     expect($broken->getExitCode())->toBe(1)
@@ -388,6 +389,7 @@ it('verifies what setup leaves, one line per failure', function () {
             '✗ the house files differ from config/house.php: not managed: routes/CLAUDE.md has no house:begin and house:end markers; add them around the house text, or list it under overrides (php artisan house:update)',
             '✗ Boost\'s block in CLAUDE.md lacks the house tenancy rules: config/house.php, petar-spasic/laravel-house in boost.json packages, and `boost:update` naming it as a file it could not render',
             '✗ Boost\'s guidelines in CLAUDE.md still say "make:test": an override is missing (references/boost.md)',
+            '✗ CLAUDE.md keeps the house section "Non-negotiables — SPEED, SEO, SMOOTHNESS" above Boost\'s block: delete it, or move a project rule into a section of its own (references/adopt.md, Rendered rules)',
             '✗ phpunit.xml has the test suites Unit, E2E; it has one, E2E',
         ])."\n");
 });

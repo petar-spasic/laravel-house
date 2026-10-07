@@ -16,7 +16,8 @@ Pages are Blade, so Resources serve the JSON surfaces only: the token API under 
 <!-- endif -->
 <!-- endif -->
 <!-- if:spa -->
-Every response the SvelteKit app reads is a Resource, the same one every other client gets.
+Every entity the SvelteKit app reads is a Resource, the same one every other client gets; `response()->json()` only
+for a result that is no entity: an aggregate, a challenge, a redirect URL.
 <!-- endif -->
 
 - The current user is `UserResource`, never the raw `User`. `two_factor_*` columns and passwords never leave.
