@@ -95,7 +95,7 @@ final class Brief
             $lines[] = 'hubs: '.implode(', ', array_map(fn (string $id) => "{$id} blocks ".count($hubs[$id]), array_keys($hubs)));
         }
         if (($rules = $this->bigRules()) !== []) {
-            $lines[] = 'rules over 24 KB (prune them): '.implode(', ', $rules);
+            $lines[] = 'rules over 40 KB (prune them): '.implode(', ', $rules);
         }
         if (Findings::enabled($this->config) && ($pending = count(Findings::pending($snapshot))) > 0) {
             $lines[] = "upstream: {$pending} pending (`kanban upstream`)";
@@ -123,7 +123,8 @@ final class Brief
     }
 
     /**
-     * Tracked `CLAUDE.md` files over 24 KB, biggest first: every agent that works there reads them whole.
+     * Tracked `CLAUDE.md` files over 40 KB, biggest first: every agent that works there reads them whole, and Claude Code
+     * warns about a `CLAUDE.md` past 40,000 characters.
      *
      * @return list<string>
      */
@@ -131,7 +132,7 @@ final class Brief
     {
         $sizes = [];
         foreach (explode("\0", (new Git($this->paths->main))->attempt(['ls-files', '-z', '--', 'CLAUDE.md', '*/CLAUDE.md'])->out) as $file) {
-            if ($file !== '' && ($size = (int) @filesize($this->paths->main.'/'.$file)) > 24 * 1024) {
+            if ($file !== '' && ($size = (int) @filesize($this->paths->main.'/'.$file)) > 40 * 1024) {
                 $sizes[$file] = $size;
             }
         }

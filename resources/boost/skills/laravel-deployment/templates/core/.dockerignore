@@ -6,7 +6,9 @@ node_modules
 **/node_modules
 vendor
 public/build
+# unless:spa
 public/hot
+# endif
 storage/app/private/*
 storage/app/public/*
 storage/logs/*

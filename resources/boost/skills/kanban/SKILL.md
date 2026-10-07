@@ -75,7 +75,7 @@ Before a card is created, and before it is promoted:
   hooks, `.gitattributes`): `allow-steering <ID> <path>` when you plan it, so `finish` merges it without a question.
 - **Discovered items** fold into the open card on their area before a new card is made; check each against main first.
 - After a rename lands, grep the open cards' criteria for the old names before their workers start.
-- **Rule files stay lean.** The brief's `rules over 24 KB` line names a `CLAUDE.md` every agent there reads whole: plan
+- **Rule files stay lean.** The brief's `rules over 40 KB` line names a `CLAUDE.md` every agent there reads whole: plan
   a chore card on its area that prunes it (stale, redundant or one-off text out, detail into a doc it points to).
 - **A rule the evaluator rejects for twice** that grep can check (a forbidden call, a fixed sleep) becomes a
   `gates.report` entry in `config/kanban.php`, so `report` refuses it before an evaluator spawns.

@@ -1,4 +1,4 @@
-<!-- house:begin: rendered from config/house.php by composer update; this project's rules go after house:end -->
+<!-- house:begin: rendered from config/house.php by composer update; this project's rules go after house:end and outrank it -->
 # CLAUDE.md — app/Console (commands)
 
 Commands are the scheduler's entry points and the operator's tools. Scheduling is in `routes/CLAUDE.md`.

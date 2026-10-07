@@ -62,7 +62,8 @@ case "${DATABASE_SEED:-auto}" in
 esac
 
 # exec: the program itself is supervisor's child and gets SIGTERM, so stopwaitsecs is honoured;
-# a `cmd | sed` wrapper would die first and the kernel would SIGKILL the real process.
+# a `cmd | sed` wrapper would die first and the kernel would SIGKILL the real process. startretries: supervisor's 3
+# leave Horizon FATAL through a Redis restart.
 program() { # name command [stopwaitsecs] [directory under /app]
 cat > "/etc/supervisor/conf.d/$1.conf" <<CONF
 [program:$1]
@@ -70,6 +71,8 @@ command=bash -c "exec $2 > >(sed -u 's/^/[$1] /') 2>&1"
 directory=/app${4:+/$4}
 autostart=true
 autorestart=true
+startsecs=5
+startretries=20
 stopasgroup=false
 killasgroup=true
 redirect_stderr=true
@@ -83,8 +86,10 @@ CONF
 rm -f /etc/supervisor/conf.d/*.conf
 program php-fpm "php-fpm -F"
 program caddy "caddy run --config /app/docker/Caddyfile.local --adapter caddyfile"
+# unless:spa
 # laravel-vite-plugin deletes public/hot only on a clean exit; after a SIGKILL or OOM kill Laravel would point at a dead dev server.
 rm -f public/hot
+# endif
 # if:spa
 # SvelteKit's dev server on 127.0.0.1:5173, once frontend/package.json exists.
 if [ -f frontend/package.json ]; then

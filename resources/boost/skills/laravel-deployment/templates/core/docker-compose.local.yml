@@ -1,4 +1,9 @@
+# unless:spa
 # {{app}} — local dev stack. Bind-mounted source, Caddy + php-fpm + Vite HMR,
+# endif
+# if:spa
+# {{app}} — local dev stack. Bind-mounted source, Caddy + php-fpm + SvelteKit's dev server,
+# endif
 # scheduler + Horizon, Postgres/Redis sidecars.
 #   docker compose -f docker-compose.local.yml up --build
 # unless:spa

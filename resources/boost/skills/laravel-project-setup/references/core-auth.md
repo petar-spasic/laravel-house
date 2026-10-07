@@ -22,7 +22,8 @@ Merge `bootstrap-app.php`. Every module gets:
 - `api: __DIR__.'/../routes/api.php'` and `apiPrefix: 'api/v1'` (with htmx, next to `then:`);
 - no event discovery;
 - `AcceptJson` ahead of `auth` in the middleware priority;
-- `cache.headers:private;no_store` appended to the `web` and `api` groups;
+- `cache.headers:private;no_store` appended to the `web` group (the api's authenticated routes carry it in
+  `routes/api.php`);
 - JSON errors for `api/*`.
 
 htmx adds its `public` group and `htmx` alias (every alias goes in that one `alias()` call). spa adds `statefulApi()`, and with reverb the `withBroadcasting(…)`

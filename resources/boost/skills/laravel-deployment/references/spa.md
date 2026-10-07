@@ -80,8 +80,17 @@ prod split (`Caddyfile.frontend`). The e2e sites coexist with the dev stack.
 
 The only entry is `docker compose -f docker-compose.local.yml exec app docker/e2e.sh [playwright test args]`. It holds
 the test-database lock, refuses a cached config or a database not ending in `_test`, checks the image's browser
-against the lockfile, resets with `migrate:fresh --seeder=ReferenceDataSeeder --force` and `cache:clear`, builds with
-`PUBLIC_APP_URL=http://localhost:8090`, and runs Playwright with `E2E_DATABASE_READY=1`. Its comments give each guard.
+against the lockfile, resets with `migrate:fresh --seeder=ReferenceDataSeeder --force` and `cache:clear`, runs the
+project's `docker/e2e-reset.sh`, builds with `PUBLIC_APP_URL=http://localhost:8090`, and runs Playwright with
+`E2E_DATABASE_READY=1`. Its comments give each guard.
+
+**The project's reset.** `docker/e2e-reset.sh`, when the project has one, runs after the database reset on the test
+env, and must be executable. It holds what e2e.sh cannot know, so a re-render never loses it:
+
+- the browser fixtures: a spec reaches no factory, so the data the specs sign in with and read comes from a seeder,
+  `php artisan db:seed --class=<its seeder> --force`. The seeder throws unless `config('app.e2e')`, so it never runs on
+  the dev or prod database;
+- another stateful sidecar, such as a search index: emptied here, on the test env's names.
 
 **The origin is `localhost:8090`**, never `127.0.0.1:8090`: WebAuthn refuses an IP as its relying party. Only what the
 browser or Laravel sees uses it; server-to-server addresses (`API_INTERNAL_URL`, the webServer health URL, e2e.sh's

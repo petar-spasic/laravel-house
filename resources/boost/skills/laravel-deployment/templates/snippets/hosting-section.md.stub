@@ -3,7 +3,12 @@ serves PHP differs:
 
 | Tier | Files | Server | Why |
 |------|-------|--------|-----|
+<!-- unless:spa -->
 | **local** | `Dockerfile.local`, `docker-compose.local.yml` | Caddy → php-fpm + Xdebug, and the Vite dev server; scheduler + Horizon in the same container | A fresh PHP process per request, so **Xdebug breakpoints work**. Bind-mounted source; dependencies install on start when a lockfile changed. |
+<!-- endif -->
+<!-- if:spa -->
+| **local** | `Dockerfile.local`, `docker-compose.local.yml` | Caddy → php-fpm + Xdebug, and SvelteKit's dev server; scheduler + Horizon in the same container | A fresh PHP process per request, so **Xdebug breakpoints work**. Bind-mounted source; dependencies install on start when a lockfile changed. |
+<!-- endif -->
 | **prod** | `Dockerfile`, `docker-compose.yml`, `.env.prod` | **FrankenPHP + Octane** as www-data; `schedule:work` + `horizon` in the same container under supervisor | Warm workers, fast reads. |
 
 **The Docker local stack IS the dev environment**: not `composer run dev`, not sqlite. The host `.env` reaches the
@@ -18,10 +23,18 @@ compose's env would otherwise win. So `php artisan test` is safe on the host and
 `{{app}}_test` at a time: a second one, on the host or in the container, prints "Waiting for the test database" and
 waits.
 
+<!-- unless:spa -->
 ```shell
 docker compose -f docker-compose.local.yml up --build          # http://localhost:{{web_port}} (Caddy → php-fpm and Vite), /horizon
 cp .env.prod.example .env.prod && docker compose --env-file .env.prod up -d --build
 ```
+<!-- endif -->
+<!-- if:spa -->
+```shell
+docker compose -f docker-compose.local.yml up --build          # http://localhost:{{web_port}} (Caddy → php-fpm and SvelteKit), /horizon
+cp .env.prod.example .env.prod && docker compose --env-file .env.prod up -d --build
+```
+<!-- endif -->
 
 - **Stack names** come from `COMPOSE_PROJECT_NAME` in `.env`; compose refuses to start without it. Main is
   `{{app}}-local`, so its containers are `{{app}}-local-{app,postgres,redis}-1`. Never add `container_name`, a volume
@@ -52,15 +65,17 @@ cp .env.prod.example .env.prod && docker compose --env-file .env.prod up -d --bu
   browser is on exactly that origin. Worktree stacks take the host of main's `LOCAL_APP_URL` unless `KANBAN_HOST` is
   set.
 <!-- unless:spa -->
-- **Social sign-in** (when built): register `https://{{domain}}/auth/{provider}/callback` with each provider. Locally it
-  is the same path on `http://localhost:{{web_port}}`, under the same condition as passkeys.
+- **Social sign-in**: each provider is off until `SOCIAL_PROVIDERS` lists it. Register
+  `https://{{domain}}/auth/{provider}/callback` with each provider turned on. Locally it is the same path on
+  `http://localhost:{{web_port}}`, under the same condition as passkeys.
 - **Local routing** (`docker/Caddyfile.local`, whose comments own the details): Vite's dev paths and `/__vite_hmr` go
   to Vite, everything else to php-fpm. No route lives under `/@…`, `/resources/` or `/node_modules/`. Apply an edit
   with `docker compose -f docker-compose.local.yml exec app supervisorctl restart app:caddy`.
 <!-- endif -->
 <!-- if:spa -->
-- **Social sign-in** (when built): register `https://{{domain}}/api/auth/{provider}/callback` with each provider.
-  Locally it is the same path on `http://localhost:{{web_port}}`, under the same condition as passkeys.
+- **Social sign-in**: each provider is off until `SOCIAL_PROVIDERS` lists it. Register
+  `https://{{domain}}/api/auth/{provider}/callback` with each provider turned on. Locally it is the same path on
+  `http://localhost:{{web_port}}`, under the same condition as passkeys.
 - **Two apps behind one Caddy port.** Laravel answers `/api`, `/sanctum`, `/horizon`, `/up` and `/storage` (plus
   `/kanban` locally); SvelteKit answers everything else. A Laravel path outside those prefixes is an edit to
   `docker/Caddyfile` and `docker/Caddyfile.local`, and `php artisan route:list` stays covered (laravel-deployment,
@@ -115,8 +130,14 @@ cp .env.prod.example .env.prod && docker compose --env-file .env.prod up -d --bu
   (`REDIS_QUEUE_RETRY_AFTER`, 90 s) > Horizon's job `timeout` (60 s) > the longest job. A longer job raises both, in
   that order, plus supervisor's `stopwaitsecs` for Horizon (70 s) and the compose `stop_grace_period` (80 s), so
   SIGTERM lets an in-flight job finish.
+<!-- unless:spa -->
 - **Health**: `docker/healthcheck.sh` checks `/up` and every process: the web server (Octane in prod; Caddy, php-fpm
   and Vite when it runs locally), the scheduler, Horizon and supervisord.
+<!-- endif -->
+<!-- if:spa -->
+- **Health**: `docker/healthcheck.sh` checks `/up` and every process: the web server (Octane in prod; Caddy, php-fpm
+  and SvelteKit's dev server when it runs locally), the scheduler, Horizon and supervisord.
+<!-- endif -->
 <!-- if:spa -->
   In prod also `127.0.0.1:3000/healthz` inside the container; `/healthz` answers 404 from outside.
 <!-- endif -->
@@ -124,7 +145,8 @@ cp .env.prod.example .env.prod && docker compose --env-file .env.prod up -d --bu
   It checks Reverb's process too.
 <!-- endif -->
 - **Prod** publishes `127.0.0.1:${WEB_PORT}` only. TLS ends at a reverse proxy on the host. Laravel trusts that proxy
-  through `TRUSTED_PROXIES` (`bootstrap/app.php`): its address as its requests arrive in the container. The entrypoint
+  through `TRUSTED_PROXIES` (`config('app.trusted_proxies')`, applied in `AppServiceProvider::boot()`): its address as
+  its requests arrive in the container. The entrypoint
   refuses an empty value. `OCTANE_WORKERS` × `PHP_MEMORY_LIMIT` fits the box's RAM.
 - **Xdebug** starts on trigger (`xdebug.start_with_request=trigger`): set the `XDEBUG_TRIGGER` cookie or query param,
   and map `/app` to the repo root in the IDE (`PHP_IDE_CONFIG=serverName={{app}}`). `XDEBUG_MODE` and

@@ -23,16 +23,27 @@ $fail = function (string $message) use (&$failures): void {
 $read = fn (string $file) => (string) @file_get_contents("{$repo}/{$file}");
 
 $skip = ['vendor', 'node_modules', '.git', 'skills', 'storage'];
-$files = new RecursiveIteratorIterator(new RecursiveCallbackFilterIterator(
-    new RecursiveDirectoryIterator($repo, FilesystemIterator::SKIP_DOTS),
-    fn (SplFileInfo $file) => ! ($file->isDir() && (in_array($file->getFilename(), $skip, true) || str_ends_with($file->getPathname(), '/bootstrap/cache'))),
-));
-foreach ($files as $file) {
-    if (! $file->isFile() || $file->getSize() > 1_000_000) {
+// the files git tracks or would add: card clones under .claude/worktrees and other ignored scratch are not the project's
+exec('git -C '.escapeshellarg($repo).' ls-files -z -co --exclude-standard 2>/dev/null', $listed, $code);
+if ($code === 0) {
+    $relatives = array_filter(explode("\0", implode("\n", $listed)), fn (string $path) => $path !== ''
+        && array_intersect(array_slice(explode('/', $path), 0, -1), $skip) === [] && ! str_contains("/{$path}", '/bootstrap/cache/'));
+} else {
+    $relatives = [];
+    $walk = new RecursiveIteratorIterator(new RecursiveCallbackFilterIterator(
+        new RecursiveDirectoryIterator($repo, FilesystemIterator::SKIP_DOTS),
+        fn (SplFileInfo $file) => ! ($file->isDir() && (in_array($file->getFilename(), $skip, true) || str_ends_with($file->getPathname(), '/bootstrap/cache'))),
+    ));
+    foreach ($walk as $file) {
+        $relatives[] = substr($file->getPathname(), strlen($repo) + 1);
+    }
+}
+foreach ($relatives as $relative) {
+    $path = "{$repo}/{$relative}";
+    if (! is_file($path) || filesize($path) > 1_000_000) {
         continue;
     }
-    $relative = substr($file->getPathname(), strlen($repo) + 1);
-    foreach (explode("\n", (string) file_get_contents($file->getPathname())) as $n => $line) {
+    foreach (explode("\n", (string) file_get_contents($path)) as $n => $line) {
         if (preg_match('/<!-- (if|unless):|<!-- endif/', $line) || preg_match_all('/\{\{([a-z_]+)\}\}/', $line, $m) && array_diff($m[1], ['hosting']) !== []) {
             $fail("{$relative}:".($n + 1).' unresolved template marker or placeholder');
         }

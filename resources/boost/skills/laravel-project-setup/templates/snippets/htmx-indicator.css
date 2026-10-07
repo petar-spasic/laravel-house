@@ -1,3 +1,4 @@
+<!-- if:htmx -->
 /* htmx request indicators — app.ts sets includeIndicatorStyles=false because
    the <style> htmx would inject is blocked by the CSP. */
 .htmx-indicator {
@@ -8,3 +9,4 @@
 .htmx-request.htmx-indicator {
     opacity: 1;
 }
+<!-- endif -->

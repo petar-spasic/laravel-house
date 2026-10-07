@@ -7,7 +7,6 @@ they do.
 |---|---|---|
 | `vite.config.js` | `vite.config.js`: keep its imports and `plugins`; drop `proxy`, `hmr` and `host: '0.0.0.0'` | htmx |
 | `phpunit.xml` | `phpunit.xml`: `bootstrap=` and the forced `<env>` list | all |
-| `bootstrap-app.php` | `bootstrap/app.php`'s `withMiddleware`: the `TRUSTED_PROXIES` block | all |
 | `env.dotenv` | `.env`, and `.env.example` with `COMPOSE_PROJECT_NAME` commented | all |
 | `config-database.php`, `TestCase-artisan.php` | `config/database.php`, `tests/TestCase.php` (`references/tenancy.md`) | tenancy |
 | `hosting-section.md` | `{{hosting}}` in the root `CLAUDE.md` | all |
@@ -33,9 +32,10 @@ The same file keeps runs apart. Two runs on one `{{app}}_test`, such as a worker
 deadlock Postgres or wipe each other's rows. So every top-level run takes `storage/framework/testing/db.lock`
 exclusively and waits for it. ParaTest's workers (`PARATEST` set) run under their parent's lock.
 
-## bootstrap/app.php: trusted proxies
+## Trusted proxies
 
-`TRUSTED_PROXIES` per tier:
+Laravel trusts the addresses in `TRUSTED_PROXIES`: `config('app.trusted_proxies')`, applied in
+`AppServiceProvider::boot()` (laravel-project-setup's `AppServiceProvider-boot.php` snippet). Per tier:
 
 - local: `127.0.0.1`, set in compose (why: SKILL.md, trap "Anyone on the LAN opens `/horizon`");
 - prod: the reverse proxy's address as its requests arrive in the container (`.env.prod`), plus `127.0.0.1` with spa
@@ -52,8 +52,7 @@ The host `.env` is the host-side env: `DB_*` and `REDIS_*` reach the sidecars th
 - Defaults live in `config/*.php`, as the `env()` default or a plain literal. `.env` files and compose `environment:`
   carry only what differs between tiers: credentials, hosts, `APP_KEY`, `APP_URL`, log level.
 - The test for each variable: would two environments ever want different values? No → a config literal.
-- `env()` is called only in `config/`, always with a default. The one exception is `TRUSTED_PROXIES` in
-  `bootstrap/app.php`, which runs before config loads.
+- `env()` is called only in `config/`, always with a default.
 - One name per concern. A second meaning gets a second variable (`REVERB_HOST` connects, `REVERB_SERVER_HOST` listens).
 - Fix drift on sight: `.env.example` entries nobody overrides, compose restating framework defaults, `env()` without a
   default, a variable present in one tier's env only.

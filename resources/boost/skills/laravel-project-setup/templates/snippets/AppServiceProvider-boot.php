@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Database\Schema\ColumnDefinition;
 use Illuminate\Database\Schema\ForeignIdColumnDefinition;
+use Illuminate\Http\Middleware\TrustProxies;
 <!-- if:htmx -->
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
@@ -16,6 +17,12 @@ use Illuminate\Support\Facades\RateLimiter;
 // boot():
 
         Model::shouldBeStrict(! $this->app->isProduction());
+
+        // config/app.php: 'trusted_proxies' => env('TRUSTED_PROXIES'). Read here, never through env() in
+        // bootstrap/app.php: a cached config leaves env() null there.
+        if (filled($proxies = config('app.trusted_proxies'))) {
+            TrustProxies::at($proxies === '*' ? '*' : array_map('trim', explode(',', $proxies)));
+        }
 
         // The primary key is added as a command, not as a fluent modifier: fluent indexes
         // compile after the foreign keys queued by constrained(), which breaks self-references.

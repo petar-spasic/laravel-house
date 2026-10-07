@@ -1,4 +1,4 @@
-<!-- house:begin: rendered from config/house.php by composer update; this project's rules go after house:end -->
+<!-- house:begin: rendered from config/house.php by composer update; this project's rules go after house:end and outrank it -->
 # CLAUDE.md — tests
 
 **Tests are end to end or not at all** (root `CLAUDE.md`). No unit or component tests, no tier ladder, no fail-first
@@ -10,8 +10,14 @@ Browser flows live in `frontend/e2e/` under the same rule (Browser flows, below)
 ## What is written
 
 Only E2E tests, in `tests/E2E/`: one whole flow per test through its real entry point (an HTTP request through
-routing, middleware, controller and database; an artisan command), asserting what a person or operator sees: the
-page, the flash, the payload, the records left behind. Behaviour-named (`it('…')`), `uses(RefreshDatabase::class)`.
+routing, middleware, controller and database; an artisan command), asserting what a person or operator sees:
+<!-- if:htmx -->
+the page, the flash, the payload, the records left behind.
+<!-- endif -->
+<!-- unless:htmx -->
+the status, the payload, the headers, the records left behind.
+<!-- endif -->
+Behaviour-named (`it('…')`), `uses(RefreshDatabase::class)`.
 
 - Seed the world with the factories; drive it through the entry point, never by calling a service, model or job.
 - Auth state comes through its route: `actingAs($user)` for a signed-in user, `POST route('password.confirm.store')`
@@ -37,18 +43,19 @@ Each is an E2E flow, written when the piece it proves is built.
 
 - Every write flow's denial test posts an invalid body as a user without access and asserts 403 (or 404), never 422:
   authorization runs before validation (`app/Http/Controllers/CLAUDE.md`).
-- Fortify: the shipped `FortifyViewRoutesTest` and `TwoFactorAuthenticationTest`.
+- Fortify: its routes and the two-factor flow, proved by the auth tests setup ships in `tests/E2E/`.
 <!-- if:htmx -->
 <!-- unless:auth-pages -->
-  The views flip rewrites the first (`resources/CLAUDE.md`, Auth pages).
+  The views flip rewrites the route test (`resources/CLAUDE.md`, Auth pages).
 <!-- endif -->
 <!-- if:auth-pages -->
-  The first proves the views on: the GET pages answer 200, and the JSON flows send `Accept: application/json`.
+  The route test proves the views on: the GET pages answer 200, and the JSON flows send `Accept: application/json`.
 <!-- endif -->
 <!-- endif -->
 - Social sign-in:
   - a vouched new user is created with a null password, linked and signed in, and the session id changes;
-  - an unvouched provider email creates no user, and an email collision is refused (guest, no row);
+  - an unvouched provider email creates no user and no link until the mailed link is opened in the same session;
+    opened in another session it creates nothing; an email collision is refused (guest, no row);
   - a returning user signs in by `provider_user_id`;
 <!-- if:htmx -->
   - linking while signed in is a POST and needs confirmation: unconfirmed, it redirects to the confirm page;
@@ -89,7 +96,12 @@ stack. The e2e site runs Laravel's CSRF token path, as a LAN http origin does (l
   resets `{{app}}_test`, builds and runs Playwright. The image holds the browser for the `@playwright/test` pin;
   never `playwright install`.
 - One user flow per test, named for what the user does. Each makes its own data (unique emails) through the UI or
-  Laravel's public API (Playwright's `request` fixture); no shared leftovers, no test-only endpoints.
+  Laravel's public API (Playwright's `request` fixture); no shared leftovers, no test-only endpoints. Data no flow
+  can make (a record from an outside system, an aged state) comes from one fixtures seeder that throws unless
+  `config('app.e2e')`, run by `docker/e2e-reset.sh` (laravel-deployment's `references/spa.md`).
+<!-- if:tenancy -->
+  It sets the tenant of each row it writes: it runs as the app role under row-level security.
+<!-- endif -->
 - Assert what the user sees (`getByRole`, `getByLabel`, text). No selectors into `ui/` internals, no sleeps.
 - A form's flow saves, reloads and asserts every field it renders.
 - Fakes live on the Laravel side, behind `config('app.e2e')`, which only the e2e site sets (Hosting). Never
@@ -124,8 +136,8 @@ input through the page and through Playwright's `request` fixture, and sees the 
 - `TestCase::setUp()` calls `withoutVite()`; a test needing real `@vite` output opts back in with `$this->withVite()`.
 <!-- endif -->
 <!-- if:spa -->
-- `php artisan test` refuses while an e2e run holds the test-database lock, and `docker/e2e.sh` refuses during a Pest
-  run: both use `{{app}}_test`. Wait for the other to end.
+- `php artisan test` and `docker/e2e.sh` share `{{app}}_test` through one lock: a second run, of either, waits for
+  the first to end, then runs.
 - The e2e site's Laravel is another process: phpunit's forced env, `Http::fake()` or `Socialite::fake()` never reach
   it (Hosting sets its env).
 <!-- endif -->

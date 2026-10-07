@@ -25,7 +25,12 @@
 
 ## Project Rules
 - **Rules live in `CLAUDE.md` files, one per directory.** A rule that applies to everything under a directory goes in that directory's `CLAUDE.md` (`app/Models/CLAUDE.md`, `database/CLAUDE.md`, …); Claude Code loads it automatically when working on a file beneath it. The root `CLAUDE.md` maps them ("Where the docs live"). Read the governing file before editing, and update it in the same commit when a change makes one of its rules false. House rules are rendered from `config/house.php` and never edited in place; this project's rules sit beside them (root `CLAUDE.md`, Where the docs live). A `CLAUDE.md` states rules, never an inventory of tests, routes, tables or flows: the code is the list.
+<!-- if:spa -->
+- **`.claude/rules/*.md` only for scattered file types** — rules that apply to a kind of file that is not uniformly placed (e.g. every `*.svelte` component wherever it lives, or a file pattern spanning `app/` and `tests/`). Each file carries `paths:` globs in its frontmatter and Claude Code applies it to matching files. Do not use it for anything a directory `CLAUDE.md` can hold.
+<!-- endif -->
+<!-- unless:spa -->
 - **`.claude/rules/*.md` only for scattered file types** — rules that apply to a kind of file that is not uniformly placed (e.g. every `*.blade.php` wherever it lives, or a file pattern spanning `app/` and `tests/`). Each file carries `paths:` globs in its frontmatter and Claude Code applies it to matching files. Do not use it for anything a directory `CLAUDE.md` can hold.
+<!-- endif -->
 - **No `.ai/rules` in this project** (`config/boost.php` turns Boost's rules and its `record-rule` tool off): they would duplicate the `CLAUDE.md` system and the two would drift. (`.ai/guidelines/` is different: it holds the house's overrides of Boost's built-in guidance, which `house:update` writes, and any override of a house topic under `petar-spasic/laravel-house/`.)
 
 ## Artisan

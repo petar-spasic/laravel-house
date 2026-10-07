@@ -57,7 +57,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends supervisor curl
 RUN install-php-extensions pcntl pdo_pgsql redis opcache intl
 
 ENV PHP_MEMORY_LIMIT=512M
-RUN printf 'memory_limit = ${PHP_MEMORY_LIMIT}\nopcache.enable=1\nopcache.validate_timestamps=0\n' > /usr/local/etc/php/conf.d/zz-{{app}}.ini
+# The image ships no php.ini: without the production one, display_errors and zend.assertions stay on.
+RUN cp "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini" \
+    && printf 'memory_limit = ${PHP_MEMORY_LIMIT}\nexpose_php = Off\nopcache.enable=1\nopcache.validate_timestamps=0\n' > "$PHP_INI_DIR/conf.d/zz-{{app}}.ini"
 
 COPY . /app
 COPY --from=composer-builder /app/vendor /app/vendor

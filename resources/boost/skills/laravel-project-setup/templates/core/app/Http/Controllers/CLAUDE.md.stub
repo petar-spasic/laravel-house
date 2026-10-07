@@ -1,28 +1,35 @@
-<!-- house:begin: rendered from config/house.php by composer update; this project's rules go after house:end -->
+<!-- house:begin: rendered from config/house.php by composer update; this project's rules go after house:end and outrank it -->
 # CLAUDE.md — app/Http/Controllers
 
 A controller action is HTTP translation ONLY, about 20 lines at most:
 
 1. **Authorize before validation** where the surface has authorization. A type-hinted FormRequest validates before
    the action's body runs, so a write route carries `->can('<ability>', '<model>')` (the route-bound model, or the
-   class for a create): a member without access gets 403, never a 422. `$this->authorize()` in the body is for actions
+   class for a create): a member without access gets 403, never a 422. `Gate::authorize()` in the body is for actions
    without a FormRequest. Public read-only pages have no authorization; token API routes authenticate in middleware.
 2. **Validate** in the endpoint's own FormRequest (`app/Requests/CLAUDE.md`).
 3. **Delegate** to a model method, a domain service, an `app/Contracts/` client or a ListQuery.
 <!-- if:htmx -->
 4. **Return** a Blade view (full page or fragment through `Controller::render()`, never an inline `HX-Request`
-   check), a Resource (`{data, meta}`) or a redirect (`HX-Redirect` for htmx callers). Raw `response()->json()` only
-   for non-entity aggregates.
+   check), a Resource (`{data, meta}`) or a redirect (`HX-Redirect` for htmx callers). JSON follows
+   `app/Http/CLAUDE.md`: a Resource for every entity.
 <!-- endif -->
 <!-- unless:htmx -->
-4. **Return** a Resource (`{data, meta}`) or a redirect. Raw `response()->json()` only for non-entity aggregates.
+4. **Return** a Resource (`{data, meta}`) for every entity. `response()->json()` only for a result that is no entity
+   (`app/Http/CLAUDE.md`).
 <!-- endif -->
 
 Never own what `app/CLAUDE.md` places below the controller: transactions, status writes, business computation,
 events, export plumbing.
 
 - Every `index()` delegates to `Services/{Resource}ListQuery::build(array): Builder`; the same instance backs any
-  export. Eager-load there what the view or Resource needs.
+  export. Eager-load there what the
+<!-- if:htmx -->
+  view or Resource needs.
+<!-- endif -->
+<!-- unless:htmx -->
+  Resource needs.
+<!-- endif -->
 - **Know which surface the action serves** (`routes/CLAUDE.md`).
 <!-- if:htmx -->
   A fragment endpoint is still an endpoint: the same auth, policy and validation as its page.

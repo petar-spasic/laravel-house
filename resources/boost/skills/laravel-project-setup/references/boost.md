@@ -46,8 +46,8 @@ change here, except a path its `config/house.php` lists under `overrides`.
 
 - `.ai/guidelines/foundation`, `laravel/core` and `boost/core` are Boost 2.10.2's with these hunks changed. After an
   upgrade, carry the new upstream text over and keep only these:
-  - `foundation`: Verification Scripts (E2E only); Frontend Bundling (the stack's dev server, and `frontend/` with
-    spa);
+  - `foundation`: the JS packages line (`frontend/package.json` with spa); dependencies (convention 6); Verification
+    Scripts (E2E only); Frontend Bundling (the stack's dev server, and `frontend/` with spa);
   - `laravel/core`: Testing (E2E only);
   - `boost/core`: the worktree database line under Tools; Project Rules (the `CLAUDE.md` system, no `@if`); Tinker
     without "prefer tests with factories".

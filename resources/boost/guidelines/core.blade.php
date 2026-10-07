@@ -75,6 +75,8 @@ slug, the versions, the modules): these guidelines, the part of each layer `CLAU
 update. A guideline or skill of this project's own under `.ai/` is its own.
 - This project's own rules go in the root `CLAUDE.md` above the Boost block, and in a layer `CLAUDE.md` after
   `house:end`. A rule that says to record or update something in a `CLAUDE.md` means that part.
+- **This project's own rule outranks the house rule it contradicts**, in the same file or the root. It says so:
+  "Here: … instead of the house's …". A security rule is loosened only with the owner's OK.
 - A house rule that does not fit this project is overridden whole, with the owner's OK: a guideline topic by
   `.ai/guidelines/petar-spasic/laravel-house/<topic>.blade.php`, any other house file by listing its path under
   `overrides` in `config/house.php`, then editing it.

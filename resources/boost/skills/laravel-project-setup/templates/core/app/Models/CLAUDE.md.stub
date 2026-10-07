@@ -1,4 +1,4 @@
-<!-- house:begin: rendered from config/house.php by composer update; this project's rules go after house:end -->
+<!-- house:begin: rendered from config/house.php by composer update; this project's rules go after house:end and outrank it -->
 # CLAUDE.md — app/Models
 
 Fat models and records that must not be rewritten: `app/CLAUDE.md`. Migrations: `database/CLAUDE.md`.
@@ -42,7 +42,14 @@ Corrections are new rows (`supersedes_id`); observation time is its own column, 
   never returned raw: the Resource is the leak boundary.
 - `User` is Fortify's and Sanctum's: `TwoFactorAuthenticatable`, `PasskeyAuthenticatable` (with the `PasskeyUser`
   contract) and `HasApiTokens` stay on it; the two-factor secret and recovery codes stay `Hidden`; `password` is cast
-  `hashed`. Profile and password rules live in `app/Actions/Fortify/`, not in the model.
+  `hashed`. Profile and password rules live
+<!-- if:spa -->
+  in their exported FormRequests (`app/Requests/Auth/`), which `app/Actions/Fortify/` validates with, never in the
+  model.
+<!-- endif -->
+<!-- unless:spa -->
+  in `app/Actions/Fortify/`, not in the model.
+<!-- endif -->
 - Social sign-in (when built): `SocialAccount` (`ID_PREFIX = 'sa'`) belongs to `User`, which gains
   `socialAccounts(): HasMany`. Provider tokens, if any, are `encrypted` and `Hidden` (root `CLAUDE.md`, Auth).
 - A semantic change here updates the project part of `app/CLAUDE.md` and `database/CLAUDE.md` in the SAME commit.

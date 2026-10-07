@@ -33,7 +33,7 @@ text, one fact per line; errors go to stderr. Card ids accept a unique prefix of
 
 | Command | Does |
 |---|---|
-| `status [--json]` | The brief: branch, unpushed, WIP, doing/review with agents and URLs, blocked, questions, why ready cards wait, hubs, rule files over 24 KB, pending upstream findings, checks |
+| `status [--json]` | The brief: branch, unpushed, WIP, doing/review with agents and URLs, blocked, questions, why ready cards wait, hubs, rule files over 40 KB, pending upstream findings, checks |
 | `list [--board= --epic= --stage= --type= --label= --all --json]` | Default: planning, ready, doing, review, plus blocked anywhere |
 | `show ID [--json --log=10 --plan]` | Header, body, criteria, the plan's size and commit, deps with stages, claim, work, agent state, log; at work the agent's spawn line, after a reject the message for the worker. `--plan` prints only the plan (exit 4 without one) |
 | `context [ID] [--evaluate]` | For agents; card from the cwd: notes (with the commit they were taken at), the diff's findings (new packages, TODOs, skipped tests, private addresses), the gates (`{main_branch}` resolved) and the database commands. A worker's names the plan (`show ID --plan` prints it) and where it may no longer hold; a planner's names an earlier plan to revise and a parked branch's work; `--evaluate` adds every report of the attempt, the diff stat and the merge resolutions to read |

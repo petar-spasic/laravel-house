@@ -55,10 +55,16 @@ Socialite is installed everywhere; social sign-in is built when a provider is tu
 - The flow runs in the `web` group with the OAuth state in the session; never `stateless()`.
 - `redirect` stores the flow (sign-in or link) in the session, plus the signed-in user's id for a link. The callback
   pulls them once and refuses when they are missing or the session user changed.
-- No linked account: a user is created only when registration is on, no user has the email, and the provider vouches
-  for it. It gets a null password and `email_verified_at` now.
-- **Vouching:** Google and LinkedIn-OpenID only when the raw `email_verified` claim is `true`; GitHub only with its
-  default `user:email` scope (never `setScopes()` without it); no other provider. Without a vouch, no sign-up.
+- No linked account: a user is created only when registration is on and no user has the email.
+  - The provider vouches for the email: the user is created now, with a null password and `email_verified_at` now.
+  - It does not: **verify first, create after.** The callback creates nothing. It keeps the pending sign-up
+    (provider, `provider_user_id`, email; no tokens) in the session and mails a signed, expiring link to that
+    address. Opening the link in that same session creates the user, verified, and its provider link; opened
+    anywhere else it does nothing. Never create an unverified user with a provider link attached: whoever later
+    proves the inbox would own an account the provider's user still signs in to.
+- **Vouching:** Google and LinkedIn-OpenID only when the raw `email_verified` claim is `true`; Apple when its ID
+  token's `email_verified` is `true` (private relay addresses included); GitHub only with its default `user:email`
+  scope (never `setScopes()` without it); no other provider.
 - **Never link by email**: it hands the account to whoever controls that address at the provider. An existing user
   with that email signs in their usual way and links the provider from their account.
 - Linking needs `password.confirm`. An account linked to another user is refused. Unlinking never removes the last

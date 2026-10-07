@@ -50,7 +50,7 @@ it('passes the migrations a branch adds with make:migration timestamps', functio
         ->and($run->getOutput())->toBe("migrations ok: 1 added\n");
 });
 
-it('refuses a migration timestamp that is round, shared or not newer than main', function (string $onMain, string $added, string $why) {
+it('refuses a migration timestamp that is no date, ahead of the clock, round, shared or not newer than main', function (string $onMain, string $added, string $why) {
     migration($this->p, $this->p->main, $onMain);
     migration($this->p, $this->wt, $added);
 
@@ -64,6 +64,15 @@ it('refuses a migration timestamp that is round, shared or not newer than main',
     'shared with main' => ['2026_01_10_093015_create_notes_table.php', '2026_01_10_093015_create_tags_table.php', 'is shared with another migration'],
     'older than main' => ['2026_03_01_080910_create_notes_table.php', '2026_02_03_141522_add_title_to_notes_table.php', "is not newer than main's newest migration (2026_03_01_080910)"],
 ]);
+
+it('passes a migration stamped in a timezone ahead of UTC', function () {
+    migration($this->p, $this->wt, gmdate('Y_m_d_His', time() + 13 * 3600).'_add_title_to_notes_table.php');
+
+    $run = $this->p->in($this->wt, ['migrations', '--base=main']);
+
+    expect($run->getExitCode())->toBe(0)
+        ->and($run->getOutput())->toBe("migrations ok: 1 added\n");
+});
 
 it('holds every reference-data id the branch started from, unless the branch adds a migration', function () {
     $this->p->commit($this->p->main, 'database/data/categories.json', json_encode([['id' => 'cat_0000000000000001', 'name' => 'Notes'], ['id' => 'cat_0000000000000002', 'name' => 'Lists']]), 'data');

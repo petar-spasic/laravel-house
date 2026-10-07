@@ -1,4 +1,4 @@
-<!-- house:begin: rendered from config/house.php by composer update; this project's rules go after house:end -->
+<!-- house:begin: rendered from config/house.php by composer update; this project's rules go after house:end and outrank it -->
 # CLAUDE.md — routes
 
 ## Every route belongs to exactly one surface
@@ -88,15 +88,16 @@ security change. A surface the project defines gets its own row in a table of th
 <!-- endif -->
 <!-- endif -->
   It sits under auth only, outside `tenant`, because a stale tab may switch. A tenant the user is not a member of is a
-  404; otherwise it writes session `tenant_id`.
+  404; otherwise it writes session `tenant_id` and the membership's `last_used_at`.
 <!-- if:reverb -->
 - Channels carrying tenant data are named `tenant.{tenantId}.…`; their callback checks membership of that tenant.
 <!-- endif -->
 <!-- endif -->
 - Route-model binding does the lookup; `->scopeBindings()` on nested resources, so
   `/projects/{project}/tasks/{task}` cannot fetch another project's task.
-- `routes/api.php` is loaded under `/api/v1` (`apiPrefix`, `bootstrap/app.php`). Every authenticated route uses
-  `auth:sanctum`, and no closure returns a model.
+- `routes/api.php` is loaded under `/api/v1` (`apiPrefix`, `bootstrap/app.php`). Every authenticated route sits in
+  one group with `auth:sanctum` and `cache.headers:private;no_store`, and no closure returns a model. A public `GET`
+  sits outside it and sets its own `cache.headers:public;max_age=…` when it may be cached.
 <!-- if:spa -->
 - The session probe: `GET /api/v1/auth/me` → `UserResource` (with `has_password` and `passkeys_count`), 401 when
   signed out. The SvelteKit app reads the user only from it.
@@ -166,10 +167,10 @@ redirect carries no stateful Referer or Origin.
 <!-- if:spa -->
 - `GET /api/auth/{provider}/redirect` (`social.redirect`) and `GET /api/auth/{provider}/callback`
   (`social.callback`). Failures land on `/login?social_error=<code>`; a 2FA user on `/two-factor-challenge`.
-- `POST /api/auth/{provider}/link` (`social.link`): `AcceptJson`, `auth`, `password.confirm`. It answers
+- `POST /api/auth/{provider}/link` (`social.link`): `AcceptJson`, `auth:sanctum`, `password.confirm`. It answers
   `{redirect: <provider URL>}`, and 423 until confirmed: `RequirePassword` decides with `expectsJson()`, and with
   views off there is no confirm page to redirect to.
-- `DELETE /api/auth/{provider}` (`social.unlink`): `AcceptJson`, `auth`, `password.confirm`.
+- `DELETE /api/auth/{provider}` (`social.unlink`): `AcceptJson`, `auth:sanctum`, `password.confirm`.
 - `GET /api/auth/providers`: the enabled providers as JSON, safe for a guest. The sign-in page renders its buttons
   from it.
 <!-- endif -->
@@ -177,7 +178,7 @@ redirect carries no stateful Referer or Origin.
 - `GET /auth/{provider}/redirect` (`social.redirect`) and `GET /auth/{provider}/callback` (`social.callback`).
 <!-- if:htmx -->
 - `POST /auth/{provider}/link` (`social.link`): `auth`, `password.confirm`. Never a GET, so no other site can start a
-  link.
+  link. Plain `auth` (the session), never `auth:sanctum`: Sanctum takes tokens only here.
 - `DELETE /auth/{provider}` (`social.unlink`): `auth`, `password.confirm`.
 - Both are plain forms (`@csrf`, `hx-boost="false"`; unlink adds `@method('DELETE')`), never htmx requests: link
   redirects to the provider, and an unconfirmed request gets a 302 to the confirm page.
@@ -188,6 +189,15 @@ redirect carries no stateful Referer or Origin.
   views off there is no confirm page to redirect to.
 - `DELETE /auth/{provider}` (`social.unlink`): `AcceptJson`, `auth`, `password.confirm`.
 <!-- endif -->
+<!-- endif -->
+<!-- if:spa -->
+- `GET /api/auth/social/confirm` (`social.confirm`): `signed`, the mailed link of a sign-up the provider did not vouch
+  for (root `CLAUDE.md`, Auth). It completes only in the session that started the sign-up, then redirects into the
+  SvelteKit app.
+<!-- endif -->
+<!-- unless:spa -->
+- `GET /auth/social/confirm` (`social.confirm`): `signed`, the mailed link of a sign-up the provider did not vouch for
+  (root `CLAUDE.md`, Auth). It completes only in the session that started the sign-up.
 <!-- endif -->
 - `{provider}` is checked per request against `services.socialite.providers` (unknown or off is a 404), never baked
   into the route pattern.

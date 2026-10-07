@@ -1,4 +1,4 @@
-<!-- house:begin: rendered from config/house.php by composer update; this project's rules go after house:end -->
+<!-- house:begin: rendered from config/house.php by composer update; this project's rules go after house:end and outrank it -->
 # CLAUDE.md — app/Contracts
 
 Interfaces are the seams between this app and everything outside it. Every external system gets one, so a flow runs

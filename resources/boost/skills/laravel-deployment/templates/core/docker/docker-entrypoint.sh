@@ -6,9 +6,10 @@ cd /app
 echo "=== {{app}} starting ==="
 # Variable names only: values carry credentials in too many shapes (URLs, DSNs, multi-line keys) to mask.
 echo "env: $(env -0 | while IFS= read -r -d '' kv; do echo "${kv%%=*}"; done | grep -v '^_' | sort | tr '\n' ' ')"
-# A number: Octane's `auto` (one worker per core) is not sized to the box's RAM.
+# A number: Octane's `auto` (one worker per core) is not sized to the box's RAM. FrankenPHP reads 0, 00 and the
+# like as auto, so a leading zero is refused too.
 case "${OCTANE_WORKERS:?OCTANE_WORKERS unset in .env.prod}" in
-    ''|*[!0-9]*|0) echo "OCTANE_WORKERS must be a positive number, never auto, got '${OCTANE_WORKERS}'"; exit 1 ;;
+    ''|*[!0-9]*|0*) echo "OCTANE_WORKERS must be a positive whole number without a leading zero, never auto, got '${OCTANE_WORKERS}'"; exit 1 ;;
 esac
 # Empty leaves the reverse proxy untrusted: every client shares its address and URLs come out http://.
 [ -n "${TRUSTED_PROXIES:-}" ] || { echo "TRUSTED_PROXIES is empty: set the reverse proxy's address as requests arrive in the container"; exit 1; }
@@ -76,7 +77,8 @@ php artisan view:cache
 # endif
 
 # exec: the program itself is supervisor's child and gets SIGTERM, so stopwaitsecs is honoured;
-# a `cmd | sed` wrapper would die first and the kernel would SIGKILL the real process.
+# a `cmd | sed` wrapper would die first and the kernel would SIGKILL the real process. startretries: supervisor's 3
+# leave Horizon FATAL through a Redis restart.
 program() { # name command [stopwaitsecs] [directory under /app]
 cat > "/etc/supervisor/conf.d/$1.conf" <<CONF
 [program:$1]
@@ -84,6 +86,8 @@ command=bash -c "exec $2 > >(sed -u 's/^/[$1] /') 2>&1"
 directory=/app${4:+/$4}
 autostart=true
 autorestart=true
+startsecs=5
+startretries=20
 stopasgroup=false
 killasgroup=true
 redirect_stderr=true

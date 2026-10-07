@@ -1,4 +1,4 @@
-<!-- house:begin: rendered from config/house.php by composer update; this project's rules go after house:end -->
+<!-- house:begin: rendered from config/house.php by composer update; this project's rules go after house:end and outrank it -->
 # CLAUDE.md — app/Providers (the explicit-registration hub)
 
 Almost nothing is auto-discovered, and **a missing registration fails silently**. The providers' registrations are
@@ -9,8 +9,8 @@ the inventory; check one by running its flow end to end.
 - **Contract → implementation bindings** (`app/Contracts/`). An unbound contract fails at runtime, so a new contract
   gets its binding in the same commit.
 - **`Gate::policy()`** for every policy, in `AppServiceProvider::boot()` (`app/Policies/CLAUDE.md`).
-- **`Event::listen` wiring**, the only event → listener registry (discovery is off in `bootstrap/app.php`). A
-  listener without a line never fires.
+- **`Event::listen` wiring**, the only event → listener registry (discovery is off in `bootstrap/app.php`); an Octane
+  event's listener is wired in `config/octane.php` `listeners` instead. A listener without a line never fires.
 - **Observers** with `Model::observe()` in `boot()`.
 <!-- if:htmx -->
 <!-- unless:auth-pages -->

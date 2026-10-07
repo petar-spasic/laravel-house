@@ -2,6 +2,8 @@
 
 namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
+use DateTimeImmutable;
+use DateTimeZone;
 use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
 use PetarSpasic\LaravelHouse\Kanban\Support\Git;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -13,7 +15,7 @@ class MigrationsCommand extends Command
         {--base= : The branch the migrations must be newer than (default: main_branch)}
         {--dir=database/migrations : The migrations directory}';
 
-    protected $description = 'Gate: the migrations this branch adds carry make:migration timestamps (not round, not shared, newer than the base)';
+    protected $description = 'Gate: the migrations this branch adds carry make:migration timestamps (real, not round, not shared, not ahead of the clock, newer than the base)';
 
     protected function perform(): int
     {
@@ -32,12 +34,18 @@ class MigrationsCommand extends Command
         // The base's files too: a migration main gained after the branch forked is not in HEAD yet.
         $all = array_count_values(array_filter(array_map(self::stamp(...), array_unique([...$onBase, ...$names(['ls-tree', '-r', '--name-only', 'HEAD', '--', $dir.'/'])]))));
 
+        // make:migration stamps in the app's timezone, which this command never reads: the latest any app can be ahead
+        // of UTC is UTC+14, and five minutes more cover a container's clock running behind.
+        $latest = gmdate('Y_m_d_His', time() + 14 * 3600 + 300);
+
         $problems = [];
         foreach ($added as $file) {
             if (($stamp = self::stamp($file)) === null) {
                 continue;
             }
             $why = match (true) {
+                ! self::isDateTime($stamp) => 'is not a date and time, a typed timestamp',
+                $stamp > $latest => 'is ahead of the clock, a typed timestamp',
                 str_ends_with($stamp, '0000') => 'ends in 0000, a typed timestamp',
                 ($all[$stamp] ?? 0) > 1 => 'is shared with another migration',
                 $stamp <= $newest => "is not newer than {$base}'s newest migration ({$newest})",
@@ -64,5 +72,12 @@ class MigrationsCommand extends Command
     private static function stamp(string $file): ?string
     {
         return preg_match('/^(\d{4}_\d{2}_\d{2}_\d{6})_\w+\.php$/', basename($file), $m) === 1 ? $m[1] : null;
+    }
+
+    private static function isDateTime(string $stamp): bool
+    {
+        $at = DateTimeImmutable::createFromFormat('!Y_m_d_His', $stamp, new DateTimeZone('UTC'));
+
+        return $at !== false && $at->format('Y_m_d_His') === $stamp;
     }
 }

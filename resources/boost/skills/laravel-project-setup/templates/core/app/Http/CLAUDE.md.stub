@@ -1,4 +1,4 @@
-<!-- house:begin: rendered from config/house.php by composer update; this project's rules go after house:end -->
+<!-- house:begin: rendered from config/house.php by composer update; this project's rules go after house:end and outrank it -->
 # CLAUDE.md — app/Http (framework HTTP layer)
 
 Scope: `app/Http/`. Only framework HTTP plumbing lives here: `Middleware/` (its own `CLAUDE.md`), the base
@@ -8,8 +8,9 @@ services, policies and jobs belong in their own `app/` directory; when in doubt,
 ## Hard rules
 
 - **Every request is validated in its own FormRequest** (`app/Requests/CLAUDE.md`).
-- **Every JSON response is its own API Resource**, collections and pagination included (`{data, meta}`). No
-  `->toArray()`, raw model or hand-built array from a controller (`app/Resources/CLAUDE.md`).
+- **Every entity in a JSON response is its own API Resource**, collections and pagination included
+  (`{data, meta}`): no `->toArray()`, raw model or hand-built array of one (`app/Resources/CLAUDE.md`).
+  `response()->json()` only for a result that is no entity: an aggregate, a challenge, a redirect URL.
 <!-- if:htmx -->
 - **HTML responses are Blade views or fragments.** Full page vs fragment is decided in ONE place,
   `Controller::render()` (below); no action checks `HX-Request` itself. Templates render explicit fields, never a
@@ -83,8 +84,10 @@ There is no `Http/Kernel.php`, and **a missing registration fails silently**. Ev
 `$middleware->alias([...])` call: each call replaces the whole alias map. The house names; create each under this name
 when first needed:
 
-- `cache.headers:private;no_store` appended to the `web` and `api` groups. A successful `GET`/`HEAD` with a body
-  answers `Cache-Control: no-store, private`.
+- `cache.headers:private;no_store` appended to the `web` group. A successful `GET`/`HEAD` with a body answers
+  `Cache-Control: no-store, private`. On `api` it goes on the authenticated routes' own group in `routes/api.php`
+  (`auth:sanctum` beside it), never on the whole `api` group: a group's header is written last and would make a
+  public API `GET` (`cache.headers:public;max_age=…` on its route) uncacheable.
 - `RequestId` prepended globally; `SecurityHeaders` appended globally. The Horizon path is exempt: its dashboard is an
   inline-script SPA behind the gate.
 <!-- if:htmx -->

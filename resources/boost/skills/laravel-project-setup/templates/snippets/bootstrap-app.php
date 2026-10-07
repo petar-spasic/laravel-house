@@ -1,7 +1,12 @@
 <?php
 
-// The shape of bootstrap/app.php. Merge it in, keeping what install:api / install:broadcasting added unless noted; the
-// TRUSTED_PROXIES block in withMiddleware is laravel-deployment's (its bootstrap-app.php snippet).
+<!-- if:reverb -->
+// The shape of bootstrap/app.php. Merge it in, keeping what install:api / install:broadcasting added unless noted.
+<!-- endif -->
+<!-- unless:reverb -->
+// The shape of bootstrap/app.php. Merge it in, keeping what install:api added unless noted.
+<!-- endif -->
+// Trusted proxies are AppServiceProvider::boot()'s (its snippet), never env() here.
 
 use App\Http\Middleware\AcceptJson;
 <!-- if:htmx -->
@@ -46,9 +51,9 @@ return Application::configure(basePath: dirname(__DIR__))
         // Fortify's group middleware (config/fortify.php); must run before `auth` decides JSON vs redirect.
         $middleware->prependToPriorityList(before: AuthenticatesRequests::class, prepend: AcceptJson::class);
 
-        // Every web and api response is private, no-store: no shared cache holds a personal one (app/Http/CLAUDE.md).
+        // Every web response is private, no-store: no shared cache holds a personal one. The api's authenticated routes
+        // carry it on their own group in routes/api.php, so a public api GET can be cached (app/Http/CLAUDE.md).
         $middleware->appendToGroup('web', 'cache.headers:private;no_store');
-        $middleware->appendToGroup('api', 'cache.headers:private;no_store');
 <!-- if:htmx -->
 
         // The `public` group (routes/CLAUDE.md). Its limiter is defined in AppServiceProvider::boot(), which also

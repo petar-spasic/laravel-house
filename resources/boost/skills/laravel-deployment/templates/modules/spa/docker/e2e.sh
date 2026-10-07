@@ -33,7 +33,7 @@ want_pw=$(node -p "require('./frontend/package-lock.json').packages['node_module
 have_pw=$(cat /ms-playwright/.version 2>/dev/null || true)
 [ -n "$want_pw" ] && [ "$want_pw" = "$have_pw" ] || { echo "@playwright/test ${want_pw:-missing} in frontend/package-lock.json, ${have_pw:-none} in the image: docker compose -f docker-compose.local.yml up -d --build"; exit 1; }
 
-# Pest's seed (TestCase #[Seeder]); each Playwright test makes its own data.
+# Pest's seed (TestCase #[Seeder]). A browser spec reaches no factory: its fixtures come from docker/e2e-reset.sh below.
 # unless:tenancy
 test_env php artisan migrate:fresh --seeder=ReferenceDataSeeder --force
 # endif
@@ -42,6 +42,12 @@ test_env php artisan migrate:fresh --seeder=ReferenceDataSeeder --force
 test_env php artisan migrate:fresh --database=pgsql_owner --seeder=ReferenceDataSeeder --force
 # endif
 test_env php artisan cache:clear
+# The project's own reset, on the test env: another stateful sidecar (a search index), and the browser fixtures, a
+# seeder that refuses to run unless config('app.e2e') (references/spa.md). Never edit this script for it.
+if [ -e docker/e2e-reset.sh ]; then
+    [ -x docker/e2e-reset.sh ] || { echo "docker/e2e-reset.sh is not executable: chmod +x it"; exit 1; }
+    test_env docker/e2e-reset.sh
+fi
 
 cd frontend
 # PUBLIC_* values are baked in at build: the browser's origin during the run.

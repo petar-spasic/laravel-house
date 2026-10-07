@@ -70,8 +70,9 @@ htmx: never turn Fortify's views on before the project's auth pages exist.
 
 Invoke laravel-deployment and run its whole Procedure, with the project's modules:
 - its templates, rendered with the project's modules and merged against the project's files;
-- its snippets: `vite.config.js`, `phpunit.xml`, `bootstrap/app.php` (`TRUSTED_PROXIES`), `.env` and the tenancy
-  project files; and the API-only root lockfile;
+- its snippets: `vite.config.js`, `phpunit.xml`, `.env` and the tenancy project files; and the API-only root
+  lockfile. Trusted proxies move from `bootstrap/app.php` to `config('app.trusted_proxies')`, applied in
+  `AppServiceProvider::boot()` (setup's `AppServiceProvider-boot.php` snippet);
 - the Hosting section, filled again from its rendered `hosting-section.md` snippet. The rendered root `CLAUDE.md` has
   only the `{{hosting}}` placeholder there, so the project's old Hosting text stays until this replaces it.
 

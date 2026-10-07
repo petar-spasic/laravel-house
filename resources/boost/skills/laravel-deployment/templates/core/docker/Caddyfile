@@ -10,7 +10,7 @@
 	# if:spa
 	# (logs, X-Real-IP to Node): php_server passes X-Forwarded-* to PHP untouched, so Laravel's TRUSTED_PROXIES
 	# endif
-	# (bootstrap/app.php) alone decides what Laravel sees. Strict: X-Forwarded-For is read right to left, never the
+	# (config/app.php) alone decides what Laravel sees. Strict: X-Forwarded-For is read right to left, never the
 	# client-controlled left-most entry.
 	servers {
 		trusted_proxies static private_ranges

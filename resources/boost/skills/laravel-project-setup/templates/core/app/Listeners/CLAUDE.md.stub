@@ -1,10 +1,11 @@
-<!-- house:begin: rendered from config/house.php by composer update; this project's rules go after house:end -->
+<!-- house:begin: rendered from config/house.php by composer update; this project's rules go after house:end and outrank it -->
 # CLAUDE.md — app/Listeners
 
 Listeners fire from jobs, commands and queues as well as HTTP, so they follow the off-request rules (`app/CLAUDE.md`):
 
 - Everything comes from the **event payload**, never from ambient state.
-- Each is wired by one `Event::listen` line (`app/Providers/CLAUDE.md`). Run the flow to see the event reach it.
+- Each is wired by one `Event::listen` line (`app/Providers/CLAUDE.md`), or by its entry in `config/octane.php`
+  `listeners` for an Octane event. Run the flow to see the event reach it.
 - A listener **dispatches** heavy work as a job with its own retry policy (`app/Jobs/CLAUDE.md`); it never does it
   itself.
 - It never calls an external system directly: the contract-backed client carries the timeout and retries.

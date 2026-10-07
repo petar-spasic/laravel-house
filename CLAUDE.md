@@ -283,7 +283,7 @@ for fe in '' htmx htmx,islands spa; do for rv in '' reverb; do for tn in '' tena
   grep -rn '{{' "$r" && echo "✗ braces [$m]"
   grep -rnE '<!-- (if|unless):|<!-- endif|^\s*# (if|unless):|^\s*# endif' "$r" && echo "✗ markers [$m]"
   for f in "$r"/docker/*.sh; do bash -n "$f" || echo "✗ bash $f [$m]"; [ -x "$f" ] || echo "✗ not executable $f [$m]"; done
-  for f in "$r"/snippets/*.php "$r"/tests/*.php; do php -l "$f" >/dev/null 2>&1 || echo "✗ lint $f [$m]"; done
+  for f in "$r"/snippets/*.php "$r"/tests/*.php; do [ -e "$f" ] || continue; php -l "$f" >/dev/null 2>&1 || echo "✗ lint $f [$m]"; done
   docker run --rm -v "$r:/app:ro" caddy:2 caddy adapt --config /app/docker/Caddyfile.local --adapter caddyfile >/dev/null 2>&1 || echo "✗ Caddyfile.local [$m]"
   docker run --rm -v "$r:/app:ro" -e APP_PUBLIC_PATH=/app/public -e CADDY_SERVER_ADMIN_HOST=localhost -e CADDY_SERVER_ADMIN_PORT=2019 -e CADDY_SERVER_LOG_LEVEL=INFO -e CADDY_SERVER_LOGGER=json -e CADDY_SERVER_SERVER_NAME=:8080 dunglas/frankenphp frankenphp adapt --config /app/docker/Caddyfile --adapter caddyfile >/dev/null 2>&1 || echo "✗ Caddyfile [$m]"
   printf 'COMPOSE_PROJECT_NAME=acme-local\nREVERB_APP_KEY=k\n' > "$r/.env"; printf 'APP_URL=https://example.com\nDB_PASSWORD=x\nDB_OWNER_PASSWORD=y\n' > "$r/.env.prod"

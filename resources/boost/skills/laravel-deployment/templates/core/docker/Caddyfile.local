@@ -121,6 +121,10 @@
 		encode zstd gzip
 		@healthz path /healthz /healthz/*
 		respond @healthz 404
+		# frontend/.env holds SvelteKit's private env: refused here as well as by Vite's server.fs.deny. Only these:
+		# Vite's own /.svelte-kit/* and /node_modules/.vite/* are dot paths too.
+		@dotenv path /.env /.env.*
+		respond @dotenv 404
 
 		# Laravel's paths; everything else is SvelteKit's. Never /horizon*: it also matches /horizonX. A new Laravel
 		# route moves under /api or joins @backend here and in docker/Caddyfile.

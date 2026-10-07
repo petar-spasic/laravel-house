@@ -1,4 +1,4 @@
-<!-- house:begin: rendered from config/house.php by composer update; this project's rules go after house:end -->
+<!-- house:begin: rendered from config/house.php by composer update; this project's rules go after house:end and outrank it -->
 # CLAUDE.md — app/Jobs
 
 Queues are Redis under Horizon (`config/horizon.php` decides which queues get workers). Jobs follow the off-request

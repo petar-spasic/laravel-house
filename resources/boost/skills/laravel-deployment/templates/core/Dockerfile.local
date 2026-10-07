@@ -1,6 +1,12 @@
 # {{app}} — local dev image. Caddy + php-fpm (not Octane: Xdebug breakpoints are
-# unreliable with warm workers), Node for Vite HMR, supervisor for the
-# scheduler + Horizon. Source is bind-mounted; deps install on start.
+# unreliable with warm workers), supervisor for the scheduler + Horizon, and Node for
+# unless:spa
+# Vite HMR.
+# endif
+# if:spa
+# SvelteKit's dev server and the browser tests.
+# endif
+# Source is bind-mounted; deps install on start.
 # The PHP extension list mirrors the prod Dockerfile (+ zip for composer, xdebug).
 # if:spa
 # The @playwright/test version frontend/package-lock.json pins, empty until frontend/ exists; the browser layer
@@ -14,7 +20,7 @@ RUN if [ -f /tmp/ctx/package-lock.json ]; then node -p "require('/tmp/ctx/packag
 FROM php:{{php_version}}-fpm-bookworm
 WORKDIR /app
 
-# NodeSource: Debian's nodejs is older than Vite needs. git + unzip: composer; openssh-client: the board's sync.
+# NodeSource: Debian's nodejs is older than the frontend's tooling needs. git + unzip: composer; openssh-client: the board's sync.
 RUN apt-get update && apt-get install -y --no-install-recommends supervisor curl git openssh-client unzip procps postgresql-client ca-certificates gnupg \
     && curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*

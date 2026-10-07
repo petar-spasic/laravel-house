@@ -1,4 +1,4 @@
-<!-- house:begin: rendered from config/house.php by composer update; this project's rules go after house:end -->
+<!-- house:begin: rendered from config/house.php by composer update; this project's rules go after house:end and outrank it -->
 # CLAUDE.md — database (migrations / factories / seeders)
 
 Domain invariants for the tables live in `app/CLAUDE.md` and `app/Models/CLAUDE.md`.
@@ -91,8 +91,8 @@ $table->timestamps();
   removals. An importer that regenerates these files reads the existing ids and keeps them.
 - **Admins before roles exist**: `config('auth.admins')` from `ADMIN_EMAILS`, created verified for the `viewHorizon`
   gate (`app/Providers/CLAUDE.md`). When roles land, only the gate body and the seeders change.
-- Every model gets a factory with **named states** for the lifecycle (`->pending()`, `->archived()`), so tests never
-  hand-set a status. Factories are the sanctioned way to seed non-fillable state.
+- Every model that is not reference data gets a factory with **named states** for the lifecycle (`->pending()`,
+  `->archived()`), so tests never hand-set a status. Factories are the sanctioned way to seed non-fillable state.
 - **Production seeders never touch factories or `fake()`**: Faker is `--dev`, so the container would crash-loop.
 - Never put real credentials, emails or external identifiers in a seeder or factory.
 <!-- if:tenancy -->
@@ -102,8 +102,8 @@ $table->timestamps();
 **Global tables** (no RLS):
 - `tenants`: `prefixedId()`, `name`, timestamps.
 - `tenant_user`: `foreignPrefixedId('tenant_id')->constrained()->cascadeOnDelete()`,
-  `foreignId('user_id')->constrained()->cascadeOnDelete()`, `role`, timestamps; primary key `(tenant_id, user_id)`;
-  index `user_id`.
+  `foreignId('user_id')->constrained()->cascadeOnDelete()`, `role`, `timestamp('last_used_at')->nullable()`,
+  timestamps; primary key `(tenant_id, user_id)`; index `user_id`.
 - `users`.
 - `personal_access_tokens`. Its non-null `tenant_id`
   (`foreignPrefixedId('tenant_id')->constrained()->cascadeOnDelete()`) comes in its own migration dated after

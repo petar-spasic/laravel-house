@@ -1,4 +1,4 @@
-<!-- house:begin: rendered from config/house.php by composer update; this project's rules go after house:end -->
+<!-- house:begin: rendered from config/house.php by composer update; this project's rules go after house:end and outrank it -->
 # CLAUDE.md — Frontend (SvelteKit)
 
 Scope: `frontend/`, the SvelteKit app on Node. It reaches Laravel only over HTTP on the page's own origin; Caddy splits
@@ -145,7 +145,8 @@ sveltekit-superforms.
   calls Laravel through the browser client and maps a 422 with the same helper.
 - **The 422 helper**, `applyLaravelErrors(form, errors, adapter)` in `src/lib/forms/laravel-errors.ts`, calls
   `setError` once per key:
-  - branches come from `adapter.shape` (the full `zod4` adapter), never `form.shape` (undefined on a posted form);
+  - branches come from `adapter.jsonSchema` (the full `zod4` adapter's), never `adapter.shape` (it leaves out
+    primitive fields) or `form.shape` (undefined on a posted form);
   - dotted keys become superforms paths: `items.0.name` → `items[0].name`;
   - a key naming an object or an array (`items`, `address`, `items.3`) gets `._errors`;
   - a key outside the schema becomes a form-level error: `setError(form, '', messages)`.
@@ -189,8 +190,11 @@ One module, `src/lib/api/client.ts`, takes the `fetch` it is given, so the same 
   passkey login). After Laravel's success:
   1. `/sanctum/csrf-cookie` again, because the session was regenerated;
   2. ONE serial `GET /api/v1/auth/me`;
-  3. `goto(target, { invalidateAll: true })`.
-- Logout: `POST /api/auth/logout`, then `/sanctum/csrf-cookie`, then `goto('/login', { invalidateAll: true })`.
+  3. the `signed_in=1` marker cookie (`path=/`, `SameSite=Lax`, `Secure` off localhost): a hint for `handle`, never
+     proof of anything;
+  4. `goto(target, { invalidateAll: true })`.
+- Logout: `POST /api/auth/logout`, then `/sanctum/csrf-cookie`, then the marker cleared, then
+  `goto('/login', { invalidateAll: true })`.
 
 ### Server: `handleFetch`
 
@@ -258,8 +262,10 @@ check of an anonymous call from Node. These pages need JavaScript and say so in 
 - **`handle`** in `src/hooks.server.ts` does three things, in this order:
   1. `/healthz` returns `new Response('ok')`, for the container healthcheck on 127.0.0.1:3000. It never reads the
      client address (with `ADDRESS_HEADER` set, that throws without the header) and never calls Laravel.
-  2. Only when the request carries the `XSRF-TOKEN` cookie, `probeSession(event.fetch)` fills `event.locals.user`
-     (`null` on a 401). An anonymous request makes no Laravel call.
+  2. Only when the request carries the `signed_in` marker, `probeSession(event.fetch)` fills `event.locals.user`
+     (`null` on a 401, which also deletes the marker). Never decide by the `XSRF-TOKEN` cookie: anyone who once
+     opened `/login` carries it, and every page they open would call Laravel and lose its public caching. An
+     anonymous request makes no Laravel call.
   3. A response to a request that carried the session gets `Cache-Control: private, no-store`.
 - **Route groups**: `(public)` for anyone; `(guest)` for the sign-in pages, which send a signed-in user away; `(app)`
   for signed-in users only.
@@ -298,12 +304,13 @@ check of an anonymous call from Node. These pages need JavaScript and say so in 
 
 ## Content Security Policy
 
-`csp` sits in the `sveltekit({ … })` options with `mode: 'auto'`: SSR responses get a nonce header, prerendered pages
-a `<meta>` with hashes.
+`csp` sits in the `sveltekit({ … })` options with `mode: 'hash'`: every response, SSR or prerendered, lists the hashes
+of its own inline scripts. Never `'auto'` or `'nonce'`: a public SSR page is held by a shared cache (`s-maxage`,
+below), which would hand one nonce to every visitor, and a nonce known in advance protects nothing.
 
 ```ts
 csp: {
-  mode: 'auto',
+  mode: 'hash',
   directives: {
     'default-src': ['self'],
     'script-src': ['self'],
@@ -325,8 +332,8 @@ csp: {
   in a component or under `static/`.
 - **`frame-ancestors` on prerendered pages**: a `<meta>` policy drops it, so Caddy adds `frame-ancestors 'none'` for
   prerendered files, and never a second full policy on SSR paths (Hosting).
-- **New origins** (a CDN) join `svelte.config.js` in the same commit as the code that needs them, each named after
-  `house:end` below.
+- **New origins** (a CDN) join the `csp` directives in `vite.config.ts` in the same commit as the code that needs
+  them, each named after `house:end` below.
 <!-- if:reverb -->
 - **Reverb**: Echo connects to the page's own origin and Caddy sends `/app/*` to Reverb, so `connect-src 'self'`
   covers it.

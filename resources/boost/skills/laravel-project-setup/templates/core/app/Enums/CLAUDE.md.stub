@@ -1,4 +1,4 @@
-<!-- house:begin: rendered from config/house.php by composer update; this project's rules go after house:end -->
+<!-- house:begin: rendered from config/house.php by composer update; this project's rules go after house:end and outrank it -->
 # CLAUDE.md — app/Enums
 
 Enums are the domain vocabulary: string-backed, TitleCase cases. Codes and display labels live HERE (`label()`,

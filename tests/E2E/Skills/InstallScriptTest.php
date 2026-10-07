@@ -466,3 +466,71 @@ it('follows the board page\'s token redirect to the page', function () {
     expect($verify->getOutput())->toBe('')->and($verify->getExitCode())->toBe(0)
         ->and(file_get_contents(dirname($render).'/calls.log'))->toContain('/kanban?token=s3cret');
 });
+
+it('reports a placeholder only in the files git tracks or would add, never in an ignored card clone', function () {
+    $repo = skeleton();
+    fresh($repo, 'htmx');
+    file_put_contents("{$repo}/.gitignore", "/.claude/worktrees\n", FILE_APPEND);
+    @mkdir("{$repo}/.claude/worktrees/x/app", 0775, true);
+    file_put_contents("{$repo}/.claude/worktrees/x/app/Note.php", "<?php // {{app_name}}\n");
+    file_put_contents("{$repo}/app/Note.php", "<?php // {{app_name}}\n");
+    (new Process(['git', '-C', $repo, 'add', 'app/Note.php']))->mustRun();
+
+    $verify = verifySetup($repo);
+
+    expect($verify->getOutput())->toContain("✗ app/Note.php:1 unresolved template marker or placeholder\n")
+        ->not->toContain('.claude/worktrees');
+});
+
+it('boots prod only with a whole number of Octane workers and keeps supervisor retrying through a Redis restart', function (string|false $workers, bool $boots) {
+    $out = deployment('');
+    $script = file_get_contents("{$out}/docker/docker-entrypoint.sh");
+    $start = (int) strpos($script, 'case "${OCTANE_WORKERS');
+    $check = substr($script, $start, strpos($script, "\nesac\n", $start) + 6 - $start);
+
+    $run = new Process(['bash', '-c', "set -e\n{$check}echo booted"], $out, ['OCTANE_WORKERS' => $workers]);
+    $run->run();
+
+    expect($run->getExitCode())->toBe($boots ? 0 : 1)
+        ->and(str_contains($run->getOutput(), 'booted'))->toBe($boots);
+    foreach (['docker-entrypoint.sh', 'docker-entrypoint-local.sh'] as $entrypoint) {
+        expect(file_get_contents("{$out}/docker/{$entrypoint}"))->toContain("\nstartsecs=5\nstartretries=20\n");
+    }
+})->with([
+    'four' => ['4', true],
+    'twelve' => ['12', true],
+    'zero' => ['0', false],
+    'double zero' => ['00', false],
+    'leading zero' => ['04', false],
+    'auto' => ['auto', false],
+    'empty' => ['', false],
+    'unset' => [false, false],
+]);
+
+it('runs the project\'s executable docker/e2e-reset.sh on the test env after the database reset', function () {
+    $script = file_get_contents(deployment('spa').'/docker/e2e.sh');
+    $start = (int) strpos($script, "\ntest_env php artisan cache:clear\n") + 1;
+    $hook = substr($script, $start, strpos($script, "\ncd frontend\n") - $start);
+    $dir = Sandbox::tmp();
+    mkdir("{$dir}/docker");
+    $run = function () use ($dir, $hook): Process {
+        $process = new Process(['bash', '-c', "set -e\ntest_env() { [ \"\$1\" = php ] || env APP_E2E=true \"\$@\"; }\n{$hook}\necho done"], $dir);
+        $process->run();
+
+        return $process;
+    };
+
+    $none = $run();
+    file_put_contents("{$dir}/docker/e2e-reset.sh", "#!/bin/bash\necho \"reset APP_E2E=\$APP_E2E\"\n");
+    $notExecutable = $run();
+    chmod("{$dir}/docker/e2e-reset.sh", 0755);
+    $ran = $run();
+    file_put_contents("{$dir}/docker/e2e-reset.sh", "#!/bin/bash\nexit 3\n");
+    $failed = $run();
+
+    expect($none->getExitCode())->toBe(0)->and($none->getOutput())->toBe("done\n")
+        ->and($notExecutable->getExitCode())->toBe(1)
+        ->and($notExecutable->getOutput())->toBe("docker/e2e-reset.sh is not executable: chmod +x it\n")
+        ->and($ran->getOutput())->toBe("reset APP_E2E=true\ndone\n")
+        ->and($failed->getExitCode())->toBe(3)->and($failed->getOutput())->toBe('');
+});

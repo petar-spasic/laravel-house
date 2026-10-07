@@ -8,7 +8,12 @@ This application is a Laravel application running on PHP {{ PHP_MAJOR_VERSION }}
 
 Before relying on a package's API, confirm its installed version:
 - PHP packages: run `{{ $assist->composerCommand('show --direct') }}` to list direct dependencies with versions, or `{{ $assist->composerCommand('show <vendor/package>') }}` for a single package.
+<!-- if:spa -->
+- JS packages: check `frontend/package.json` for the installed versions.
+<!-- endif -->
+<!-- unless:spa -->
 - JS packages: check `package.json` for the installed versions.
+<!-- endif -->
 
 @if (! empty(config('boost.purpose')))
 Application purpose: {!! config('boost.purpose') !!}
@@ -30,7 +35,7 @@ This project has domain-specific skills available in `**/skills/**`. You MUST ac
 
 ## Application Structure & Architecture
 - Stick to existing directory structure; don't create new base folders without approval.
-- Do not change the application's dependencies without approval.
+- Add or change a dependency only as convention 6 allows (root `CLAUDE.md`): a package that passes its maintenance check is added without asking.
 
 ## Frontend Bundling
 <!-- unless:spa -->

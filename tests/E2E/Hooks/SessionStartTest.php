@@ -285,13 +285,15 @@ it('counts the doing cards of this machine against max_parallel, and names the o
     expect($lines[1])->toStartWith('WIP doing 1/6 (+1 elsewhere), review 0/6');
 });
 
-it('names the rule files over 24 KB, so a pruning card keeps them lean', function () {
+it('names the rule files over 40 KB, so a pruning card keeps them lean', function () {
     $p = ProtocolSandbox::create();
     mkdir($p->main.'/frontend');
-    file_put_contents($p->main.'/frontend/CLAUDE.md', str_repeat("A rule.\n", 4000));
+    mkdir($p->main.'/routes');
+    file_put_contents($p->main.'/frontend/CLAUDE.md', str_repeat("A rule.\n", 6000));
+    file_put_contents($p->main.'/routes/CLAUDE.md', str_repeat("A rule.\n", 4000));
     file_put_contents($p->main.'/notes.md', str_repeat("Not a rule file.\n", 4000));
-    $p->sandbox->git('add', 'frontend/CLAUDE.md', 'notes.md');
+    $p->sandbox->git('add', 'frontend/CLAUDE.md', 'routes/CLAUDE.md', 'notes.md');
     $p->sandbox->git('commit', '-qm', 'rules');
 
-    expect($p->sandbox->ok('status'))->toContain("\nrules over 24 KB (prune them): frontend/CLAUDE.md 31 KB\n");
+    expect($p->sandbox->ok('status'))->toContain("\nrules over 40 KB (prune them): frontend/CLAUDE.md 46 KB\n");
 });

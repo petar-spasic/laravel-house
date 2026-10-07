@@ -51,7 +51,7 @@ resolves. A row marked with a module belongs to that module only.
 | `docker/postgres/roles.sql` (tenancy) | the app's database role `{{app}}_app` and its grants |
 | `tests/bootstrap.php` | forced phpunit `<env>` mirrored into `$_SERVER`; one test run at a time (a lock the next run waits on) |
 | `.dockerignore`, `.env.prod.example` | the build context (never `public/hot`, `vendor/` or the FrankenPHP binary); the production env |
-| `snippets/` | `vite.config.js`, `phpunit.xml`, `bootstrap/app.php`, `.env`, the tenancy project files and the Hosting section (`references/project-files.md`) |
+| `snippets/` | `vite.config.js`, `phpunit.xml`, `.env`, the tenancy project files and the Hosting section (`references/project-files.md`) |
 
 Placeholders, each a `--set`: `app` the slug · `app_name` its `APP_NAME` · `php_version` the one PHP minor of host,
 lock and images · `web_port`, `db_port`, `redis_port` main's host ports · `ws_port` Reverb's host port (reverb without
