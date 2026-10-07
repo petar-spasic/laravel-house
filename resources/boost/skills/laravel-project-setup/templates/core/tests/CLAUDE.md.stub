@@ -1,3 +1,4 @@
+<!-- house:begin: rendered from config/house.php by composer update; this project's rules go after house:end -->
 # CLAUDE.md — tests
 
 **Tests are end to end or not at all** (root `CLAUDE.md`). No unit or component tests, no tier ladder, no fail-first
@@ -38,7 +39,12 @@ Each is an E2E flow, written when the piece it proves is built.
   authorization runs before validation (`app/Http/Controllers/CLAUDE.md`).
 - Fortify: the shipped `FortifyViewRoutesTest` and `TwoFactorAuthenticationTest`.
 <!-- if:htmx -->
+<!-- unless:auth-pages -->
   The views flip rewrites the first (`resources/CLAUDE.md`, Auth pages).
+<!-- endif -->
+<!-- if:auth-pages -->
+  The first proves the views on: the GET pages answer 200, and the JSON flows send `Accept: application/json`.
+<!-- endif -->
 <!-- endif -->
 - Social sign-in:
   - a vouched new user is created with a null password, linked and signed in, and the session id changes;
@@ -166,3 +172,4 @@ input through the page and through Playwright's `request` fixture, and sees the 
    queued behind it so the worker still holds A's setting, fails. Call `Context::forgetHidden('tenant_id')` before
    that dispatch: the test process keeps the earlier request's Context, so the job would carry A and succeed.
 <!-- endif -->
+<!-- house:end -->

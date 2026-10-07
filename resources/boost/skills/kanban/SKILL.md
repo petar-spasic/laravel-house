@@ -154,7 +154,10 @@ While `kanban run` is not running (between hand-backs), so no answered card star
 - **The owner answers:** `answer` records it, clears the block and promotes the card; rewrite the criteria it changes,
   and the other open cards it changes too.
 - **A standing rule** the owner states goes into the `CLAUDE.md` of the directory it governs, as a criterion on the
-  first card that needs it, or straight away when the owner asks.
+  first card that needs it, or straight away when the owner asks. With a `config/house.php`, never into a house rule
+  (between `house:begin` and `house:end`, an `.ai/` file setup's templates ship, the root `CLAUDE.md`'s Boost block):
+  those are rendered, so a rule that changes one is an override (the root `CLAUDE.md`, Where the docs live): the file
+  under `overrides` in `config/house.php`, or a root topic in `.ai/guidelines/petar-spasic/laravel-house/`.
 - `docs/kanban/decisions.md` is the read-only archive of decisions recorded before the board had questions.
 
 ## New work

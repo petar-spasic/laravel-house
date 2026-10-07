@@ -39,8 +39,8 @@ closure from `routes/api.php`.
 - Merge `FortifyServiceProvider-boot.php` into `FortifyServiceProvider`. It sets the reset-link URL and the
   `auth-forms` limiter; with spa it also points the verify-email link at the frontend.
 - htmx: the views stay off until the project has built its Blade pages. With views on and no pages, every GET auth
-  page answers 500. The commit that adds the last page turns them on (`resources/CLAUDE.md`, Auth pages). Until then
-  `tests/E2E/FortifyViewRoutesTest.php` asserts 405 on the GET pages.
+  page answers 500. The commit that adds the last page turns them on and records `auth-pages` in `config/house.php`
+  (`resources/CLAUDE.md`, Auth pages). Until then `tests/E2E/FortifyViewRoutesTest.php` asserts 405 on the GET pages.
 - API-only and spa: the client renders every auth page, so the views stay off for good.
 
 ## User model

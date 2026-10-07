@@ -1,3 +1,4 @@
+<!-- house:begin: rendered from config/house.php by composer update; this project's rules go after house:end -->
 # CLAUDE.md — Frontend (SvelteKit)
 
 Scope: `frontend/`, the SvelteKit app on Node. It reaches Laravel only over HTTP on the page's own origin; Caddy splits
@@ -324,7 +325,8 @@ csp: {
   in a component or under `static/`.
 - **`frame-ancestors` on prerendered pages**: a `<meta>` policy drops it, so Caddy adds `frame-ancestors 'none'` for
   prerendered files, and never a second full policy on SSR paths (Hosting).
-- **New origins** (a CDN) are added here in the same commit as the code that needs them.
+- **New origins** (a CDN) join `svelte.config.js` in the same commit as the code that needs them, each named after
+  `house:end` below.
 <!-- if:reverb -->
 - **Reverb**: Echo connects to the page's own origin and Caddy sends `/app/*` to Reverb, so `connect-src 'self'`
   covers it.
@@ -413,3 +415,4 @@ The tenant appears in a body only as the `_tenant` marker or the switcher's `ten
   `validation:export --check` first, so it needs php.
 - `npm run check:ui` when `ui/`, `components.json` or the `shadcn-svelte` pin changed.
 - The Playwright flows and Pest tests the change touches (`tests/CLAUDE.md`).
+<!-- house:end -->

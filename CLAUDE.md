@@ -4,10 +4,11 @@ The owner's house package for Laravel projects. Its skills are served two ways f
 - a Claude Code plugin marketplace (`.claude-plugin/`), installed at user scope to start new projects;
 - a composer dev package whose skills Laravel Boost copies into a project's `.claude/skills/`.
 
-The composer package also ships PHP to every project that requires it: the `validation:export` command, and the kanban
-board. The board is a git-backed board on an orphan `kanban` branch checked out at `docs/kanban`, the `vendor/bin/kanban`
-CLI, a local `/kanban` UI, Claude Code hooks and agents, and one clone of main and one Docker stack per card. A project
-goes on the board only through `/implement-kanban` (`kanban:install`).
+The composer package also ships PHP to every project that requires it: the `validation:export` command, `house:update`
+with the house guidelines Boost renders into a house project's root `CLAUDE.md`, and the kanban board. The board is a
+git-backed board on an orphan `kanban` branch checked out at `docs/kanban`, the `vendor/bin/kanban` CLI, a local
+`/kanban` UI, Claude Code hooks and agents, and one clone of main and one Docker stack per card. A project goes on the
+board only through `/implement-kanban` (`kanban:install`).
 
 Consumers read `README.md` and the skills. This file is for working **on** the package.
 
@@ -19,6 +20,7 @@ Consumers read `README.md` and the skills. This file is for working **on** the p
 | `.claude-plugin/marketplace.json` | The marketplace; its one plugin's `source` is the repository root (`"./"`) |
 | `.claude-plugin/plugin.json` | The plugin; `"skills": "./resources/boost/skills/"` makes the same directory its skills |
 | `src/LaravelHouseServiceProvider.php`, `src/Validation/*` | The `validation:export` command |
+| `resources/boost/guidelines/*.blade.php`, `src/Rules/*` | The root house rules as Boost package guidelines (`@houserules`, registered by the provider, holds only with a project's `config/house.php`, read by setup's `scripts/HouseConfig.php` as `install.php` reads it); `house:update`, which runs setup's `install.php --update` |
 | `src/Kanban/KanbanServiceProvider.php` | The board's provider: config, the `kanban:*` commands, the `/kanban` routes and views |
 | `src/Kanban/Store/**`, `src/Kanban/Schema/*`, `schema/*.json` | Store contract, git driver (writes, batches, merge driver, sync and its status, claims, the upgrade of older formats to version 3), validation |
 | `src/Kanban/Policy/*` | Transitions, ready policy, the plan (its format and when it is current), pull order, edits and creation, fold, shape (the card-cutting hints) |
@@ -59,7 +61,8 @@ would load here as live instructions. Never rename one back.
      setup's `scripts/install.php --templates` renders; the Hosting section; the spa path split (`references/spa.md`);
      tenancy's database roles (`references/tenancy.md`).
    - `laravel-project-setup`: seeding, conventions, the PHP minor, ports, the Horizon gate; which modules combine (its
-     SKILL.md Modules table and `install.php`); the core-auth and tenancy rules (the `CLAUDE.md` stubs); the spa
+     SKILL.md Modules table and `install.php`); the core-auth and tenancy rules (the `CLAUDE.md` stubs and
+     `resources/boost/guidelines`); the spa
      frontend rules (`templates/modules/spa/frontend/CLAUDE.md.stub`).
    - `src/Validation`: what `validation:export` does.
    - `README.md`: what a consumer reads, the board included. It describes and points; it never restates rule text.
@@ -68,9 +71,11 @@ would load here as live instructions. Never rename one back.
    extension here.
 7. **Dependencies:**
    - require: `php` and `laravel/framework` ^12|^13 only. require-dev: `orchestra/testbench`, `pestphp/pest`,
-     `laravel/pint` only. conflict: `petar-spasic/laravel-kanban`.
+     `laravel/pint`, and `laravel/boost` (`HouseRulesTest` renders the guidelines through it) only. conflict:
+     `petar-spasic/laravel-kanban`.
    - Nothing else without the owner's OK: no JSON-schema, Markdown or JS libraries.
-   - `src/` is autoloaded (`PetarSpasic\LaravelHouse\` → `src/`); both providers are discovered through
+   - `src/` is autoloaded (`PetarSpasic\LaravelHouse\` → `src/`), and setup's `scripts/HouseConfig.php` by classmap
+     (`install.php` requires it where there is no Composer); both providers are discovered through
      `extra.laravel.providers`.
    - No hosted CI and no `.github/workflows`: checks run locally before a push.
    - Commits carry no Co-Authored trailer. `githooks/commit-msg` rejects one, and this repo uses it
@@ -95,8 +100,11 @@ would load here as live instructions. Never rename one back.
    - Templates ship the infrastructure (Dockerfiles, compose, Caddyfiles, entrypoints, healthcheck) and the files
      under `templates/` today: the backend files, the htmx and islands boot files, `config/boost.php` and the Boost
      overrides, the snippets, the E2E tests. They stay.
-   - Every module's frontend, Socialite and tenancy ship as binding rules in the `CLAUDE.md` stubs.
-   - Module text sits in `<!-- if:m -->` blocks, or `# if:m` … `# endif` in files that are not Markdown. A deployment
+   - Every module's frontend, Socialite and tenancy ship as binding rules in the `CLAUDE.md` stubs and the guidelines.
+   - Module text sits in `<!-- if:m -->` blocks, or `# if:m` … `# endif` in files that are not Markdown, or
+     `@houserules('m')` … `@endhouserules` in a guideline, whose first line gates the whole topic
+     (`HouseConfig::holds`; `HouseRulesTest` renders every module set through `boost:update` and checks the leaks). A
+     deployment
      module's additions sit in its template blocks, and its reference keeps the why, traps and Verify, so an app without
      the module carries none of it.
    - New shipped code needs the owner's OK.
@@ -157,6 +165,9 @@ Class names below are relative to `PetarSpasic\LaravelHouse\Kanban` (`src/Kanban
   - Spend in `morning` came out several times too high → `claude -p --resume` reports `total_cost_usd` for the whole
     session so far, while `usage` is the run's own → `AgentRun` logs the difference (`session_cost_usd` beside it).
 - **UI changes:** the script has no unit tests, so `./dev ui` drives it in a real Chromium (CSP `default-src 'self'`) against a seeded board: `docker/browser/checks/*.mjs`, one file per area, screenshots in `build/ui`. A new interaction gets a check there (`t.ok`), written first and seen failing on the old code, because a check that passes before the fix proves nothing; the accessibility sweep (`a11y.mjs`) holds contrast (4.5:1), target size (24 px), names, tab order and, on a touch device, 16 px text boxes and 40 px controls; `forced.mjs` emulates Windows high contrast; `./dev ui serve` serves the seeded board at http://localhost:8099/kanban for looking at by hand. A check that needs another person opts into the `team` seed (`export const seed = 'team'`): an origin, the page's server running as Ana with sync on, and a second clone "peer" (Ben) that `t.cli(cmd, { root: t.seed.peer, env })` acts in.
+- **`validation:export` relies on Laravel internals:** protected `Validator` methods such as `getMessage()` and
+  `makeReplacements()`. After a Laravel minor upgrade, re-run the parity proof on a scratch spa app that requires this
+  package by path.
 - **Trying it in a consumer:** push a commit and `composer update petar-spasic/laravel-house` with the constraint `dev-main`. A path repository does not resolve inside the consumer's container; the Release smoke install runs on the host.
 
 ## Verify before every push
@@ -221,7 +232,8 @@ implement-kanban's citations wrap across lines: join them (`tr '\n' ' '`) before
 
 Then run the installer for all 16 module combinations into scratch directories. Each run must exit 0 and leave only
 `what_we_are_building` and `hosting`; write lint-clean PHP with no block markers, `.gitkeep` and `AcceptJson.php`;
-carry `## Tenancy` exactly when tenancy is on; write exactly `frontend/CLAUDE.md` with spa and no spa text without it.
+record tenancy in `config/house.php` exactly when it is on, and leave nothing for `--update --check`; write exactly
+`frontend/CLAUDE.md` with spa and no spa text without it. The guidelines' module text is `HouseRulesTest`'s.
 Four invalid combinations are refused, and `--render-to` writes nothing into the target:
 
 ```bash
@@ -235,8 +247,9 @@ for fe in '' htmx htmx,islands spa; do for rv in '' reverb; do for tn in '' tena
   grep -rlE '<!-- (if|unless):|<!-- endif' "$d" && echo "✗ markers [$m]"
   grep -rlE 'clsx|tailwind-merge' "$d" && echo "✗ dropped package [$m]"
   [ -f "$d/database/data/.gitkeep" ] && [ -f "$d/app/Http/Middleware/AcceptJson.php" ] || echo "✗ shipped files [$m]"
-  if [ -n "$tn" ]; then grep -q '^## Tenancy' "$d/CLAUDE.md" || echo "✗ tenancy rules missing [$m]"
+  if [ -n "$tn" ]; then grep -q "'tenancy'" "$d/config/house.php" || echo "✗ tenancy not recorded [$m]"
   else grep -rliE 'tenan(t|cy)' "$d" && echo "✗ tenancy text [$m]"; fi
+  php "$inst" "$d" --update --check || echo "✗ update [$m]"
   if [ "$fe" = spa ]; then [ "$(cd "$d" && find frontend -type f)" = frontend/CLAUDE.md ] || echo "✗ frontend/ is not rules only [$m]"
   else [ -e "$d/frontend" ] && echo "✗ frontend/ [$m]"; grep -rliE 'sveltekit|adapter-node|/api/auth' "$d" && echo "✗ spa text [$m]"; fi
   rm -rf "$d"
@@ -310,5 +323,6 @@ composer config repositories.house path "$house"
 composer require --dev petar-spasic/laravel-house:@dev
 php artisan list | grep validation:export                       # listed
 php artisan list | grep kanban:install                          # listed
+php artisan list | grep house:update                            # listed
 vendor/bin/kanban --version                                     # prints "kanban laravel-house"
 ```

@@ -1,3 +1,4 @@
+<!-- house:begin: rendered from config/house.php by composer update; this project's rules go after house:end -->
 # CLAUDE.md — app/Services
 
 | Kind | Naming / placement | Use for |
@@ -23,5 +24,6 @@ The contract side is `app/Contracts/CLAUDE.md`. The implementation:
 
 Keep the prompt, the structured output schema and the context assembly together in `Services/{Name}/`. **Default to
 no tools**: without tools, the worst case is a bad row you can filter; with tools, injected text becomes action.
-Giving one a tool, a fetch or a shell changes the security model: record it in the root `CLAUDE.md` first. Iterate
-prompts with the SDK's fakes.
+Giving one a tool, a fetch or a shell changes the security model: record it in the root `CLAUDE.md`, above the Boost
+block, first. Iterate prompts with the SDK's fakes.
+<!-- house:end -->

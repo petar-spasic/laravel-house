@@ -1,3 +1,4 @@
+<!-- house:begin: rendered from config/house.php by composer update; this project's rules go after house:end -->
 # CLAUDE.md — database (migrations / factories / seeders)
 
 Domain invariants for the tables live in `app/CLAUDE.md` and `app/Models/CLAUDE.md`.
@@ -161,3 +162,4 @@ policy binds:
   tenant `wasRecentlyCreated`.
 - `ProductionSeeder` creates no tenant.
 <!-- endif -->
+<!-- house:end -->

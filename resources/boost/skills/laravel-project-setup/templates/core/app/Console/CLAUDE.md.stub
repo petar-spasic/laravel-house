@@ -1,3 +1,4 @@
+<!-- house:begin: rendered from config/house.php by composer update; this project's rules go after house:end -->
 # CLAUDE.md — app/Console (commands)
 
 Commands are the scheduler's entry points and the operator's tools. Scheduling is in `routes/CLAUDE.md`.
@@ -11,3 +12,4 @@ Commands are the scheduler's entry points and the operator's tools. Scheduling i
 - Operator actions that change state (pause, retract, republish) are **logged rows, never quiet fixes**: timestamp,
   actor, what, why.
 - Output through `$this->components->*` for humans; exit codes for cron.
+<!-- house:end -->

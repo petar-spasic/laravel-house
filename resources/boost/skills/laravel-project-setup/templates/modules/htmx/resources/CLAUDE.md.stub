@@ -1,3 +1,4 @@
+<!-- house:begin: rendered from config/house.php by composer update; this project's rules go after house:end -->
 # CLAUDE.md — resources (frontend)
 
 <!-- if:islands -->
@@ -160,7 +161,13 @@ Configured once in `app.ts`, never per element:
 
 ## Auth pages
 
-Fortify's views stay off, with `AcceptJson`, until the project builds these pages ("Build the auth pages" is an open item):
+<!-- unless:auth-pages -->
+Fortify's views stay off, with `AcceptJson`, until the project builds these pages ("Build the auth pages" is an open
+item):
+<!-- endif -->
+<!-- if:auth-pages -->
+Fortify's views are on and serve these pages:
+<!-- endif -->
 `resources/views/auth/<name>`, the names `Fortify::viewPrefix('auth.')` registers, built from the project's
 components inside the app layout, `noindex`:
 
@@ -185,6 +192,7 @@ Around them:
   recovery codes, passkeys add/remove, linked providers, password; only for the features kept. Its forms are plain
   too: an unconfirmed action gets a 302 to the confirm page, which htmx would swap into the target.
 
+<!-- unless:auth-pages -->
 **The views flip** lands in the commit that adds the last page:
 - `Fortify::viewPrefix('auth.')` in `FortifyServiceProvider`, `'views' => true` in `config/fortify.php`, and a
   `fortify.home` that names a page that exists;
@@ -193,8 +201,10 @@ Around them:
 - rewrite `tests/E2E/FortifyViewRoutesTest.php` for views on: the GET pages answer 200 instead of 405, a guest on an
   authenticated auth route is redirected to `login`, and the JSON flows send `Accept: application/json` (`postJson`,
   `getJson`);
-- bring the Fortify lines in root `CLAUDE.md` (Auth), `routes/CLAUDE.md`, `app/Http/CLAUDE.md`,
-  `app/Providers/CLAUDE.md`, `tests/CLAUDE.md` and this section to the new state.
+- add `auth-pages` to `modules` in `config/house.php` and run `php artisan house:update`, then
+  `php artisan boost:update`: the house rules turn to views on (root `CLAUDE.md`, Auth; `routes/`, `app/Http/`,
+  `app/Providers/` and this file).
+<!-- endif -->
 
 <!-- if:islands -->
 ## Svelte islands
@@ -293,3 +303,4 @@ The first island that needs a component does the setup, with these devDependenci
 
 A page or fragment flow is an E2E test through `$this->get(route(…))`, with `HX-Request` for a fragment
 (`tests/CLAUDE.md`).
+<!-- house:end -->

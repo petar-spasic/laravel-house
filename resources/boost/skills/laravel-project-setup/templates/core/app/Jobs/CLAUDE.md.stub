@@ -1,3 +1,4 @@
+<!-- house:begin: rendered from config/house.php by composer update; this project's rules go after house:end -->
 # CLAUDE.md — app/Jobs
 
 Queues are Redis under Horizon (`config/horizon.php` decides which queues get workers). Jobs follow the off-request
@@ -34,3 +35,4 @@ The tenant is the exception: it travels in hidden Context (Tenancy, below).
   fails, and that option turns the failure into a silent delete.
 - Fan-out over tenants: `app/CLAUDE.md`, off-request rules.
 <!-- endif -->
+<!-- house:end -->

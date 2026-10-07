@@ -1,3 +1,4 @@
+<!-- house:begin: rendered from config/house.php by composer update; this project's rules go after house:end -->
 # CLAUDE.md — app/ (backend code design)
 
 Scope: `app/`: **how to write the code**. Each layer directory's `CLAUDE.md` elaborates it; read it before writing
@@ -5,7 +6,8 @@ there.
 
 ## Layout — flat by layer, no modules
 
-One domain, so no modules. If that changes, record the decision here; never an ad-hoc `app/Modules/`.
+One domain, so no modules. If that changes, record the decision after `house:end` below; never an ad-hoc
+`app/Modules/`.
 
 ```
 app/
@@ -144,4 +146,5 @@ Anything a user or external system typed is stored raw and handled the same way 
 <!-- endif -->
 - Validate **size and shape**, never content-filter on write: a write-time filter silently rewrites the data.
 - It never reaches a component that can act on it (a shell, an LLM with tools, an eval) without a deliberate decision
-  recorded here.
+  recorded in this file, after `house:end`.
+<!-- house:end -->

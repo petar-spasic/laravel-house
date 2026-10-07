@@ -1,3 +1,4 @@
+<!-- house:begin: rendered from config/house.php by composer update; this project's rules go after house:end -->
 # CLAUDE.md — app/Listeners
 
 Listeners fire from jobs, commands and queues as well as HTTP, so they follow the off-request rules (`app/CLAUDE.md`):
@@ -7,3 +8,4 @@ Listeners fire from jobs, commands and queues as well as HTTP, so they follow th
 - A listener **dispatches** heavy work as a job with its own retry policy (`app/Jobs/CLAUDE.md`); it never does it
   itself.
 - It never calls an external system directly: the contract-backed client carries the timeout and retries.
+<!-- house:end -->

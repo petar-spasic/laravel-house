@@ -6,6 +6,15 @@ use Symfony\Component\Process\Process;
 
 uses(TestCase::class)->in('E2E');
 
+/** laravel-project-setup's install.php run on $repo; `--templates` and `--render-to` take paths. */
+function installPhp(string $repo, array $args): Process
+{
+    $process = new Process(['php', Sandbox::package().'/resources/boost/skills/laravel-project-setup/scripts/install.php', $repo, ...$args]);
+    $process->run();
+
+    return $process;
+}
+
 /** An installed sandbox with the package in vendor (as composer would put it) and a compose fixture. */
 function doctorSandbox(string $compose = 'compose-good.yml', string $env = "COMPOSE_PROJECT_NAME=app-local\n", ?string $name = null): Sandbox
 {

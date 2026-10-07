@@ -1,3 +1,4 @@
+<!-- house:begin: rendered from config/house.php by composer update; this project's rules go after house:end -->
 # CLAUDE.md — app/Http (framework HTTP layer)
 
 Scope: `app/Http/`. Only framework HTTP plumbing lives here: `Middleware/` (its own `CLAUDE.md`), the base
@@ -101,8 +102,10 @@ when first needed:
 - `routes/api.php` under `/api/v1` (`withRouting(apiPrefix: 'api/v1')`).
 <!-- if:htmx -->
   It is loaded with `api:` beside `then:`.
+<!-- unless:auth-pages -->
 - `AcceptJson` on Fortify's routes (`config/fortify.php` `middleware`) while its views are off (`resources/CLAUDE.md`,
   Auth pages), prepended to `AuthenticatesRequests` in the priority list (`routes/CLAUDE.md`).
+<!-- endif -->
 <!-- endif -->
 <!-- unless:htmx -->
 - `AcceptJson` on Fortify's routes (`config/fortify.php` `middleware`) and on the social link/unlink routes once
@@ -116,3 +119,4 @@ when first needed:
   (`app/Http/Middleware/CLAUDE.md`, Tenancy).
 <!-- endif -->
 - Named rate limiters are defined in a service provider, never here (`app/Providers/CLAUDE.md`).
+<!-- house:end -->

@@ -1,3 +1,4 @@
+<!-- house:begin: rendered from config/house.php by composer update; this project's rules go after house:end -->
 # CLAUDE.md — app/Support (security-relevant helpers)
 
 Small on purpose: every file here is a security or API-shape boundary, never casual utility code. A helper with a
@@ -39,3 +40,4 @@ Rules:
   The one exception is `CurrentTenant`, safe because it is `scoped()`; nothing else stores the tenant.
 <!-- endif -->
 - Every surface uses this code: a change here has the widest blast radius.
+<!-- house:end -->

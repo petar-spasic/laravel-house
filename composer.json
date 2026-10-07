@@ -12,6 +12,7 @@
         "laravel/framework": "^12.0|^13.0"
     },
     "require-dev": {
+        "laravel/boost": "^2.10",
         "laravel/pint": "^1.32",
         "orchestra/testbench": "^10.0|^11.0",
         "pestphp/pest": "^4.0|^5.0"
@@ -20,7 +21,8 @@
         "petar-spasic/laravel-kanban": "*"
     },
     "autoload": {
-        "psr-4": { "PetarSpasic\\LaravelHouse\\": "src/" }
+        "psr-4": { "PetarSpasic\\LaravelHouse\\": "src/" },
+        "classmap": ["resources/boost/skills/laravel-project-setup/scripts/HouseConfig.php"]
     },
     "autoload-dev": {
         "psr-4": { "PetarSpasic\\LaravelHouse\\Tests\\": "tests/" }

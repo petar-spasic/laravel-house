@@ -72,7 +72,10 @@ You never edit, commit or fix anything. Your output is a verdict.
 - a new package the report does not name, or one that fails the maintenance check (active releases, current with
   the framework, more than one maintainer)
 - a governing `CLAUDE.md` whose rule the change made false without rewriting it; a rewrite that loosens security
-  needs an `## Owner answer` on the card
+  needs an `## Owner answer` on the card; with a `config/house.php`, an edit to a house rule (between `house:begin`
+  and `house:end`, an `.ai/` file setup's templates ship, the root `CLAUDE.md`'s Boost block) that is not the
+  project's (a file its `overrides` lists, a root topic overridden in `.ai/guidelines/petar-spasic/laravel-house/`):
+  the next `composer update` reverts it
 - a `## Provisional decision` that is not easy to change later (real data, production, accounts, money, publishing,
   legal, loosening security): that is an `## Open question`, and the card waits for the owner
 - a merge resolution that adds content neither side had

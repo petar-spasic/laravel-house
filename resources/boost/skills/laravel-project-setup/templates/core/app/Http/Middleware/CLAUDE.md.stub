@@ -1,3 +1,4 @@
+<!-- house:begin: rendered from config/house.php by composer update; this project's rules go after house:end -->
 # CLAUDE.md — app/Http/Middleware
 
 Request-scoped cross-cutting concerns only. Registration is in `bootstrap/app.php` (`app/Http/CLAUDE.md`,
@@ -69,3 +70,4 @@ No `terminate()` reset: `app/CLAUDE.md` (Octane) owns the reset points.
 append-only audit log, that sets the tenant like a member; or a separate SELECT-only BYPASSRLS connection for
 cross-tenant reports. Never by leaving the tenant unset, removing the scope, or connecting as the owner.
 <!-- endif -->
+<!-- house:end -->

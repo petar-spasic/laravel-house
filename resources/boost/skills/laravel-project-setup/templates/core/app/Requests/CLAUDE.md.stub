@@ -1,3 +1,4 @@
+<!-- house:begin: rendered from config/house.php by composer update; this project's rules go after house:end -->
 # CLAUDE.md — app/Requests (FormRequests)
 
 One endpoint ⇒ one FormRequest carrying ALL of its rules. No inline `$request->validate([...])` or
@@ -65,3 +66,4 @@ or `npm run check` fails. Upload fields stay server-only.
   mapping and the gate:
   `laravel-project-setup`'s `references/validation-export.md`.
 <!-- endif -->
+<!-- house:end -->

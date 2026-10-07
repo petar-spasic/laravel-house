@@ -93,8 +93,8 @@ php artisan kanban:install --key=XYZ
 card with its question, as the `kanban` skill's "Questions and rules" says.
 
 **Both:** in the root `CLAUDE.md`, the decided/open prose becomes a pointer: rules are in the `CLAUDE.md` files, open
-questions ride on their cards (`vendor/bin/kanban list --all` shows the blocked ones). "Where the docs live" gets this
-row:
+questions ride on their cards (`vendor/bin/kanban list --all` shows the blocked ones). Without `config/house.php`,
+"Where the docs live" gets this row (with it, that table is a house guideline and the Kanban block names the board):
 
 ```markdown
 | `docs/kanban/` (branch `kanban`) | The board: one work board, cards grouped by `area:*`, open questions on their cards; `decisions.md` archives older decisions. Use only `vendor/bin/kanban` |

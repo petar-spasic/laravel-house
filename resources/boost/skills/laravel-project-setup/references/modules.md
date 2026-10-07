@@ -21,7 +21,8 @@ table. On a fresh skeleton, `install.php --fresh` makes each module's deletions 
   - `tests/TestCase.php` `setUp()` calls `$this->withoutVite()` (`project-wiring.md`, Tests).
 - `CachePublicResponse` and `HtmxOnly` are project code the rules describe, not shipped files.
   `Route::middleware('public')` resolves only once the project adds them.
-- Fortify's views stay off until the project builds its Blade pages (`references/core-auth.md`).
+- Fortify's views stay off until the project builds its Blade pages (`references/core-auth.md`); the `auth-pages`
+  state then turns the rules to views on.
 - **Checks:** `npm run check` and `npm run build`.
 
 ## islands
@@ -69,7 +70,7 @@ table. On a fresh skeleton, `install.php --fresh` makes each module's deletions 
 ## tenancy
 
 - **Writes** no files and installs no packages.
-- Its rules are `## Tenancy` in the root `CLAUDE.md` and the `if:tenancy` blocks in the layer stubs.
+- Its rules are the `tenancy` guideline (root `CLAUDE.md`, Tenancy) and the `if:tenancy` blocks in the layer stubs.
 - The database roles, the owner connection and the test migrations: laravel-deployment `references/tenancy.md`
   (step 9).
 

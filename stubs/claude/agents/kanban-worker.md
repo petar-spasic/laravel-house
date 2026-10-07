@@ -95,7 +95,11 @@ and wrote its plan.
 
 - every criterion is proven as the project's `tests/CLAUDE.md` requires, and the proof passes in this stack;
 - `vendor/bin/kanban gates` passes (`report` runs them too, and refuses to stage on a failure);
-- the governing `CLAUDE.md` is updated in the same commit when the change alters a rule it states;
+- the governing `CLAUDE.md` is updated in the same commit when the change alters a rule it states. With a
+  `config/house.php`, house rules are rendered by `composer update` and never edited: the text between `house:begin`
+  and `house:end`, the `.ai/` files setup's templates ship, and the root `CLAUDE.md`'s Boost block. A file its
+  `overrides` lists is the project's, and so is a root topic overridden in `.ai/guidelines/petar-spasic/laravel-house/`.
+  A house rule the change contradicts is reported blocked;
 - everything is committed (`git status` clean), with at least one commit beyond the base. The commit hook puts the
   card id in front of each message.
 

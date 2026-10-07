@@ -1,3 +1,4 @@
+<!-- house:begin: rendered from config/house.php by composer update; this project's rules go after house:end -->
 # CLAUDE.md — app/Events
 
 Domain events raised inside the app: something was created, transitioned, failed or observed.
@@ -31,3 +32,4 @@ Webhook payloads from external systems are **untrusted input** and accelerators,
   transition: a scheduled reconciliation stays the floor.
 - Persist the raw event cheaply, then dispatch a job; the receiver does no work inline.
 - High-volume event streams go to a log store; Postgres keeps only aggregates.
+<!-- house:end -->

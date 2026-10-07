@@ -1,9 +1,10 @@
+<!-- house:begin: rendered from config/house.php by composer update; this project's rules go after house:end -->
 # CLAUDE.md — routes
 
 ## Every route belongs to exactly one surface
 
 Name the surface before adding a route. Surfaces have different trust levels, so a route in the wrong group is a
-security change. Extend the table as the project defines its surfaces:
+security change. A surface the project defines gets its own row in a table of the same shape after `house:end`:
 
 | Group | Reachable by | Middleware |
 |-------|--------------|------------|
@@ -48,8 +49,8 @@ security change. Extend the table as the project defines its surfaces:
     missing slug renders a blank model instead of a 404).
   - `/fragment/…` routes add the `htmx` alias (`HtmxOnly`: 404 without `HX-Request`).
   - **No write routes**: no POST/PUT/DELETE, no forms. That absence is what makes "no auth, no CSRF, no moderation,
-    no rate limiting, cache everything" correct. One input route breaks all five and updates this file in the same
-    commit.
+    no rate limiting, cache everything" correct. One input route breaks all five and records that in this file, after
+    `house:end`, in the same commit.
   - **No `StartSession`**: a session cookie makes an anonymous page personal.
 - **Prefetch**: the layout sets `hx-ext="preload"` on `<body>` (imported in `app.ts`); navigation blocks set
   `hx-boost`, card links add `preload="mouseover"` (`resources/CLAUDE.md`).
@@ -112,14 +113,22 @@ It is mounted at `/api/auth` (`prefix`), never under `/api/v1`: its routes are t
 **`views` is off**, which takes three things, all in place:
 <!-- endif -->
 <!-- if:htmx -->
+<!-- unless:auth-pages -->
 **`views` is off until the auth Blade pages exist** (`resources/CLAUDE.md`, Auth pages, owns the flip). That takes
 three things, all in place:
+<!-- endif -->
+<!-- if:auth-pages -->
+**`views` is on**: Fortify's GET routes serve the Blade auth pages (`resources/CLAUDE.md`, Auth pages) through
+`Fortify::viewPrefix('auth.')`. Its routes answer with pages and redirects, and with JSON only to a request that sends
+`Accept: application/json`; `password.reset` is Fortify's own reset page.
+<!-- endif -->
 <!-- endif -->
 <!-- unless:htmx -->
 <!-- unless:spa -->
 **`views` is off**, since the client renders every auth page. That takes three things, all in place:
 <!-- endif -->
 <!-- endif -->
+<!-- unless:auth-pages -->
 - The GET pages (`login`, `register`, `password.request`, `password.reset`, `two-factor.login`, `password.confirm`)
   are not registered.
 <!-- if:spa -->
@@ -144,6 +153,7 @@ three things, all in place:
 <!-- unless:htmx -->
 - `ResetPassword::createUrlUsing` (`FortifyServiceProvider`) builds the mailed link on Fortify's
   `/reset-password/{token}?email=` path: the client's reset page.
+<!-- endif -->
 <!-- endif -->
 <!-- endif -->
 
@@ -193,3 +203,4 @@ redirect carries no stateful Referer or Origin.
 ## Access logging
 
 Log denials on gated surfaces with the request id: a client *trying* to reach what it may not is worth knowing.
+<!-- house:end -->

@@ -1,3 +1,4 @@
+<!-- house:begin: rendered from config/house.php by composer update; this project's rules go after house:end -->
 # CLAUDE.md — app/Models
 
 Fat models and records that must not be rewritten: `app/CLAUDE.md`. Migrations: `database/CLAUDE.md`.
@@ -44,7 +45,7 @@ Corrections are new rows (`supersedes_id`); observation time is its own column, 
   `hashed`. Profile and password rules live in `app/Actions/Fortify/`, not in the model.
 - Social sign-in (when built): `SocialAccount` (`ID_PREFIX = 'sa'`) belongs to `User`, which gains
   `socialAccounts(): HasMany`. Provider tokens, if any, are `encrypted` and `Hidden` (root `CLAUDE.md`, Auth).
-- A semantic change here updates `app/CLAUDE.md` and `database/CLAUDE.md` in the SAME commit.
+- A semantic change here updates the project part of `app/CLAUDE.md` and `database/CLAUDE.md` in the SAME commit.
 <!-- if:tenancy -->
 
 ## Tenancy
@@ -67,3 +68,4 @@ The rules are root `CLAUDE.md`, Tenancy.
   action, run inside the user's transaction by Fortify's `CreateNewUser` and the social sign-in create path. Never
   inferred from an email domain or a provider claim.
 <!-- endif -->
+<!-- house:end -->

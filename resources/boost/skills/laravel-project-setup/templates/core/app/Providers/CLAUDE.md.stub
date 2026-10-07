@@ -1,3 +1,4 @@
+<!-- house:begin: rendered from config/house.php by composer update; this project's rules go after house:end -->
 # CLAUDE.md — app/Providers (the explicit-registration hub)
 
 Almost nothing is auto-discovered, and **a missing registration fails silently**. The providers' registrations are
@@ -12,9 +13,15 @@ the inventory; check one by running its flow end to end.
   listener without a line never fires.
 - **Observers** with `Model::observe()` in `boot()`.
 <!-- if:htmx -->
-- **`FortifyServiceProvider`**: the auth actions (`app/Actions/Fortify/`), the auth limiters (below), the mailed
-  reset-link URL while the views are off (`routes/CLAUDE.md`), and `Fortify::viewPrefix('auth.')` once the auth pages
-  exist (`resources/CLAUDE.md`, Auth pages).
+<!-- unless:auth-pages -->
+- **`FortifyServiceProvider`**: the auth actions (`app/Actions/Fortify/`), the auth limiters (below) and the mailed
+  reset-link URL while the views are off (`routes/CLAUDE.md`). `Fortify::viewPrefix('auth.')` comes with the auth
+  pages (`resources/CLAUDE.md`, Auth pages).
+<!-- endif -->
+<!-- if:auth-pages -->
+- **`FortifyServiceProvider`**: the auth actions (`app/Actions/Fortify/`), the auth limiters (below) and
+  `Fortify::viewPrefix('auth.')` for the auth pages (`resources/CLAUDE.md`, Auth pages).
+<!-- endif -->
 <!-- endif -->
 <!-- if:spa -->
 - **`FortifyServiceProvider`**: the auth actions (`app/Actions/Fortify/`), the auth limiters (below),
@@ -75,3 +82,4 @@ the inventory; check one by running its flow end to end.
   on that request.
 - A new provider goes in `bootstrap/providers.php`, or none of its bindings, observers or policies exist.
 - Middleware is registered in `bootstrap/app.php`, not here.
+<!-- house:end -->

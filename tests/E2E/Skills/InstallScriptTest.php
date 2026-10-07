@@ -3,15 +3,13 @@
 use PetarSpasic\LaravelHouse\Tests\Support\Sandbox;
 use Symfony\Component\Process\Process;
 
-/** laravel-project-setup's install.php against a scratch repo; `--templates` and `--render-to` take paths. */
+/** laravel-project-setup's install.php against a scratch repo. */
 function installScript(array $args): Process
 {
     $repo = Sandbox::tmp();
     touch($repo.'/artisan');
-    $process = new Process(['php', Sandbox::package().'/resources/boost/skills/laravel-project-setup/scripts/install.php', $repo, ...$args]);
-    $process->run();
 
-    return $process;
+    return installPhp($repo, $args);
 }
 
 function templateTree(array $files): string
@@ -259,10 +257,8 @@ function fresh(string $repo, string $modules, array $extra = []): Process
     foreach (['app' => 'acme', 'app_name' => 'Acme Notes', 'web_port' => '8000', 'db_port' => '5433', 'redis_port' => '6380', 'laravel_version' => '13', 'php_version' => '8.5', 'pest_version' => '5'] as $key => $value) {
         array_push($sets, '--set', "{$key}={$value}");
     }
-    $process = new Process(['php', Sandbox::package().'/resources/boost/skills/laravel-project-setup/scripts/install.php', $repo, "--modules={$modules}", ...$sets, '--fresh', ...$extra]);
-    $process->run();
 
-    return $process;
+    return installPhp($repo, ["--modules={$modules}", ...$sets, '--fresh', ...$extra]);
 }
 
 it('makes the fixed edits to a fresh htmx skeleton before writing the templates', function () {
@@ -285,7 +281,8 @@ it('makes the fixed edits to a fresh htmx skeleton before writing the templates'
         ->and(file_get_contents("{$repo}/config/session.php"))->toContain("env('SESSION_DRIVER', 'redis')")
         ->and(file_get_contents("{$repo}/vite.config.js"))->toContain("'resources/js/app.ts'")
         ->and(json_decode(file_get_contents("{$repo}/boost.json"), true))->toBe(['agents' => ['claude_code'], 'cloud' => false, 'packages' => ['petar-spasic/laravel-house']])
-        ->and(json_decode(file_get_contents("{$repo}/composer.json"), true)['scripts']['post-update-cmd'])->toContain('@php artisan boost:update --ansi')
+        ->and(json_decode(file_get_contents("{$repo}/composer.json"), true)['scripts']['post-update-cmd'])
+        ->toBe(['@php artisan vendor:publish --tag=laravel-assets --ansi --force', '@php artisan house:update --ansi', '@php artisan boost:update --ansi'])
         ->and(file_get_contents("{$repo}/package.json"))->toBe("{\n  \"scripts\": {\n    \"build\": \"vite build\",\n    \"check\": \"tsc\"\n  }\n}\n")
         ->and(file_get_contents("{$repo}/.gitignore"))->toBe("/vendor\n.env\n/.claude/settings.local.json\n.env.prod\n/frankenphp\n/public/frankenphp-worker.php\n");
 
@@ -293,6 +290,16 @@ it('makes the fixed edits to a fresh htmx skeleton before writing the templates'
 
     expect(fresh($repo, 'htmx')->getErrorOutput())->toContain('--fresh is for a fresh skeleton')
         ->and(fresh(skeleton(), 'htmx', ['--dry-run'])->getOutput())->toContain("would: deleted AGENTS.md\n")->not->toContain('skipped, already exists');
+});
+
+it('takes "scripts": [] in package.json', function () {
+    $repo = skeleton();
+    file_put_contents("{$repo}/package.json", "{\n  \"scripts\": []\n}\n");
+
+    $run = fresh($repo, 'htmx');
+
+    expect($run->getExitCode())->toBe(0, $run->getErrorOutput())
+        ->and(file_get_contents("{$repo}/package.json"))->toBe("{\n  \"scripts\": {\n    \"check\": \"tsc\"\n  }\n}\n");
 });
 
 it('drops the root Node toolchain for spa, and names a known line it cannot find', function () {
@@ -355,7 +362,7 @@ it('verifies what setup leaves, one line per failure', function () {
     $repo = skeleton();
     fresh($repo, 'htmx,tenancy');
     $claude = str_replace('{{what_we_are_building}}', 'Acme Notes keeps notes.', file_get_contents("{$repo}/CLAUDE.md"));
-    file_put_contents("{$repo}/CLAUDE.md", $claude."\n<laravel-boost-guidelines>\n# Laravel Boost\n</laravel-boost-guidelines>\n");
+    file_put_contents("{$repo}/CLAUDE.md", $claude."\n<laravel-boost-guidelines>\n# Laravel Boost\n".implode('', array_map(fn ($t) => "=== petar-spasic/laravel-house/{$t} rules ===\n", ['auth', 'core', 'frontend', 'tenancy']))."</laravel-boost-guidelines>\n");
     @mkdir("{$repo}/.claude/skills/testing-best-practices", 0775, true);
     copy(Sandbox::package().'/resources/boost/skills/laravel-project-setup/templates/core/.ai/skills/testing-best-practices/SKILL.md', "{$repo}/.claude/skills/testing-best-practices/SKILL.md");
     file_put_contents("{$repo}/phpunit.xml", "<phpunit><testsuites><testsuite name=\"E2E\"><directory>tests/E2E</directory></testsuite></testsuites></phpunit>\n");
@@ -369,6 +376,8 @@ it('verifies what setup leaves, one line per failure', function () {
     file_put_contents("{$repo}/app/Note.php", "<?php // {{app_name}}\n");
     file_put_contents("{$repo}/.env", "CACHE_STORE=file\n", FILE_APPEND);
     file_put_contents("{$repo}/phpunit.xml", "<phpunit><testsuites><testsuite name=\"Unit\"/><testsuite name=\"E2E\"/></testsuites></phpunit>\n");
+    file_put_contents("{$repo}/routes/CLAUDE.md", "# Routes\n");
+    file_put_contents("{$repo}/CLAUDE.md", str_replace("=== petar-spasic/laravel-house/tenancy rules ===\n", '', file_get_contents("{$repo}/CLAUDE.md")));
     $broken = verifySetup($repo);
 
     expect($broken->getExitCode())->toBe(1)
@@ -376,9 +385,23 @@ it('verifies what setup leaves, one line per failure', function () {
             '✗ app/Note.php:1 unresolved template marker or placeholder',
             '✗ AGENTS.md is still there',
             '✗ .env still sets CACHE_STORE: the config defaults are Postgres and Redis',
+            '✗ the house files differ from config/house.php: not managed: routes/CLAUDE.md has no house:begin and house:end markers; add them around the house text, or list it under overrides (php artisan house:update)',
+            '✗ Boost\'s block in CLAUDE.md lacks the house tenancy rules: config/house.php, petar-spasic/laravel-house in boost.json packages, and `boost:update` naming it as a file it could not render',
             '✗ Boost\'s guidelines in CLAUDE.md still say "make:test": an override is missing (references/boost.md)',
             '✗ phpunit.xml has the test suites Unit, E2E; it has one, E2E',
         ])."\n");
+});
+
+it('names a package too old to render the house rules, and still reports the rest', function () {
+    $repo = skeleton();
+    fresh($repo, 'htmx');
+    mkdir("{$repo}/vendor/petar-spasic/laravel-house", 0775, true);
+
+    $verify = verifySetup($repo);
+
+    expect($verify->getExitCode())->toBe(1)
+        ->and($verify->getOutput())->toContain("/vendor/petar-spasic/laravel-house renders no house rules: an older petar-spasic/laravel-house (composer require --dev petar-spasic/laravel-house)\n")
+        ->toContain('✗ CLAUDE.md does not end with the <laravel-boost-guidelines> block');
 });
 
 /** laravel-deployment's docker/verify.sh, rendered for $modules, against a fake docker and curl. */
@@ -389,9 +412,9 @@ function stackVerify(string $modules, array $env = [], string $dotenv = ''): Pro
     $render = "{$root}/render";
     mkdir($repo);
     touch("{$repo}/artisan");
-    (new Process(['php', Sandbox::package().'/resources/boost/skills/laravel-project-setup/scripts/install.php', $repo,
-        '--templates='.Sandbox::package().'/resources/boost/skills/laravel-deployment/templates', "--modules={$modules}",
-        '--set', 'app=acme', '--set', 'web_port=8000', "--render-to={$render}"]))->mustRun();
+    $rendered = installPhp($repo, ['--templates='.Sandbox::package().'/resources/boost/skills/laravel-deployment/templates', "--modules={$modules}",
+        '--set', 'app=acme', '--set', 'web_port=8000', "--render-to={$render}"]);
+    expect($rendered->getExitCode())->toBe(0, $rendered->getErrorOutput());
     file_put_contents("{$render}/.env", "WEB_PORT=8011\n{$dotenv}");
     $bin = "{$root}/bin";
     mkdir($bin);

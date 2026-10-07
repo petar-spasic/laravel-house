@@ -27,8 +27,12 @@ repo. It resolves `<!-- if:m -->` / `<!-- unless:m -->` … `<!-- endif -->` blo
 files in `templates/snippets/` are merged by hand into files that already exist. laravel-deployment renders its own
 templates with the same script (`--templates`), with `# if:m` … `# endif` blocks in files that are not Markdown.
 
-The house ships rules, not frontend code. Frontends, social sign-in and tenancy ship as binding rules in the generated
-`CLAUDE.md` files. The project builds each piece when its work needs it.
+The house ships rules, not frontend code. Frontends, social sign-in and tenancy ship as binding rules. The project
+builds each piece when its work needs it.
+
+Every `composer update` renders the house rules again from `config/house.php` (the modules and values): Boost renders
+the root `CLAUDE.md`'s as package guidelines (`references/boost.md`), and `house:update` (`install.php --update`) the
+span between `house:begin` and `house:end` in each layer `CLAUDE.md`, and the `.ai/` files.
 
 ## What every project gets
 
@@ -38,7 +42,7 @@ The house ships rules, not frontend code. Frontends, social sign-in and tenancy 
 - Pest, running end-to-end tests only.
 - Boost (dev), with Claude Code as the only agent.
 - Stripe-style prefixed ids.
-- Flat layers, each with its own `CLAUDE.md`.
+- Flat layers, each with its own `CLAUDE.md`; the house rules rendered on every `composer update`.
 - The seeding standard: four seeders (`database/CLAUDE.md`).
 - The kanban board ships with the house; the owner chooses whether to adopt it (`/implement-kanban`).
 
@@ -50,6 +54,7 @@ This table owns the combination rules. `install.php` enforces them and refuses a
 |---|---|---|
 | `htmx` | the Blade + htmx tier: `resources/CLAUDE.md` and the htmx boot files | — |
 | `islands` | the Svelte 5 islands boot inside the htmx tier | needs `htmx` |
+| `auth-pages` | the rules for Fortify's views on; a state, never chosen at setup | needs `htmx`; the commit that builds the last auth page adds it |
 | `spa` | `frontend/CLAUDE.md` only; the project creates the SvelteKit app in `frontend/` | excludes `htmx` and `islands` |
 | `reverb` | broadcasting rules (`app/Events/CLAUDE.md`) | only when a surface needs realtime, never "in case" |
 | `tenancy` | row-level tenancy rules in the core stubs | with any frontend, API-only included |
@@ -124,17 +129,15 @@ This table owns the combination rules. `install.php` enforces them and refuses a
      points `.env`, `.env.example` and the config defaults at Postgres and Redis, writes `boost.json`, and wires
      composer, npm and `.gitignore` (`references/project-wiring.md`, `references/modules.md`). Fix each
      `merge by hand:` line it prints. An existing project goes through `references/adopt.md` instead.
-   - It never overwrites a template's file.
-   - Read every other skipped file and merge it by hand. Merge `.claude/settings.local.json` key by key.
+   - It never overwrites a file; read each skipped one and merge it by hand (`.claude/settings.local.json` key by key).
+     It records the modules and the house values in `config/house.php`.
    - Then render the snippets outside the repo with the same `--modules` and `--set`s plus
      `--render-to="$(mktemp -d)"`. It writes nothing into the repo, and its first output line names `<dir>`.
    - Steps 5 and 6 merge from `<dir>/snippets/`: its module blocks are resolved and `{{app}}` is filled. Never copy a
      raw snippet. Keep `<dir>` until step 6 is done.
-   - Fill `{{what_we_are_building}}` with only what the owner said:
-     - a product paragraph: what, for whom, constraints;
-     - `### Domain rules`;
-     - `### Surfaces`: `Surface | Route group | Rules`, with the groups from `routes/CLAUDE.md`;
-     - `### Direction that is decided vs. still open`: "Decided (owner, <date>): …", then "Open: …".
+   - Fill `{{what_we_are_building}}` with only what the owner said: a product paragraph (what, for whom,
+     constraints); `### Domain rules`; `### Surfaces` (`Surface | Route group | Rules`, groups from
+     `routes/CLAUDE.md`); `### Direction that is decided vs. still open` ("Decided (owner, <date>): …", "Open: …").
    - An undecided cell says `open`, never `_(to decide)_`, and its question joins the step 11 list.
    - `{{hosting}}` belongs to laravel-deployment (step 9).
 5. **Prefixed ids.** The installer wrote `app/Models/Concerns/HasPrefixedId.php`. Merge the rendered
@@ -145,12 +148,12 @@ This table owns the combination rules. `install.php` enforces them and refuses a
    - each module's wiring: `references/modules.md`.
 
    Then delete `<dir>`.
-7. **Boost.** `--fresh` wrote `boost.json` and composer's `post-update-cmd`. Run
+7. **Boost.** `--fresh` wrote `boost.json` and composer's `post-update-cmd` (`house:update`, then `boost:update`). Run
    `php artisan boost:install --no-interaction` yourself, never through `!` (Gotchas). Disable the plugin for the
    project. Detail: `references/boost.md`.
 8. **Verify.** `php "${CLAUDE_SKILL_DIR}/scripts/verify.php" .` prints nothing: no marker or placeholder but
-   `{{hosting}}`, the deletions, `.env`, `.gitignore`, Boost and its overrides, one E2E suite, and `route:list`
-   boots. Then:
+   `{{hosting}}`, the deletions, `.env`, `.gitignore`, the house files in sync, Boost with the house guidelines and its
+   overrides, one E2E suite, and `route:list` boots. Then:
    - `vendor/bin/pint --dirty --format agent`;
    - the module checks in `references/modules.md`;
    - the E2E tests need the stack's `{{app}}_test` (step 9).
@@ -179,7 +182,8 @@ Use this for a house project set up on an earlier core.
 1. Check that the project's `.claude/skills/laravel-project-setup/references/adopt.md` exists. If it does not, the
    package is old. Run `composer require --dev petar-spasic/laravel-house` with no constraint, then
    `php artisan boost:update`, then restart Claude Code.
-2. Follow `references/adopt.md`; moving to another module set is its Switching modules.
+2. Follow `references/adopt.md` (no `config/house.php` yet: its Rendered rules first; another module set: Switching
+   modules).
 
 Adopting never adds tenancy. Tenancy on an app with data is an owner decision and a data migration.
 
@@ -202,16 +206,13 @@ Each is symptom → cause → fix. Add a new one here in the session it is found
 
 - A template that must reach a project as `*.blade.php` is stored as `*.blade.php.stub`. Boost renders every
   `*.blade.php` inside a skill it copies and saves it as `.md`.
-- Every `CLAUDE.md` template is stored as `CLAUDE.md.stub`, so it does not load as instructions in this repository.
-  The installer drops `.stub` on write.
-- A block marker sits alone on its line. Blocks may nest. Each `if:` or `unless:` names a module in `install.php`'s
-  `MODULES`.
+- A `CLAUDE.md` template is a `CLAUDE.md.stub` (it would load here), wrapped in `house:begin` and `house:end` but
+  the root one. The root rules are `resources/boost/guidelines/`, `@houserules('<module>')` for `<!-- if:<module> -->`.
+- A block marker sits alone on its line. Blocks may nest. Each `if:` or `unless:` names a module in
+  `scripts/HouseConfig.php`'s `MODULES`.
 - Module text stays inside its marker. A line naming SvelteKit, adapter-node, `/api/auth` or `statefulApi` sits in
   `<!-- if:spa -->`, with an `<!-- unless:spa -->` sibling where other modules need their own line. Any tenant word
   sits in `<!-- if:tenancy -->`. The repo's installer matrix greps for leaks.
 - A new placeholder joins step 4's `--set` list and the repo's installer matrix.
-- `validation:export` (`references/validation-export.md`) relies on Laravel internals: protected `Validator` methods
-  such as `getMessage()` and `makeReplacements()`. After a Laravel minor upgrade, re-run the parity proof on a scratch
-  spa app that requires this package by path.
 - Boost's overrides and how to re-check them after a Boost upgrade: `references/boost.md`.
 - A fix proven in a project built on these templates comes back here, with the project's name as `{{app}}`.

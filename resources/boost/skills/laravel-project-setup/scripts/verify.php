@@ -4,8 +4,9 @@ declare(strict_types=1);
 
 /*
  * Checks what setup must have left in a project: no template marker or placeholder but {{hosting}}, the skeleton's
- * deletions done, `.env` on Postgres and Redis, the `.gitignore` lines, `boost.json`, Boost's guidelines without the
- * advice the house overrides, one E2E test suite, and an app that boots. Prints one ✗ line per failure and exits 1.
+ * deletions done, `.env` on Postgres and Redis, the `.gitignore` lines, `boost.json`, the house files in sync with
+ * `config/house.php`, Boost's guidelines with the house ones and without the advice the house overrides, one E2E test
+ * suite, and an app that boots. Prints one ✗ line per failure and exits 1.
  *
  * php verify.php <repo>
  */
@@ -57,9 +58,38 @@ foreach (['frankenphp', 'public/frankenphp-worker.php'] as $path) {
 $boost = json_decode($read('boost.json'), true);
 in_array('claude_code', (array) ($boost['agents'] ?? []), true) || $fail('boost.json agents lacks claude_code');
 in_array('petar-spasic/laravel-house', (array) ($boost['packages'] ?? []), true) || $fail('boost.json packages lacks petar-spasic/laravel-house');
+// the package house:update runs: this skill's copy may be another version, and Boost reformats the Markdown it copies
+$package = "{$repo}/vendor/petar-spasic/laravel-house";
+is_dir($package) || $package = dirname(__DIR__, 5);
+$installer = "{$package}/resources/boost/skills/laravel-project-setup/scripts/install.php";
+$shared = dirname($installer).'/HouseConfig.php';
+$rendered = is_file($shared);
+if ($rendered) {
+    require_once $shared;
+    exec(implode(' ', array_map('escapeshellarg', [PHP_BINARY, $installer, $repo, '--update', '--check'])).' 2>&1', $drift, $code);
+    $code === 0 || $fail('the house files differ from config/house.php: '.implode('; ', $drift).' (php artisan house:update)');
+} else {
+    $fail("{$package} renders no house rules: an older petar-spasic/laravel-house (composer require --dev petar-spasic/laravel-house)");
+}
 if (preg_match('#<laravel-boost-guidelines>(.*)</laravel-boost-guidelines>\s*$#s', $read('CLAUDE.md'), $block) !== 1) {
     $fail('CLAUDE.md does not end with the <laravel-boost-guidelines> block (php artisan boost:install)');
 } else {
+    // Boost drops a guideline it cannot render without a word: each topic whose gate (its first line) holds must be there
+    try {
+        $modules = $rendered ? PetarSpasic\LaravelHouse\Setup\HouseConfig::read($repo)->modules : null;
+    } catch (InvalidArgumentException) {
+        $modules = null; // the update check above names it
+    }
+    $topics = [];
+    foreach (glob("{$package}/resources/boost/guidelines/*.blade.php") ?: [] as $guideline) {
+        preg_match("/^@houserules(?:\\('([^']*)'\\))?$/m", (string) strtok((string) file_get_contents($guideline), "\n"), $gate);
+        $modules !== null && $gate !== [] && PetarSpasic\LaravelHouse\Setup\HouseConfig::holds($gate[1] ?? null, $modules)
+            && $topics[] = basename($guideline, '.blade.php');
+    }
+    foreach ($topics as $topic) {
+        str_contains($block[1], "=== petar-spasic/laravel-house/{$topic} rules ===")
+            || $fail("Boost's block in CLAUDE.md lacks the house {$topic} rules: config/house.php, petar-spasic/laravel-house in boost.json packages, and `boost:update` naming it as a file it could not render");
+    }
     foreach (['Test every code change', 'Unit and feature tests are more important', 'make:test', 'Laravel Cloud', 'composer run dev'] as $advice) {
         str_contains($block[1], $advice) && $fail("Boost's guidelines in CLAUDE.md still say \"{$advice}\": an override is missing (references/boost.md)");
     }

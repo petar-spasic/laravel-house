@@ -154,7 +154,8 @@ php artisan boost:update
 ```
 
 [Laravel Boost](https://github.com/laravel/boost) is Laravel's toolkit for AI agents. Its update copies each skill
-into the project's `.claude/skills/` directory. These copies have no prefix, for example `/implement-kanban`.
+into the project's `.claude/skills/` directory. These copies have no prefix, for example `/implement-kanban`. The
+package's house rules join your `CLAUDE.md` only in a project set up on them, one with a `config/house.php`.
 
 Laravel registers the package's commands and routes on its own. There is nothing to configure. The board waits until
 you [adopt it](#adopting-the-board).
@@ -407,10 +408,19 @@ digits. This is the style Stripe uses.
 <a name="rules-per-layer"></a>
 ### Rules Per Layer
 
-- The root `CLAUDE.md` holds the stack and the rules for the whole project.
+- The root `CLAUDE.md` holds what you are building, the hosting, and the rules for the whole project.
 - Each layer directory, such as `app/Models` or `routes`, has its own `CLAUDE.md`. Claude reads it when it works
   there.
-- A change to the folder layout, the auth model or the routes updates the matching rule file in the same commit.
+- A change to the folder layout, the auth model or the routes updates your part of the matching rule file in the same
+  commit.
+
+The house rules stay current. Setup records your modules and versions in `config/house.php`, and every
+`composer update` renders the rules again from it: Boost writes the root rules, and `php artisan house:update` the
+house part of each layer file. Where your own rules go, and how to override a house rule, is in your root
+`CLAUDE.md`, under "Where the docs live".
+
+To remove the package from a house project, first take the `house:update` line out of `post-update-cmd` in
+`composer.json`: Composer runs that list after the removal too.
 
 <a name="deployment"></a>
 ## Deployment
@@ -1358,6 +1368,11 @@ Skip the `doctor` line in a project without the board. Then restart Claude Code.
 > then runs `composer install` and `vendor/bin/kanban doctor --fix`.
 
 > [!WARNING]
+> Version 0.10 renders the house rules on every `composer update`. A house project set up earlier has no
+> `config/house.php` and keeps its rules as they are until it [adopts the current core](#adopting-the-current-core)
+> once.
+
+> [!WARNING]
 > Version 0.9 adds the `planning` stage and its planner agent. Update every clone, run `vendor/bin/kanban doctor --fix`
 > to write the planner, and restart Claude Code. The next `kanban promote --auto`, which `kanban run` runs on every pass,
 > moves the ready cards that have no plan to `planning`.
@@ -1377,9 +1392,9 @@ adopt it without running setup again.
    copy of the skills, not the plugin, so this step comes first.
 2. Ask Claude to adopt the current house core.
 
-The setup skill then installs Sanctum and Socialite if they are missing. It merges the current rule files, routes and
-end-to-end tests into yours, and keeps your own text. Then the deployment skill puts Caddy in front of the local stack
-and removes the earlier local web server.
+The setup skill then installs Sanctum and Socialite if they are missing. It moves your rule files onto the rendered
+house rules, keeping your own rules beside them, and merges the current routes and end-to-end tests into yours. Then
+the deployment skill puts Caddy in front of the local stack and removes the earlier local web server.
 
 > [!WARNING]
 > Adopting rebuilds the local image. Commit your work before you start.

@@ -1,3 +1,4 @@
+<!-- house:begin: rendered from config/house.php by composer update; this project's rules go after house:end -->
 # CLAUDE.md — app/Http/Controllers
 
 A controller action is HTTP translation ONLY, about 20 lines at most:
@@ -41,3 +42,4 @@ events, export plumbing.
 
 The controller is thin: find-or-create and linking are a domain service (root `CLAUDE.md`, Auth). It redirects only
 to Socialite's provider URL or to a named route or path, never to a URL taken from the request.
+<!-- house:end -->

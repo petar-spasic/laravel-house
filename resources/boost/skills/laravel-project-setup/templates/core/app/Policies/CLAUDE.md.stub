@@ -1,3 +1,4 @@
+<!-- house:begin: rendered from config/house.php by composer update; this project's rules go after house:end -->
 # CLAUDE.md — app/Policies
 
 Authentication (Fortify's session, Sanctum's `auth:sanctum`) is middleware. **Authorization is policies**: every
@@ -26,3 +27,4 @@ authenticated action on a record goes through one.
 <!-- endif -->
 - Machine-facing surfaces (API tokens, webhooks) authenticate in middleware and scope from the verified key; a policy
   does not replace that.
+<!-- house:end -->
