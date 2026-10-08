@@ -9,16 +9,18 @@ use PetarSpasic\LaravelHouse\Kanban\Code\MergeCheck;
 use PetarSpasic\LaravelHouse\Kanban\Code\Stack;
 use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
 use PetarSpasic\LaravelHouse\Kanban\Policy\Questions;
+use PetarSpasic\LaravelHouse\Kanban\Protocol\Applier;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Lease;
 use PetarSpasic\LaravelHouse\Kanban\Store\Card;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Conflict;
-use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\GitFailed;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\KanbanException;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
 use PetarSpasic\LaravelHouse\Kanban\Support\DotEnv;
 use PetarSpasic\LaravelHouse\Kanban\Support\Git;
 use Symfony\Component\Console\Attribute\AsCommand;
+use Symfony\Component\Process\Exception\ProcessTimedOutException;
 use Symfony\Component\Process\Process;
+use Throwable;
 
 #[AsCommand(name: 'kanban:finish')]
 class FinishCommand extends Command
@@ -31,11 +33,11 @@ class FinishCommand extends Command
 
     protected $description = 'Merge an approved card into main, mark it done, then tear down its stack, worktree and branch';
 
-    /** The start of the line that says main's stack was not rebuilt: `kanban run` raises it. */
-    public const REBUILD_FAILED = 'warning: rebuild main failed';
-
     /** In the refusal when main moved under the approval: `kanban run` re-evaluates the card. */
     public const MOVED = 'moved since approval';
+
+    /** The exit when the card merged and is done, but a step after the merge failed. */
+    public const STEP_FAILED = 10;
 
     protected function perform(): int
     {
@@ -117,41 +119,76 @@ class FinishCommand extends Command
         $this->transitions()->finish($id, $sha, $this->actor());
         $this->say("{$id} review→done");
 
-        if (($untracked = $check->untracked()) !== []) {
-            $this->say("warning: {$main} has untracked files (an agent's leftovers?): ".implode(', ', array_slice($untracked, 0, 10))
-                .(count($untracked) > 10 ? ' … '.(count($untracked) - 10).' more' : '').'; remove or commit them');
-        }
+        // the card is done: from here a step that fails, or throws, is named and the next one runs; the exit is 10. The
+        // teardown comes before the long steps, so a killed finish leaves no card behind
+        $ok = $this->guard('warning', function () use ($check, $main) {
+            if (($untracked = $check->untracked()) !== []) {
+                $this->say("warning: {$main} has untracked files (an agent's leftovers?): ".implode(', ', array_slice($untracked, 0, 10))
+                    .(count($untracked) > 10 ? ' … '.(count($untracked) - 10).' more' : '').'; remove or commit them');
+            }
 
-        // the card is done: tear it down before the long steps, so a killed finish leaves no card behind
-        $exit = self::SUCCESS;
-        if ($worktrees->down($path, $work['stack']['project'] ?? null)) {
-            $this->say(isset($work['stack']['project']) ? "stack down {$work['stack']['project']}; slot released" : 'stack none');
-        } else {
+            return true;
+        });
+        $ok = $this->guard('stack down', function () use ($worktrees, $path, $work) {
+            if ($worktrees->down($path, $work['stack']['project'] ?? null)) {
+                $this->say(isset($work['stack']['project']) ? "stack down {$work['stack']['project']}; slot released" : 'stack none');
+
+                return true;
+            }
             $this->fault("stack down failed for {$path}; the slot is kept until `kanban stack gc`");
-            $exit = 7;
-        }
-        if (isset($work['worktree']) && is_dir($path)) {
-            try {
+
+            return false;
+        }) && $ok;
+        $ok = $this->guard('removing the clone', function () use ($worktrees, $path, $work, $leftovers, $branch) {
+            if (isset($work['worktree']) && is_dir($path)) {
                 $worktrees->remove($path, $leftovers !== null, $branch);
                 $this->say("removed worktree {$work['worktree']}");
-            } catch (GitFailed $e) {
-                $this->fault("removing {$work['worktree']}: ".$e->getMessage());
-                $exit = max($exit, 1);
             }
-        }
-        if ($worktrees->deleteBranch($branch)) {
-            $this->say("deleted branch {$branch}");
-        } else {
-            $this->fault("branch {$branch} kept (git branch -d refused)");
-        }
-        $worktrees->prune();
 
-        $exit = max($exit, $this->afterMerge($worktrees, $files, $mainCheck, $card, $sha));
-        $this->rebuildMain($files);
-        $this->reportPending();
-        $this->publishMain($git, $main);
+            return true;
+        }) && $ok;
+        $ok = $this->guard('deleting the branch', function () use ($worktrees, $branch) {
+            $worktrees->deleteBranch($branch) ? $this->say("deleted branch {$branch}") : $this->fault("branch {$branch} kept (git branch -d refused)");
+            $worktrees->prune();
 
-        return $exit;
+            return true;
+        }) && $ok;
+
+        // the image the steps run in is the merged one
+        $installed = $this->guard('install', fn () => $this->install($files), 'after: skipped, the install step failed; fix it and run the rest by hand');
+        $ok = $this->guard('rebuild main', fn () => $this->rebuildMain($files)) && $ok;
+        if ($installed) {
+            $ok = $this->guard('after', fn () => $this->afterMerge($worktrees, $mainCheck, $card, $sha)) && $ok;
+        }
+        $ok = $installed && $ok;
+        $ok = $this->guard('journal', function () {
+            $this->reportPending();
+
+            return true;
+        }) && $ok;
+        $ok = $this->guard('publish', function () use ($git, $main) {
+            $this->publishMain($git, $main);
+
+            return true;
+        }) && $ok;
+
+        return $ok ? self::SUCCESS : self::STEP_FAILED;
+    }
+
+    /**
+     * A step after the merge: what it throws is printed as its failure, so the steps after it still run. A busy board lock
+     * too: the card is done, and the teardown, main's steps and the push still have their work to do.
+     */
+    private function guard(string $kind, callable $step, ?string $then = null): bool
+    {
+        try {
+            return (bool) $step();
+        } catch (Throwable $e) {
+            $this->fault("{$kind}: ".basename(str_replace('\\', '/', $e::class)).': '.Worktrees::tail($e->getMessage()));
+            $then === null || $this->fault($then);
+
+            return false;
+        }
     }
 
     /** Pushes main once `publish.every` merges are not on the remote; a failed push leaves it to `publish`, never failing the finish. */
@@ -187,55 +224,89 @@ class FinishCommand extends Command
             .(isset($red['card']) ? "; finish {$red['card']} first" : '').', or pass --force', array_slice(explode("\n", $failure['tail']), -10));
     }
 
-    /**
-     * After the merge, in the main checkout: install what a changed lockfile needs, migrate and run `finish.after` (with a
-     * stack), then `finish.check`. A failed install skips the rest; a failed check marks main red and files one bug card.
-     *
-     * @param  list<string>  $files  what the branch changed
-     */
-    private function afterMerge(Worktrees $worktrees, array $files, MainCheck $mainCheck, Card $card, string $sha): int
+    /** After the merge, in the main checkout: what a changed lockfile needs. A failed install skips the installs after it, then migrate, finish.after and finish.check. @param  list<string>  $files  what the branch changed */
+    private function install(array $files): bool
     {
-        $finish = $this->merged()['finish'];
-        foreach ($this->installs($files, (array) $finish['install']) as [$dir, $command]) {
+        foreach ($this->installs($files, (array) $this->merged()['finish']['install']) as [$dir, $command]) {
             if (! $this->step('install', $command, $dir)) {
                 $this->fault("after: skipped, `{$command}` failed; fix it and run the rest by hand");
 
-                return 1;
+                return false;
             }
         }
-        $exit = self::SUCCESS;
-        if ($worktrees->stackEnabled()) {
-            foreach (DatabaseSteps::commands(Standalone::config($this->paths()->main), $this->paths()->main) as $command) {
-                $exit = $this->step('after', $command, $this->paths()->main) ? $exit : 1;
-            }
-        }
-        $commands = array_map('strval', (array) $finish['check']);
+
+        return true;
+    }
+
+    /**
+     * With a stack, migrate and run `finish.after` in main's own stack (brought up first) as agents run them in theirs;
+     * then `finish.check`, whose failure marks main red and files one bug card.
+     */
+    private function afterMerge(Worktrees $worktrees, MainCheck $mainCheck, Card $card, string $sha): bool
+    {
+        $ok = ! $worktrees->stackEnabled() || $this->databaseSteps();
+        $commands = array_map('strval', (array) $this->merged()['finish']['check']);
         if ($commands === []) {
-            return $exit;
+            return $ok;
         }
         if (($failure = $mainCheck->failure($commands)) === null) {
             $this->say('check: finish.check passes on main'.($mainCheck->red() !== null ? '; main green again' : ''));
             $mainCheck->clear();
 
-            return $exit;
+            return $ok;
         }
         $red = $mainCheck->red();
-        $bug = $red['card'] ?? $this->store()->create($card->board, [
-            'type' => 'bug', 'priority' => 'high', 'title' => mb_strimwidth("main red after {$card->id()}: {$failure['command']}", 0, 120, '…'),
-            'labels' => array_values(array_filter($card->labels(), fn (string $l) => str_starts_with($l, 'area:'))),
-            'acceptance' => [mb_strimwidth("`{$failure['command']}` passes on main", 0, Card::MAX_CRITERION, '…')],
-            'body' => "`{$failure['command']}` failed on main (".($failure['exit'] === null ? 'timed out' : "exit {$failure['exit']}").') after '.$card->id()
-                .' merged at '.substr($sha, 0, 7).". The next `finish` waits until it passes.\n\n```\n{$failure['tail']}\n```",
-        ], $this->actor())->id();
+        // main is marked red even when its bug card cannot be filed: the next finish must wait all the same
+        try {
+            $bug = $red['card'] ?? $this->store()->create($card->board, [
+                'type' => 'bug', 'priority' => 'high', 'title' => mb_strimwidth("main red after {$card->id()}: {$failure['command']}", 0, 120, '…'),
+                'labels' => [...array_values(array_filter($card->labels(), fn (string $l) => str_starts_with($l, 'area:'))), Applier::MAIN_RED],
+                'acceptance' => [mb_strimwidth("`{$failure['command']}` passes on main", 0, Card::MAX_CRITERION, '…')],
+                'body' => "`{$failure['command']}` failed on main (".($failure['exit'] === null ? 'timed out' : "exit {$failure['exit']}").') after '.$card->id()
+                    .' merged at '.substr($sha, 0, 7).". The next `finish` waits until it passes.\n\n```\n{$failure['tail']}\n```",
+            ], $this->actor())->id();
+        } catch (Throwable $e) {
+            $bug = null;
+            $this->fault('check: no bug card filed for the red main: '.$e->getMessage());
+        }
         $mainCheck->markRed(['sha' => $red['sha'] ?? $sha, 'after' => $red['after'] ?? $card->id(), 'command' => $failure['command'],
             'tail' => $failure['tail'], 'card' => $bug, 'at' => gmdate('Y-m-d\TH:i:s\Z')]);
         $this->fault("check: `{$failure['command']}` ".($failure['exit'] === null ? 'timed out' : "failed (exit {$failure['exit']})")
-            ." on main; main is red, {$bug} holds it, and the next finish waits until it passes");
+            .' on main; main is red, '.($bug ?? 'no card').' holds it, and the next finish waits until it passes');
         foreach (array_slice(explode("\n", $failure['tail']), -10) as $line) {
             $this->fault('  '.$line);
         }
 
-        return 1;
+        return false;
+    }
+
+    /** `migrate` and `finish.after` in main's stack, or in the checkout when `.env` names no compose project. */
+    private function databaseSteps(): bool
+    {
+        $main = $this->paths()->main;
+        $commands = DatabaseSteps::commands(Standalone::config($main), $main);
+        $stack = $this->mainStack();
+        if ($commands === []) {
+            return true;
+        }
+        if ($stack !== null && ($up = $stack->compose(['up', '-d', '--wait', '--no-recreate'], 600))['code'] !== 0) {
+            $this->fault("after: skipped, main's stack {$stack->project} did not come up: ".Worktrees::tail($up['err'] ?: "exit {$up['code']}"));
+
+            return false;
+        }
+        $ok = true;
+        foreach ($commands as $command) {
+            $ok = $this->step('after', $command, $main, $stack) && $ok;
+        }
+
+        return $ok;
+    }
+
+    private function mainStack(): ?Stack
+    {
+        $project = DotEnv::parse($this->paths()->main.'/.env')['COMPOSE_PROJECT_NAME'] ?? '';
+
+        return $project === '' ? null : new Stack($this->paths()->main, $project, (array) $this->setting('stack'), $this->paths()->main);
     }
 
     /**
@@ -271,17 +342,27 @@ class FinishCommand extends Command
         return array_values($runs);
     }
 
-    private function step(string $kind, string $command, string $dir): bool
+    /** $command in $dir, or in $stack's service container. */
+    private function step(string $kind, string $command, string $dir, ?Stack $stack = null): bool
     {
-        $process = Process::fromShellCommandline($command, $dir, null, null, 600);
-        $process->run();
+        if ($stack !== null) {
+            $result = $stack->compose(['exec', '-T', $stack->service(), 'sh', '-c', $command], 600);
+        } else {
+            $process = Process::fromShellCommandline($command, $dir, null, null, 600);
+            try {
+                $process->run();
+                $result = ['code' => $process->getExitCode() ?? 1, 'out' => $process->getOutput(), 'err' => $process->getErrorOutput()];
+            } catch (ProcessTimedOutException) {
+                $result = ['code' => 124, 'out' => $process->getOutput(), 'err' => 'timed out after '.(int) $process->getTimeout().' s'];
+            }
+        }
         $where = $dir === $this->paths()->main ? '' : ' in '.$this->paths()->relative($dir);
-        if ($process->isSuccessful()) {
+        if ($result['code'] === 0) {
             $this->say("{$kind}: {$command}{$where} ok");
 
             return true;
         }
-        $this->fault("{$kind}: {$command}{$where} failed (exit {$process->getExitCode()}): ".Worktrees::tail($process->getErrorOutput() ?: $process->getOutput()));
+        $this->fault("{$kind}: {$command}{$where} failed (exit {$result['code']}): ".Worktrees::tail($result['err'] ?: $result['out']));
 
         return false;
     }
@@ -324,37 +405,42 @@ class FinishCommand extends Command
 
     /**
      * Rebuilds main's stack when the merge changed what its image or compose file is built from: the images first, while
-     * the old containers keep serving, then the containers are recreated on them. A failure only warns: the merge is
+     * the old containers keep serving, then the containers are recreated on them. False when either failed: the merge is
      * done, and the owner runs the printed command.
      *
      * @param  list<string>  $files
      */
-    private function rebuildMain(array $files): void
+    private function rebuildMain(array $files): bool
     {
         $stack = (array) $this->setting('stack');
         $compose = $stack['compose_file'] ?? 'docker-compose.yml';
         if (($rebuild = MergeCheck::rebuildFiles($files, $compose)) === []) {
-            return;
+            return true;
         }
         $command = "docker compose -f {$compose} build && docker compose -f {$compose} up -d --force-recreate --wait";
-        $project = DotEnv::parse($this->paths()->main.'/.env')['COMPOSE_PROJECT_NAME'] ?? '';
-        if ($this->option('no-rebuild') || $project === '' || ! Stack::enabled($stack, $this->paths()->main)) {
+        $main = $this->mainStack();
+        if ($this->option('no-rebuild') || $main === null || ! Stack::enabled($stack, $this->paths()->main)) {
             $this->say('rebuild main: '.implode(', ', $rebuild)." changed; run `{$command}`");
 
-            return;
+            return true;
         }
-        $main = new Stack($this->paths()->main, $project, $stack, $this->paths()->main);
+        $project = $main->project;
         $this->say('rebuild main: '.implode(', ', $rebuild).' changed; building its images, main keeps serving');
         $build = $main->compose(['build'], 1800);
         if ($build['code'] !== 0) {
-            $this->say(self::REBUILD_FAILED.' to build, main runs on its old images: '.Worktrees::tail($build['err'] ?: "exit {$build['code']}")."; run `{$command}`");
+            $this->fault('rebuild main failed to build, main runs on its old images: '.Worktrees::tail($build['err'] ?: "exit {$build['code']}")."; run `{$command}`");
 
-            return;
+            return false;
         }
         $this->say("rebuild main: recreating its containers (`docker compose -p {$project} ps` follows them)");
         $result = $main->compose(['up', '-d', '--force-recreate', '--wait'], 600);
-        $this->say($result['code'] === 0
-            ? "rebuilt main's stack {$project}"
-            : self::REBUILD_FAILED.': '.Worktrees::tail($result['err'] ?: "exit {$result['code']}")."; run `{$command}`");
+        if ($result['code'] !== 0) {
+            $this->fault('rebuild main failed: '.Worktrees::tail($result['err'] ?: "exit {$result['code']}")."; run `{$command}`");
+
+            return false;
+        }
+        $this->say("rebuilt main's stack {$project}");
+
+        return true;
     }
 }

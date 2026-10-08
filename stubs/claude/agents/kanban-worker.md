@@ -57,7 +57,9 @@ and wrote its plan.
 - A product question (what the app does for its users) the code cannot answer, whose answer is easy to change later:
   take your recommended option, finish the card, and record it as a `## Provisional decision` (below); the owner
   confirms or changes it. One that is not: real data, production, accounts, money, publishing, legal, loosening
-  security: finish every criterion it does not touch, then report blocked with an `## Open question`.
+  security: finish every criterion it does not touch, then report blocked with an `## Open question`. One whose
+  answer changes none of this card's criteria (a criterion already fixes what the card builds meanwhile) blocks
+  nothing: report review with it as a `## Provisional decision` whose `Taken:` is what you built.
 - Write either into `<worktree>/.tmp/question.md` and pass `--question-file=.tmp/question.md`; one file may hold
   several sections. The owner builds with AI and may not know the code: plain words, no jargon, any term explained,
   one concrete example, 2 to 4 options:
@@ -77,6 +79,9 @@ and wrote its plan.
   `--discovered`, or blocked when the card cannot be done without it.
 - Out-of-scope work you notice → a `--discovered` line, never a fix; never one `context` lists under
   `discovered earlier`, nor one a card `in flight` covers (say it in your summary instead).
+- A failure already on main (in code and tests this card never touched) is not yours. When `context` prints
+  `main red:` or `failing on main already:`, those lines name it and its card: subtract its failures from yours and
+  file nothing. Otherwise `--discovered='main: <command> — what fails'` files it once, for every agent.
 - Delete tracked files with `git rm`; never move them out of the clone.
 - After a page change, its browser spec runs in your container and passes before you report. Run each browser spec
   you add or change three times (`--repeat-each=3`): one failure is a flaky spec to fix.
@@ -94,14 +99,19 @@ and wrote its plan.
 ## 3. Done means
 
 - every criterion is proven as the project's `tests/CLAUDE.md` requires, and the proof passes in this stack;
-- `vendor/bin/kanban gates` passes (`report` runs them too, and refuses to stage on a failure);
+- `vendor/bin/kanban gates` passes (`report` runs them too, and refuses to stage on a failure). They are main's
+  gates: one this branch adds to `config/kanban.php` runs only after the merge, so run its command yourself and cite
+  it in `--verified`;
 - the governing `CLAUDE.md` is updated in the same commit when the change alters a rule it states. With a
   `config/house.php`, house rules are rendered by `composer update` and never edited: the text between `house:begin`
   and `house:end`, the `.ai/` files setup's templates ship, and the root `CLAUDE.md`'s Boost block. A file its
   `overrides` lists is the project's, and so is a root topic overridden in `.ai/guidelines/petar-spasic/laravel-house/`.
   A house rule the change contradicts is reported blocked;
 - everything is committed (`git status` clean), with at least one commit beyond the base. The commit hook puts the
-  card id in front of each message.
+  card id in front of each message;
+- the whole suite, as `tests/CLAUDE.md` says, ran once after your last commit and passed. Cite it in `--verified` with
+  the commit it ran at (`php artisan test --compact @<sha> → 212 passed`): the evaluator trusts a green run at the head
+  it reviews and does not repeat it. Commit again after it, and it runs again.
 
 ## 4. Report
 
@@ -136,5 +146,6 @@ When the main session sends you a message (an evaluator reject, a merge of main 
    had, `git add` only the conflicted files, `git commit --no-edit`. Never run `git merge` yourself: `refresh` merges
    main, and only into a clone with everything committed.
 3. After any merge of main: `vendor/bin/kanban stack wait` (it recreates a stack whose docker files or lockfiles
-   changed), then the `database` commands `context` prints, the gates and the whole test suite.
+   changed), then the `database` commands `context` prints and the gates; the whole suite runs after your last
+   commit, as section 3 says.
 4. Fix, commit, prove again, then report again as in section 4. A card already in review takes a follow-up report.

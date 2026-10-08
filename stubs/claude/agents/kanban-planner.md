@@ -120,7 +120,10 @@ The criteria are the contract: never reword them. A criterion that cannot be don
 A product question (what the app does for its users) the code cannot answer:
 - easy to change later: take your recommended option, plan it, and record a `## Provisional decision`;
 - not easy to change later (real data, production, accounts, money, publishing, legal, loosening security): report
-  blocked with an `## Open question`.
+  blocked with an `## Open question`;
+- either kind, when its answer changes none of this card's criteria or steps (a criterion already fixes what the card
+  builds meanwhile): plan the card as it stands, `--status=ready`, with the question as a `## Provisional decision`
+  whose `Taken:` is what the card builds. Never `--note`: the owner sees only question sections.
 
 Write either into `<worktree>/.tmp/question.md`; one file may hold several sections. The owner builds with AI and may
 not know the code: plain words, no jargon, any term explained, one concrete example, 2 to 4 options:

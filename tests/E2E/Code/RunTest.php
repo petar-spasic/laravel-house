@@ -61,7 +61,7 @@ it('takes a ready card to done: a headless worker, a headless evaluator, then th
 
     $first = runPass($this->code, $this->claude);
     $wt = realpath($this->code->worktree($id));
-    expect($first)->toContain('driving the board as run:')->toMatch("/ {$id} started; worker [0-9a-f]{8} launched\n/")
+    expect($first)->toContain('driving the board as run:')->toMatch("/ {$id} started; worker [0-9a-f]{8} launched \([a-z]+, [a-z]+\)\n/")
         ->and($this->code->sandbox->read($id)['stage'])->toBe('review');
 
     $second = runPass($this->code, $this->claude);
@@ -95,11 +95,11 @@ it('plans a backlog card with a headless planner, then starts its worker once th
     $id = $this->code->sandbox->card('Add login page', ['--body=Build it', '--accept=It works', '--label=area:login']);
 
     $first = runPass($this->code, $this->claude);
-    expect($first)->toMatch("/ {$id} planning started; planner [0-9a-f]{8} launched\n/")
+    expect($first)->toMatch("/ {$id} planning started; planner [0-9a-f]{8} launched \([a-z]+, [a-z]+\)\n/")
         ->and($this->code->sandbox->read($id)['stage'])->toBe('planning');
 
     $second = runPass($this->code, $this->claude);
-    expect($second)->toMatch("/ {$id} planner [0-9a-f]{8} ended/")->toContain(" {$id} planned: ready\n")->toMatch("/ {$id} started; worker [0-9a-f]{8} launched\n/")
+    expect($second)->toMatch("/ {$id} planner [0-9a-f]{8} ended/")->toContain(" {$id} planned: ready\n")->toMatch("/ {$id} started; worker [0-9a-f]{8} launched \([a-z]+, [a-z]+\)\n/")
         ->and(file_get_contents($this->claude.'/plan-read.md'))->toContain("## Criteria\n- 1: `cat feature.txt` holds it\n");
 
     [$planner, $worker] = runLaunches($this->claude);
@@ -116,8 +116,8 @@ it('gives planners only the slots workers leave', function () {
 
     $out = runPass($this->code, $this->claude);
 
-    expect($out)->toMatch("/ {$ready} started; worker [0-9a-f]{8} launched\n/")
-        ->and($out)->toMatch("/ {$first} planning started; planner [0-9a-f]{8} launched\n/")
+    expect($out)->toMatch("/ {$ready} started; worker [0-9a-f]{8} launched \([a-z]+, [a-z]+\)\n/")
+        ->and($out)->toMatch("/ {$first} planning started; planner [0-9a-f]{8} launched \([a-z]+, [a-z]+\)\n/")
         ->and($out)->not->toContain("{$second} planning started")
         ->and(array_column(runLaunches($this->claude), 2))->toBe(['kanban-worker', 'kanban-planner'])
         ->and($this->code->sandbox->read($second))->toMatchArray(['stage' => 'planning', 'claim' => null]);
@@ -276,7 +276,7 @@ it('never merges main into a clone with uncommitted changes: its worker commits 
 
     $back = runPass($this->code, $this->claude);
     expect($back)->toContain("{$id} back to doing: uncommitted changes in its clone")
-        ->and($back)->toMatch("/ {$id} worker [0-9a-f]{8} resumed, main not merged: uncommitted changes in its clone\n/")
+        ->and($back)->toMatch("/ {$id} worker [0-9a-f]{8} resumed \([a-z]+, [a-z]+\), main not merged: uncommitted changes in its clone\n/")
         ->and(is_file($wt.'/fix.txt'))->toBeFalse()
         ->and($this->code->sandbox->read($id)['stage'])->toBe('review');
 
@@ -293,7 +293,7 @@ it('finishes a start cut short on this machine whose block was cleared, then run
 
     $out = runPass($this->code, $this->claude);
 
-    expect($out)->toMatch("/ {$id} start resumed; worker [0-9a-f]{8} launched\n/")
+    expect($out)->toMatch("/ {$id} start resumed; worker [0-9a-f]{8} launched \([a-z]+, [a-z]+\)\n/")
         ->and(is_dir($wt.'/.git'))->toBeTrue()
         ->and($this->code->sandbox->read($id)['stage'])->toBe('review');
 });
@@ -332,7 +332,7 @@ it('finishes a start whose claim reached origin although the start failed, pulli
 
     $out = runPass($this->code, $this->claude, env: ['KANBAN_SYNC' => 'on']);
 
-    expect($out)->toMatch("/ {$id} start resumed; worker [0-9a-f]{8} launched\n/")
+    expect($out)->toMatch("/ {$id} start resumed; worker [0-9a-f]{8} launched \([a-z]+, [a-z]+\)\n/")
         ->and($this->code->sandbox->read($id)['stage'])->toBe('review');
 });
 
@@ -358,7 +358,7 @@ it('pulls the board in each pass, so a card readied on another machine starts wi
 
     $out = runPass($this->code, $this->claude, env: ['KANBAN_SYNC' => 'on']);
 
-    expect($out)->toMatch("/ {$id} started; worker [0-9a-f]{8} launched\n/");
+    expect($out)->toMatch("/ {$id} started; worker [0-9a-f]{8} launched \([a-z]+, [a-z]+\)\n/");
 });
 
 it('leaves the worker of a resumed start alone for the rest of the pass while it runs', function () {
@@ -373,7 +373,7 @@ it('leaves the worker of a resumed start alone for the rest of the pass while it
 
     $out = runPass($this->code, $this->claude);
 
-    expect($out)->toMatch("/ {$id} start resumed; worker [0-9a-f]{8} launched\n/")->not->toContain("{$id} blocked")
+    expect($out)->toMatch("/ {$id} start resumed; worker [0-9a-f]{8} launched \([a-z]+, [a-z]+\)\n/")->not->toContain("{$id} blocked")
         ->and($this->code->sandbox->read($id)['blocked'])->toBeNull()
         ->and($this->code->sandbox->read($id)['stage'])->toBe('review');
 });
@@ -413,7 +413,7 @@ it('finishes a start cut short at the stack cap: the slot it holds is its own', 
 
     $out = runPass($this->code, $this->claude);
 
-    expect($out)->toMatch("/ {$id} start resumed; worker [0-9a-f]{8} launched\n/")
+    expect($out)->toMatch("/ {$id} start resumed; worker [0-9a-f]{8} launched \([a-z]+, [a-z]+\)\n/")
         ->and($this->code->sandbox->read($id)['stage'])->toBe('review');
 });
 
@@ -524,7 +524,7 @@ it('merges main into a resumed worker whose clone holds only untracked files', f
 
     $out = runPass($this->code, $this->claude);
 
-    expect($out)->toMatch("/ {$id} worker [0-9a-f]{8} resumed\n/")
+    expect($out)->toMatch("/ {$id} worker [0-9a-f]{8} resumed \([a-z]+, [a-z]+\)\n/")
         ->and(is_file($this->code->worktree($id).'/fix.txt'))->toBeTrue();
 });
 
@@ -548,7 +548,7 @@ it('says the stack cap is why nothing starts, and frees a slot a start left behi
 
     $project = array_values($data['stacks'])[0]['project'];
     $freed = runPass($this->code, $this->claude);
-    expect($freed)->toContain("freed: {$project} down")->toMatch("/ {$left} started; worker [0-9a-f]{8} launched\n/")
+    expect($freed)->toContain("freed: {$project} down")->toMatch("/ {$left} started; worker [0-9a-f]{8} launched \([a-z]+, [a-z]+\)\n/")
         ->and($this->code->calls())->toContain("compose -p {$project} down -v --remove-orphans");
 });
 
@@ -560,7 +560,7 @@ it('finishes a start whose clone was made but whose stack never came up, instead
     Json::write($file, Json::encode($card, 'card'));
     $this->code->sandbox->boardGit('commit', '-q', '-am', "{$id} stack lost (test)");
 
-    expect(runPass($this->code, $this->claude))->toMatch("/ {$id} start resumed; worker [0-9a-f]{8} launched\n/");
+    expect(runPass($this->code, $this->claude))->toMatch("/ {$id} start resumed; worker [0-9a-f]{8} launched \([a-z]+, [a-z]+\)\n/");
 });
 
 it('drains only once a start of this checkout cut short for want of a slot is finished too', function () {
@@ -592,7 +592,7 @@ it('retries a start that lost its stack slot after the claim once a slot is free
     $this->code->ok(['stack', $other, 'down']);
     $free = runPass($this->code, $this->claude);
 
-    expect($free)->toMatch("/ {$lost} start resumed; worker [0-9a-f]{8} launched\n/")->not->toContain("{$next} started")
+    expect($free)->toMatch("/ {$lost} start resumed; worker [0-9a-f]{8} launched \([a-z]+, [a-z]+\)\n/")->not->toContain("{$next} started")
         ->and($this->code->sandbox->read($lost)['blocked'])->toBeNull()
         ->and($this->code->sandbox->read($lost)['stage'])->toBe('review');
 });
@@ -635,9 +635,9 @@ it('plans an answered question card on its kept branch and starts it ahead of ne
     $planned = runPass($this->code, $this->claude, ['--drain', '--once']);
     $out = runPass($this->code, $this->claude, ['--drain', '--once']);
 
-    expect($planned)->toMatch("/ {$id} planning started; planner [0-9a-f]{8} launched\n/")
+    expect($planned)->toMatch("/ {$id} planning started; planner [0-9a-f]{8} launched \([a-z]+, [a-z]+\)\n/")
         ->and($out)->toContain("{$id} planned: ready")
-        ->and($out)->toMatch("/ {$id} started; worker [0-9a-f]{8} launched\n/")
+        ->and($out)->toMatch("/ {$id} started; worker [0-9a-f]{8} launched \([a-z]+, [a-z]+\)\n/")
         ->and($this->code->sandbox->read($id)['stage'])->toBe('review')
         ->and(file_get_contents($this->code->worktree($id).'/feature.txt'))->toBe("half\ndone\n")
         ->and($this->code->sandbox->read($fresh)['stage'])->toBe('ready');
@@ -652,7 +652,7 @@ it('drains on `kanban drain`, in the runs after it too, until one has drained', 
     expect($out)->toContain('draining: `kanban drain` asked for it')->toContain('drained: no card in flight')
         ->and($this->code->sandbox->read($id)['stage'])->toBe('ready')
         ->and(is_file($this->code->root().'/.git/laravel-house/run.drain'))->toBeFalse()
-        ->and(runPass($this->code, $this->claude))->toMatch("/ {$id} started; worker [0-9a-f]{8} launched\n/");
+        ->and(runPass($this->code, $this->claude))->toMatch("/ {$id} started; worker [0-9a-f]{8} launched \([a-z]+, [a-z]+\)\n/");
 });
 
 it('starts a run while another process only looks at the run lock', function () {
@@ -803,4 +803,357 @@ it('drains: starts no new card and returns once none is in flight', function () 
         ->and((string) file_get_contents($this->code->root().'/.git/laravel-house/run.log'))->toMatch('/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d drained: no card in flight$/m')
         ->and($this->code->sandbox->read($id)['stage'])->toBe('ready')
         ->and(runLaunches($this->claude))->toBe([]);
+});
+
+/** Starts `kanban run --once` and returns once the agent it launched for $id has written $file: the agent is live. */
+function liveAgent(CodeSandbox $code, string $claude, string $file): array
+{
+    $code->kanban(['run', '--once'], [
+        'PATH' => Sandbox::package().'/tests/Support/FakeClaude:'.Sandbox::package().'/tests/Support/FakeDocker:'.getenv('PATH'),
+        'FAKE_CLAUDE_DIR' => $claude,
+    ]);
+    $deadline = microtime(true) + 30;
+    while (! is_file($file) && microtime(true) < $deadline) {
+        usleep(50_000);
+    }
+    $runs = glob($code->root().'/.git/laravel-house/runs/*.pid') ?: [];
+
+    return [(int) (json_decode((string) file_get_contents($runs[0] ?? '/dev/null'), true)['pid'] ?? 0), (int) @file_get_contents($file)];
+}
+
+function processAlive(int $pid): bool
+{
+    $stat = @file_get_contents("/proc/{$pid}/stat");
+
+    return $pid > 0 && is_string($stat) && preg_match('/^\d+ \(.*\) [^Z] /s', $stat) === 1;
+}
+
+it('ends the headless agent of a card it stops and the commands it runs in sessions of their own, before the clone comes down', function () {
+    // Claude Code starts each shell in a session of its own, as setsid does here
+    runAgent($this->claude, 'worker', 'setsid sleep 300 & echo $! > "$FAKE_CLAUDE_DIR/child.pid"; wait');
+    $id = $this->code->sandbox->readyCard('Add login page');
+    [$agent, $child] = liveAgent($this->code, $this->claude, $this->claude.'/child.pid');
+    expect(processAlive($agent))->toBeTrue()->and(processAlive($child))->toBeTrue()
+        ->and(posix_getpgid($child))->not->toBe(posix_getpgid($agent));
+
+    $out = $this->code->ok(['stop', $id, '--to=backlog']);
+
+    expect($out)->toMatch('/^stopped its worker [0-9a-f]{8}\n/')
+        ->and(processAlive($agent))->toBeFalse()
+        ->and(processAlive($child))->toBeFalse()
+        ->and(glob($this->code->root().'/.git/laravel-house/runs/*.pid') ?: [])->toBe([])
+        // `wait` and finish see the agent stopped at once, with no Stop hook of its own
+        ->and(array_column(array_map(fn ($f) => json_decode(file_get_contents($f), true), glob($this->code->root().'/.git/laravel-house/agents/*.json') ?: []), 'stopped_at', 'card'))
+        ->toHaveKey($id)->not->toContain(null)
+        ->and($this->code->sandbox->read($id)['stage'])->toBe('backlog');
+});
+
+it('launches nothing for a card being stopped, keeps the mark when the stop fails after its agent ended, and clears it once stopped', function () {
+    $id = $this->code->started('Add login page');
+    $other = $this->code->started('Add logout page');
+    @mkdir($this->code->root().'/.git/laravel-house/stopping', 0775, true);
+    file_put_contents($this->code->root()."/.git/laravel-house/stopping/{$id}", '1');
+    $launched = fn () => array_map(fn (array $argv) => preg_replace('/^(?:Card|Resumed for card) ([A-Z0-9]+-[A-Z0-9]+).*$/s', '$1', (string) end($argv)), runLaunches($this->claude));
+
+    runPass($this->code, $this->claude);
+    expect($launched())->toBe([$other]);
+
+    unlink($this->code->root()."/.git/laravel-house/stopping/{$id}");
+    $wt = $this->code->worktree($id);
+    file_put_contents($wt.'/wip.txt', "half\n");
+    expect($this->code->kanban(['stop', $id, '--to=backlog'])->getExitCode())->toBe(3)
+        ->and(glob($this->code->root().'/.git/laravel-house/stopping/*') ?: [])->toBe([]);
+    unlink($wt.'/wip.txt');
+    $failed = $this->code->kanban(['stop', $id, '--to=backlog'], ['FAKE_DOCKER_FAIL' => 'down']);
+    expect($failed->getExitCode())->toBe(7)
+        ->and($failed->getErrorOutput())->toContain("{$id} not stopped: its agent is ended, and `kanban run` launches nothing for it for 10 min")
+        ->and(is_file($this->code->root()."/.git/laravel-house/stopping/{$id}"))->toBeTrue();
+    runPass($this->code, $this->claude);
+    expect($launched())->not->toContain($id);
+    $this->code->ok(['stop', $id, '--to=backlog']);
+
+    expect(glob($this->code->root().'/.git/laravel-house/stopping/*') ?: [])->toBe([])
+        ->and($this->code->sandbox->read($id)['stage'])->toBe('backlog');
+});
+
+it('refuses a stop when what the ended agent left in the clone is uncommitted, keeping the mark', function () {
+    runAgent($this->claude, 'worker', 'trap \'echo half > "$WORKTREE/wip.txt"; exit 0\' TERM; touch "$FAKE_CLAUDE_DIR/child.pid"; sleep 300 & wait');
+    $id = $this->code->sandbox->readyCard('Add login page');
+    [$agent] = liveAgent($this->code, $this->claude, $this->claude.'/child.pid');
+
+    $refused = $this->code->kanban(['stop', $id, '--to=backlog']);
+
+    expect($refused->getExitCode())->toBe(3)
+        ->and($refused->getOutput())->toMatch('/^stopped its worker [0-9a-f]{8}\n/')
+        ->and($refused->getErrorOutput())->toContain('has uncommitted changes')->toContain("{$id} not stopped: its agent is ended")
+        ->and(processAlive($agent))->toBeFalse()
+        ->and(is_file($this->code->root()."/.git/laravel-house/stopping/{$id}"))->toBeTrue()
+        ->and($this->code->sandbox->read($id)['stage'])->toBe('doing');
+});
+
+it('ends an agent launched while a stop marked its card, and the pass goes on', function () {
+    runAgent($this->claude, 'worker', 'sleep 300');
+    $id = $this->code->sandbox->readyCard('Add login page');
+    $mark = $this->code->root()."/.git/laravel-house/stopping/{$id}";
+    // a stop that marks the card while the launch reads the agents' settings, after its first look at the mark
+    $config = file_get_contents($this->code->root().'/config/kanban.php');
+    file_put_contents($this->code->root().'/config/kanban.php', str_replace("<?php\n", "<?php\n\nforeach (debug_backtrace() as \$frame) {\n    if ((\$frame['function'] ?? '') === 'settings' && str_ends_with(\$frame['class'] ?? '', 'AgentRun')) {\n        @mkdir(dirname('{$mark}'), 0775, true);\n        touch('{$mark}');\n    }\n}\n", $config));
+
+    $out = runPass($this->code, $this->claude);
+
+    $runs = array_map(fn ($l) => json_decode($l, true), file($this->code->root().'/.git/laravel-house/runs.jsonl', FILE_IGNORE_NEW_LINES) ?: []);
+    expect($out)->toContain("{$id} worker not launched: {$id} is being stopped: its agent was ended as it launched")
+        ->and(glob($this->code->root().'/.git/laravel-house/runs/*.pid') ?: [])->toBe([])
+        ->and(array_column($runs, 'card'))->toBe([$id])
+        // the bracket keeps pgrep from finding its own shell
+        ->and(shell_exec('pgrep -f '.escapeshellarg('['.$runs[0]['session'][0].']'.substr($runs[0]['session'], 1))))->toBeNull();
+});
+
+it('never signals a process that took over the pid of a run of the card it stops', function () {
+    $id = $this->code->started('Add login page');
+    $other = new Process(['sleep', '300']);
+    $other->start();
+    @mkdir($this->code->root().'/.git/laravel-house/runs', 0775, true);
+    file_put_contents($this->code->root().'/.git/laravel-house/runs/0b7c4a52-9d1e-4f3a-8c2b-5e6f7a8b9c0d.pid',
+        json_encode(['pid' => $other->getPid(), 'card' => $id, 'type' => 'kanban-worker', 'stage' => 'doing']));
+
+    try {
+        $out = $this->code->ok(['stop', $id, '--to=backlog']);
+        $alive = $other->isRunning();
+    } finally {
+        $other->stop(0);
+    }
+
+    expect($alive)->toBeTrue()
+        ->and($out)->not->toContain('stopped its')
+        ->and($this->code->sandbox->read($id)['stage'])->toBe('backlog');
+});
+
+it('refuses to stop a card whose live planner staged a plan not yet applied, unless forced', function () {
+    runAgent($this->claude, 'planner', <<<'SH'
+        printf '## Files\n- read `README.md` — the app\n\n## Steps\n1. Add feature.txt. Check: `cat feature.txt`\n\n## Criteria\n- 1: `cat feature.txt` holds it\n' > "$WORKTREE/.tmp/plan.md"
+        vendor/bin/kanban --in="$WORKTREE" plan "$CARD" --plan-file=.tmp/plan.md
+        setsid sleep 300 & echo $! > "$FAKE_CLAUDE_DIR/child.pid"; wait
+        SH);
+    $id = $this->code->sandbox->card('Add login page', ['--body=Build it', '--accept=It works', '--label=area:login']);
+    [$agent, $child] = liveAgent($this->code, $this->claude, $this->claude.'/child.pid');
+
+    $refused = $this->code->kanban(['stop', $id, '--to=backlog']);
+    expect($refused->getExitCode())->toBe(3)
+        ->and($refused->getErrorOutput())->toContain("{$id}: its planner staged a plan not yet applied")
+        ->and(processAlive($agent))->toBeTrue();
+
+    $this->code->ok(['stop', $id, '--to=backlog', '--force']);
+    expect(processAlive($agent))->toBeFalse()
+        ->and(processAlive($child))->toBeFalse()
+        ->and($this->code->sandbox->read($id)['stage'])->toBe('backlog');
+});
+
+it('never restarts in a drain a card the main session or the owner stopped with its branch parked', function () {
+    $id = $this->code->started('Add login page');
+    $this->code->commit($id, 'feature.txt', "half\n");
+    $this->code->ok(['stop', $id, '--to=ready']);
+    expect($this->code->sandbox->read($id))->toMatchArray(['stage' => 'planning', 'claim' => null]);
+
+    $out = runPass($this->code, $this->claude, ['--drain', '--until-attention']);
+
+    expect($out)->toContain('drained: no card in flight')
+        ->and(runLaunches($this->claude))->toBe([])
+        ->and($this->code->sandbox->read($id))->toMatchArray(['stage' => 'planning', 'claim' => null]);
+});
+
+it('leaves a merged card done and unblocked when a step after the merge fails, and says so', function () {
+    $this->code->configure(['gates' => ['report' => []], 'finish' => ['after' => ["echo 'seeder: layout off by 0.6%' >&2; exit 1"]]]);
+    $this->code->sandbox->git('commit', '-q', '-am', 'after');
+    $id = $this->code->sandbox->readyCard('Add login page');
+    runPass($this->code, $this->claude);
+    runPass($this->code, $this->claude);
+
+    $out = runPass($this->code, $this->claude, ['--until-attention', '--timeout=0']);
+
+    expect($out)->toContain("merged {$id} into main")
+        ->toContain("attention:\n  {$id} merged, then: after: echo 'seeder: layout off by 0.6%' >&2; exit 1 failed (exit 1): seeder: layout off by 0.6%\n")
+        ->and($this->code->sandbox->read($id))->toMatchArray(['stage' => 'done', 'blocked' => null]);
+});
+
+it('logs what a finish that merged cleanly printed on stderr, and raises nothing for it', function () {
+    $this->code->configure(['gates' => ['report' => []]]);
+    $this->code->sandbox->git('commit', '-q', '-am', 'gates');
+    $id = $this->code->sandbox->readyCard('Add login page');
+    runPass($this->code, $this->claude);
+    runPass($this->code, $this->claude);
+    // main's git refuses to delete the card's branch, so finish keeps it and says so on stderr
+    $hooks = $this->code->root().'/'.trim((string) (new Process(['git', 'rev-parse', '--git-path', 'hooks'], $this->code->root()))->mustRun()->getOutput());
+    @mkdir($hooks, 0775, true);
+    file_put_contents($hooks.'/reference-transaction', "#!/bin/sh\n[ \"\$1\" = prepared ] || exit 0\n"
+        ."while read -r old new ref; do case \"\$new \$ref\" in 0000000000000000000000000000000000000000\\ refs/heads/card/*) exit 1 ;; esac; done\n");
+    chmod($hooks.'/reference-transaction', 0755);
+
+    $out = runPass($this->code, $this->claude, ['--until-attention', '--timeout=0']);
+
+    expect($out)->toContain("merged {$id} into main")
+        ->toMatch('/ branch card\\/\S+ kept \\(git branch -d refused\\)\n/')
+        ->not->toContain('attention:')
+        ->toContain('nothing needs you')
+        ->and($this->code->sandbox->read($id))->toMatchArray(['stage' => 'done', 'blocked' => null]);
+});
+
+it('reads the agent models at each launch, so a change reaches the next agent of a run already going, and names them', function () {
+    runAgent($this->claude, 'worker', 'true');
+    $first = $this->code->sandbox->readyCard('Add login page');
+    $second = $this->code->sandbox->readyCard('Add logout page');
+    $run = $this->code->sandbox->start(['run', '--once'], $this->code->env([
+        'PATH' => Sandbox::package().'/tests/Support/FakeClaude:'.Sandbox::package().'/tests/Support/FakeDocker:'.getenv('PATH'),
+        'FAKE_CLAUDE_DIR' => $this->claude, 'FAKE_DOCKER_DELAY' => '1',
+    ]));
+    $deadline = microtime(true) + 30;
+    while (runLaunches($this->claude) === [] && microtime(true) < $deadline) {
+        usleep(50_000);
+    }
+    $this->code->configure(['gates' => ['report' => []], 'agents' => ['worker' => ['model' => 'haiku', 'effort' => 'low']]]);
+    $run->wait();
+    while (count(runLaunches($this->claude)) < 2 && microtime(true) < $deadline) {
+        usleep(50_000);
+    }
+
+    expect(array_map(fn (array $a) => array_slice($a, 3, 4), runLaunches($this->claude)))->toBe([['--model', 'sonnet', '--effort', 'high'], ['--model', 'haiku', '--effort', 'low']])
+        ->and($run->getOutput())->toMatch("/ {$first} started; worker [0-9a-f]{8} launched \\(sonnet, high\\)\n/")
+        ->toMatch("/ {$second} started; worker [0-9a-f]{8} launched \\(haiku, low\\)\n/");
+});
+
+it('blocks a card its evaluator rejects twice on the same criteria instead of a third round, and resumes it once unblocked', function () {
+    runAgent($this->claude, 'evaluator', <<<'SH'
+        vendor/bin/kanban --in="$WORKTREE" verdict "$CARD" reject --check=1:fail:"feature.txt lacks the index: add it after the header"
+        SH);
+    $id = $this->code->sandbox->readyCard('Add login page');
+    foreach (range(1, 4) as $n) {
+        runPass($this->code, $this->claude);
+    }
+    $workers = fn () => count(array_filter(runLaunches($this->claude), fn (array $a) => $a[2] === 'kanban-worker'));
+    expect($workers())->toBe(2);
+
+    $out = runPass($this->code, $this->claude, ['--until-attention', '--timeout=0']);
+
+    $why = 'kanban run: rejected 2× on criterion 1: feature.txt lacks the index: add it after the header';
+    expect($this->code->sandbox->read($id))->toMatchArray(['stage' => 'doing', 'blocked' => $why])
+        ->and($out)->toContain("attention:\n  {$id} blocked: {$why}\n")
+        ->and(runPass($this->code, $this->claude))->not->toContain("{$id} worker")
+        ->and($workers())->toBe(2);
+
+    $this->code->sandbox->ok(['set', $id, 'blocked=']);
+    runPass($this->code, $this->claude);
+    expect($workers())->toBe(3)
+        ->and($this->code->sandbox->read($id)['blocked'])->toBeNull();
+});
+
+it('blocks a card on a reject loop in a later pass when the block could not be written at first', function () {
+    runAgent($this->claude, 'evaluator', <<<'SH'
+        vendor/bin/kanban --in="$WORKTREE" verdict "$CARD" reject --check=1:fail:"feature.txt lacks the index"
+        SH);
+    $id = $this->code->sandbox->readyCard('Add login page');
+    foreach (range(1, 4) as $n) {
+        runPass($this->code, $this->claude);
+    }
+    $board = dirname(glob($this->code->root()."/docs/kanban/*/{$id}.json")[0]);
+    chmod($board, 0555);
+    try {
+        runPass($this->code, $this->claude);
+    } finally {
+        chmod($board, 0775);
+    }
+    expect($this->code->sandbox->read($id)['blocked'])->toBeNull();
+
+    runPass($this->code, $this->claude);
+
+    expect($this->code->sandbox->read($id)['blocked'])->toBe('kanban run: rejected 2× on criterion 1: feature.txt lacks the index');
+});
+
+it('raises a red main after a merge once, as the red main, not as a failed step of the merged card', function () {
+    $this->code->configure(['gates' => ['report' => []], 'migrate' => null, 'finish' => ['after' => [], 'check' => ["echo 'Tests: 1 failed'; exit 1"]]]);
+    $this->code->sandbox->git('commit', '-q', '-am', 'check');
+    $id = $this->code->sandbox->readyCard('Add login page');
+    runPass($this->code, $this->claude);
+    runPass($this->code, $this->claude);
+
+    $out = runPass($this->code, $this->claude, ['--until-attention', '--timeout=0']);
+
+    expect($out)->toContain("merged {$id} into main")
+        ->toContain('main red since')
+        ->not->toContain("{$id} merged, then:");
+});
+
+it('raises a red main once when the bug card finish filed has no area, and not again once main is green', function () {
+    // what finish leaves after a merged card with no area: its bug card in backlog, labelled main-red, and the marker
+    $bug = $this->code->sandbox->card('main red after ACME-1: php artisan test', ['--type=bug', '--label=main-red']);
+    $filed = $this->code->sandbox->card('main red: vendor/bin/pest', ['--type=bug', '--label=main-red']);
+    @mkdir($this->code->root().'/.git/laravel-house', 0775, true);
+    file_put_contents($this->code->root().'/.git/laravel-house/main-check.json', json_encode(['sha' => str_repeat('a', 40), 'after' => 'ACME-1',
+        'command' => 'php artisan test', 'tail' => 'Tests: 1 failed', 'card' => $bug, 'at' => '2026-01-01T00:00:00Z']));
+    $log = fn () => (string) @file_get_contents($this->code->root().'/.git/laravel-house/run.log');
+
+    $out = runPass($this->code, $this->claude, ['--until-attention', '--timeout=0']);
+    runPass($this->code, $this->claude, ['--until-attention', '--timeout=0']);
+
+    expect($out)->toContain("attention:\n")->toContain("  main red since aaaaaaa: `php artisan test` fails ({$bug})\n")
+        ->and(substr_count($log(), "main red since aaaaaaa: `php artisan test` fails ({$bug})"))->toBe(1)
+        ->and(substr_count($log(), "{$filed} main red: vendor/bin/pest: a failure already on main"))->toBe(1)
+        ->and($log())->not->toContain("{$bug} main red after");
+
+    unlink($this->code->root().'/.git/laravel-house/main-check.json');
+    runPass($this->code, $this->claude, ['--until-attention', '--timeout=0']);
+    expect($log())->not->toContain("{$bug} main red after")
+        ->and(substr_count($log(), 'a failure already on main'))->toBe(1);
+});
+
+it('hands back a failure the agents filed as already on main', function () {
+    runAgent($this->claude, 'worker', <<<'SH'
+        cd "$WORKTREE" && echo x > feature.txt && git add -A && git commit -qm "$CARD: feature" && cd - > /dev/null
+        vendor/bin/kanban --in="$WORKTREE" report "$CARD" --status=review --tick=1 --summary=Done --discovered="main: php artisan test — NotesTest fatals"
+        SH);
+    $this->code->sandbox->readyCard('Add login page');
+    runPass($this->code, $this->claude);
+
+    $out = runPass($this->code, $this->claude, ['--until-attention', '--timeout=0']);
+
+    $red = collect(glob($this->code->root().'/docs/kanban/work/*.json'))->map(fn ($f) => json_decode(file_get_contents($f), true))
+        ->first(fn (array $c) => in_array('main-red', $c['labels'], true));
+    expect($out)->toContain("attention:\n")->toContain("  {$red['id']} main red: php artisan test: a failure already on main, in backlog: give it an area and promote it first\n");
+});
+
+it('raises a card promote --auto cannot write once, and promotes the others', function () {
+    $s = $this->code->sandbox;
+    $broken = $s->card('Broken', ['--body=x', '--accept=y', '--priority=high', '--label=area:a']);
+    $card = $s->read($broken);
+    $card['bogus'] = true;
+    file_put_contents($s->root."/docs/kanban/work/{$broken}.json", json_encode($card, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n");
+    $other = $s->card('Other', ['--body=x', '--accept=y', '--priority=low', '--label=area:b']);
+    runAgent($this->claude, 'planner', 'exit 0');
+    $log = fn () => (string) @file_get_contents($this->code->root().'/.git/laravel-house/run.log');
+
+    $out = runPass($this->code, $this->claude, ['--until-attention', '--timeout=0']);
+    runPass($this->code, $this->claude, ['--until-attention', '--timeout=0']);
+
+    expect($out)->toContain("attention:\n")->toContain("  promote --auto: skipped {$broken}: invalid: ")
+        ->and(substr_count($log(), "promote --auto: skipped {$broken}"))->toBe(1)
+        ->and($s->read($other)['stage'])->toBe('planning');
+});
+
+it('counts one reject applied twice as one reject', function () {
+    runAgent($this->claude, 'evaluator', <<<'SH'
+        vendor/bin/kanban --in="$WORKTREE" verdict "$CARD" reject --check=1:fail:"feature.txt lacks the index"
+        SH);
+    $s = $this->code->sandbox;
+    $id = $s->readyCard('Add login page');
+    runPass($this->code, $this->claude);
+    runPass($this->code, $this->claude);
+    $this->code->ok(['apply', '--all']);
+    $card = $s->read($id);
+    $verdict = array_values(array_filter($card['log'], fn (array $e) => $e['event'] === 'verdict'));
+    expect($card['stage'])->toBe('doing')->and($verdict)->toHaveCount(1);
+    $card['log'][] = ['id' => 'ZZZZZZZZ'] + $verdict[0];
+    file_put_contents(glob($s->root."/docs/kanban/*/{$id}.json")[0], json_encode($card, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n");
+
+    runPass($this->code, $this->claude);
+
+    expect($s->read($id)['blocked'])->toBeNull();
 });

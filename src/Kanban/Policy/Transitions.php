@@ -299,13 +299,46 @@ final class Transitions
     /** review → doing: $via is reject (evaluator verdict), refresh (merge conflict) or move (owner send-back). */
     public function sendBack(string $id, string $via, Actor $by, ?string $note = null, ?Rev $expected = null, bool $force = false): Card
     {
-        return $this->store->update($id, function (array $data) use ($via, $note, $force) {
-            if (isset($data['work'])) {
-                $data['work']['approved'] = null;
-            }
+        return $this->store->update($id, fn (array $data) => self::sentBack($data, $via, $note, $force), $by, $expected);
+    }
 
-            return self::stage($data, 'doing', $via, $note, $force);
-        }, $by, $expected);
+    /**
+     * review → doing on the card's data, for a write that carries more than the send-back.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    public static function sentBack(array $data, string $via, ?string $note = null, bool $force = false): array
+    {
+        if (isset($data['work'])) {
+            $data['work']['approved'] = null;
+        }
+
+        return self::stage($data, 'doing', $via, $note, $force);
+    }
+
+    /**
+     * A `set` entry naming the fields $data changed since $before, for a write whose stage entry would otherwise stand for
+     * them: the log reads as the separate writes would have left it.
+     *
+     * @param  array<string, mixed>  $before
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    public static function noted(array $before, array $data): array
+    {
+        $fields = [];
+        foreach (array_unique([...array_keys($before), ...array_keys($data)]) as $field) {
+            if (! in_array($field, ['log', 'updated'], true) && ($before[$field] ?? null) !== ($data[$field] ?? null)) {
+                $fields[] = $field;
+            }
+        }
+        if ($fields !== []) {
+            sort($fields);
+            $data['log'][] = ['event' => 'set', 'fields' => $fields];
+        }
+
+        return $data;
     }
 
     /** review → done after the merge; `work` is trimmed and records the merge commit. */

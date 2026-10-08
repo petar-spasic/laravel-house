@@ -166,7 +166,8 @@ redirect carries no stateful Referer or Origin.
 
 <!-- if:spa -->
 - `GET /api/auth/{provider}/redirect` (`social.redirect`) and `GET /api/auth/{provider}/callback`
-  (`social.callback`). Failures land on `/login?social_error=<code>`; a 2FA user on `/two-factor-challenge`.
+  (`social.callback`). A signed-in user lands on the SvelteKit `/signed-in?redirect=<target>` page, failures on
+  `/login?social_error=<code>`, a 2FA user on `/two-factor-challenge`.
 - `POST /api/auth/{provider}/link` (`social.link`): `AcceptJson`, `auth:sanctum`, `password.confirm`. It answers
   `{redirect: <provider URL>}`, and 423 until confirmed: `RequirePassword` decides with `expectsJson()`, and with
   views off there is no confirm page to redirect to.
@@ -192,8 +193,8 @@ redirect carries no stateful Referer or Origin.
 <!-- endif -->
 <!-- if:spa -->
 - `GET /api/auth/social/confirm` (`social.confirm`): `signed`, the mailed link of a sign-up the provider did not vouch
-  for (root `CLAUDE.md`, Auth). It completes only in the session that started the sign-up, then redirects into the
-  SvelteKit app.
+  for (root `CLAUDE.md`, Auth). It completes only in the session that started the sign-up, then redirects to
+  `/signed-in?redirect=<target>`.
 <!-- endif -->
 <!-- unless:spa -->
 - `GET /auth/social/confirm` (`social.confirm`): `signed`, the mailed link of a sign-up the provider did not vouch for

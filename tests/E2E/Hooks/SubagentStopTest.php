@@ -119,7 +119,7 @@ it('applies an evaluator approval for the branch HEAD and a rejection back to do
     $verdict = array_values(array_filter($card['log'], fn ($e) => $e['event'] === 'verdict'))[0];
     expect($card['stage'])->toBe('doing')
         ->and(array_column($card['acceptance'], 'done'))->toBe([true, false])
-        ->and(end($card['log']))->toMatchArray(['event' => 'stage', 'from' => 'review', 'to' => 'doing', 'via' => 'reject', 'by' => 'evaluator'])
+        ->and(collect($card['log'])->where('event', 'stage')->last())->toMatchArray(['from' => 'review', 'to' => 'doing', 'via' => 'reject', 'by' => 'evaluator', 'at' => $verdict['at']])
         ->and($verdict['failed'])->toBe(['2: "no test for the empty state"'])
         ->and($verdict['issues'])->toBe(['TODO left in app.php'])
         ->and($this->p->sandbox->ok(['show', $this->id]))->toContain("SendMessage (its worker, or a fresh one): Evaluator rejected {$this->id}; run `vendor/bin/kanban context`");

@@ -19,7 +19,7 @@ Fat models and records that must not be rewritten: `app/CLAUDE.md`. Migrations: 
 2. The column is cast to that enum and REMOVED from `$fillable` (comment why).
 3. `transitionTo(Enum $target)` is the only writer: it pre-checks `canTransitionTo()` (the controller maps a refusal
    to 422) and uses `forceFill()` past the non-fillable column.
-4. The FormRequest half: `['prohibited']` on the same column.
+4. The FormRequest half: `['missing']` on the same column.
 5. NO status string literals outside the enum: not in controllers, services, views, or `in:` rules (`Rule::enum()`).
 
 **Scopes:** a query predicate lives ONCE, as a model scope named for its domain meaning. Every consumer, ListQuery

@@ -171,3 +171,30 @@ it('exports the same trimming whether or not the board UI is booted', function (
     expect($code)->toBe(0, $output)
         ->and($sandbox->module('acme-note'))->not->toContain('skipWhen')->not->toContain('trimming may differ');
 });
+
+it('strips a server-owned field under missing or prohibited and lists it', function () {
+    acmeForm($this->sandbox, 'AcmeNoteRequest', 'acme-note', "['title' => 'required|string', 'user_id' => ['missing'], 'status' => ['prohibited']]");
+
+    [$code, $output] = $this->sandbox->export();
+    $module = $this->sandbox->module('acme-note');
+
+    expect($code)->toBe(0, $output)
+        ->and($module)->toContain('//   user_id: missing')
+        ->and($module)->toContain('//   status: prohibited')
+        ->and($module)->not->toContain('user_id: z.')
+        ->and($module)->not->toContain('status: z.');
+});
+
+it('keeps an array of uploads as a list of unknowns with its count rules', function () {
+    acmeForm($this->sandbox, 'AcmeAttachRequest', 'acme-attach', "['files' => 'required|array|min:1|max:5', 'files.*' => 'required|file|max:2048']");
+
+    [$code, $output] = $this->sandbox->export();
+    $module = $this->sandbox->module('acme-attach');
+
+    expect($code)->toBe(0, $output)
+        ->and($module)->toContain('files: z.array(z.unknown()')
+        ->and($module)->not->toContain('z.object({})')
+        ->and($module)->toContain('(v) => v.length >= 1')
+        ->and($module)->toContain('(v) => v.length <= 5')
+        ->and($module)->toContain('//   files.*: handled by the upload path');
+});

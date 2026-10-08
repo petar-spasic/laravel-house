@@ -32,6 +32,7 @@ Checked 2026-10-02.
 | `tailwind-variants` | 3.3.1 (2026-08-03) | 2 | — | pass. Merges classes with its own engine: `tailwind-merge` is an optional peer |
 | `cn` | 0.4.0 (2026-09-22); the stubs take `^0.3` (0.3.3) | 2 | Tailwind 4 | pass. Behind `cn()` in `utils.ts`: the pinned registry's `utils` item and the shadcn-svelte CLI declare it. 0.x, first released 2026-08-31, one npm publisher (the shadcn-ui organisation). Fallback: `clsx` + `tailwind-merge` behind the same `cn()` export |
 | `tw-animate-css` | 1.4.0 (2025-09-24); a canary since | 1 | Tailwind 4 | not checked: shadcn-svelte's registry declares it, so it comes with shadcn-svelte |
+| `@types/node` | 24.19.1 (2026-10-01); the stubs take `^24`, the image's Node major | DefinitelyTyped | Node 24 | pass |
 | `@lucide/svelte` | 1.50.0 (2026-10-02) | 43 | Svelte 5 | pass |
 | `@internationalized/date` | 3.12.4 (2026-09-01) | 27 | — | pass. Declared by the date components and `bits-ui` |
 | `pusher-js` (reverb) | 8.6.0 (2026-07-23) | 7 | — | pass |

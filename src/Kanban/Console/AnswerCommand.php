@@ -55,11 +55,13 @@ class AnswerCommand extends Command
         $steering = array_values(array_intersect(Questions::steering($question), MergeCheck::asked($card)));
         $approval = $steering !== [] && (int) $option === 1
             ? MergeCheck::approvalOf(new Worktrees($this->paths(), $this->config()), $this->paths()->main, $card, $steering) : null;
-        // the answer, the approval it gives and the block it clears: one write, so none lands without the others
+        // the answer, the approval it gives, the block it clears and the send-back it asks for: one write, so none lands without
+        // the others
         $asked = $card->asks();
         $overruled = $question['kind'] === Questions::PROVISIONAL && (int) $option !== $question['taken'];
         $before = $card->stage();
-        $card = $this->store()->update($card->id(), function (array $data) use ($question, $answer, $approval, $overruled, $handle, $option) {
+        $revert = $asked && $steering !== [] && (int) $option === 2;
+        $card = $this->store()->update($card->id(), function (array $data) use ($question, $answer, $approval, $overruled, $handle, $option, $revert, $steering) {
             $before = $data;
             $data['body'] = Questions::answer((string) ($data['body'] ?? ''), $question['n'], $answer);
             if ($approval !== null) {
@@ -67,6 +69,10 @@ class AnswerCommand extends Command
             }
             if ($question['kind'] === Questions::OPEN && str_starts_with((string) ($data['blocked'] ?? ''), Card::QUESTION) && Questions::unanswered($data['body']) === 0) {
                 $data['blocked'] = null;
+                if ($revert && $data['stage'] === 'review') {
+                    $data = Transitions::sentBack(Transitions::noted($before, $data), 'move', 'the owner sent it back: revert the changes to '.implode(', ', $steering));
+                    $data['log'][array_key_last($data['log'])]['unblocked'] = $before['blocked'];
+                }
             }
             // a plan covers the owner's answers but a confirmation of what it took: no worker follows one built without them
             if ($data['stage'] === 'ready' && Plan::hash($data) !== Plan::hash($before)) {
@@ -95,8 +101,7 @@ class AnswerCommand extends Command
         }
         if ($asked && $card->blocked() === null) {
             $this->say("{$card->id()} unblocked");
-            if ($steering !== [] && (int) $option === 2 && $card->stage() === 'review') {
-                $this->transitions()->sendBack($card->id(), 'move', $this->actor(), 'the owner sent it back: revert the changes to '.implode(', ', $steering));
+            if ($revert && $before === 'review' && $card->stage() === 'doing') {
                 $this->say("{$card->id()} review→doing: its worker reverts them");
             }
         }

@@ -134,8 +134,11 @@ Other rules:
 - Every index on a tenant-owned table but the primary key leads with `tenant_id`, and every unique includes it.
 - Reference tables are global.
 - **Tenant-owned defaults** (rows each tenant starts with) come from one idempotent action that writes a tenant's
-  defaults inside `CurrentTenant::run`. Tenant creation calls it. The migration that adds such a table dispatches a job
-  that runs it for every existing tenant, never inserts itself: FORCE RLS refuses rows written with no tenant set.
+  defaults inside `CurrentTenant::run` and skips a tenant that has them. Tenant creation calls it. Existing tenants
+  get them from `ReferenceDataSeeder`: after its transaction it dispatches a job that runs the action for every tenant
+  missing them. Never from the migration: boot and a deploy run `migrate` before the seeder, so a job it dispatched
+  could copy reference rows that are not loaded yet, and an insert of its own fails, since FORCE RLS refuses rows
+  written with no tenant set.
 
 **Views, materialised views and partitions** are granted to `{{app}}_app` like tables; only the queried table's own
 policy binds:

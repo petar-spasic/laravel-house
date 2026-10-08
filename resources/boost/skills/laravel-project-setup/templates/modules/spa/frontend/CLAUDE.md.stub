@@ -17,16 +17,17 @@ whose).
 2. In `frontend/`:
    - `npm install`
    - `npm install -D --save-exact zod shadcn-svelte @playwright/test`
-   - `npm install -D sveltekit-superforms bits-ui tailwind-variants cn@^0.3 tw-animate-css @lucide/svelte @laravel/passkeys`
-     `cn` takes the range the pinned registry's `utils` item declares (`^0.3` at shadcn-svelte 1.7.0).
+   - `npm install -D sveltekit-superforms bits-ui tailwind-variants cn@^0.3 tw-animate-css @lucide/svelte @laravel/passkeys @types/node@^24`
+     `cn` takes the range the pinned registry's `utils` item declares (`^0.3` at shadcn-svelte 1.7.0); `@types/node`
+     the image's Node major, for `process` in the Playwright files `svelte-check` checks (Config).
 <!-- if:reverb -->
    - `npm install -D laravel-echo pusher-js`
 <!-- endif -->
 3. The `check` script is
    `export PUBLIC_APP_URL=${PUBLIC_APP_URL:-http://localhost}; php ../artisan validation:export --check && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && playwright test --list --pass-with-no-tests > /dev/null`.
-   The default only satisfies the type check outside the stack. `--list` loads every spec and the config without
-   `globalSetup` or the `webServer`, so a spec that does not compile fails the check. No script runs
-   `playwright install`.
+   The default only satisfies the type check outside the stack. `svelte-check` type-checks the specs and
+   `playwright.config.ts` through the include in Config; `--list` only loads them (no `globalSetup`, no `webServer`),
+   which transpiles without checking types. No script runs `playwright install`.
 4. `src/hooks.server.ts` with the `handle` in Guards, `/healthz` first. If
    `php artisan route:list --path=api/v1/auth/me` lists nothing, the same change adds the session probe and its
    `UserResource` (`routes/CLAUDE.md`, `app/Resources/CLAUDE.md`): `handle` calls it.
@@ -58,6 +59,9 @@ shadcn-svelte, superforms + formsnap on `zod` 4, Playwright. HTTP is SvelteKit's
 
 - Kit options live inline in `vite.config.ts`, top-level with no `kit:`:
   `sveltekit({ adapter: adapter(), csp: { … } })`. No `svelte.config.js` (ignored when the Vite config holds options).
+- The generated tsconfig also covers the browser flows:
+  `typescript: { config: (c) => { c.include.push('../e2e/**/*.ts', '../playwright.config.ts'); } }`. Never an
+  `include` in `tsconfig.json`: it replaces the generated list instead of adding to it.
 - Keep the defaults Caddy relies on: `trailingSlash: 'never'` (`/about` is served from `about.html`), `appDir: '_app'`,
   no `paths.base`, adapter-node's `out: 'build'` and `precompress: true`.
 - The dev server is `vite dev` on 127.0.0.1:5173 behind Caddy, started by the entrypoint. No `server.proxy`,
@@ -187,11 +191,11 @@ One module, `src/lib/api/client.ts`, takes the `fetch` it is given, so the same 
 - **`probeSession()`** makes the speculative `GET /api/v1/auth/me` calls, where a 401 is expected; a per-call flag
   stops it tearing anything down. Never decide by pathname: during a load, `page.url` is still the previous route.
 - **Every sign-in settles the session before anything else runs** (login, the two-factor challenge, register,
-  passkey login). After Laravel's success:
+  passkey login, and `/signed-in` for one Laravel completed on the server). After Laravel's success:
   1. `/sanctum/csrf-cookie` again, because the session was regenerated;
   2. ONE serial `GET /api/v1/auth/me`;
-  3. the `signed_in=1` marker cookie (`path=/`, `SameSite=Lax`, `Secure` off localhost): a hint for `handle`, never
-     proof of anything;
+  3. the `signed_in=1` marker cookie (`path=/`, `SameSite=Lax`, `Secure` only when `location.protocol` is `https:`,
+     since a LAN http origin drops a Secure cookie): a hint for `handle`, never proof of anything;
   4. `goto(target, { invalidateAll: true })`.
 - Logout: `POST /api/auth/logout`, then `/sanctum/csrf-cookie`, then the marker cleared, then
   `goto('/login', { invalidateAll: true })`.
@@ -240,6 +244,7 @@ check of an anonymous call from Node. These pages need JavaScript and say so in 
 | `/reset-password/[token]?email=` | `POST /api/auth/reset-password`; the mailed link lands here |
 | `/email/verify/[id]/[hash]?expires=&signature=` | `GET /api/auth/email/verify/{id}/{hash}` with the same query unchanged (the signature covers Laravel's `/api/auth/…` URL); the mailed link lands here |
 | `/confirm-password?redirect=` | `POST /api/auth/user/confirm-password`, or a passkey; every 423 from Laravel leads here and back |
+| `/signed-in?redirect=` | none of its own: in `(public)`, it runs the sign-in settle sequence (Browser), then goes to `redirect`; a social sign-in Laravel completed lands here |
 
 - **Confirmation** offers the password when `GET /api/v1/auth/me` reports `has_password`, a passkey when
   `passkeys_count` > 0, else "sign out and use Forgot password" (root `CLAUDE.md`, Auth).
@@ -249,7 +254,8 @@ check of an anonymous call from Node. These pages need JavaScript and say so in 
   `/`, on the server and in the browser.
 - **Social sign-in**, once built: the buttons come from `GET /api/auth/providers`, one link per provider,
   `<a href="/api/auth/{provider}/redirect" data-sveltekit-reload data-sveltekit-preload-data="false">`. `/login` shows
-  `?social_error=<code>`. Linking calls `POST /api/auth/{provider}/link` and follows its `{redirect}`.
+  `?social_error=<code>`. A completed sign-in comes back on `/signed-in`. Linking calls
+  `POST /api/auth/{provider}/link` and follows its `{redirect}`.
 - **Passkeys.** `@laravel/passkeys` has no base-URL option, so `src/lib/auth/passkeys.ts` passes the routes:
   - register: `/api/auth/user/passkeys/options` and `/api/auth/user/passkeys`;
   - sign in: `/api/auth/passkeys/login/options` and `/api/auth/passkeys/login`;

@@ -220,6 +220,7 @@ The installer then writes the rule files and the few files the house ships:
 
 - the [prefixed-id](#prefixed-ids) trait;
 - a middleware that makes Fortify answer with JSON until your auth pages exist;
+- the middleware that gives each request an id for the logs, and the one that sets the security headers;
 - the four [seeders](#seed-data);
 - the Horizon gate, which decides who may open the Horizon dashboard;
 - the Boost config and the house's changes to Boost's guidelines;
@@ -689,8 +690,9 @@ with medium effort. You may change any of them in the `agents` section of `confi
 ],
 ```
 
-`kanban run` passes these values to every agent it starts as `--model` and `--effort`. The model and effort of the
-session that runs it never reach its agents, so a change applies from the next agent it starts.
+`kanban run` passes these values to every agent it starts as `--model` and `--effort`, and names them on the line that
+says it started the agent. It reads them again for each agent, so a change applies from the next agent it starts, with
+no restart. The model and effort of the session that runs it never reach its agents.
 
 The values are also written into the agent files, which decide for agents your session spawns itself. After changing
 them, run `vendor/bin/kanban doctor --fix` and restart Claude Code.
@@ -732,9 +734,10 @@ the defaults you keep.
 ### Commands After Merging
 
 After `finish` merges a card into `main`, it takes the card's stack and clone down. Then it installs your dependencies
-when the card changed `composer.lock` or a `package-lock.json`. A failed install skips the steps after it. In projects
-with a [worktree stack](#worktree-stacks), it then runs the `migrate` command and the commands in `finish.after`, read
-from the merged code. By default, they seed reference data:
+when the card changed `composer.lock` or a `package-lock.json`. In projects with a [worktree stack](#worktree-stacks),
+it then runs the `migrate` command and the commands in `finish.after`, read from the merged code. They run in your main
+stack's app container, as the agents run them in theirs, and `finish` starts the stack first when it is down. By
+default, they seed reference data:
 
 ```php
 'migrate' => 'php artisan migrate --force',
@@ -750,9 +753,13 @@ from the merged code. By default, they seed reference data:
 A `db:seed --class=…` command is skipped while that seeder does not exist. List your test suite in `finish.check` to
 run it on `main` after each merge: while it fails, the next `finish` waits. `finish` also pushes `main` once
 `publish.every` merges (5 by default) are not on your remote. When the merge changed a lockfile, a docker file or the
-compose file, `finish` rebuilds your main stack. It builds the images first, while your stack keeps serving, then
-recreates the containers. If that fails, it prints the command to run, and the card stays done. Pass `--no-rebuild` to
-skip it.
+compose file, `finish` rebuilds your main stack before these steps. It builds the images first, while your stack
+keeps serving, then recreates the containers. If that fails, it prints the command to run, and the card stays done.
+Pass `--no-rebuild` to skip it.
+
+When a step after the merge fails, the card is still done, and the steps after it still run. Only a failed install
+skips some: `migrate`, `finish.after` and `finish.check`. `finish` exits with code 10, and `kanban run` reports each
+failure to Claude without blocking the card.
 
 A card that changes the files that steer the agents or git (`.claude/`, `config/kanban.php`, a hooks directory,
 `.gitattributes`) merges only with your approval. When you plan such a change, approve it up front:
@@ -766,7 +773,10 @@ card once the evaluator approves it, with the diff to read, and your answer to `
 back to its worker. That answer approves the file as it is: a later change to it asks again.
 
 An approved card keeps its approval when `main` moved only in files that match `finish.overlap_ignore` (Markdown files
-and `docs/` by default); otherwise `finish` asks for a refresh and a new review.
+and `docs/` by default), or in none of the files the card changes; otherwise `finish` asks for a refresh and a new
+review. A list of your own replaces the defaults, so repeat `*.md` and `docs/*` in it. When the refresh merges
+cleanly, the new review runs the gates and the whole suite once. With a suite listed in `finish.check`, which runs on
+`main` after the merge, it runs only the gates and the tests of the files both `main` and the card changed.
 
 <a name="the-board"></a>
 ## The Board
@@ -997,7 +1007,9 @@ Do the morning.
 
 Claude shows what merged, what is blocked and what the agents spent, then asks every open question as a multiple
 choice, with a recommended answer and what each option means. Your answers go onto the cards, and the waiting cards
-move on. The cards the agents discovered wait for criteria, which you and Claude write. Tell Claude about new work, and
+move on. The cards the agents discovered wait for criteria, which you and Claude write. A failure the agents find
+already on `main` becomes one high-priority card, however many agents meet it. The morning lists it until you give it
+an area, so `promote` can take it. Tell Claude about new work, and
 the board carries on.
 
 <a name="cutting-cards"></a>
@@ -1060,8 +1072,8 @@ vendor/bin/kanban show ACME-7K2QF9
 
 If a check fails, run `vendor/bin/kanban doctor`. It names the problem, and `doctor --fix` repairs the wiring.
 
-To give up on a card, put it back. If its branch has commits, the branch is kept and reused the next time the card
-starts:
+To give up on a card, put it back. This ends the agent that `kanban run` started for it. If the card's branch has
+commits, the branch is kept and reused the next time the card starts. A draining board does not start it again:
 
 ```shell
 vendor/bin/kanban stop ACME-7K2QF9 --to=backlog --reason="Waiting on the payment provider"
@@ -1260,7 +1272,7 @@ The [protocol reference](resources/boost/skills/kanban/references/protocol.md) l
 | `show ID [--plan]` | One card with its criteria, dependencies and history; `--plan` prints only its plan. |
 | `next` | The card that would be started next, or with `--planning` planned next. `-v` says why the others wait. |
 | `upstream` | Package findings waiting to be filed. |
-| `morning` | What merged, what is blocked, the questions, the discovered cards waiting for criteria and what the agents spent, since yesterday. |
+| `morning` | What merged, what is blocked, the questions, the discovered cards waiting for criteria, the failures on `main` waiting for an area and what the agents spent, since yesterday. |
 | `questions` | Every question waiting for you, with its options: open questions on unfinished cards, and provisional decisions until you answer them. |
 | `doctor` | Checks the installation. `--fix` repairs it. |
 | `validate` | Checks every board file. `--fix` rewrites them. |
@@ -1290,9 +1302,9 @@ The [protocol reference](resources/boost/skills/kanban/references/protocol.md) l
 | `refresh ID` | Merges the latest `main` into the card's branch, once everything in its clone is committed. When the merge changes a lockfile, a docker file or the compose file, it recreates the card's stack. |
 | `rebuild-branch ID` | Turns a card's branch into one commit with the same files, when a merge of `main` carries changes of its own. |
 | `wait [ID]` | Waits until the card's agent has stopped and its plan, report or verdict is on the board. Without an ID, it waits for any card an agent works on. |
-| `finish ID` | Merges an approved card into `main` and cleans up. |
+| `finish ID` | Merges an approved card into `main` and cleans up. Exit code 10 means the card merged, but a step after the merge failed. |
 | `allow-steering ID PATH` | Approves a card's change to a file that steers the agents or git, so `finish` merges it. |
-| `stop ID --to=STAGE` | Takes a card out of work and cleans up. A branch with commits is kept for the next `start`. A card its planner has planned moves to `ready` this way. |
+| `stop ID --to=STAGE` | Takes a card out of work, ends the agent `kanban run` started for it and cleans up. A branch with commits is kept for the next `start`. A card its planner has planned moves to `ready` this way. |
 | `stack ID up\|down\|reload\|logs\|url` | Manages a card's stack. `stack ID exec -- CMD` runs a command in it. |
 | `gates` | Runs the quality gates in a card. |
 | `sync` | Pulls and pushes the board. |

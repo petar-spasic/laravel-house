@@ -6,6 +6,7 @@ use PetarSpasic\LaravelHouse\Kanban\Protocol\Applier;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Context;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Runtime;
 use PetarSpasic\LaravelHouse\Kanban\Store\Actor;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\LockTimeout;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\NotFound;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\StaleReport;
@@ -13,6 +14,7 @@ use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
 use PetarSpasic\LaravelHouse\Kanban\Store\Store;
 use PetarSpasic\LaravelHouse\Kanban\Support\Clock;
 use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
+use Throwable;
 
 /**
  * SubagentStop for kanban-worker / kanban-evaluator / kanban-planner: refuses the stop until a report (verdict, plan) is
@@ -147,8 +149,21 @@ final class SubagentStop
 
                 continue;
             }
-            if ($item['event'] === 'subagent-stop') {
-                $lines = array_merge($lines, $this->settle($item['payload'], $runtime));
+            // one that fails stays for the next retry, and the others go on; a busy board lock ends the retry, which every
+            // item would wait on
+            try {
+                if ($item['event'] === 'subagent-stop') {
+                    $lines = array_merge($lines, $this->settle($item['payload'], $runtime));
+                }
+            } catch (LockTimeout $e) {
+                $item['lock']->release();
+
+                throw $e;
+            } catch (Throwable $e) {
+                $item['lock']->release();
+                $lines[] = 'kanban: inbox '.basename($item['file']).' not retried: '.$e->getMessage();
+
+                continue;
             }
             @unlink($item['file']);
             $item['lock']->release();

@@ -149,3 +149,13 @@ must not loop on it), or, only when the owner agrees, run the same command once 
 `start`, `KANBAN_SYNC=off vendor/bin/kanban start ID`); that card is then claimed on this machine alone and reconciles
 at the next sync.
 
+**A card that adds a gate to `config/kanban.php` cannot run it with `kanban gates`, and `report` ignores it.** → The
+gates are main's (`gates` in protocol.md). → The worker runs the new gate's command itself and cites it in
+`report --verified`.
+
+**Approved cards go back to review after a merge that changed only Markdown or `docs/` files they change too.** → A project's
+`finish.overlap_ignore` replaces the defaults `*.md` and `docs/*` instead of adding to them. → Repeat them in your list.
+
+**Agents keep filing the same failure that is already on main.** → Each one met it in its own run and filed it from its
+own card. → Workers and evaluators file it with `--discovered='main: <command> — what fails'`, which keeps one card for
+it (protocol.md, SubagentStop).

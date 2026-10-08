@@ -165,10 +165,39 @@ it('asks only for a re-verify when nothing but a clean merge of main followed th
     $this->p->sandbox->ok(['refresh', $this->id]);
 
     expect($this->p->sandbox->ok(['context', $this->id, '--evaluate']))
-        ->toContain('re-verify: approved @'.substr($approved, 0, 7).'; since then only clean merges of main. Run `vendor/bin/kanban gates` and the whole suite; a full review is not needed.');
+        ->toContain('re-verify: approved @'.substr($approved, 0, 7).'; since then only clean merges of main, in no file the card changes. Run `vendor/bin/kanban gates` and the whole suite once: no full review (`finish.check` is empty, so nothing runs the suite on main after the merge).');
+    $this->p->config(['gates' => ['report' => []], 'finish' => ['check' => ['php artisan test']]]);
+    expect($this->p->sandbox->ok(['context', $this->id, '--evaluate']))
+        ->toContain('re-verify: approved @'.substr($approved, 0, 7).'; since then only clean merges of main, in no file the card changes. Run `vendor/bin/kanban gates` only: no full review, no whole suite (`finish.check` runs on main after the merge).');
 
     $this->p->commit($this->wt, 'more.php');
     expect($this->p->sandbox->ok(['context', $this->id, '--evaluate']))->not->toContain('re-verify');
+});
+
+it('names in the re-verify the files both main and the card changed, and asks only for their tests while finish.check runs the suite on main', function () {
+    gone($this->p, 'a4d2c0ffee');
+    commitMain($this->p, 'shared.txt', "one\ntwo\nthree\nfour\nfive\n");
+    $this->p->sandbox->ok(['refresh', $this->id]);
+    $this->p->hook('subagent-start', $this->p->payload('subagent-start', ['agent' => 'w2']));
+    $this->p->enter($this->wt, 'w2');
+    file_put_contents($this->wt.'/shared.txt', "ONE\ntwo\nthree\nfour\nfive\n");
+    $this->p->git($this->wt, 'add', 'shared.txt');
+    $this->p->commit($this->wt, 'app.php', "<?php\n", "{$this->id}: clauses");
+    $this->p->in($this->wt, ['report', $this->id, '--status=review', '--tick=1,2', '--summary=Done'])->mustRun();
+    stopAgent($this->p, $this->wt, 'w2');
+    $this->p->hook('subagent-start', $this->p->payload('subagent-start', ['agent' => 'e1', 'type' => 'kanban-evaluator']));
+    $this->p->enter($this->wt, 'e1', 'kanban-evaluator');
+    $this->p->in($this->wt, ['verdict', $this->id, 'approve', '--check=1:pass:ok', '--check=2:pass:ok'])->mustRun();
+    stopAgent($this->p, $this->wt, 'e1', 'kanban-evaluator');
+    $approved = $this->p->card($this->id)['work']['approved']['head'];
+    commitMain($this->p, 'shared.txt', "one\ntwo\nthree\nfour\nFIVE\n");
+    $this->p->sandbox->ok(['refresh', $this->id]);
+
+    expect($this->p->sandbox->ok(['context', $this->id, '--evaluate']))
+        ->toContain('re-verify: approved @'.substr($approved, 0, 7).'; since then only clean merges of main, touching files the card changes too: shared.txt. Run `vendor/bin/kanban gates` and the whole suite once: no full review');
+    $this->p->config(['gates' => ['report' => []], 'finish' => ['check' => ['php artisan test']]]);
+    expect($this->p->sandbox->ok(['context', $this->id, '--evaluate']))
+        ->toContain('re-verify: approved @'.substr($approved, 0, 7).'; since then only clean merges of main, touching files the card changes too: shared.txt. Run `vendor/bin/kanban gates` and only the tests among or covering those files: no full review, no whole suite (`finish.check` runs on main after the merge).');
 });
 
 it('never merges main into uncommitted changes', function () {
@@ -404,4 +433,89 @@ it('refuses a refresh and a review report while a merge is in progress, all of i
     expect($refresh->getExitCode())->toBe(3)
         ->and($refresh->getErrorOutput())->toContain('a merge of main is in progress')
         ->and(stopAgent($this->p, $this->wt)['json']['reason'] ?? '')->toContain('A merge of main is in progress');
+});
+
+it('applies a reject and its return to doing in one write', function () {
+    $this->p->commit($this->wt, 'app.php', "<?php\n", "{$this->id}: clauses");
+    $this->p->in($this->wt, ['report', $this->id, '--status=review', '--tick=1,2', '--summary=Done'])->mustRun();
+    stopAgent($this->p, $this->wt);
+    $this->p->hook('subagent-start', $this->p->payload('subagent-start', ['agent' => 'e1', 'type' => 'kanban-evaluator']));
+    $this->p->enter($this->wt, 'e1', 'kanban-evaluator');
+    $this->p->in($this->wt, ['verdict', $this->id, 'reject', '--check=1:pass:ok', '--check=2:fail:"no test"'])->mustRun();
+    $commits = count($this->p->sandbox->boardLog());
+
+    $stop = stopAgent($this->p, $this->wt, 'e1', 'kanban-evaluator');
+
+    $card = $this->p->card($this->id);
+    // one write's entries share their time, and the log orders them by id
+    $last = array_values(array_filter($card['log'], fn ($e) => $e['at'] === end($card['log'])['at']));
+    $of = fn (string $event) => array_values(array_filter($last, fn ($e) => $e['event'] === $event));
+    expect($stop['err'])->toContain("{$this->id}: rejected, stage doing")
+        ->and($card['stage'])->toBe('doing')
+        ->and(array_column($card['acceptance'], 'done'))->toBe([true, false])
+        ->and(count($this->p->sandbox->boardLog()))->toBe($commits + 1)
+        // the history a separate write of each would have left: the UI names a change to the criteria being edited
+        ->and($last)->toHaveCount(3)
+        ->and($of('verdict'))->toHaveCount(1)
+        ->and($of('set')[0] ?? null)->toMatchArray(['fields' => ['acceptance']])
+        ->and($of('stage')[0] ?? null)->toMatchArray(['from' => 'review', 'to' => 'doing', 'via' => 'reject']);
+});
+
+it('applies a staged item whose write landed but was not marked applied only once', function (string $kind) {
+    $this->p->commit($this->wt, 'app.php', "<?php\n", "{$this->id}: clauses");
+    $this->p->in($this->wt, ['report', $this->id, '--status=review', '--tick=1,2', '--summary=Done'])->mustRun();
+    if ($kind === 'verdict') {
+        stopAgent($this->p, $this->wt);
+        $this->p->hook('subagent-start', $this->p->payload('subagent-start', ['agent' => 'e1', 'type' => 'kanban-evaluator']));
+        $this->p->enter($this->wt, 'e1', 'kanban-evaluator');
+        $this->p->in($this->wt, ['verdict', $this->id, 'approve', '--check=1:pass:ok', '--check=2:pass:ok'])->mustRun();
+    }
+    $staged = $this->p->runtime("staged/{$this->id}.{$kind}.json");
+    $bytes = file_get_contents($staged);
+    $kind === 'verdict' ? stopAgent($this->p, $this->wt, 'e1', 'kanban-evaluator') : stopAgent($this->p, $this->wt);
+    // the write landed; marking it applied did not
+    file_put_contents($staged, $bytes);
+    array_map('unlink', glob($this->p->runtime("applied/{$this->id}.*.{$kind}.json")));
+
+    $again = $this->p->sandbox->ok(['apply', $this->id]);
+
+    expect($again)->toContain("{$this->id}: {$kind} ")->toContain(' already applied')
+        ->and(count(array_filter($this->p->card($this->id)['log'], fn ($e) => $e['event'] === $kind)))->toBe(1)
+        ->and(is_file($staged))->toBeFalse();
+})->with(['report', 'verdict']);
+
+it('applies the same report again once the card moved on from the first', function () {
+    $report = ['report', $this->id, '--status=blocked', '--reason=Which currency does the total use?'];
+    $this->p->in($this->wt, $report)->mustRun();
+    stopAgent($this->p, $this->wt);
+    expect($this->p->card($this->id)['blocked'])->toBe('Which currency does the total use?');
+    $this->p->sandbox->ok(['set', $this->id, 'blocked=']);
+    $this->p->hook('subagent-start', $this->p->payload('subagent-start'));
+    $this->p->enter($this->wt);
+
+    $this->p->in($this->wt, $report)->mustRun();
+    $stop = stopAgent($this->p, $this->wt);
+
+    $card = $this->p->card($this->id);
+    expect($stop['err'])->toContain("{$this->id}: report applied, stage doing, blocked")
+        ->and($card['blocked'])->toBe('Which currency does the total use?')
+        ->and(count(array_filter($card['log'], fn ($e) => $e['event'] === 'report')))->toBe(2);
+});
+
+it('applies the same verdict again in a later round, staged with no evaluator bound', function () {
+    $this->p->commit($this->wt, 'app.php', "<?php\n", "{$this->id}: clauses");
+    $verdict = ['verdict', $this->id, 'reject', '--check=1:pass:ok', '--check=2:fail:"no test"'];
+    foreach ([1, 2] as $round) {
+        $this->p->hook('subagent-start', $this->p->payload('subagent-start'));
+        $this->p->enter($this->wt);
+        $this->p->in($this->wt, ['report', $this->id, '--status=review', '--tick=1,2', '--summary=Done'])->mustRun();
+        stopAgent($this->p, $this->wt);
+        $this->p->in($this->wt, $verdict)->mustRun();
+        $applied = $this->p->sandbox->ok(['apply', $this->id]);
+    }
+
+    $card = $this->p->card($this->id);
+    expect($applied)->toContain("{$this->id}: rejected, stage doing")
+        ->and($card['stage'])->toBe('doing')
+        ->and(count(array_filter($card['log'], fn ($e) => $e['event'] === 'verdict')))->toBe(2);
 });

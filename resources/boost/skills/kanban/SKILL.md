@@ -78,7 +78,8 @@ Before a card is created, and before it is promoted:
 - **Rule files stay lean.** The brief's `rules over 40 KB` line names a `CLAUDE.md` every agent there reads whole: plan
   a chore card on its area that prunes it (stale, redundant or one-off text out, detail into a doc it points to).
 - **A rule the evaluator rejects for twice** that grep can check (a forbidden call, a fixed sleep) becomes a
-  `gates.report` entry in `config/kanban.php`, so `report` refuses it before an evaluator spawns.
+  `gates.report` entry in `config/kanban.php`, so `report` refuses it before an evaluator spawns (from the card's
+  merge on: `gates` in references/protocol.md).
 
 ## Running the board
 
@@ -99,6 +100,12 @@ agent a headless `claude -p` session. It runs under your session's lease.
    - `<ID> parked in backlog: question: …` or `<ID> waits on the owner: question: …`: it waits for the owner's batch
      ("Morning").
    - `main red …`: the bug card it filed goes first (`set <ID> priority=high`).
+   - `<ID> main red: …: a failure already on main`: the agents filed it; give it an area (`set <ID> labels=+area:…`)
+     and `promote` it.
+   - `<ID> merged, then: …`: the card is done; a step after the merge (an install, the rebuild, `migrate`, `finish.after`) failed
+     on main. Fix it on main, or cut a card for it.
+   - `promote --auto: skipped <ID>: …`: that card could not be written (an invalid card file); `validate` names the
+     fault. Fix it; the other cards were promoted.
    - `upstream: N … pending`: "Package findings".
    - `paused until …: usage limit`: nothing to do; start it again.
    - `idle: …`: cut or promote cards ("Cutting cards"); with nothing to cut, report to the owner and stop.
@@ -127,7 +134,7 @@ While `kanban run` is not running (between hand-backs), so no answered card star
    rules".
 4. Cards blocked without a question: as in step 3 of "Running the board". Pending package findings: "Package findings".
 5. Plan new cards from the owner's notes; give each discovered card criteria, or fold it into the open card on its
-   area; `promote --auto`, start `kanban run --until-attention` again.
+   area. `promote --auto`, start `kanban run --until-attention` again.
 6. One message: what merged, what you decided, what still waits on the owner. Facts only.
 
 ## Questions and rules
@@ -145,8 +152,9 @@ While `kanban run` is not running (between hand-backs), so no answered card star
   legal, loosening security, or a product question that is hard to change later. Planners and workers report it with
   `--question-file`; when you cut a card with one, write the section into the body and `set <ID> blocked="question: <…>"`.
 - **A provisional decision** (`## Provisional decision`, the same form plus `Taken: N`) is a product choice that is
-  easy to change later: the agent took the recommended option and went on; the owner confirms it in the morning. An
-  answer with another option sends a planned card back to planning; on a card at work, a follow-up card makes the change.
+  easy to change later, or one whose answer changes none of the card's criteria: the agent took the recommended
+  option and went on; the owner confirms it in the morning. An answer with another option sends a planned card back
+  to planning; on a card at work, a follow-up card makes the change.
 - Any other question you answer yourself: `## Decision (YYYY-MM-DD)` in the card's body, with the reason.
 - Before asking, check the `CLAUDE.md` rules and `docs/kanban/decisions.md`: a question they settle is not asked;
   `answer <ID>#<n> <option> --note="<the rule>"` records it. Only `answer` closes a question; a section written by
@@ -169,9 +177,9 @@ owner hands you for a card in planning: `plan <ID> --plan-file=…`, in the plan
 ## Recover
 
 - **Stack down or unhealthy:** `stack <ID> wait`; `stack <ID> logs` for failures; `stack <ID> exec -- <cmd>` to look.
-- **Give up on a card:** `stop <ID> --to=ready|backlog|dropped [--reason=…]` (a branch with commits is parked;
-  it is planned again, and the next `start` reuses it with main merged in, printing a conflict for the worker to
-  conclude first). A card a planner holds: `stop <ID> --to=backlog|dropped`.
+- **Give up on a card:** `stop <ID> --to=ready|backlog|dropped [--reason=…]` (its `kanban run` agent is ended; a
+  branch with commits is parked; it is planned again, and the next `start` reuses it with main merged in, printing a
+  conflict for the worker to conclude first; a drain never restarts it). A card a planner holds: `stop <ID> --to=backlog|dropped`.
 - **Leftovers:** `stack gc`, `doctor`, `sweep`, `apply --all`.
 
 ## Package findings

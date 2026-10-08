@@ -14,13 +14,15 @@ Every snippet named here is the rendered copy from `install.php --render-to=<dir
 - It adds `api:` to `bootstrap/app.php` only when a `web:` line or a `// api:` line is there. Otherwise it only warns
   (SKILL.md Gotchas).
 - Merge `config-sanctum.php` into `config/sanctum.php`. Its `guard` is `['web']` with spa and `[]` everywhere else, so
-  only spa's API accepts the session cookie.
+  only spa's API accepts the session cookie. With spa its `stateful` also takes `APP_URL`'s host, in every process.
 
 ## bootstrap/app.php
 
 Merge `bootstrap-app.php`. Every module gets:
 - `api: __DIR__.'/../routes/api.php'` and `apiPrefix: 'api/v1'` (with htmx, next to `then:`);
 - no event discovery;
+- `RequestId` prepended and `SecurityHeaders` appended globally (the installer wrote both to
+  `app/Http/Middleware/`);
 - `AcceptJson` ahead of `auth` in the middleware priority;
 - `cache.headers:private;no_store` appended to the `web` group (the api's authenticated routes carry it in
   `routes/api.php`);

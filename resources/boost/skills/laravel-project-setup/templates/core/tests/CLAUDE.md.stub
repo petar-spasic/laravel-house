@@ -35,8 +35,8 @@ Behaviour-named (`it('…')`), `uses(RefreshDatabase::class)`.
 - Queues run inline (`QUEUE_CONNECTION=sync` in `phpunit.xml`), so a chain or queued job runs for real in the flow.
 - Machine addresses come from the environment (e.g. the host of `LOCAL_APP_URL`), never a literal; stand-ins are RFC
   5737 (`192.0.2.x`, `198.51.100.x`, `203.0.113.x`).
-- Run only the E2E test you wrote or touched: `php artisan test --compact tests/E2E/…`. The full run belongs to
-  review and to the owner before a push, never to a commit.
+- While you work, run only the E2E test you wrote or touched: `php artisan test --compact tests/E2E/…`. The full run
+  belongs to whoever hands the work in, once, after the last commit, and to the owner before a push.
 
 ## Auth proofs
 
@@ -66,7 +66,7 @@ Each is an E2E flow, written when the piece it proves is built.
     redirect;
 <!-- endif -->
   - a link callback after the session user changed, or with no stored flow, is refused;
-  - an account linked to another user is refused, and unlinking the last way in is refused;
+  - an account linked to another user is refused, and a user with a password unlinks their only social account;
   - a user with confirmed 2FA is sent to the challenge, not signed in;
   - an unknown or disabled provider is a 404;
   - a passwordless user cannot confirm with an empty password.
@@ -78,8 +78,9 @@ Each is an E2E flow, written when the piece it proves is built.
   - a token from `User::createTenantToken` reaches an `auth:sanctum` route; no token gets a 401 JSON answer;
 <!-- endif -->
 <!-- if:spa -->
+  - Sanctum's stateful match on `APP_URL`'s origin: the shipped `FortifyViewRoutesTest` case;
   - the session-cookie path is proven by the Playwright session flow (below), not by Pest: a Pest test's session store
-    keeps its attributes across requests, so it never exercises the stateful match.
+    keeps its attributes across requests, so a signed-in call passes whether or not the origin matched.
 <!-- endif -->
 <!-- unless:spa -->
   - `actingAs($user)`, then `getJson` on an `/api/v1` route, is 401 (`sanctum.guard` is empty).
@@ -142,6 +143,14 @@ input through the page and through Playwright's `request` fixture, and sees the 
   the first to end, then runs.
 - The e2e site's Laravel is another process: phpunit's forced env, `Http::fake()` or `Socialite::fake()` never reach
   it (Hosting sets its env).
+<!-- endif -->
+<!-- unless:tenancy -->
+- `php artisan test --parallel` gives each worker its own database, `{{app}}_test_test_<n>`, which Laravel creates and
+  migrates. The run's parent takes the test-database lock for its workers, so two runs still wait for each other.
+<!-- endif -->
+<!-- if:tenancy -->
+- Never `--parallel`: Laravel would create each worker's database on the default connection, the app role, which
+  cannot create one, and moves only that connection, so `pgsql_owner` would migrate `{{app}}_test` under the workers.
 <!-- endif -->
 - Tests run one request per process; production runs Octane. A passing test says nothing about state leaking across
   requests.

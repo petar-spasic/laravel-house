@@ -47,6 +47,8 @@ class ReportCommand extends Command
                 'head' => (string) $git->line(['rev-parse', 'HEAD']),
                 'worktree' => $this->paths()->relative($worktree),
                 'session' => (getenv('KANBAN_SESSION') ?: null),
+                // the last report applied: the same text reported again after it (a block cleared, a new round) is applied again
+                'after' => array_reverse(array_column(array_filter($card->log(), fn (array $e) => ($e['event'] ?? null) === 'report'), 'id'))[0] ?? null,
             ], $this->upstream($card), $questions);
         $runtime = new Runtime($this->paths());
         $refusal = (new Applier($this->store(), $this->paths(), $this->config(), $runtime))->refusal($card, blocked: $report['status'] === 'blocked');

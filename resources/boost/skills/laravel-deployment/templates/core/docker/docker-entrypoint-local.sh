@@ -6,11 +6,10 @@ cd /app
 echo "=== {{app}} (local) ==="
 [ -f .env ] || cp .env.example .env
 # if:spa
-# Sanctum's stateful origins are compose's localhost and 127.0.0.1 at WEB_PORT plus APP_URL's host (LOCAL_APP_URL).
-# `php artisan` through `docker compose exec` sees only compose's part; CLI requests are never stateful.
-export SANCTUM_STATEFUL_DOMAINS="$SANCTUM_STATEFUL_DOMAINS,$(echo "${APP_URL#*://}" | cut -d/ -f1)"
-# SvelteKit answers a fetch to its own origin itself: API_INTERNAL_URL is never a page's origin.
-case ",$SANCTUM_STATEFUL_DOMAINS," in *",${API_INTERNAL_URL#*://},"*) echo "the web port is 8080, which is API_INTERNAL_URL's: set another WEB_PORT"; exit 1 ;; esac
+# Sanctum's stateful origins are compose's localhost and 127.0.0.1 at WEB_PORT plus APP_URL's host (LOCAL_APP_URL),
+# which config/sanctum.php adds in every process. SvelteKit answers a fetch to its own origin itself:
+# API_INTERNAL_URL is never a page's origin.
+case ",$SANCTUM_STATEFUL_DOMAINS,$(echo "${APP_URL#*://}" | cut -d/ -f1)," in *",${API_INTERNAL_URL#*://},"*) echo "the web port is 8080, which is API_INTERNAL_URL's: set another WEB_PORT"; exit 1 ;; esac
 # endif
 # sha256 sentinels, not mtimes: `git worktree add` stamps the lockfiles with the
 # current time, which would make every new worktree reinstall its copied deps.

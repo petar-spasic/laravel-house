@@ -8,6 +8,8 @@ use PetarSpasic\LaravelHouse\Kanban\Policy\ReadyPolicy;
 use PetarSpasic\LaravelHouse\Kanban\Policy\Transitions;
 use PetarSpasic\LaravelHouse\Kanban\Store\Card;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Invalid;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\KanbanException;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\LockTimeout;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
 use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -30,6 +32,7 @@ class PromoteCommand extends Command
         }
         $transitions = $this->transitions();
         $refused = 0;
+        $failed = 0;
         foreach ($ids as $id) {
             try {
                 $card = $transitions->promote($id, $this->actor());
@@ -37,14 +40,19 @@ class PromoteCommand extends Command
             } catch (PolicyRefused $e) {
                 $refused++;
                 $this->say($e->getMessage());
+            } catch (LockTimeout $e) {
+                throw $e;
+            } catch (KanbanException $e) {
+                $failed = $failed ?: $e->exitCode();
+                $this->fault("skipped {$id}: {$e->getMessage()}");
             }
         }
         if ($this->option('auto')) {
-            $this->auto();
+            $failed = $this->auto() ?: $failed;
         }
         $this->reportPending();
 
-        return $refused > 0 ? 3 : self::SUCCESS;
+        return $failed ?: ($refused > 0 ? 3 : self::SUCCESS);
     }
 
     /**
@@ -52,13 +60,26 @@ class PromoteCommand extends Command
      * planning. Then backlog cards are promoted in pull order until the cards waiting to start (ready, a current plan) and
      * those in planning a planner holds or may take reach `ready_buffer`, one card ahead per area: an area runs one card at
      * a time, so a second would wait on a plan going stale. A card whose dependencies are not done stays in the backlog for a
-     * later run, and every card passed over is named.
+     * later run, and every card passed over is named. A card that cannot be written is named on stderr and the rest go on;
+     * the exit code of the first such failure is returned, 0 when there was none. A busy board lock ends the command: every
+     * card would wait on it.
      */
-    private function auto(): void
+    private function auto(): int
     {
+        $failed = 0;
+        $skip = function (Card $card, KanbanException $e) use (&$failed) {
+            $failed = $failed ?: $e->exitCode();
+            $this->fault("skipped {$card->id()}: {$e->getMessage()}");
+        };
         foreach ($this->store()->snapshot()->cards(fn (Card $c) => $c->stage() === 'ready' && ! Plan::current($c)) as $card) {
-            $this->store()->update($card->id(), fn (array $data) => Transitions::replan($data, 'no current plan'), $this->actor());
-            $this->say("replanned {$card->id()}: no current plan");
+            try {
+                $this->store()->update($card->id(), fn (array $data) => Transitions::replan($data, 'no current plan'), $this->actor());
+                $this->say("replanned {$card->id()}: no current plan");
+            } catch (LockTimeout $e) {
+                throw $e;
+            } catch (KanbanException $e) {
+                $skip($card, $e);
+            }
         }
         $snapshot = $this->store()->snapshot();
         $buffer = (int) $snapshot->setting('ready_buffer', 12);
@@ -88,12 +109,20 @@ class PromoteCommand extends Command
 
                 continue;
             }
-            $promoted = $this->transitions()->promote($card->id(), $this->actor());
-            $this->say("promoted {$card->id()} to {$promoted->stage()}");
+            try {
+                $promoted = $this->transitions()->promote($card->id(), $this->actor());
+                $this->say("promoted {$card->id()} to {$promoted->stage()}");
+            } catch (LockTimeout $e) {
+                throw $e;
+            } catch (KanbanException $e) {
+                $skip($card, $e);
+            }
             $snapshot = $this->store()->snapshot();
             $cards = $ahead($snapshot);
         }
         $ready = count(array_filter($cards, fn (Card $c) => $c->stage() === 'ready'));
         $this->say("ready {$ready}, planning ".(count($cards) - $ready).': '.count($cards)."/{$buffer}");
+
+        return $failed;
     }
 }

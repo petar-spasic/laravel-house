@@ -5,8 +5,9 @@ One endpoint ⇒ one FormRequest carrying ALL of its rules. No inline `$request-
 `Validator::make` in a controller, and no `app/Http/Requests/` (`app/CLAUDE.md`, Layout).
 
 - `authorize()` returns the authentication check and nothing more. Resource authorization is the policy's.
-- **Server-owned columns get `['prohibited']`**: owner ids such as `user_id` (the owner is `$request->user()`, never
-  the body), `status`, anything the server computes. It pairs with the model's non-fillable column.
+- **Server-owned columns get `['missing']`**: owner ids such as `user_id` (the owner is `$request->user()`, never
+  the body), `status`, anything the server computes. It pairs with the model's non-fillable column. Never
+  `prohibited`: it passes `null`, `''` and `[]`, which `validated()` then carries into `fill()`.
 - Enum fields validate with `Rule::enum(X::class)`, never a hand-typed `in:` list that can drift.
 - An integer in a JSON body is `integer:strict`: plain `integer` accepts `1500.0` and `1e3`. Form posts and query
   strings arrive as strings, which `strict` refuses, so there it stays `integer`. Money is an integer in minor units.

@@ -68,6 +68,13 @@ final class Brief
             $lines[] = 'main red since '.substr((string) $red['sha'], 0, 7)." ({$red['after']} merged): `{$red['command']}` fails; finish waits for it ("
                 .($red['card'] ?? 'no card').')';
         }
+        // what the agents filed as already on main has no area, so no promote takes it
+        $filed = $snapshot->cards(fn (Card $c) => $c->stage() === 'backlog' && in_array(Applier::MAIN_RED, $c->labels(), true)
+            && $c->areas() === [] && $c->id() !== ($red['card'] ?? null));
+        if ($filed !== []) {
+            $lines[] = 'failing on main, in backlog with no area (give it an area and promote it first): '
+                .implode(', ', array_map(fn (Card $c) => $c->id().' '.mb_strimwidth($c->title(), 0, 80, '…'), $filed));
+        }
         foreach (array_filter($work('planning'), fn (Card $c) => $c->atWork()) as $card) {
             $lines[] = 'planning '.$this->short($card).': '.implode(', ', [...(Plan::madeUnderClaim($card) ? [Plan::current($card) ? 'planned, not yet moved to ready' : 'planned, then the card changed: its planner revises it'] : []),
                 ...$this->flight($card, $runtime, 'kanban-planner'), ...$this->trouble($card, $runtime)]);

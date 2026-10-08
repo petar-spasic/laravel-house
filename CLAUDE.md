@@ -162,8 +162,13 @@ Class names below are relative to `PetarSpasic\LaravelHouse\Kanban` (`src/Kanban
     otherwise (`askOwner`).
   - A signal handler that calls `exit()` in a command running a child Process kills the child → `exit()` runs
     destructors, and `Process::__destruct()` stops a running process → no handler; hold a lock the system frees instead.
+  - `./dev shell -c '…'` opens a plain shell and runs nothing → `shell` passes no arguments on → run a tool on chosen
+    paths with `./dev composer exec -- pint <paths>`.
   - Spend in `morning` came out several times too high → `claude -p --resume` reports `total_cost_usd` for the whole
     session so far, while `usage` is the run's own → `AgentRun` logs the difference (`session_cost_usd` beside it).
+  - A test that reads the last entries of one write passes and fails at random → `Json::canonical` sorts the log by
+    `at`, then `id`, and one write's entries share `at` while ids are random → select a write's entries by `at` and
+    event, never by position.
 - **UI changes:** the script has no unit tests, so `./dev ui` drives it in a real Chromium (CSP `default-src 'self'`) against a seeded board: `docker/browser/checks/*.mjs`, one file per area, screenshots in `build/ui`. A new interaction gets a check there (`t.ok`), written first and seen failing on the old code, because a check that passes before the fix proves nothing; the accessibility sweep (`a11y.mjs`) holds contrast (4.5:1), target size (24 px), names, tab order and, on a touch device, 16 px text boxes and 40 px controls; `forced.mjs` emulates Windows high contrast; `./dev ui serve` serves the seeded board at http://localhost:8099/kanban for looking at by hand. A check that needs another person opts into the `team` seed (`export const seed = 'team'`): an origin, the page's server running as Ana with sync on, and a second clone "peer" (Ben) that `t.cli(cmd, { root: t.seed.peer, env })` acts in.
 - **`validation:export` relies on Laravel internals:** protected `Validator` methods such as `getMessage()` and
   `makeReplacements()`. After a Laravel minor upgrade, re-run the parity proof on a scratch spa app that requires this
@@ -231,9 +236,9 @@ grep -rn 'laravel-deployment\|laravel-project-setup\|references/\|Many stacks\|P
 implement-kanban's citations wrap across lines: join them (`tr '\n' ' '`) before matching.
 
 Then run the installer for all 16 module combinations into scratch directories. Each run must exit 0 and leave only
-`what_we_are_building` and `hosting`; write lint-clean PHP with no block markers, `.gitkeep` and `AcceptJson.php`;
-record tenancy in `config/house.php` exactly when it is on, and leave nothing for `--update --check`; write exactly
-`frontend/CLAUDE.md` with spa and no spa text without it. The guidelines' module text is `HouseRulesTest`'s.
+`what_we_are_building` and `hosting`; write lint-clean PHP with no block markers, `.gitkeep`, `AcceptJson.php`,
+`RequestId.php` and `SecurityHeaders.php`; record tenancy in `config/house.php` exactly when it is on, and leave nothing
+for `--update --check`; write exactly `frontend/CLAUDE.md` with spa and no spa text without it. The guidelines' module text is `HouseRulesTest`'s.
 Four invalid combinations are refused, and `--render-to` writes nothing into the target:
 
 ```bash
@@ -247,6 +252,8 @@ for fe in '' htmx htmx,islands spa; do for rv in '' reverb; do for tn in '' tena
   grep -rlE '<!-- (if|unless):|<!-- endif' "$d" && echo "✗ markers [$m]"
   grep -rlE 'clsx|tailwind-merge' "$d" && echo "✗ dropped package [$m]"
   [ -f "$d/database/data/.gitkeep" ] && [ -f "$d/app/Http/Middleware/AcceptJson.php" ] || echo "✗ shipped files [$m]"
+  [ -f "$d/app/Http/Middleware/RequestId.php" ] && [ -f "$d/app/Http/Middleware/SecurityHeaders.php" ] || echo "✗ middleware [$m]"
+  grep -rlE '^\s*# (if|unless):|^\s*# endif' "$d" --include=*.php && echo "✗ hash markers [$m]"
   if [ -n "$tn" ]; then grep -q "'tenancy'" "$d/config/house.php" || echo "✗ tenancy not recorded [$m]"
   else grep -rliE 'tenan(t|cy)' "$d" && echo "✗ tenancy text [$m]"; fi
   php "$inst" "$d" --update --check || echo "✗ update [$m]"

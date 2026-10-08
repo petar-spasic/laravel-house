@@ -60,6 +60,47 @@ it('fills planning in pull order with --auto', function () {
         ->and($s->read($low)['stage'])->toBe('backlog');
 });
 
+it('goes on with --auto past a card it cannot write, names it and exits non-zero', function () {
+    $s = $this->sandbox;
+    $broken = function (string $id) use ($s) {
+        $card = $s->read($id);
+        $card['body'] .= ' changed';
+        $card['bogus'] = true;
+        file_put_contents($s->root."/docs/kanban/work/{$id}.json", json_encode($card, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n");
+    };
+    $stale = $s->readyCard('Stale plan', ['--label=area:c']);
+    $broken($stale);
+    $high = $s->card('High', ['--body=x', '--accept=y', '--priority=high', '--label=area:b']);
+    $broken($high);
+    $low = $s->card('Low', ['--body=x', '--accept=y', '--priority=low', '--label=area:a']);
+
+    $run = $s->kanban(['promote', '--auto']);
+
+    expect($run->getExitCode())->toBe(2)
+        ->and($run->getErrorOutput())->toContain("skipped {$stale}: invalid: ")->toContain("skipped {$high}: invalid: ")
+        ->and($run->getOutput())->toContain("promoted {$low} to planning\n")
+        ->and($s->read($low)['stage'])->toBe('planning');
+});
+
+it('stops at the first card when the board lock is busy, rather than waiting on it for every card', function () {
+    $s = $this->sandbox;
+    $first = $s->card('First', ['--body=x', '--accept=y', '--label=area:a']);
+    $second = $s->card('Second', ['--body=x', '--accept=y', '--label=area:b']);
+    $lock = fopen($s->root.'/.git/laravel-house/lock', 'c');
+    flock($lock, LOCK_EX);
+    try {
+        $run = $s->kanban(['promote', $first, $second]);
+    } finally {
+        flock($lock, LOCK_UN);
+        fclose($lock);
+    }
+
+    expect($run->getExitCode())->toBe(6)
+        ->and($run->getErrorOutput())->toContain('lock busy')->not->toContain('skipped')
+        ->and($s->read($first)['stage'])->toBe('backlog')
+        ->and($s->read($second)['stage'])->toBe('backlog');
+});
+
 it('orders next by the pull policy', function (Closure $setup, array|string $expected) {
     $ids = $setup($this->sandbox);
 

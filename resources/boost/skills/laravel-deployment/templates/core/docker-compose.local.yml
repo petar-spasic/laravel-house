@@ -96,7 +96,7 @@ services:
       API_INTERNAL_URL: http://127.0.0.1:8080
       # $env/static/public: vite dev, npm run check and every build need it. The same expression as APP_URL.
       PUBLIC_APP_URL: ${LOCAL_APP_URL:-http://localhost:${WEB_PORT:-{{web_port}}}}
-      # The page origins Sanctum treats as the browser; the entrypoint appends APP_URL's host.
+      # The page origins Sanctum treats as the browser; config/sanctum.php adds APP_URL's host:port.
       SANCTUM_STATEFUL_DOMAINS: localhost:${WEB_PORT:-{{web_port}}},127.0.0.1:${WEB_PORT:-{{web_port}}}
       # endif
       # The board page's sync, main stack only; the worker's exec() must stay enabled. A worktree stack's .env sets

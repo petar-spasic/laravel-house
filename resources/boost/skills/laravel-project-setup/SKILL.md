@@ -151,8 +151,8 @@ This table owns the combination rules. `install.php` enforces them and refuses a
 7. **Boost.** `--fresh` wrote `boost.json` and composer's `post-update-cmd` (`house:update`, then `boost:update`). Run
    `php artisan boost:install --no-interaction` yourself, never through `!` (Gotchas). Disable the plugin for the
    project. Detail: `references/boost.md`.
-8. **Verify.** `php "${CLAUDE_SKILL_DIR}/scripts/verify.php" .` prints nothing: no marker or placeholder but
-   `{{hosting}}`, the deletions, `.env`, `.gitignore`, the house files in sync, Boost with the house guidelines and its
+8. **Verify.** `php "${CLAUDE_SKILL_DIR}/scripts/verify.php" .` prints nothing: no marker or house placeholder
+   but `{{hosting}}`, the deletions, `.env`, `.gitignore`, the house files in sync, Boost with the house guidelines and its
    overrides, no house section above Boost's block, one E2E suite, and `route:list` boots. Then:
    - `vendor/bin/pint --dirty --format agent`;
    - the module checks in `references/modules.md`;

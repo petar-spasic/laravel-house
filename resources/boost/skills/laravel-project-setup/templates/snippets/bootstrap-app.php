@@ -13,6 +13,8 @@ use App\Http\Middleware\AcceptJson;
 use App\Http\Middleware\CachePublicResponse;
 use App\Http\Middleware\HtmxOnly;
 <!-- endif -->
+use App\Http\Middleware\RequestId;
+use App\Http\Middleware\SecurityHeaders;
 use Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -48,6 +50,10 @@ return Application::configure(basePath: dirname(__DIR__))
 <!-- endif -->
 <!-- endif -->
     ->withMiddleware(function (Middleware $middleware): void {
+        // First and last of every request (app/Http/Middleware/CLAUDE.md).
+        $middleware->prepend(RequestId::class);
+        $middleware->append(SecurityHeaders::class);
+
         // Fortify's group middleware (config/fortify.php); must run before `auth` decides JSON vs redirect.
         $middleware->prependToPriorityList(before: AuthenticatesRequests::class, prepend: AcceptJson::class);
 

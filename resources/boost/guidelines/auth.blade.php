@@ -68,9 +68,16 @@ Socialite is installed everywhere; social sign-in is built when a provider is tu
 - **Never link by email**: it hands the account to whoever controls that address at the provider. An existing user
   with that email signs in their usual way and links the provider from their account.
 - Linking needs `password.confirm`. An account linked to another user is refused. Unlinking never removes the last
-  way to sign in.
+  way to sign in: with no password set and no registered passkey, checked when the unlink runs, it is refused. The
+  confirmation it sits behind already needs one of the two, so only a passkey deleted after confirming reaches this
+  guard; it has no E2E proof.
 - Success is `Auth::login`, then `session()->regenerate()`. A user with confirmed 2FA is not signed in: the callback
   puts `login.id` and `login.remember` in the session and sends them to Fortify's challenge.
+@houserules('spa')
+- A sign-in Laravel completes (the callback, the mailed confirmation link) redirects to the SvelteKit `/signed-in`
+  page, whose browser code settles the session and sets the `signed_in` marker (`frontend/CLAUDE.md`). Laravel never
+  sets the marker.
+@endhouserules
 - Provider tokens are stored only when the project calls the provider's API, encrypted.
 - Building it includes a migration that makes `users.password` nullable (`database/CLAUDE.md`).
 @houserules('htmx')

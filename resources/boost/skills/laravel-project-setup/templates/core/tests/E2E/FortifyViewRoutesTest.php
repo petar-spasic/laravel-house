@@ -2,6 +2,9 @@
 
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+<!-- if:spa -->
+use Illuminate\Http\Request;
+<!-- endif -->
 use Illuminate\Support\Facades\Route;
 
 uses(RefreshDatabase::class);
@@ -111,3 +114,18 @@ it('challenges a two-factor user signing in through the form instead of redirect
     $this->post(route('two-factor.login.store'), ['recovery_code' => 'recovery-code-1'])->assertNoContent();
     $this->assertAuthenticatedAs($user);
 });
+<!-- if:spa -->
+
+it('starts a session for an api call from APP_URL, as for the SvelteKit app, and for no other origin', function () {
+    // an APP_URL that compose's SANCTUM_STATEFUL_DOMAINS does not list (the app browsed from the LAN): the stateful list
+    // read again from config/sanctum.php, as a process with that APP_URL reads it
+    $port = parse_url((string) config('app.url'), PHP_URL_PORT);
+    $url = 'http://192.0.2.10'.($port === null ? '' : ":{$port}");
+    config(['app.url' => $url]);
+    config(['sanctum.stateful' => (require config_path('sanctum.php'))['stateful']]);
+    Route::middleware('api')->get('api/v1/session-probe', fn (Request $request) => ['session' => $request->hasSession()]);
+
+    $this->getJson('/api/v1/session-probe', ['Origin' => $url])->assertExactJson(['session' => true]);
+    $this->getJson('/api/v1/session-probe', ['Origin' => 'http://203.0.113.9'])->assertExactJson(['session' => false]);
+});
+<!-- endif -->

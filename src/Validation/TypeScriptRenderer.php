@@ -209,7 +209,7 @@ final readonly class TypeScriptRenderer
             'string' => "z.string({$error})",
             'number' => "z.number({$error})",
             'boolean' => "z.boolean({$error})",
-            'array' => ($node->map ? 'z.record(z.string(), ' : 'z.array(').($node->element === null ? 'z.unknown()' : $this->node($node->element, $depth)).($error === '' ? '' : ", {$error}").')',
+            'array' => ($node->map ? 'z.record(z.string(), ' : 'z.array(').($node->element === null || $node->element->omitted ? 'z.unknown()' : $this->node($node->element, $depth)).($error === '' ? '' : ", {$error}").')',
             default => 'z.object('.$this->object($node, $depth).')',
         };
 

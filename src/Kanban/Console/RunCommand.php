@@ -9,6 +9,7 @@ use PetarSpasic\LaravelHouse\Kanban\Code\Stack;
 use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
 use PetarSpasic\LaravelHouse\Kanban\Policy\Plan;
 use PetarSpasic\LaravelHouse\Kanban\Policy\PullPolicy;
+use PetarSpasic\LaravelHouse\Kanban\Protocol\Applier;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Lease;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Runtime;
 use PetarSpasic\LaravelHouse\Kanban\Store\Actor;
@@ -177,8 +178,15 @@ class RunCommand extends Command
         // although its start failed. No session or UI may be pulling for this machine
         $this->gitStore()?->maybeSync(wait: true);
         $state = $this->state();
+        // ended() has logged and forgotten every run: one that fails here must not take the others' outcome with it
         foreach ($this->agents->ended() as $run) {
-            $state = $this->reaped($run, $state);
+            try {
+                $state = $this->reaped($run, $state);
+            } catch (LockTimeout $e) {
+                throw $e;
+            } catch (Throwable $e) {
+                $this->notice("{$run['card']} ".str_replace('kanban-', '', (string) $run['type']).' ended, not counted: '.$e->getMessage());
+            }
         }
         $this->kanban(['apply', '--all']);
         $paused = ($state['paused_until'] ?? 0) > time();
@@ -222,6 +230,16 @@ class RunCommand extends Command
                 $stop = $this->kanban(['stop', $card->id(), '--to=backlog']);
                 $stop->isSuccessful() ? $this->notice("{$card->id()} parked in backlog: {$card->blocked()}") : $this->block($card->id(), $stop);
                 $acted = true;
+            } elseif (($loop = $this->rejectLoop($card)) !== null) {
+                // a third round on what failed twice is no better: the orchestrator judges it, and watch() reports it.
+                // Once per verdict, kept only once the block is written
+                [$why, $hash] = $loop;
+                if ($this->kanban(['set', $card->id(), "blocked={$why}"])->isSuccessful()) {
+                    $kept = $this->state();
+                    $kept['looped'][$card->id()] = $hash;
+                    $this->saveState($kept);
+                }
+                $acted = true;
             } elseif (! $paused) {
                 $resume = $this->resumable($runtime, $card, AgentRun::WORKER);
                 // a fix that unblocked the card may have landed on main; 5: the worker concludes the conflict first. Not into
@@ -233,8 +251,10 @@ class RunCommand extends Command
 
                     continue;
                 }
-                $session = $this->agents->launch($card, AgentRun::WORKER, $resume);
-                $this->log("{$card->id()} worker ".substr($session, 0, 8).($resume === null ? ' launched' : ' resumed').($resume !== null && $dirty ? ', main not merged: uncommitted changes in its clone' : ''));
+                if (($session = $this->launch($card, AgentRun::WORKER, $resume)) === null) {
+                    continue;
+                }
+                $this->log("{$card->id()} worker ".substr($session, 0, 8).($resume === null ? ' launched ' : ' resumed ').$this->agents->pins($session).($resume !== null && $dirty ? ', main not merged: uncommitted changes in its clone' : ''));
                 $acted = true;
             }
         }
@@ -261,19 +281,22 @@ class RunCommand extends Command
 
                     continue;
                 }
-                $session = $this->agents->launch($card, AgentRun::PLANNER, $resume);
-                $this->log("{$card->id()} planner ".substr($session, 0, 8).($resume === null ? ' launched' : ' resumed'));
+                if (($session = $this->launch($card, AgentRun::PLANNER, $resume)) === null) {
+                    continue;
+                }
+                $this->log("{$card->id()} planner ".substr($session, 0, 8).($resume === null ? ' launched ' : ' resumed ').$this->agents->pins($session));
                 $acted = true;
             }
         }
 
         if (! $paused) {
-            // a drain still starts parked work (a card back from its question, its branch kept): it is in flight
+            // a drain still starts parked work (a card back from its question, its branch kept): it is in flight. A card the
+            // main session or the owner stopped stays put
             $draining = $this->draining();
-            $draining || $this->kanban(['promote', '--auto']);
+            $draining || $this->promote();
             $this->capped = null;
             foreach ((new PullPolicy)->next($this->store()->snapshot(), 99, skip: array_keys($this->held))['cards'] as $card) {
-                if (! $this->room() || isset($this->held[$card->id()]) || ($draining && ! PullPolicy::parked($card))) {
+                if (! $this->room() || isset($this->held[$card->id()]) || ($draining && ! self::inFlight($card))) {
                     if ($this->capped !== null) {
                         break;
                     }
@@ -287,7 +310,7 @@ class RunCommand extends Command
                 if (! $this->room()) {
                     break;
                 }
-                if (! isset($this->held[$card->id()]) && (! $draining || PullPolicy::parked($card))) {
+                if (! isset($this->held[$card->id()]) && (! $draining || self::inFlight($card))) {
                     $acted = $this->begin($card) || $acted;
                 }
             }
@@ -301,6 +324,51 @@ class RunCommand extends Command
             $this->draining() || $this->notice('idle: '.($this->capped !== null ? "no card can start: {$this->capped}" : 'no agent runs and no card can start: plan or promote cards'));
         }
         $this->watch($state);
+    }
+
+    /** `promote --auto`; what it could not write is a notice once per message (run.json `promote`), not in every pass. */
+    private function promote(): void
+    {
+        $promote = $this->kanban(['promote', '--auto']);
+        $failed = $promote->isSuccessful() ? [] : (array_values(array_filter(array_map('trim', explode("\n", $promote->getErrorOutput())))) ?: [self::why($promote)]);
+        $state = $this->state();
+        foreach (array_diff($failed, (array) ($state['promote'] ?? [])) as $line) {
+            $this->notice("promote --auto: {$line}");
+        }
+        $state['promote'] = $failed;
+        $this->saveState($state);
+    }
+
+    /**
+     * The block for a card whose last two verdicts since its start rejected it on the same criteria, with the last
+     * verdict's hash, or null. Once per verdict (run.json `looped`): a card unblocked by hand goes on.
+     *
+     * @return array{string, string}|null
+     */
+    private function rejectLoop(Card $card): ?array
+    {
+        $since = (string) ($card->work()['started'] ?? '');
+        $verdicts = array_values(array_filter($card->log(), fn (array $e) => ($e['event'] ?? null) === 'verdict' && (string) ($e['at'] ?? '') >= $since));
+        // one verdict applied twice is one reject
+        $verdicts = array_values(array_filter($verdicts, fn (array $v, int $i) => $i === 0 || ($v['hash'] ?? null) !== ($verdicts[$i - 1]['hash'] ?? null), ARRAY_FILTER_USE_BOTH));
+        [$before, $last] = array_slice([null, null, ...$verdicts], -2);
+        $ids = fn (?array $v) => ($v['decision'] ?? null) === 'reject' ? array_map(fn (string $f) => (int) $f, (array) ($v['failed'] ?? [])) : [];
+        $state = $this->state();
+        if ($ids($last) === [] || $ids($last) !== $ids($before) || ($state['looped'][$card->id()] ?? null) === $last['hash']) {
+            return null;
+        }
+        $failed = $ids($last);
+
+        return [mb_strimwidth('kanban run: rejected 2× on '.(count($failed) === 1 ? 'criterion ' : 'criteria ').implode(', ', $failed).': '
+            .preg_replace('/^\d+: /', '', (string) $last['failed'][0]), 0, 500, '…'), (string) $last['hash']];
+    }
+
+    /** Parked work a drain finishes: not a card whose last move was a `stop`. */
+    private static function inFlight(Card $card): bool
+    {
+        $stages = array_values(array_filter($card->log(), fn (array $e) => ($e['event'] ?? null) === 'stage'));
+
+        return PullPolicy::parked($card) && (end($stages)['via'] ?? null) !== 'stop';
     }
 
     /** The headless session of the card's agent of $type to resume: one started under the claim the card holds now. */
@@ -335,8 +403,10 @@ class RunCommand extends Command
         }
         $card = $this->store()->snapshot()->resolve($card->id());
         $type = $card->stage() === 'planning' ? AgentRun::PLANNER : AgentRun::WORKER;
-        $session = $this->agents->launch($card, $type);
-        $this->log("{$card->id()} ".($type === AgentRun::PLANNER ? 'planning started; planner ' : 'started; worker ').substr($session, 0, 8).' launched');
+        if (($session = $this->launch($card, $type)) === null) {
+            return false;
+        }
+        $this->log("{$card->id()} ".($type === AgentRun::PLANNER ? 'planning started; planner ' : 'started; worker ').substr($session, 0, 8).' launched '.$this->agents->pins($session));
 
         return true;
     }
@@ -365,6 +435,14 @@ class RunCommand extends Command
             $this->notice('main red since '.substr((string) $red['sha'], 0, 7).": `{$red['command']}` fails (".($red['card'] ?? 'no card').')');
         }
         $state['red'] = $red['sha'] ?? null;
+        // what the agents filed as already on main has no area, so no promote takes it. The red main's own bug card is
+        // reported as the red main, and counted as reported once main is green
+        $filed = array_map(fn (Card $c) => $c->id(), $snapshot->cards(fn (Card $c) => $c->stage() === 'backlog'
+            && in_array(Applier::MAIN_RED, $c->labels(), true) && $c->areas() === []));
+        foreach (array_diff($filed, (array) ($state['main_red'] ?? []), [$red['card'] ?? null]) as $id) {
+            $this->notice("{$id} ".$snapshot->card($id)?->title().': a failure already on main, in backlog: give it an area and promote it first');
+        }
+        $state['main_red'] = array_values(array_unique([...$filed, ...(isset($red['card']) ? [$red['card']] : [])]));
         $pending = count(Findings::pending($snapshot));
         if ($pending > (int) ($state['upstream'] ?? 0)) {
             $this->notice("upstream: {$pending} package findings pending (`kanban upstream`)");
@@ -394,14 +472,20 @@ class RunCommand extends Command
     private function finish(Card $card, bool $paused): bool
     {
         $finish = $this->kanban(['finish', $card->id(), '--ask']);
-        if ($finish->isSuccessful()) {
+        if ($finish->isSuccessful() || $finish->getExitCode() === FinishCommand::STEP_FAILED) {
             foreach (explode("\n", trim($finish->getOutput())) as $n => $line) {
-                // the merge line, what rebuilding main's stack did and the warnings; a failed rebuild leaves main to act on
-                if (str_starts_with($line, FinishCommand::REBUILD_FAILED)) {
-                    $this->notice("{$card->id()} finish {$line}");
-                } elseif ($n === 0 || str_starts_with($line, 'rebuil') || str_starts_with($line, 'warning:')) {
+                // the merge line, what rebuilding main's stack did and the warnings
+                if ($n === 0 || str_starts_with($line, 'rebuil') || str_starts_with($line, 'warning:')) {
                     $this->log($line);
                 }
+            }
+            // merged and done: what failed after the merge (exit 10) is main's to act on, never a block on the card; what a
+            // clean finish printed on stderr (a branch kept) is only logged. A failed finish.check (its line and output
+            // tail) is the red main, which watch() reports
+            $failed = $finish->getExitCode() === FinishCommand::STEP_FAILED;
+            foreach (array_filter(explode("\n", rtrim($finish->getErrorOutput())), fn (string $l) => trim($l) !== ''
+                && ! str_starts_with($l, 'check: ') && ! str_starts_with($l, '  ')) as $line) {
+                $failed ? $this->notice("{$card->id()} merged, then: {$line}") : $this->log("{$card->id()} finish: {$line}");
             }
 
             return true;
@@ -439,8 +523,10 @@ class RunCommand extends Command
 
             return $refresh->getExitCode() === 5;
         }
-        $session = $this->agents->launch($this->store()->snapshot()->resolve($id), AgentRun::EVALUATOR);
-        $this->log("{$id} evaluator ".substr($session, 0, 8).' launched');
+        if (($session = $this->launch($this->store()->snapshot()->resolve($id), AgentRun::EVALUATOR)) === null) {
+            return false;
+        }
+        $this->log("{$id} evaluator ".substr($session, 0, 8).' launched '.$this->agents->pins($session));
 
         return true;
     }
@@ -464,14 +550,18 @@ class RunCommand extends Command
 
             return $this->saveState($state);
         }
+        if ($this->agents->stopping($id)) {
+            // ended by a `stop`: no strike against the card
+            return $state;
+        }
         $card = $this->store()->snapshot()->card($id);
         $moved = $card === null || $card->stage() !== $run['stage'] || $card->blocked() !== null
             || ($card->work()['approved']['head'] ?? null) !== $run['approved'] || ($card->planned()['at'] ?? null) !== ($run['planned'] ?? null);
         $strikes = $moved ? 0 : (int) ($state['strikes'][$id] ?? 0) + 1;
         if ($strikes >= self::STRIKES) {
             $why = 'kanban run: no progress in '.self::STRIKES.' agent runs (last: '.($run['error'] ?? 'ended without a change').')';
-            $this->kanban(['set', $id, "blocked={$why}"]);
-            $strikes = 0;
+            // a failed `set` keeps the count: the next run that ends blocks the card again
+            $strikes = $this->kanban(['set', $id, "blocked={$why}"])->isSuccessful() ? 0 : $strikes;
         }
         $state['strikes'][$id] = $strikes;
 
@@ -479,7 +569,7 @@ class RunCommand extends Command
     }
 
     /**
-     * Cards of this machine: their clone is here.
+     * Cards of this machine: their clone is here, and no `stop` is taking them down.
      *
      * @param  callable(Card): bool  $filter
      * @return list<Card>
@@ -487,20 +577,20 @@ class RunCommand extends Command
     private function local(Snapshot $snapshot, callable $filter): array
     {
         return array_values(array_filter($snapshot->cards($filter), fn (Card $c) => ($c->blocked() === null || $c->asks())
-            && is_dir($this->paths()->main.'/'.($c->work()['worktree'] ?? "\0"))));
+            && is_dir($this->paths()->main.'/'.($c->work()['worktree'] ?? "\0")) && ! $this->agents->stopping($c->id())));
     }
 
     /**
      * Cards in doing or held in planning whose start from this checkout was cut short after the claim (another checkout on
      * this machine keeps its own): blocked for want of a stack slot, or with no clone here once a block was cleared. They go
-     * before any new start.
+     * before any new start. Not one a `stop` is taking down.
      *
      * @return list<Card>
      */
     private function unstarted(Snapshot $snapshot): array
     {
         return array_values($snapshot->cards(fn (Card $c) => $c->atWork() && $c->stage() !== 'review' && ($c->work()['host'] ?? null) === gethostname()
-            && in_array($c->work()['started'] ?? null, StartCommand::marks($this->paths(), $c->id()), true)
+            && ! $this->agents->stopping($c->id()) && in_array($c->work()['started'] ?? null, StartCommand::marks($this->paths(), $c->id()), true)
             && ($c->blocked() === null ? $this->cutShort($c) : self::slotLost((string) $c->blocked()))));
     }
 
@@ -571,10 +661,31 @@ class RunCommand extends Command
             return false;
         }
         $type = $card->stage() === 'planning' ? AgentRun::PLANNER : AgentRun::WORKER;
-        $session = $this->agents->launch($this->store()->snapshot()->resolve($card->id()), $type);
-        $this->log("{$card->id()} start resumed; ".str_replace('kanban-', '', $type).' '.substr($session, 0, 8).' launched');
+        if (($session = $this->launch($this->store()->snapshot()->resolve($card->id()), $type)) === null) {
+            return false;
+        }
+        $this->log("{$card->id()} start resumed; ".str_replace('kanban-', '', $type).' '.substr($session, 0, 8).' launched '.$this->agents->pins($session));
 
         return true;
+    }
+
+    /** The session of the agent launched for the card, or null when a `stop` under way refuses it: the pass goes on with the next card. */
+    private function launch(Card $card, string $type, ?string $resume = null): ?string
+    {
+        try {
+            return $this->agents->launch($card, $type, $resume);
+        } catch (PolicyRefused $e) {
+            $this->log("{$card->id()} ".str_replace('kanban-', '', $type).' not launched: '.$e->getMessage());
+
+            return null;
+        } catch (LockTimeout $e) {
+            throw $e;
+        } catch (Throwable $e) {
+            // the pass goes on with the other cards
+            $this->notice("{$card->id()} ".str_replace('kanban-', '', $type).' not launched: '.$e->getMessage());
+
+            return null;
+        }
     }
 
     /** Skips starting a card whose start was refused for the rest of this run: a full stack pool or a lost claim passes. */

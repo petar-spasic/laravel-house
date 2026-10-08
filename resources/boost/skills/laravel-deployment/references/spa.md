@@ -64,8 +64,9 @@ calls :8091, never :8090.
 - `docker-compose.local.yml`: `API_INTERNAL_URL`, `PUBLIC_APP_URL` and `SANCTUM_STATEFUL_DOMAINS`, and
   `shm_size: 1gb` for Chromium. `TRUSTED_PROXIES: 127.0.0.1` stays, because SvelteKit's server-side calls arrive from
   loopback carrying the browser's address.
-- `docker/docker-entrypoint-local.sh`: appends `APP_URL`'s host to `SANCTUM_STATEFUL_DOMAINS`, and refuses a web port
-  of 8080.
+- `docker/docker-entrypoint-local.sh`: refuses a web port of 8080. `config/sanctum.php` (laravel-project-setup's
+  `config-sanctum.php` snippet) adds `APP_URL`'s host:port to the origins `SANCTUM_STATEFUL_DOMAINS` lists, in every
+  process, `docker compose exec` included.
 - `Dockerfile.local`: the headless Chromium for the exact `@playwright/test` pin, installed at build as root.
 - Prod: `Dockerfile`'s frontend stage and Node binary, the `ssr` program, the boot checks and a `view:cache` that
   skips a missing `resources/views` (git keeps no empty directory) in `docker/docker-entrypoint.sh`, the

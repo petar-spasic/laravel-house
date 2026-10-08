@@ -3,9 +3,9 @@
 namespace PetarSpasic\LaravelHouse\Kanban\Protocol;
 
 use PetarSpasic\LaravelHouse\Kanban\Code\DatabaseSteps;
+use PetarSpasic\LaravelHouse\Kanban\Code\MainCheck;
 use PetarSpasic\LaravelHouse\Kanban\Code\MergeCheck;
 use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
-use PetarSpasic\LaravelHouse\Kanban\Console\Standalone;
 use PetarSpasic\LaravelHouse\Kanban\Policy\Plan;
 use PetarSpasic\LaravelHouse\Kanban\Store\Card;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
@@ -13,7 +13,6 @@ use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
 use PetarSpasic\LaravelHouse\Kanban\Support\Git;
 use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
 use PetarSpasic\LaravelHouse\Kanban\Upstream\Findings;
-use Throwable;
 
 /** What an agent needs about its card: `kanban context` and the SessionStart context of a card worktree. */
 final class Context
@@ -87,6 +86,13 @@ final class Context
         }
         if ($card->blocked() !== null) {
             $lines[] = 'blocked: '.$card->blocked();
+        }
+        if ($card->stage() !== 'planning' && ($red = (new MainCheck($this->paths))->red()) !== null) {
+            $lines[] = "main red: `{$red['command']}` fails since {$red['after']} merged (".substr((string) $red['sha'], 0, 7).')'
+                .(($red['card'] ?? null) === $card->id() ? ': this card holds it' : ', bug card '.($red['card'] ?? '?').': not yours to file; subtract its failures from yours');
+        } elseif ($card->stage() !== 'planning' && ($known = $snapshot->cards(fn (Card $c) => $c->id() !== $card->id()
+            && in_array(Applier::MAIN_RED, $c->labels(), true) && ! in_array($c->stage(), ['done', 'dropped'], true))) !== []) {
+            $lines[] = 'failing on main already (not yours to file; subtract them from yours): '.implode(', ', array_map(fn (Card $c) => $c->id().' '.mb_strimwidth($c->title(), 0, 80, '…'), $known));
         }
         if ($worktree !== null) {
             $lines[] = "worktree {$worktree}".(isset($work['branch']) ? " branch {$work['branch']}" : '').($base !== null ? ' base '.substr($base, 0, 7) : '');
@@ -223,8 +229,8 @@ final class Context
         foreach ($gates->commands() as $gate) {
             $lines[] = '  '.$gate['run'];
         }
-        if ($worktree !== null && $this->gatesDiffer($worktree)) {
-            $lines[] = "this branch's config/kanban.php has other gates than main's: main's apply; merge main if a gate needs code the branch lacks";
+        if ($git !== null && trim($git->attempt(['diff', '--name-only', $main.'...HEAD', '--', 'config/kanban.php'])->out) !== '') {
+            $lines[] = "this branch changes config/kanban.php: main's gates run here, and the branch's run only after the merge; prove a gate it adds by running its command, and cite that in `report --verified`";
         }
         // without a stack of its own the worktree's database is main's
         $database = is_array($stack) && $worktree !== null ? DatabaseSteps::commands($this->config, $worktree) : [];
@@ -370,22 +376,6 @@ final class Context
         return $lines;
     }
 
-    /** Whether the worktree's config/kanban.php resolves to other gates than main's (the ones every check uses). */
-    private function gatesDiffer(string $worktree): bool
-    {
-        $own = $worktree.'/config/kanban.php';
-        if (! is_file($own) || @file_get_contents($own) === @file_get_contents($this->paths->main.'/config/kanban.php')) {
-            return false;
-        }
-        try {
-            $branch = Standalone::config($worktree);
-        } catch (Throwable) {
-            return false;
-        }
-
-        return (new Gates(['main_branch' => $this->config['main_branch'] ?? 'main'] + $branch))->commands() !== (new Gates($this->config))->commands();
-    }
-
     /**
      * A log entry's actor: the role, and the person in brackets when the entry names one. Cleaned here again, because
      * entries arrive from any clone and end up in an agent's prompt. The main session never shows a person: its git
@@ -495,7 +485,9 @@ final class Context
 
     /**
      * The re-verify line when the card's last approval still holds but for clean merges of main since: no commit of the
-     * card's own and no merge resolution after the approved head.
+     * card's own and no merge resolution after the approved head. With a `finish.check` in main's config, which runs on
+     * main after the merge, it asks for the gates and the tests of the files both sides changed; without one, for the
+     * gates and the whole suite once.
      */
     private function reverify(Card $card, Git $git, string $main): ?string
     {
@@ -508,10 +500,17 @@ final class Context
         }
         $names = fn (array $args) => array_filter(explode("\n", trim($git->attempt($args)->out)));
         $touched = array_values(array_intersect($names(['diff', '--name-only', $head, 'HEAD']), $names(['diff', '--name-only', $main.'...HEAD'])));
+        $files = implode(', ', array_slice($touched, 0, 10)).(count($touched) > 10 ? ' …' : '');
+        $line = 're-verify: approved @'.substr($head, 0, 7).'; since then only clean merges of main, '
+            .($touched === [] ? 'in no file the card changes' : 'touching files the card changes too: '.$files);
+        if (array_filter((array) ($this->config['finish']['check'] ?? [])) === []) {
+            return $line.'. Run `vendor/bin/kanban gates` and the whole suite once: no full review (`finish.check` is empty, so nothing runs the suite on main after the merge).';
+        }
 
-        return 're-verify: approved @'.substr($head, 0, 7).'; since then only clean merges of main'
-            .($touched === [] ? '' : ', touching '.implode(', ', array_slice($touched, 0, 10)).(count($touched) > 10 ? ' …' : ''))
-            .'. Run `vendor/bin/kanban gates` and the whole suite; a full review is not needed.';
+        return $line.($touched === []
+            ? '. Run `vendor/bin/kanban gates` only'
+            : '. Run `vendor/bin/kanban gates` and only the tests among or covering those files')
+            .': no full review, no whole suite (`finish.check` runs on main after the merge).';
     }
 
     /**

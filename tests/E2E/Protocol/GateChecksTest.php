@@ -184,18 +184,16 @@ it('runs every gate for the evaluator from the card worktree and names each fail
         ->and($elsewhere->getErrorOutput())->toContain("gates runs from {$this->id}'s worktree");
 });
 
-it("says when the branch's config/kanban.php has other gates than main's", function () {
+it("says when the branch changes config/kanban.php, without running the branch's copy on this machine", function () {
     $this->p->config(['gates' => ['report' => ['true']]]);
-    @mkdir($this->wt.'/config');
-    copy($this->p->main.'/config/kanban.php', $this->wt.'/config/kanban.php');
-    expect($this->p->in($this->wt, ['context'])->getOutput())->not->toContain("this branch's config/kanban.php");
+    expect($this->p->in($this->wt, ['context'])->getOutput())->not->toContain('this branch changes config/kanban.php');
 
-    file_put_contents($this->wt.'/config/kanban.php', "<?php\n// the branch's own\nreturn ['gates' => ['report' => ['true']]];\n");
-    expect($this->p->in($this->wt, ['context'])->getOutput())->not->toContain("this branch's config/kanban.php");
+    $marker = $this->p->main.'/.ran-branch-config';
+    $this->p->commit($this->wt, 'config/kanban.php', "<?php\nfile_put_contents('{$marker}', 'ran');\nreturn ['gates' => ['report' => ['true', 'npm run check']]];\n", "{$this->id}: gates");
 
-    file_put_contents($this->wt.'/config/kanban.php', "<?php return ['gates' => ['report' => ['true', 'npm run check']]];\n");
     expect($this->p->in($this->wt, ['context'])->getOutput())
-        ->toContain("  true\nthis branch's config/kanban.php has other gates than main's: main's apply; merge main if a gate needs code the branch lacks\n");
+        ->toContain("  true\nthis branch changes config/kanban.php: main's gates run here, and the branch's run only after the merge; prove a gate it adds by running its command, and cite that in `report --verified`\n")
+        ->and(is_file($marker))->toBeFalse();
 });
 
 it('runs a gate with `when` only where its path exists', function () {

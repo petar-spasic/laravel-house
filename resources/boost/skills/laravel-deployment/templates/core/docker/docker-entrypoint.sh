@@ -21,7 +21,7 @@ case "${APP_URL:-}" in
     http://?*|https://?*) ;;
     *) echo "APP_URL must be the site's bare origin (https://host), got '${APP_URL:-}'"; exit 1 ;;
 esac
-# Empty makes nothing stateful: every browser /api call would 401.
+# Hosting lists every public origin (config/sanctum.php adds APP_URL's host): empty means .env.prod was never filled.
 [ -n "${SANCTUM_STATEFUL_DOMAINS:-}" ] || { echo "SANCTUM_STATEFUL_DOMAINS is empty: set the public host"; exit 1; }
 # SvelteKit's server-side calls come from 127.0.0.1, browsers through the reverse proxy: Laravel trusts both.
 case ",${TRUSTED_PROXIES// /}," in *,127.0.0.1,*) ;; *) echo "TRUSTED_PROXIES must include 127.0.0.1 (SvelteKit's server-side calls)"; exit 1 ;; esac

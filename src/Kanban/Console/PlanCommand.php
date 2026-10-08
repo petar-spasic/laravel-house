@@ -70,6 +70,8 @@ class PlanCommand extends Command
             'base' => is_string($card->work()['base'] ?? null) ? $card->work()['base'] : null,
             // one claim's plan is never another's: the same text staged again under a new claim is applied again
             'claim' => $card->claim()['at'] ?? null,
+            // the last plan applied: the same plan staged again after it (a block cleared) is applied again
+            'after' => array_reverse(array_column(array_filter($card->log(), fn (array $e) => in_array($e['event'] ?? null, ['planned', 'plan'], true)), 'id'))[0] ?? null,
             'worktree' => $this->paths()->relative($worktree),
             'session' => (getenv('KANBAN_SESSION') ?: null),
         ], $this->upstream($card), $questions);

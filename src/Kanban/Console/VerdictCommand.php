@@ -43,6 +43,8 @@ class VerdictCommand extends Command
             'worktree' => $this->paths()->relative($worktree),
             'session' => (getenv('KANBAN_SESSION') ?: null),
             'since' => $since,
+            // the last verdict applied: the same verdict given again after it, in a later round, is applied again
+            'after' => array_reverse(array_column(array_filter($card->log(), fn (array $e) => in_array($e['event'] ?? null, ['verdict', 'verdict_moot', 'verdict_superseded'], true)), 'id'))[0] ?? null,
         ], $this->upstream($card));
         $runtime->stage($verdict, 'verdict');
 

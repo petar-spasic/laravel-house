@@ -47,7 +47,7 @@ it('skips the after-steps when an install fails', function () {
 
     $run = $code->kanban(['finish', $id], $this->env);
 
-    expect($run->getExitCode())->toBe(1)
+    expect($run->getExitCode())->toBe(10)
         ->and($run->getErrorOutput())->toContain('install: composer install --no-interaction failed (exit 1)')
         ->toContain('after: skipped, `composer install --no-interaction` failed; fix it and run the rest by hand')
         ->and(steps($this->steps))->toHaveCount(1)
@@ -65,6 +65,51 @@ it('runs the after-step that the merged card adds to config/kanban.php', functio
     $code->ok(['finish', $id, '--force'], $this->env);
 
     expect(steps($this->steps))->toBe(['migrate', 'after', 'tags seeded']);
+});
+
+it('keeps going after a step that throws once the card merged, and exits 10 with the card done and torn down', function () {
+    $code = $this->code;
+    $id = $code->started('Break the config');
+    $branch = $code->sandbox->read($id)['work']['branch'];
+    $wt = $code->worktree($id);
+    $code->commit($id, 'docker/Dockerfile', "FROM php\n");
+    $code->commit($id, 'config/kanban.php', "<?php\n\nthrow new RuntimeException('config/kanban.php is broken');\n");
+    $code->approve($id);
+
+    $run = $code->kanban(['finish', $id, '--force'], $this->env);
+
+    // every later CLI call loads the broken config: read the files
+    expect($run->getExitCode())->toBe(10)
+        ->and($run->getOutput())->toContain("merged {$id} into main")->toContain("{$id} review→done")->toContain('removed worktree')
+        ->toContain('rebuild main: docker/Dockerfile changed')
+        ->and($run->getErrorOutput())->toContain("install: RuntimeException: config/kanban.php is broken\nafter: skipped, the install step failed")
+        ->and($code->sandbox->read($id))->toMatchArray(['stage' => 'done', 'blocked' => null])
+        ->and(is_dir($wt))->toBeFalse()
+        ->and(trim($code->sandbox->git('branch', '--list', $branch)))->toBe('');
+});
+
+it("runs migrate and the after-steps in main's stack once it is up, and exits 10 when one fails on the merged card", function () {
+    $code = $this->code;
+    $code->configure(['migrate' => "echo migrate >> {$this->steps}", 'finish' => ['after' => ["echo seed >> {$this->steps}; echo 'layout off by 0.6%' >&2; exit 4"]]]);
+    $code->sandbox->git('commit', '-q', '-am', 'seed');
+    $id = $code->started('Seed layouts');
+    $code->commit($id, 'docker/Dockerfile', "FROM php\n");
+    $code->approve($id);
+
+    $run = $code->kanban(['finish', $id], $this->env);
+
+    $root = $code->root();
+    $compose = "compose --project-directory {$root} -f {$root}/docker-compose.local.yml -p acme-local";
+    $calls = $code->calls();
+    $at = fn (string $call) => array_search($call, $calls, true);
+    expect($run->getExitCode())->toBe(10)
+        ->and($run->getOutput())->toContain("after: echo migrate >> {$this->steps} ok\n")
+        ->and($run->getErrorOutput())->toContain("after: echo seed >> {$this->steps}; echo 'layout off by 0.6%' >&2; exit 4 failed (exit 4): layout off by 0.6%")
+        ->and(steps($this->steps))->toBe(['migrate', 'seed'])
+        ->and($at("{$compose} up -d --force-recreate --wait"))->toBeInt()
+        ->and($at("{$compose} up -d --wait --no-recreate"))->toBeGreaterThan($at("{$compose} up -d --force-recreate --wait"))
+        ->and($at("{$compose} exec -T app sh -c echo migrate >> {$this->steps}"))->toBeGreaterThan($at("{$compose} up -d --wait --no-recreate"))
+        ->and($code->sandbox->read($id))->toMatchArray(['stage' => 'done', 'blocked' => null]);
 });
 
 it('warns about untracked files left in the main checkout', function () {
@@ -90,12 +135,13 @@ it('marks main red when finish.check fails after a merge, files one bug card and
 
     $marker = json_decode(file_get_contents($code->root().'/.git/laravel-house/main-check.json'), true);
     $bug = $code->sandbox->read($marker['card']);
-    expect($run->getExitCode())->toBe(1)
+    expect($run->getExitCode())->toBe(10)
         ->and($run->getErrorOutput())->toContain("on main; main is red, {$marker['card']} holds it")->toContain('Tests: 1 failed')
         ->and($code->sandbox->read($first)['stage'])->toBe('done')
         ->and($marker)->toMatchArray(['after' => $first, 'sha' => trim($code->sandbox->git('rev-parse', 'main'))])
         ->and($bug)->toMatchArray(['type' => 'bug', 'priority' => 'high', 'stage' => 'backlog'])
         ->and(array_values(array_filter($bug['labels'], fn ($l) => str_starts_with($l, 'area:'))))->toBe(array_values(array_filter($code->sandbox->read($first)['labels'], fn ($l) => str_starts_with($l, 'area:'))))
+        ->and($bug['labels'])->toContain('main-red')
         ->and($bug['title'])->toStartWith("main red after {$first}: test -f")
         ->and($bug['acceptance'][0]['text'] ?? null)->toStartWith('`test -f')->toEndWith('` passes on main');
 
@@ -130,7 +176,7 @@ it('merges while main is red with --force, keeping the one bug card', function (
 
     $run = $code->kanban(['finish', $second, '--force'], $this->env);
 
-    expect($run->getExitCode())->toBe(1)
+    expect($run->getExitCode())->toBe(10)
         ->and($code->sandbox->read($second)['stage'])->toBe('done')
         ->and(json_decode(file_get_contents($code->root().'/.git/laravel-house/main-check.json'), true))->toMatchArray(['card' => $card, 'after' => $first])
         ->and($code->ok(['status']))->toContain('main red since ')->toContain("({$card})");

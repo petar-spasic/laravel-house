@@ -22,9 +22,9 @@ it('stages a report only from the card\'s own worktree', function () {
         ->and($ok->getOutput())->toContain('warning: No commits beyond work.base');
 
     $staged = json_decode(file_get_contents($this->p->runtime("staged/{$this->id}.report.json")), true);
-    expect(array_keys($staged))->toBe(['card', 'status', 'ticks', 'summary', 'verified', 'discovered', 'upstream', 'reason', 'note', 'head', 'worktree', 'session', 'staged_at', 'hash'])
+    expect(array_keys($staged))->toBe(['card', 'status', 'ticks', 'summary', 'verified', 'discovered', 'upstream', 'reason', 'note', 'head', 'worktree', 'session', 'after', 'staged_at', 'hash'])
         ->and($staged)->toMatchArray(['card' => $this->id, 'status' => 'review', 'ticks' => [1, 2], 'summary' => 'Done', 'verified' => ['pest → 3 passed'],
-            'discovered' => [], 'upstream' => [], 'reason' => null, 'note' => 'fyi', 'worktree' => '.claude/worktrees/'.basename($this->wt), 'session' => null])
+            'discovered' => [], 'upstream' => [], 'reason' => null, 'note' => 'fyi', 'worktree' => '.claude/worktrees/'.basename($this->wt), 'session' => null, 'after' => null])
         ->and($staged['head'])->toBe(trim($this->p->git($this->wt, 'rev-parse', 'HEAD')))
         ->and($staged['hash'])->toMatch('/^[0-9a-f]{16}$/');
 });
@@ -147,4 +147,27 @@ it('warns when a summary is longer than the card keeps, and stages it whole', fu
         ->and($long->getOutput())->toContain('warning: the summary is 2001 characters; the card keeps the first 2000')
         ->and($staged['summary'])->toBe($summary)
         ->and($short->getOutput())->not->toContain('warning: the summary');
+});
+
+it("keeps a verdict's evidence and issues whole for the worker, and refuses one over 2000 characters", function () {
+    $this->p->commit($this->wt, 'app.php');
+    $this->p->in($this->wt, ['report', $this->id, '--status=review', '--summary=Done'])->mustRun();
+    $this->p->hook('subagent-stop', $this->p->payload('subagent-stop', ['cwd' => $this->wt]));
+    $evidence = 'curl /clauses → 500. Acceptable shapes: (a) fix the query '.str_repeat('and keep the index ', 70).'(b) end.';
+    $issue = 'app/Clauses.php duplicates the parser: '.str_repeat('reuse it ', 120).'end.';
+
+    $long = $this->p->in($this->wt, ['verdict', $this->id, 'reject', '--check=1:pass:ok', '--check=2:fail:'.str_repeat('x', 2001)]);
+    expect($long->getExitCode())->toBe(2)
+        ->and($long->getErrorOutput())->toContain('--check 2: the evidence is 2001 characters, at most 2000: cut prose, keep the facts');
+    $longIssue = $this->p->in($this->wt, ['verdict', $this->id, 'reject', '--check=1:pass:ok', '--check=2:pass:ok', '--issue='.str_repeat('y', 2001)]);
+    expect($longIssue->getExitCode())->toBe(2)
+        ->and($longIssue->getErrorOutput())->toContain('--issue: 2001 characters, at most 2000: cut prose, keep the facts');
+
+    $this->p->in($this->wt, ['verdict', $this->id, 'reject', '--check=1:pass:ok', '--check=2:fail:'.$evidence, '--issue='.$issue])->mustRun();
+    $this->p->sandbox->ok(['apply', $this->id]);
+
+    $verdict = collect($this->p->card($this->id)['log'])->last(fn (array $e) => $e['event'] === 'verdict');
+    expect($verdict['failed'])->toBe(["2: {$evidence}"])
+        ->and($verdict['issues'])->toBe([$issue])
+        ->and($this->p->in($this->wt, ['context'])->getOutput())->toContain("  2: {$evidence}\n  issue: {$issue}\n");
 });

@@ -414,3 +414,34 @@ it('says a reworded criterion sends a card in review back to its worker, not to 
 
     expect($this->p->sandbox->ok(['set', $id, 'accept[1]=It renders the totals', '--reason=the owner wants totals']))->toBe("{$id} updated, review→doing\n");
 });
+
+it('applies a staged plan whose write landed but was not marked applied only once', function () {
+    stagePlan($this->p, $this->wt, $this->id, Sandbox::planFor([1, 2]))->mustRun();
+    $staged = $this->p->runtime("staged/{$this->id}.plan.json");
+    $bytes = file_get_contents($staged);
+    plannerStop($this->p, $this->wt);
+    // the write landed; marking it applied did not
+    file_put_contents($staged, $bytes);
+    array_map('unlink', glob($this->p->runtime("applied/{$this->id}.*.plan.json")));
+
+    expect($this->p->sandbox->ok(['apply', $this->id]))->toContain("{$this->id}: plan ")->toContain(' already applied')
+        ->and(logOf($this->p->card($this->id), 'planned'))->toHaveCount(1)
+        ->and(is_file($staged))->toBeFalse();
+});
+
+it('applies the same blocked plan again once the block it set was cleared, under the same claim', function () {
+    $blocked = ['plan', $this->id, '--status=blocked', '--reason=Which ledger holds the invoices?'];
+    $this->p->in($this->wt, $blocked)->mustRun();
+    plannerStop($this->p, $this->wt);
+    $this->p->sandbox->ok(['set', $this->id, 'blocked=']);
+    $this->p->hook('subagent-start', $this->p->payload('subagent-start', ['agent' => 'p1', 'type' => 'kanban-planner']));
+    $this->p->enter($this->wt, 'p1', 'kanban-planner');
+
+    $this->p->in($this->wt, $blocked)->mustRun();
+    $stop = plannerStop($this->p, $this->wt);
+
+    $card = $this->p->card($this->id);
+    expect($stop['err'])->toContain("{$this->id}: planning blocked")
+        ->and($card['blocked'])->toBe('Which ledger holds the invoices?')
+        ->and(logOf($card, 'plan'))->toHaveCount(2);
+});

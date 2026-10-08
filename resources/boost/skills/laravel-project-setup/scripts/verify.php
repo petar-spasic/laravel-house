@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 /*
- * Checks what setup must have left in a project: no template marker or placeholder but {{hosting}}, the skeleton's
+ * Checks what setup must have left in a project: no template marker or house placeholder but {{hosting}}, the skeleton's
  * deletions done, `.env` on Postgres and Redis, the `.gitignore` lines, `boost.json`, the house files in sync with
  * `config/house.php`, Boost's guidelines with the house ones, no house section above them and none of the advice the
  * house overrides, one E2E test suite, and an app that boots. Prints one ✗ line per failure and exits 1.
@@ -38,13 +38,25 @@ if ($code === 0) {
         $relatives[] = substr($file->getPathname(), strlen($repo) + 1);
     }
 }
+// only the keys the house's templates fill: an app's own {{field}} text is not the house's
+$keys = [];
+foreach ([dirname(__DIR__).'/templates', dirname(__DIR__, 2).'/laravel-deployment/templates'] as $templates) {
+    if (is_dir($templates)) {
+        foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($templates, FilesystemIterator::SKIP_DOTS)) as $file) {
+            preg_match_all('/\{\{([a-z_]+)\}\}/', (string) file_get_contents($file->getPathname()), $m);
+            $keys += array_flip($m[1]);
+        }
+    }
+}
+$keys === [] && $fail('no house templates beside verify.php: the placeholder check has no keys (reinstall the skill)');
+unset($keys['hosting']);
 foreach ($relatives as $relative) {
     $path = "{$repo}/{$relative}";
     if (! is_file($path) || filesize($path) > 1_000_000) {
         continue;
     }
     foreach (explode("\n", (string) file_get_contents($path)) as $n => $line) {
-        if (preg_match('/<!-- (if|unless):|<!-- endif/', $line) || preg_match_all('/\{\{([a-z_]+)\}\}/', $line, $m) && array_diff($m[1], ['hosting']) !== []) {
+        if (preg_match('/<!-- (if|unless):|<!-- endif/', $line) || preg_match_all('/\{\{([a-z_]+)\}\}/', $line, $m) && array_intersect_key(array_flip($m[1]), $keys) !== []) {
             $fail("{$relative}:".($n + 1).' unresolved template marker or placeholder');
         }
     }

@@ -521,3 +521,13 @@ it('keeps epics in _epics, and gives a card at most one, settable even in a lock
         ->and($s->read($locked)['epic'])->toBe('passkey-login')
         ->and($s->ok('validate'))->toContain('ok: 3 cards');
 });
+
+it('lists no done or dropped card as blocked in the status', function () {
+    $open = $this->sandbox->card('Waits on the design', ['--label=area:design']);
+    $gone = $this->sandbox->card('Not needed', ['--label=area:old']);
+    $this->sandbox->ok(['set', $open, 'blocked=waiting on the design']);
+    $this->sandbox->ok(['set', $gone, 'blocked=waiting on the old design']);
+    $this->sandbox->ok(['move', $gone, 'dropped', '--reason=Not needed']);
+
+    expect(json_decode($this->sandbox->ok(['status', '--json']), true)['blocked'])->toBe([$open]);
+});

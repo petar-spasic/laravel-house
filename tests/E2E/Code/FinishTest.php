@@ -97,9 +97,13 @@ it('rebuilds main\'s stack when the merge touches lockfiles, docker files or the
     $code->approve($frontend);
 
     $before = count($code->calls());
-    expect($code->ok(['finish', $frontend], ['FAKE_DOCKER_FAIL' => 'build']))->toContain('rebuild main: frontend/package-lock.json changed; building its images')
-        ->toContain('warning: rebuild main failed to build, main runs on its old images: failed to solve')
+    // a failed rebuild is a step that failed after the merge: exit 10, the card done
+    $failed = $code->kanban(['finish', $frontend], ['FAKE_DOCKER_FAIL' => 'build']);
+    expect($failed->getExitCode())->toBe(10)
+        ->and($failed->getOutput())->toContain('rebuild main: frontend/package-lock.json changed; building its images')
+        ->and($failed->getErrorOutput())->toContain('rebuild main failed to build, main runs on its old images: failed to solve')
         ->toContain('; run `docker compose -f docker-compose.local.yml build && docker compose -f docker-compose.local.yml up -d --force-recreate --wait`')
+        ->and($code->sandbox->read($frontend)['stage'])->toBe('done')
         ->and(collect(array_slice($code->calls(), $before))->contains(fn ($call) => str_contains($call, '-p acme-local up')))->toBeFalse();
 
     $compose = $code->started('Publish the web port on IPv4 only');
@@ -360,14 +364,24 @@ it('asks the owner on the card instead, where the answer merges it or sends it b
         ->and($code->sandbox->ok('questions'))->toContain("{$id}#1 open question: Tune the agents\n")
         ->toContain('Steering: .claude/settings.json')->toContain('1. Approve — finish merges the card with these changes');
 
+    $commits = count($code->sandbox->boardLog());
     $answer = $code->sandbox->ok(['answer', $id, $option]);
-    expect($code->sandbox->read($id))->toMatchArray(['stage' => $stage, 'blocked' => null]);
+    // the answer and what it decides are one write: a failure between two would lose the owner's choice
+    expect($code->sandbox->read($id))->toMatchArray(['stage' => $stage, 'blocked' => null])
+        ->and(count($code->sandbox->boardLog()))->toBe($commits + 1);
     if ($option === '1') {
         expect($answer)->toContain("{$id}: the owner approved .claude/settings.json as they are; the next finish merges it")
             ->and($code->kanban(['finish', $id])->getExitCode())->toBe(0);
     } else {
+        $log = $code->sandbox->read($id)['log'];
+        // one write's entries share their time, and the log orders them by id
+        $last = array_values(array_filter($log, fn ($e) => $e['at'] === end($log)['at']));
+        $of = fn (string $event) => array_values(array_filter($last, fn ($e) => $e['event'] === $event));
         expect($answer)->toContain("{$id} review→doing: its worker reverts them")
-            ->and($code->sandbox->read($id)['work']['approved'])->toBeNull();
+            ->and($code->sandbox->read($id)['work']['approved'])->toBeNull()
+            ->and($last)->toHaveCount(2)
+            ->and($of('set')[0] ?? null)->toMatchArray(['fields' => ['blocked', 'body']])
+            ->and($of('stage')[0] ?? null)->toMatchArray(['from' => 'review', 'to' => 'doing', 'unblocked' => 'question: merge with changes to files that steer the agents or git?']);
         $code->commit($id, '.claude/settings.json', "{\"kept\": true}\n", 'settings again');
         $code->approve($id);
         $code->kanban(['finish', $id, '--ask'], ['KANBAN_SESSION' => 's1']);

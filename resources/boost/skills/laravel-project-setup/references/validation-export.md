@@ -176,7 +176,8 @@ TypeScript compile-checks every emitted literal in `npm run check`.
 Not in the schema (stripped, listed in the header):
 - `prohibited`, `exclude`, `missing`;
 - upload fields (`file`, `image`, `mimes`, `mimetypes`, `extensions`, `dimensions`, `File`): the form action
-  forwards those from the request itself.
+  forwards those from the request itself. An array whose elements are uploads (`files.*`) stays in the schema as
+  `z.array(z.unknown())` with its own rules (`required`, `min`, `max`); only its elements go the upload path.
 
 Server-only (the check is dropped, the field kept, the rule listed, and the 422 shows it on the field): every
 other Laravel rule and every rule object, among them:
@@ -215,13 +216,8 @@ Request, user or tenant values may only feed server-only rules, read null-safely
 
 ## The gate
 
-`frontend/package.json`:
-
-```json
-"check": "php ../artisan validation:export --check && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
-```
-
-- It never runs in `build`, `prebuild` or `postinstall`.
+`validation:export --check` runs first in `frontend/package.json`'s `check` script, which `frontend/CLAUDE.md` (First
+frontend change, step 3) states whole. It never runs in `build`, `prebuild` or `postinstall`.
 
 ## Project checks
 

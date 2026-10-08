@@ -30,7 +30,9 @@ The fix: `tests/bootstrap.php` (a template) copies every `force="true"` value of
 
 The same file keeps runs apart. Two runs on one `{{app}}_test`, such as a worker's and its reviewer's in one stack,
 deadlock Postgres or wipe each other's rows. So every top-level run takes `storage/framework/testing/db.lock`
-exclusively and waits for it. ParaTest's workers (`PARATEST` set) run under their parent's lock.
+exclusively and waits for it. ParaTest's workers (`PARATEST` set) run under their parent's lock: the parent of
+`php artisan test --parallel` loads `tests/bootstrap.php` too, and each worker runs on its own
+`{{app}}_test_test_<n>` (Laravel's parallel testing).
 
 ## Trusted proxies
 

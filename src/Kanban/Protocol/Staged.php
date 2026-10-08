@@ -14,11 +14,14 @@ final class Staged
     /** Characters of a report's summary the card log keeps. */
     public const SUMMARY = 2000;
 
+    /** Characters of a verdict's evidence or issue: kept whole, so the worker reads all of it. */
+    public const VERDICT_TEXT = 2000;
+
     /**
      * @param  list<string>  $ticks
      * @param  list<string>  $verified
      * @param  list<string>  $discovered  `type: Title — body`
-     * @param  array{head: string, worktree: string, session: ?string}  $at
+     * @param  array{head: string, worktree: string, session: ?string, after: ?string}  $at  after: the card's last report entry
      * @param  list<array{title: string, body: string}>  $upstream  scrubbed findings about the house package (Upstream\Findings::stage)
      * @param  list<string>  $questions  question sections for the card's body (Policy\Questions::file)
      * @return array<string, mixed>
@@ -60,7 +63,7 @@ final class Staged
      * @param  list<string>  $checks  `N:pass|fail:evidence`
      * @param  list<string>  $issues
      * @param  list<string>  $discovered  `type: Title — body`; outside the card, so they never decide the verdict
-     * @param  array{head: string, base: ?string, worktree: string, session: ?string, since: ?string}  $at  since: when its evaluator started or resumed
+     * @param  array{head: string, base: ?string, worktree: string, session: ?string, since: ?string, after: ?string}  $at  since: when its evaluator started or resumed; after: the card's last verdict entry
      * @param  list<array{title: string, body: string}>  $upstream
      * @return array<string, mixed>
      */
@@ -83,6 +86,9 @@ final class Staged
                 throw new Invalid("--check {$n} given twice");
             }
             $parsed[$n] = ['result' => $m[2], 'evidence' => trim($m[3])];
+            if (($length = mb_strlen($parsed[$n]['evidence'])) > self::VERDICT_TEXT) {
+                throw new Invalid("--check {$n}: the evidence is {$length} characters, at most ".self::VERDICT_TEXT.': cut prose, keep the facts');
+            }
         }
         $missing = array_diff($criteria, array_keys($parsed));
         if ($missing !== []) {
@@ -90,6 +96,11 @@ final class Staged
         }
         ksort($parsed);
         $issues = array_values(array_filter(array_map('trim', $issues), fn (string $i) => $i !== ''));
+        foreach ($issues as $issue) {
+            if (($length = mb_strlen($issue)) > self::VERDICT_TEXT) {
+                throw new Invalid("--issue: {$length} characters, at most ".self::VERDICT_TEXT.': cut prose, keep the facts');
+            }
+        }
         $failed = array_keys(array_filter($parsed, fn (array $c) => $c['result'] === 'fail'));
         if ($decision === 'approve' && ($failed !== [] || $issues !== [])) {
             throw new Invalid('approve needs every check passing and no --issue'.($failed !== [] ? ' (failing: '.implode(', ', $failed).')' : ''));
@@ -114,7 +125,7 @@ final class Staged
      * or blocked with a reason or an Open question.
      *
      * @param  list<string>  $discovered  `type: Title — body`
-     * @param  array{head: string, base: ?string, worktree: string, session: ?string}  $at  base: the main commit the clone was made from
+     * @param  array{head: string, base: ?string, claim: ?string, after: ?string, worktree: string, session: ?string}  $at  base: the main commit the clone was made from; after: the card's last plan entry
      * @param  list<array{title: string, body: string}>  $upstream
      * @param  list<string>  $questions  question sections for the card's body (Policy\Questions::file)
      * @return array<string, mixed>
@@ -149,13 +160,18 @@ final class Staged
     }
 
     /**
-     * `bug: Title — body` → {type, title, body}. The type is optional (feature).
+     * `bug: Title — body` → {type, title, body}. The type is optional (feature). `main: <command> — body`, a failure
+     * already on main, → a bug whose title is the command, marked `main`: the command ends at the first em or en dash,
+     * since ` -- ` is shell syntax; one quoted in backticks ends at its closing backtick, and any separator starts the body.
      *
-     * @return array{type: string, title: string, body: string}
+     * @return array{type: string, title: string, body: string, main?: true}
      */
     public static function discovered(string $text): array
     {
         $text = trim($text);
+        if (preg_match('/^main\s*:\s*(.*)$/s', $text, $m) === 1) {
+            return ['type' => 'bug', ...self::mainCommand($text, trim($m[1])), 'main' => true];
+        }
         $type = 'feature';
         if (preg_match('/^([a-z]+)\s*:\s*(.+)$/s', $text, $m) === 1) {
             if (! in_array($m[1], CardType::values(), true)) {
@@ -163,12 +179,44 @@ final class Staged
             }
             [$type, $text] = [$m[1], trim($m[2])];
         }
-        [$title, $body] = array_map('trim', preg_split('/\s+[—–]\s+|\s+--\s+/u', $text, 2) + [1 => '']);
+        [$title, $body] = self::split($text);
         if ($title === '' || mb_strlen($title) > 120) {
             throw new Invalid("--discovered '{$text}': the title must be 1-120 characters (\"type: Title — body\")");
         }
 
         return ['type' => $type, 'title' => $title, 'body' => $body];
+    }
+
+    /**
+     * `Title — body` → [title, body]: split at the first em dash, en dash or ` -- ` between spaces.
+     *
+     * @return array{string, string}
+     */
+    public static function split(string $text): array
+    {
+        return array_map('trim', preg_split('/\s+[—–]\s+|\s+--\s+/u', trim($text), 2) + [1 => '']);
+    }
+
+    /** @return array{title: string, body: string} */
+    private static function mainCommand(string $text, string $rest): array
+    {
+        $usage = "--discovered '{$text}': ";
+        if (str_starts_with($rest, '`')) {
+            if (preg_match('/^`([^`]*)`(.*)$/s', $rest, $m) !== 1) {
+                throw new Invalid($usage.'the command\'s backtick is never closed ("main: `<command>` — what fails")');
+            }
+            [$command, $body] = [trim($m[1]), trim(preg_replace('/^\s*(?:[—–]|--)(?=\s|$)/u', '', $m[2]))];
+        } else {
+            [$command, $body] = array_map('trim', preg_split('/\s+[—–]\s+/u', $rest, 2) + [1 => '']);
+            if (str_contains($command, '`')) {
+                throw new Invalid($usage.'quote the whole command in backticks, or none of it ("main: `<command>` — what fails")');
+            }
+        }
+        if ($command === '' || mb_strlen($command) > 200) {
+            throw new Invalid($usage.'name the command that fails on main, 1-200 characters ("main: <command> — what fails")');
+        }
+
+        return ['title' => $command, 'body' => $body];
     }
 
     /**

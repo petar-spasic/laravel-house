@@ -20,9 +20,9 @@ return [
     ],
 
     'agents' => [
-        // Passed as --model and --effort to the agents `kanban run` starts, and written into the frontmatter of
-        // .claude/agents/kanban-{planner,worker,evaluator}.md by kanban:install / doctor --fix. The planner writes each
-        // card's plan before it is ready; the worker follows it; the evaluator checks the work.
+        // Passed as --model and --effort to the agents `kanban run` starts (read again for each), and written into the
+        // frontmatter of .claude/agents/kanban-{planner,worker,evaluator}.md by kanban:install / doctor --fix. The planner
+        // writes each card's plan before it is ready; the worker follows it; the evaluator checks the work.
         'planner' => ['model' => 'opus', 'effort' => 'high'],
         'worker' => ['model' => 'sonnet', 'effort' => 'high'],
         'evaluator' => ['model' => 'opus', 'effort' => 'medium'],

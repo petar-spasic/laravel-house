@@ -21,8 +21,10 @@ a commit is void.
    vendor-owned tables and hot tables (`database/CLAUDE.md`) use bigint.
 6. Dependencies: Laravel core, first-party `laravel/*` and own `petar-spasic/*` first; nothing deprecated or likely
    to be abandoned. Another package, npm included, comes in only when it clearly beats writing the code, and only after
-   a maintenance check: active releases, current with the Laravel major or its toolchain, more than one maintainer.
-   One that passes is added without asking and named in the commit or report.
+   a maintenance check: active releases, current with the Laravel major or its toolchain, more than one maintainer
+   (people committing to it in the last year, not its registry publishers). One that passes is added without asking
+   and named in the commit or report. What a checked package declares (its dependencies, the files its CLI writes)
+   comes with it unchecked; the packages the house prescribes are the house's to check.
 7. No hosted CI (no `.github/workflows`). Pint, the type check and the E2E tests a change touches run locally before
    a push.
 8. **Act; do not ask.** A change that makes the app more secure, simpler, cleaner, faster or better tested, or that

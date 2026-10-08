@@ -3,6 +3,7 @@
 namespace PetarSpasic\LaravelHouse\Kanban\Protocol;
 
 use Closure;
+use PetarSpasic\LaravelHouse\Kanban\Code\MainCheck;
 use PetarSpasic\LaravelHouse\Kanban\Code\MergeCheck;
 use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
 use PetarSpasic\LaravelHouse\Kanban\Policy\Plan;
@@ -14,6 +15,7 @@ use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\KanbanException;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\StaleReport;
 use PetarSpasic\LaravelHouse\Kanban\Store\Git\GitStore;
+use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
 use PetarSpasic\LaravelHouse\Kanban\Store\Store;
 use PetarSpasic\LaravelHouse\Kanban\Support\Clock;
 use PetarSpasic\LaravelHouse\Kanban\Support\Git;
@@ -24,6 +26,9 @@ use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
  */
 final class Applier
 {
+    /** The label of a card that holds a failure on main. */
+    public const MAIN_RED = 'main-red';
+
     /** @param  array<string, mixed>  $config  the `kanban` config */
     public function __construct(
         private readonly Store $store,
@@ -177,7 +182,7 @@ final class Applier
         $hash = (string) $report['hash'];
 
         return $this->locked(function () use ($report, $id, $hash) {
-            if (is_file($this->runtime->appliedFile($id, 'report', $hash))) {
+            if (is_file($this->runtime->appliedFile($id, 'report', $hash)) || self::landed($this->store->card($id), ['report'], 'hash', $hash)) {
                 $this->runtime->markApplied($id, 'report', $hash);
 
                 return "{$id}: report {$hash} already applied";
@@ -240,7 +245,7 @@ final class Applier
         $hash = (string) $staged['hash'];
 
         return $this->locked(function () use ($staged, $id, $hash) {
-            if (is_file($this->runtime->appliedFile($id, 'plan', $hash))) {
+            if (is_file($this->runtime->appliedFile($id, 'plan', $hash)) || self::landed($this->store->card($id), ['planned', 'plan'], 'staged', $hash)) {
                 $this->runtime->markApplied($id, 'plan', $hash);
 
                 return "{$id}: plan {$hash} already applied";
@@ -260,7 +265,7 @@ final class Applier
                 throw new PolicyRefused("{$id} changed since the plan was staged (its criteria or body): run `vendor/bin/kanban context`, revise the plan to cover the card as it is, and stage it again");
             }
             $created = $this->discover($card, $staged['discovered'] ?? [], $by, 'planning', $known);
-            $this->store->update($id, function (array $data) use ($staged, $status, $created, $known) {
+            $this->store->update($id, function (array $data) use ($staged, $status, $created, $known, $hash) {
                 if (($staged['questions'] ?? []) !== []) {
                     $data['body'] = Questions::append((string) ($data['body'] ?? ''), $staged['questions']);
                 }
@@ -269,9 +274,9 @@ final class Applier
                     $data['plan'] = (string) $staged['plan'];
                 }
                 $data['log'][] = array_filter($status === 'ready'
-                    ? ['event' => 'planned', 'base' => $staged['base'] ?? null, 'hash' => Plan::hash($data), 'head' => $staged['head'] ?? null,
+                    ? ['event' => 'planned', 'base' => $staged['base'] ?? null, 'hash' => Plan::hash($data), 'staged' => $hash, 'head' => $staged['head'] ?? null,
                         'discovered' => $created, 'known' => $known, 'note' => self::cut($staged['note'] ?? null, 500)]
-                    : ['event' => 'plan', 'status' => 'blocked', 'reason' => $staged['reason'] ?? null, 'discovered' => $created, 'known' => $known,
+                    : ['event' => 'plan', 'status' => 'blocked', 'staged' => $hash, 'reason' => $staged['reason'] ?? null, 'discovered' => $created, 'known' => $known,
                         'note' => self::cut($staged['note'] ?? null, 500)], fn ($v) => $v !== null && $v !== []);
                 $data['log'] = [...$data['log'], ...self::upstream($staged)];
 
@@ -297,7 +302,7 @@ final class Applier
         $hash = (string) $verdict['hash'];
 
         return $this->locked(function () use ($verdict, $id, $hash, $answerable) {
-            if (is_file($this->runtime->appliedFile($id, 'verdict', $hash))) {
+            if (is_file($this->runtime->appliedFile($id, 'verdict', $hash)) || self::landed($this->store->card($id), ['verdict', 'verdict_moot', 'verdict_superseded'], 'hash', $hash)) {
                 $this->runtime->markApplied($id, 'verdict', $hash);
 
                 return "{$id}: verdict {$hash} already applied";
@@ -336,8 +341,8 @@ final class Applier
             $failed = array_map('intval', array_keys(array_filter($checks, fn (array $c) => $c['result'] === 'fail')));
             $entry = array_filter([
                 'event' => 'verdict', 'decision' => $verdict['decision'], 'hash' => $hash, 'head' => $verdict['head'] ?? null,
-                'failed' => array_map(fn (int $n) => $n.': '.self::cut($checks[(string) $n]['evidence'] ?? '', 300), $failed),
-                'issues' => array_map(fn (string $i) => self::cut($i, 300), $verdict['issues'] ?? []),
+                'failed' => array_map(fn (int $n) => $n.': '.($checks[(string) $n]['evidence'] ?? ''), $failed),
+                'issues' => array_values($verdict['issues'] ?? []),
                 'discovered' => $created, 'known' => $known,
                 'note' => self::cut($verdict['note'] ?? null, 500),
             ], fn ($v) => $v !== null && $v !== []);
@@ -355,21 +360,37 @@ final class Applier
                 return "{$id}: approved at ".substr((string) $verdict['head'], 0, 7).self::found($created, $verdict, $known);
             }
 
-            $this->store->update($id, function (array $data) use ($failed, $entry, $verdict) {
+            // the verdict and the send-back: one write, so a failure leaves neither and the verdict is applied again whole
+            $note = 'rejected'.($failed === [] ? '' : ': criteria '.implode(', ', $failed).' fail')
+                .(($verdict['issues'] ?? []) === [] ? '' : '; '.count($verdict['issues']).' issue(s)');
+            $card = $this->store->update($id, function (array $data) use ($failed, $entry, $verdict, $note) {
+                $before = $data;
                 $data['acceptance'] = self::tick($data['acceptance'] ?? [], $failed, false);
                 $data['log'] = [...$data['log'], $entry, ...self::upstream($verdict)];
 
-                return $data;
+                return $data['stage'] === 'review' ? Transitions::sentBack(Transitions::noted($before, $data), 'reject', $note) : $data;
             }, $by);
-            if ($card->stage() === 'review') {
-                $note = 'rejected'.($failed === [] ? '' : ': criteria '.implode(', ', $failed).' fail')
-                    .(($verdict['issues'] ?? []) === [] ? '' : '; '.count($verdict['issues']).' issue(s)');
-                (new Transitions($this->store))->sendBack($id, 'reject', $by, $note);
-            }
             $this->runtime->markApplied($id, 'verdict', $hash);
 
-            return "{$id}: rejected, stage ".$this->store->card($id)->stage().self::found($created, $verdict, $known);
+            return "{$id}: rejected, stage {$card->stage()}".self::found($created, $verdict, $known);
         });
+    }
+
+    /**
+     * Whether the card's latest entry of $events records the staged item $hash in $field: its write landed, and only
+     * marking it applied did not.
+     *
+     * @param  list<string>  $events
+     */
+    private static function landed(Card $card, array $events, string $field, string $hash): bool
+    {
+        foreach (array_reverse($card->log()) as $entry) {
+            if (in_array($entry['event'] ?? null, $events, true)) {
+                return ($entry[$field] ?? null) === $hash;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -462,7 +483,13 @@ final class Applier
             }
         }
         $created = [];
+        $mainRed = $this->mainRed($snapshot);
         foreach ($items as $found) {
+            if (! empty($found['main'])) {
+                $mainRed = $this->onMain($card, $found, $by, $while, $mainRed, $created, $known);
+
+                continue;
+            }
             $title = self::normal($found['title']);
             if (isset($titles[$title])) {
                 if (! in_array($titles[$title], $created, true)) {
@@ -480,6 +507,55 @@ final class Applier
         $known = array_values(array_unique($known));
 
         return $created;
+    }
+
+    /** The open card that holds main red: the one `finish` filed for it, else one labelled `main-red`. */
+    private function mainRed(Snapshot $snapshot): ?string
+    {
+        $open = fn (?Card $c) => $c !== null && ! in_array($c->stage(), ['done', 'dropped'], true);
+        $marked = (new MainCheck($this->paths))->red()['card'] ?? null;
+        if (is_string($marked) && $open($snapshot->card($marked))) {
+            return $marked;
+        }
+        foreach ($snapshot->cards(fn (Card $c) => $open($c) && in_array(self::MAIN_RED, $c->labels(), true)) as $red) {
+            return $red->id();
+        }
+
+        return null;
+    }
+
+    /**
+     * A failure already on main: noted on the open main-red card, or filed as one, high priority, on no area, with the
+     * command passing on main as its criterion. Main is marked red only by `finish`'s own check.
+     *
+     * @param  array{type: string, title: string, body: string}  $found
+     * @param  list<string>  $created
+     * @param  list<string>  $known
+     */
+    private function onMain(Card $card, array $found, Actor $by, string $while, ?string $mainRed, array &$created, array &$known): string
+    {
+        $what = "`{$found['title']}`".($found['body'] === '' ? '' : " — {$found['body']}");
+        if ($mainRed !== null) {
+            $this->store->update($mainRed, function (array $data) use ($card, $what) {
+                $text = mb_strimwidth("{$card->id()} found it too: {$what}", 0, 1000, '…');
+                // a report applied again after its own write failed notes nothing twice
+                if (! in_array($text, array_column(array_filter($data['log'], fn (array $e) => ($e['event'] ?? null) === 'note'), 'text'), true)) {
+                    $data['log'][] = ['event' => 'note', 'text' => $text];
+                }
+
+                return $data;
+            }, $by);
+            in_array($mainRed, [...$created, ...$known], true) || $known[] = $mainRed;
+
+            return $mainRed;
+        }
+
+        return $created[] = $this->store->create($card->board, [
+            'type' => 'bug', 'priority' => 'high', 'title' => mb_strimwidth("main red: {$found['title']}", 0, 120, '…'),
+            'labels' => ['discovered', self::MAIN_RED],
+            'acceptance' => [mb_strimwidth("`{$found['title']}` passes on main", 0, Card::MAX_CRITERION, '…')],
+            'body' => trim("Discovered by {$card->id()} ({$card->title()}) while {$while} it: `{$found['title']}` fails on main.\n\n{$found['body']}"),
+        ], $by)->id();
     }
 
     /**

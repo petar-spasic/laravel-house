@@ -51,7 +51,7 @@ cp .env.prod.example .env.prod && docker compose --env-file .env.prod up -d --bu
 <!-- endif -->
 <!-- if:spa -->
 - **Opened from another machine**: set `LOCAL_APP_URL=http://<LAN address>:{{web_port}}` in `.env`. Compose passes it
-  as the container's `APP_URL` and `PUBLIC_APP_URL`, and the entrypoint adds its host to `SANCTUM_STATEFUL_DOMAINS`.
+  as the container's `APP_URL` and `PUBLIC_APP_URL`, and `config/sanctum.php` makes its host stateful.
   Apply it with `docker compose -f docker-compose.local.yml up -d`; a `restart` keeps the old value. Without it, signing
   in from that address answers 401. The board (`/kanban`) answers only to IPs, `localhost`/`*.localhost`, `*.test` and
   the host of `LOCAL_APP_URL` (more via `kanban.ui.hosts`).
@@ -91,9 +91,9 @@ cp .env.prod.example .env.prod && docker compose --env-file .env.prod up -d --bu
 - **Server-side calls** from SvelteKit go to `API_INTERNAL_URL` (Caddy on 127.0.0.1:8080), never the public origin.
   So the web port is never 8080.
 - **Env.** `SANCTUM_STATEFUL_DOMAINS` lists every origin the app is browsed at: `.env.prod` in prod; locally
-  compose's `localhost` and `127.0.0.1` at the web port plus `LOCAL_APP_URL`'s host. `PUBLIC_APP_URL` equals
-  `APP_URL`: compose sets it locally, and the prod image is built per URL (a build arg). The prod image installs only
-  `frontend/`'s `dependencies`.
+  compose's `localhost` and `127.0.0.1` at the web port. `config/sanctum.php` adds `APP_URL`'s host in both.
+  `PUBLIC_APP_URL` equals `APP_URL`: compose sets it locally, and the prod image is built per URL (a build arg). The
+  prod image installs only `frontend/`'s `dependencies`.
 - **Browser tests:** `docker compose -f docker-compose.local.yml exec app docker/e2e.sh`. They run on `{{app}}_test`
   through loopback-only e2e sites at `http://localhost:8090`, never the dev data, and `php artisan test` waits while
   they run. The e2e site's Laravel env is the `(e2e_php)` snippet in `docker/Caddyfile.local`: `APP_E2E` lifts every

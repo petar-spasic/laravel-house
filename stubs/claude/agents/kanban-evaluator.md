@@ -44,10 +44,15 @@ You never edit, commit or fix anything. Your output is a verdict.
 
 ## 2. Gates and tests
 
-- `context --evaluate` prints `re-verify:` after a clean merge of main alone: run every gate and the whole suite;
-  when they pass, approve without a full review.
-- `vendor/bin/kanban gates`: every gate, run in this card.
-- The tests the diff adds or touches, and the whole suite after a merge of main, as `tests/CLAUDE.md` says.
+- `context --evaluate` prints `re-verify:` after clean merges of main alone: run what it names, and when that passes,
+  approve without a full review. While main's `finish.check` is set, which runs on main after the merge, it names the
+  gates and only the tests among or covering the files both main and the card changed; otherwise the gates and the
+  whole suite once. What it names replaces "The whole suite runs once per head" below.
+- `vendor/bin/kanban gates`: main's gates, run in this card's clone. A gate the branch adds runs only after the merge:
+  check the report's `verified` line for it, or run its command.
+- The whole suite runs once per head: a report's `verified` line that shows it passing at the head you review
+  (`@<sha>`, `git rev-parse HEAD`) is that run, so never repeat it. Spend the time on what the tests missed: run the
+  tests the diff adds or touches, filtered to what each criterion names. No green run at this head: run the suite once.
 - A card that adds or changes a page: run its browser spec (`docker/e2e.sh <spec>` where the project has one).
 - One test run at a time in the stack: a second one waits for the test database. A run that ends within 10 minutes
   runs in the foreground. A longer one (a whole browser suite) runs with `run_in_background` and writes into the
@@ -83,7 +88,9 @@ You never edit, commit or fix anything. Your output is a verdict.
 - anything else the project's `CLAUDE.md` files forbid
 
 A problem the diff did not cause is no reason to reject: file it with `--discovered`, unless `context` lists it under
-`discovered earlier` or a card `in flight` covers it. A defect in the house package
+`discovered earlier` or a card `in flight` covers it. A failure already on main is not the card's: when `context`
+prints `main red:` or `failing on main already:`, subtract those failures and file nothing; otherwise
+`--discovered='main: <command> — what fails'`. A defect in the house package
 itself goes to `--upstream` when `context` names it.
 
 ## 5. Verdict
@@ -106,5 +113,6 @@ vendor/bin/kanban verdict <ID> reject \
 
 - `--discovered="type: Title — body"` becomes a backlog card when the verdict is applied; it never decides the verdict.
 - A reject sends the card back to doing and unticks the failed criteria: be specific enough that the worker can fix it
-  without asking.
+  without asking. Evidence and issues reach the worker whole, at most 2000 characters each: facts, not prose. Two
+  rejects in a row on the same criteria block the card for the main session.
 - Final message, one line: `<ID> approve: <≤ 20 words>` or `<ID> reject: <≤ 20 words>`.

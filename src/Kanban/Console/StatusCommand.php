@@ -34,7 +34,7 @@ class StatusCommand extends Command
         $next = $pull->next($snapshot, 3);
         $counts = $snapshot->stageCounts();
         $work = fn (string $stage) => $pull->sort($snapshot, $snapshot->cards(fn (Card $c) => $c->stage() === $stage), $stage);
-        $blocked = $snapshot->cards(fn (Card $c) => $c->blocked() !== null);
+        $blocked = $snapshot->cards(fn (Card $c) => $c->blocked() !== null && ! in_array($c->stage(), ['done', 'dropped'], true));
         $unpushed = $repo !== null && $repo->hasRemoteRef() ? $repo->ahead() : null;
         $driver = $repo?->mergeDriver();
 

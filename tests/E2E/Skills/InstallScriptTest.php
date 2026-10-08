@@ -1,5 +1,7 @@
 <?php
 
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Vite;
 use PetarSpasic\LaravelHouse\Tests\Support\Sandbox;
 use Symfony\Component\Process\Process;
 
@@ -207,6 +209,95 @@ it('has a packages.md row for every npm package the spa frontend rules install',
         ->and($packages)->toContain('zod', 'cn', 'pusher-js')
         ->and(array_values(array_filter($packages, fn (string $name) => ! str_contains($rows, "| `{$name}`"))))->toBe([]);
 });
+
+it('type-checks the Playwright specs and config in the spa check script, stated once', function () {
+    $out = Sandbox::tmp();
+
+    $process = installScript(['--modules=spa', '--set', 'app=acme', '--set', 'laravel_version=13',
+        '--set', 'php_version=8.5', '--set', 'pest_version=5', "--render-to={$out}"]);
+    $rules = (string) @file_get_contents("{$out}/frontend/CLAUDE.md");
+    $reference = file_get_contents(Sandbox::package().'/resources/boost/skills/laravel-project-setup/references/validation-export.md');
+
+    expect($process->getExitCode())->toBe(0, $process->getErrorOutput())
+        ->and($rules)->toContain("typescript: { config: (c) => { c.include.push('../e2e/**/*.ts', '../playwright.config.ts'); } }")
+        ->toContain('svelte-check --tsconfig ./tsconfig.json')
+        ->and($reference)->not->toContain('svelte-check');
+});
+
+it("makes APP_URL's origin stateful in config, for every process of the stack", function (string $listed, string $url, array $expected) {
+    $out = Sandbox::tmp();
+    $process = installScript(['--modules=spa', '--set', 'app=acme', '--set', 'laravel_version=13',
+        '--set', 'php_version=8.5', '--set', 'pest_version=5', "--render-to={$out}"]);
+    expect($process->getExitCode())->toBe(0, $process->getErrorOutput());
+
+    $config = new Process(['php', '-r', 'function env($k, $d = null) { $v = getenv($k); return $v === false ? $d : $v; }
+        function config($k) { return getenv("APP_URL"); }
+        echo json_encode((require $argv[1])["stateful"]);', "{$out}/snippets/config-sanctum.php"], null, ['SANCTUM_STATEFUL_DOMAINS' => $listed, 'APP_URL' => $url]);
+    $config->mustRun();
+
+    expect(json_decode($config->getOutput(), true))->toBe($expected)
+        ->and(file_get_contents(deployment('spa').'/docker/docker-entrypoint-local.sh'))->not->toContain('export SANCTUM_STATEFUL_DOMAINS');
+})->with([
+    'a LAN url' => ['localhost:8000,127.0.0.1:8000', 'http://192.0.2.10:8000', ['localhost:8000', '127.0.0.1:8000', '192.0.2.10:8000']],
+    'listed already' => ['localhost:8000,127.0.0.1:8000', 'http://localhost:8000', ['localhost:8000', '127.0.0.1:8000']],
+    'nothing listed' => ['', 'https://example.com', ['example.com']],
+]);
+
+it('ships and registers every global middleware the rules name', function (string $modules) {
+    $repo = Sandbox::tmp();
+    touch("{$repo}/artisan");
+    $render = Sandbox::tmp();
+    $args = ["--modules={$modules}", '--set', 'app=acme', '--set', 'laravel_version=13', '--set', 'php_version=8.5', '--set', 'pest_version=5'];
+    $install = installPhp($repo, $args);
+    $rendered = installPhp($repo, [...$args, "--render-to={$render}"]);
+    preg_match_all('/`(\w+)` (prepended|appended) globally/', (string) @file_get_contents("{$repo}/app/Http/CLAUDE.md"), $named, PREG_SET_ORDER);
+    $bootstrap = (string) @file_get_contents("{$render}/snippets/bootstrap-app.php");
+
+    expect($install->getExitCode())->toBe(0, $install->getErrorOutput())
+        ->and($rendered->getExitCode())->toBe(0, $rendered->getErrorOutput())
+        ->and(array_column($named, 1))->toBe(['RequestId', 'SecurityHeaders']);
+    foreach ($named as [, $class, $how]) {
+        $file = "{$repo}/app/Http/Middleware/{$class}.php";
+        $lint = new Process(['php', '-l', $file]);
+        $lint->run();
+
+        expect($install->getOutput())->toContain("  app/Http/Middleware/{$class}.php\n")
+            ->and($lint->getExitCode())->toBe(0, $lint->getOutput())
+            ->and($bootstrap)->toContain("use App\\Http\\Middleware\\{$class};")
+            ->toContain('$middleware->'.($how === 'prepended' ? 'prepend' : 'append')."({$class}::class);");
+    }
+
+    $headers = file_get_contents("{$repo}/app/Http/Middleware/SecurityHeaders.php");
+    expect($headers)->toContain('$request->is($horizon, "{$horizon}/*")')->toContain("has('Content-Security-Policy')");
+    str_contains($modules, 'spa')
+        ? expect($headers)->toContain("default-src 'none'; frame-ancestors 'none'")->not->toContain('Vite')
+        : expect($headers)->toContain('Vite::useCspNonce()')->not->toContain("default-src 'none'");
+    expect(str_contains($headers, "'inline-speculation-rules'"))->toBe(str_contains($modules, 'htmx'));
+})->with(['', 'htmx', 'htmx,islands', 'spa,tenancy']);
+
+it('leaves the debug exception page without a CSP, and lets the Vite dev server serve images and fonts while hot', function (string $modules) {
+    $repo = Sandbox::tmp();
+    touch("{$repo}/artisan");
+    $install = installPhp($repo, ["--modules={$modules}", '--set', 'app=acme', '--set', 'laravel_version=13', '--set', 'php_version=8.5', '--set', 'pest_version=5']);
+    expect($install->getExitCode())->toBe(0, $install->getErrorOutput());
+    $namespace = 'HouseTest\\Headers'.md5($modules.$repo);
+    eval(substr(str_replace('namespace App\\Http\\Middleware;', "namespace {$namespace};", (string) file_get_contents("{$repo}/app/Http/Middleware/SecurityHeaders.php")), 5));
+    $class = "{$namespace}\\SecurityHeaders";
+    $page = fn () => response('<script>boot()</script>', 500, ['Content-Type' => 'text/html'])->withException(new RuntimeException('boom'));
+    $csp = fn () => (new $class)->handle(Request::create('/notes'), $page)->headers->get('Content-Security-Policy');
+
+    config(['app.debug' => true]);
+    expect($csp())->toBeNull();
+    config(['app.debug' => false]);
+    expect($csp())->toContain(str_contains($modules, 'spa') ? "default-src 'none'" : "script-src 'self' 'nonce-");
+
+    if (! str_contains($modules, 'spa')) {
+        $hot = Sandbox::tmp().'/hot';
+        file_put_contents($hot, 'http://198.51.100.7:5173');
+        Vite::useHotFile($hot);
+        expect($csp())->toContain("img-src 'self' data: http://198.51.100.7:5173")->toContain("font-src 'self' http://198.51.100.7:5173");
+    }
+})->with(['htmx', 'spa']);
 
 it("names every placeholder a skill's templates hold in that skill's SKILL.md", function (string $skill) {
     $root = Sandbox::package().'/resources/boost/skills/'.$skill;
@@ -487,6 +578,18 @@ it('reports a placeholder only in the files git tracks or would add, never in an
 
     expect($verify->getOutput())->toContain("✗ app/Note.php:1 unresolved template marker or placeholder\n")
         ->not->toContain('.claude/worktrees');
+});
+
+it("reports only the house's own placeholders, never an app's {{field}} templates", function () {
+    $repo = skeleton();
+    fresh($repo, 'htmx');
+    file_put_contents("{$repo}/app/Note.php", "<?php // Dear {{contact}}, {{app_name}}\n");
+    file_put_contents("{$repo}/app/Letter.php", "<?php // Dear {{contact}}, about {{order_number}}\n");
+
+    $verify = verifySetup($repo);
+
+    expect($verify->getOutput())->toContain("✗ app/Note.php:1 unresolved template marker or placeholder\n")
+        ->not->toContain('app/Letter.php');
 });
 
 it('boots prod only with a whole number of Octane workers and keeps supervisor retrying through a Redis restart', function (string|false $workers, bool $boots) {

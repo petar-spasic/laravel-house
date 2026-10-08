@@ -91,12 +91,18 @@ when first needed:
   (`auth:sanctum` beside it), never on the whole `api` group: a group's header is written last and would make a
   public API `GET` (`cache.headers:public;max_age=…` on its route) uncacheable.
 - `RequestId` prepended globally; `SecurityHeaders` appended globally. The Horizon path is exempt: its dashboard is an
-  inline-script SPA behind the gate.
+  inline-script SPA behind the gate. So is a response rendered from an exception while `APP_DEBUG` is on: Laravel's
+  debug page is all inline script and style. A response that already carries a CSP keeps it.
+<!-- unless:spa -->
+- The CSP is `SecurityHeaders::policy()`: `'self'` for everything, `data:` images, `'unsafe-inline'` for styles only
+  (`style=` attributes), never for scripts. A new origin (a CDN, a provider's avatars) joins it in the same commit as
+  the code that needs it.
+<!-- endif -->
 <!-- if:htmx -->
 - The CSP nonce is `Vite::useCspNonce()` per request, read in Blade with `Vite::cspNonce()`; only the JSON-LD tag and
   Vite's own tags use it. `script-src` allows `'inline-speculation-rules'` for the layout's Speculation Rules. While
   `public/hot` exists (never in production), the CSP also allows the origin in that file
-  in `script-src`, `style-src` and `connect-src`, plus its `ws:` twin for HMR.
+  in `script-src`, `style-src`, `img-src`, `font-src` and `connect-src`, plus its `ws:` twin for HMR.
 - Group `public` = `CachePublicResponse`, `throttle:public`, `SubstituteBindings`. Alias `htmx` = `HtmxOnly`,
   prepended to `SubstituteBindings` in the priority list.
 - `Controller::render($view, $data, $fragment)` is the one htmx helper. It returns the named fragment only when the

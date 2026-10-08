@@ -82,11 +82,13 @@ it('refuses nothing for a stock Laravel name', function () {
 
 it('applies findings as upstream log entries and never as cards', function () {
     $cards = count(glob($this->p->main.'/docs/kanban/*/*.json'));
-    ($this->report)(['Stack wait ignores the health path — it polls / instead', 'Gates run twice'])->mustRun();
+    ($this->report)(['Stack wait ignores the health path — it polls / instead', 'Gates run twice', 'stack exec -- env drops the variables — it passes none', 'Status is slow -- it reads every card'])->mustRun();
     ($this->apply)();
 
     $findings = array_column(($this->findings)(), null, 'title');
-    expect($findings)->toHaveCount(2)
+    expect($findings)->toHaveCount(4)
+        ->and($findings['stack exec']['body'] ?? null)->toBe('env drops the variables — it passes none')
+        ->and($findings['Status is slow']['body'] ?? null)->toBe('it reads every card')
         ->and($findings['Stack wait ignores the health path'])->toMatchArray(['event' => 'upstream', 'by' => 'worker', 'body' => 'it polls / instead'])
         ->and($findings['Gates run twice'])->not->toHaveKey('body')
         ->and(count(glob($this->p->main.'/docs/kanban/*/*.json')))->toBe($cards)
@@ -95,7 +97,7 @@ it('applies findings as upstream log entries and never as cards', function () {
     $verdict = $this->p->in($this->wt, ['verdict', $this->id, 'reject', '--check=1:fail:no', '--check=2:pass:ok', '--upstream=Verdict needs a retry flag'], $this->off);
     expect($verdict->getExitCode())->toBe(0)->and($verdict->getOutput())->toContain(', 1 upstream');
     $this->p->hook('subagent-stop', $this->p->payload('subagent-stop', ['cwd' => $this->wt, 'type' => 'kanban-evaluator', 'agent' => 'e5e5c0ffee']));
-    expect(array_column(($this->findings)(), 'title'))->toHaveCount(3)->toContain('Verdict needs a retry flag')
+    expect(array_column(($this->findings)(), 'title'))->toHaveCount(5)->toContain('Verdict needs a retry flag')
         ->and(lastOf(($this->findings)())['by'])->toBe('evaluator');
 });
 

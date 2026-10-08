@@ -2,6 +2,7 @@
 
 namespace PetarSpasic\LaravelHouse\Kanban\Upstream;
 
+use PetarSpasic\LaravelHouse\Kanban\Protocol\Staged;
 use PetarSpasic\LaravelHouse\Kanban\Store\Card;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Invalid;
 use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
@@ -49,7 +50,7 @@ final class Findings
     public static function stage(array $texts, Scrubber $scrubber, string $what = '--upstream'): array
     {
         return array_map(function (string $text) use ($scrubber, $what) {
-            [$title, $body] = array_map('trim', preg_split('/\s+[—–]\s+|\s+--\s+/u', trim($text), 2) + [1 => '']);
+            [$title, $body] = Staged::split($text);
             if ($title === '' || mb_strlen($title) > 120) {
                 throw new Invalid("{$what}: the title must be 1-120 characters (\"Title — body\")");
             }
