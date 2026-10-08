@@ -26,7 +26,8 @@ text, one fact per line; errors go to stderr. Card ids accept a unique prefix of
 - `main`: `KANBAN_SESSION` set (SessionStart exports it). `owner`: a terminal without it, or the UI.
 - `planner` / `worker` / `evaluator`: bound to their card when they start (SubagentStart claims the main session's spawn
   record); `plan` / `report` / `verdict` also require the cwd to be the card's clone, where an agent's shell starts. An agent runs
-  `vendor/bin/kanban` as a command of its own (on this machine); its other commands run in the card's container.
+  `vendor/bin/kanban` as a command of its own (on this machine; a leading `cd <dir> &&` into its card's directory is
+  dropped); its other commands run in the card's container.
 - `--force` is main-only and logged.
 - A log entry may carry `who`: the person at that keyboard (`KANBAN_USER`, else git `user.name`, else the name in an explicit `KANBAN_GIT_AUTHOR`; none known: no key). `by` stays the role, `who` is shown beside it (`owner (Ana)`, `worker (Ana)`) and is never used for claims, notes, locks or merges. An entry written by an agent carries the person whose machine ran it.
 

@@ -21,7 +21,7 @@ if (str_starts_with($_SERVER['argv'][1] ?? '', '--in=')) {
 }
 
 if (PetarSpasic\LaravelHouse\Kanban\Support\Paths::inCardContainer((string) getcwd())) {
-    fwrite(STDERR, "kanban: vendor/bin/kanban runs on the host, not in the card's container: run it as a command of its own, never inside a script or chained to another command\n");
+    fwrite(STDERR, "kanban: vendor/bin/kanban runs on the host, not in the card's container. Your shell already starts in your card: drop any `cd … &&`, pipe or chain, and run `vendor/bin/kanban …` as the whole command, never inside a script\n");
     exit(1);
 }
 

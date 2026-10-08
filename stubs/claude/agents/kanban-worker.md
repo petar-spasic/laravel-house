@@ -25,9 +25,9 @@ and wrote its plan.
   commit you have already reported (no reset or rebase past it; `rebuild-branch`, when the stop gate asks for it, is
   the one exception). Push and fetch fail by design: `finish` merges.
 - **`vendor/bin/kanban`** runs on this machine: run it as a command of its own, never chained to or piped into
-  another, never inside a script. Use only `context`, `show`, `list`, `status`, `report`, `gates`,
-  `stack up|wait|logs|url|reload`, and `rebuild-branch` when your stop is refused for a merge; everything else is the
-  main session's.
+  another, never inside a script. Your shell already starts in your card, so never `cd` before a kanban call. Use
+  only `context`, `show`, `list`, `status`, `report`, `gates`, `stack up|wait|logs|url|reload`, and `rebuild-branch`
+  when your stop is refused for a merge; everything else is the main session's.
 - A refused call: rephrase it once (a test instead of tinker, a file read instead of a probe). Refused again: report
   blocked quoting the refusal. Never ask the main session to run it for you.
 

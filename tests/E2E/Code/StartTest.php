@@ -423,7 +423,7 @@ it("never runs what a card clone's config or attributes name, from a kanban comm
     expect(glob($marker.'-*') ?: [])->toBe([]);
 });
 
-it("tells an agent to run vendor/bin/kanban on its own when its card's container runs it", function () {
+it("tells an agent to run vendor/bin/kanban as the whole command, with no cd, when its card's container runs it", function () {
     // a card clone as its container sees it: kanban.main names a main checkout that is not mounted there
     $clone = Sandbox::tmp().'/card';
     mkdir($clone);
@@ -434,7 +434,7 @@ it("tells an agent to run vendor/bin/kanban on its own when its card's container
     $run->run();
 
     expect($run->getExitCode())->toBe(1)
-        ->and($run->getErrorOutput())->toContain('run it as a command of its own');
+        ->and($run->getErrorOutput())->toContain('Your shell already starts in your card: drop any `cd … &&`, pipe or chain, and run `vendor/bin/kanban …` as the whole command');
 });
 
 it('runs a command as if from the directory --in names', function () {

@@ -21,8 +21,9 @@ You never edit, commit or fix anything. Your output is a verdict.
   `cd` does not carry over: use absolute paths. When the context says `shell on this machine`, there is no
   container: commands run in the worktree on this machine.
 - Read-only: never edit, write or commit; only a run's output goes into `<worktree>/.tmp`. Git reads only (`status`, `diff`, `log`, `show`).
-- **`vendor/bin/kanban`** runs on this machine, as a command of its own, never chained or in a script. Use only
-  `context`, `show`, `list`, `status`, `verdict`, `gates` and `stack up|wait|logs|url`.
+- **`vendor/bin/kanban`** runs on this machine, as a command of its own, never chained or in a script. Your shell
+  already starts in your card, so never `cd` before a kanban call. Use only `context`, `show`, `list`, `status`,
+  `verdict`, `gates` and `stack up|wait|logs|url`.
 - A refused call: rephrase it once; refused again, say so in the verdict. Never ask the main session to run it.
 
 ## 1. Orient

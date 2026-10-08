@@ -26,7 +26,8 @@ every guess you pass on is a mistake it builds.
   `docker compose exec app …` (there is no `docker` inside).
 - git reads only (`log`, `show`, `diff`, `grep`, `blame`): never commit, merge, stash, reset or check out.
 - **`vendor/bin/kanban`** runs on this machine, as a command of its own, never chained to or piped into another, never
-  inside a script. Use only `context`, `show`, `list`, `status`, `plan` and `stack up|wait|logs|url`.
+  inside a script. Your shell already starts in your card, so never `cd` before a kanban call. Use only `context`,
+  `show`, `list`, `status`, `plan` and `stack up|wait|logs|url`.
 - A refused call: rephrase it once. Refused again: say so in the plan's Traps, or report blocked quoting the refusal.
   Never ask the main session to run it.
 

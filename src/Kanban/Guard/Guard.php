@@ -10,7 +10,7 @@ use Throwable;
  * Claude Code PreToolUse hook. It keeps the runtime files the rest of kanban reads: the agent's heartbeat
  * (agents/<id>.json mtime), its binding to a card at EnterWorktree, and the spawn record that WorktreeCreate hands
  * to the next isolated kanban agent. For a bound worker, planner or evaluator it routes every shell command but a plain
- * `vendor/bin/kanban` one into the card's container (`updatedInput`), and fences its file tools to the card's
+ * `vendor/bin/kanban` one (alone, or after a `cd` into the card) into the card's container (`updatedInput`), and fences its file tools to the card's
  * directory, a planner's writes to the card's `.tmp`: the only thing it denies. Any error is swallowed and prints nothing.
  */
 final class Guard
@@ -66,6 +66,42 @@ final class Guard
         }
 
         return self::kanban($main).substr($command, strlen($m[0]));
+    }
+
+    /**
+     * $command without a leading `cd <dir> && ` whose <dir>, quotes removed and resolved lexically from $cwd (no
+     * symlink followed), is the card's directory $root or one in it; null for any other command. Only a plain word or
+     * a quoted one with nothing the shell would expand is resolved.
+     */
+    private static function afterCdInto(string $root, string $cwd, string $command): ?string
+    {
+        if (preg_match('#^[ \t]*cd[ \t]+(?:\'([^\']+)\'|"([^"$`\\\\]+)"|(?!-)([A-Za-z0-9_.,:/@%+=-]+))[ \t]*&&[ \t]*#', $command, $m) !== 1) {
+            return null;
+        }
+        $dir = $m[1].($m[2] ?? '').($m[3] ?? '');
+        $dir = self::lexical($dir[0] === '/' ? $dir : $cwd.'/'.$dir);
+        foreach ([self::lexical($root), self::canonical($root)] as $card) {
+            if ($dir === $card || str_starts_with($dir, $card.'/')) {
+                return substr($command, strlen($m[0]));
+            }
+        }
+
+        return null;
+    }
+
+    /** Absolute $path with `.`, `..` and repeated slashes taken out by its text alone. */
+    private static function lexical(string $path): string
+    {
+        $parts = [];
+        foreach (explode('/', $path) as $part) {
+            if ($part === '..') {
+                array_pop($parts);
+            } elseif ($part !== '' && $part !== '.') {
+                $parts[] = $part;
+            }
+        }
+
+        return '/'.implode('/', $parts);
     }
 
     /**
@@ -233,15 +269,16 @@ final class Guard
             || ! self::isAgent($binding['agent_type'] ?? null)) {
             return;
         }
-        if (($host = self::hostKanban($main, $command)) !== null) {
+        $card = $worktree[0] === '/' ? $worktree : $main.'/'.$worktree;
+        $root = self::canonical($card);
+        // a cd into the card changes nothing: a kanban command runs for the card's root from any directory in it
+        if (($host = self::hostKanban($main, self::afterCdInto($card, $cwd, $command) ?? $command)) !== null) {
             // one plain command (each part of a chain is checked on its own); --in gives the CLI the agent's card
-            $input['command'] = self::kanban($main).' '.self::quoted('--in='.self::canonical($worktree[0] === '/' ? $worktree : $main.'/'.$worktree))
-                .substr($host, strlen(self::kanban($main)));
+            $input['command'] = self::kanban($main).' '.self::quoted('--in='.$root).substr($host, strlen(self::kanban($main)));
             echo json_encode(['hookSpecificOutput' => ['hookEventName' => 'PreToolUse', 'updatedInput' => $input]], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
 
             return;
         }
-        $root = self::canonical($worktree[0] === '/' ? $worktree : $main.'/'.$worktree);
         $dir = self::canonical($cwd);
         $inside = $dir === $root || str_starts_with($dir, $root.'/');
         $record = json_decode((string) @file_get_contents($main.'/.git/laravel-house/stacks/'.basename($worktree).'.json'), true);

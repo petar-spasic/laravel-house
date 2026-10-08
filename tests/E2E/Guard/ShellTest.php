@@ -42,6 +42,47 @@ it("keeps a plain vendor/bin/kanban command on this machine, as main's binary in
     'a heredoc with a quoted delimiter' => ["vendor/bin/kanban report ACME-7K2M9Q --summary-file=- <<'EOF'\nDone; tests pass | green\nEOF", " report ACME-7K2M9Q --summary-file=- <<'EOF'\nDone; tests pass | green\nEOF"],
 ]);
 
+it("keeps a kanban command after a cd into the card on this machine, as main's binary with the card's root", function (string $command, string $cwd) {
+    $sandbox = GuardSandbox::shared();
+    $sandbox->stack(GuardSandbox::DOING);
+    @mkdir($sandbox->wt(GuardSandbox::DOING).'/app');
+
+    $result = $sandbox->case('worker', 'Bash', ['command' => $command], $cwd);
+
+    expect($result['decision'])->toBeNull()
+        ->and($result['input']['command'])->toBe($sandbox->main.'/vendor/bin/kanban --in='.$sandbox->wt(GuardSandbox::DOING).' report ACME-7K2M9Q --summary=x');
+})->with([
+    'cd to the card' => ['cd {wt} && vendor/bin/kanban report ACME-7K2M9Q --summary=x', '{wt}'],
+    'cd to the card, quoted' => ["cd '{wt}' && php vendor/bin/kanban report ACME-7K2M9Q --summary=x", '{wt}'],
+    'cd to the card from main' => ['cd "{wt}/" && vendor/bin/kanban report ACME-7K2M9Q --summary=x', '{main}'],
+    'cd into a subdirectory' => ['cd {wt}/app && ../vendor/bin/kanban report ACME-7K2M9Q --summary=x', '{wt}'],
+    'cd relative into a subdirectory' => ['cd ./app/../app && {main}/vendor/bin/kanban report ACME-7K2M9Q --summary=x', '{wt}'],
+    'cd back up to the card' => ['cd .. && vendor/bin/kanban report ACME-7K2M9Q --summary=x', '{wt}/app'],
+]);
+
+it('routes a kanban command after a cd anywhere but the card into the container', function (string $command) {
+    $sandbox = GuardSandbox::shared();
+    $sandbox->stack(GuardSandbox::DOING);
+
+    expect($sandbox->case('worker', 'Bash', ['command' => $command], '{wt}')['input']['command'])->toContain('/vendor/bin/kanban-exec ');
+})->with([
+    'cd to main' => ['cd {main} && vendor/bin/kanban status'],
+    'cd to another card' => ['cd {review} && vendor/bin/kanban status'],
+    'cd out of the card by ..' => ['cd {wt}/../acme-a1b2c3 && vendor/bin/kanban status'],
+    'cd .. from the card root' => ['cd .. && vendor/bin/kanban status'],
+    'cd to a prefix sibling' => ['cd {wt}x && vendor/bin/kanban status'],
+    'cd outside' => ['cd {outside} && vendor/bin/kanban status'],
+    'cd by a command substitution' => ['cd $(pwd) && vendor/bin/kanban status'],
+    'cd by a variable' => ['cd "$PWD" && vendor/bin/kanban status'],
+    'cd by backticks' => ['cd `pwd` && vendor/bin/kanban status'],
+    'cd home' => ['cd ~ && vendor/bin/kanban status'],
+    'cd to the previous directory' => ['cd - && vendor/bin/kanban status'],
+    'cd and a semicolon' => ['cd {wt}; vendor/bin/kanban status'],
+    'cd and a chain after kanban' => ['cd {wt} && vendor/bin/kanban status && rm -rf x'],
+    'cd and an env prefix' => ['cd {wt} && LD_PRELOAD=x.so vendor/bin/kanban status'],
+    'two cds' => ['cd {wt} && cd {wt} && vendor/bin/kanban status'],
+]);
+
 it('routes git, and a kanban command chained to anything, into the container', function (string $command) {
     $sandbox = GuardSandbox::shared();
     $sandbox->stack(GuardSandbox::DOING);
