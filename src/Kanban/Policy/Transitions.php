@@ -32,7 +32,7 @@ final class Transitions
         'ready>backlog' => ['move'],
         'ready>doing' => ['start'],
         'doing>review' => ['apply'],
-        'review>doing' => ['reject', 'refresh', 'move'],
+        'review>doing' => ['reject', 'merge', 'move'],
         'review>done' => ['finish'],
         'doing>ready' => ['stop'], 'doing>backlog' => ['stop'], 'doing>dropped' => ['stop'],
         'review>ready' => ['stop'], 'review>backlog' => ['stop'], 'review>dropped' => ['stop'],
@@ -51,7 +51,7 @@ final class Transitions
         'doing>planning' => 'use `kanban stop ID --to=ready` (with work on its branch it goes on to planning), then `kanban move ID planning`',
         'review>planning' => 'use `kanban stop ID --to=ready` (with work on its branch it goes on to planning), then `kanban move ID planning`',
         'doing>review' => 'a worker report moves it (`kanban apply ID`)',
-        'review>done' => 'use `kanban finish ID`',
+        'review>done' => 'the merge queue moves it: kanban run, or vendor/bin/kanban finish ID',
     ];
 
     public function __construct(
@@ -296,7 +296,7 @@ final class Transitions
         return $this->store->update($id, fn (array $data) => self::stage(array_replace_recursive($data, $changes), 'review', 'apply'), $by);
     }
 
-    /** review → doing: $via is reject (evaluator verdict), refresh (merge conflict) or move (owner send-back). */
+    /** review → doing: $via is reject (evaluator verdict), merge (the merge queue's send-back) or move (owner send-back). */
     public function sendBack(string $id, string $via, Actor $by, ?string $note = null, ?Rev $expected = null, bool $force = false): Card
     {
         return $this->store->update($id, fn (array $data) => self::sentBack($data, $via, $note, $force), $by, $expected);
@@ -344,12 +344,28 @@ final class Transitions
     /** review → done after the merge; `work` is trimmed and records the merge commit. */
     public function finish(string $id, string $mergeSha, Actor $by): Card
     {
-        return $this->store->update($id, function (array $data) use ($mergeSha) {
-            $data['work']['merge'] = $mergeSha;
-            $data['work']['finished'] = Clock::now();
+        return $this->store->update($id, fn (array $data) => self::finished($data, $mergeSha), $by);
+    }
 
-            return self::stage($data, 'done', 'finish');
-        }, $by);
+    /**
+     * review → done on the card's data once $mergeSha is on main. A card already done with that merge comes back
+     * unchanged, so a merge recorded twice (a resumed finish, a takeover) writes once; any other stage is refused.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    public static function finished(array $data, string $mergeSha): array
+    {
+        if ($data['stage'] === 'done' && ($data['work']['merge'] ?? null) === $mergeSha) {
+            return $data;
+        }
+        if ($data['stage'] !== 'review') {
+            throw new PolicyRefused("{$data['id']} is {$data['stage']}, not review: it cannot be finished with {$mergeSha}");
+        }
+        $data['work']['merge'] = $mergeSha;
+        $data['work']['finished'] = Clock::now();
+
+        return self::stage($data, 'done', 'finish');
     }
 
     /**

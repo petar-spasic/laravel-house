@@ -2,14 +2,23 @@
 
 namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
+use PetarSpasic\LaravelHouse\Kanban\Code\AgentRun;
 use PetarSpasic\LaravelHouse\Kanban\Code\ComposeFile;
 use PetarSpasic\LaravelHouse\Kanban\Code\Dependencies;
+use PetarSpasic\LaravelHouse\Kanban\Code\MergeBeat;
+use PetarSpasic\LaravelHouse\Kanban\Code\MergeClone;
+use PetarSpasic\LaravelHouse\Kanban\Code\MergeRun;
+use PetarSpasic\LaravelHouse\Kanban\Code\MergeStep;
 use PetarSpasic\LaravelHouse\Kanban\Code\PortRegistry;
 use PetarSpasic\LaravelHouse\Kanban\Code\Stack;
 use PetarSpasic\LaravelHouse\Kanban\Code\StackUser;
+use PetarSpasic\LaravelHouse\Kanban\Code\Suite;
 use PetarSpasic\LaravelHouse\Kanban\Console\Install\Migrate;
 use PetarSpasic\LaravelHouse\Kanban\Console\Install\NextSteps;
 use PetarSpasic\LaravelHouse\Kanban\Console\Install\Steps;
+use PetarSpasic\LaravelHouse\Kanban\Protocol\MergeLease;
+use PetarSpasic\LaravelHouse\Kanban\Protocol\MergeState;
+use PetarSpasic\LaravelHouse\Kanban\Store\Card;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\OldBoard;
 use PetarSpasic\LaravelHouse\Kanban\Store\Git\Bootstrap;
 use PetarSpasic\LaravelHouse\Kanban\Store\Git\DeployKey;
@@ -56,12 +65,14 @@ class DoctorCommand extends Command
         }
         $this->checkRuntime();
         $this->checkDisks();
+        $snapshot = null;
         if ($bootstrap->attached()) {
             $this->checkSync();
             if (($snapshot = $this->checkBoard()) !== null) {
                 $this->checkOrphans($snapshot);
             }
         }
+        $this->checkMerge($snapshot);
         $this->checkStacks();
         foreach (Dependencies::problems($this->paths()->main, (array) ($this->setting('worktrees.copy') ?? [])) as $problem) {
             $this->add('warn', $problem);
@@ -244,7 +255,8 @@ class DoctorCommand extends Command
         $stack = (array) $this->setting('stack', []);
         $compose = $stack['compose_file'] ?? null;
         if (! Stack::enabled($stack, $main)) {
-            $this->add('ok', 'worktree stacks disabled (stack.compose_file '.(is_string($compose) && $compose !== '' ? "{$compose} not found" : 'unset').')');
+            $this->add('fail', 'worktree stacks disabled (stack.compose_file '.(is_string($compose) && $compose !== '' ? "{$compose} not found" : 'unset')
+                .'): no card merges, since the merge queue runs finish.check in a stack of its own');
 
             return;
         }
@@ -272,6 +284,58 @@ class DoctorCommand extends Command
             ? ['ok', "COMPOSE_PROJECT_NAME={$env['COMPOSE_PROJECT_NAME']} in .env"]
             : ['fail', 'COMPOSE_PROJECT_NAME missing from .env: the main stack has no project name (add e.g. COMPOSE_PROJECT_NAME='.basename($main).'-local)']));
         $this->checkAddressPools();
+    }
+
+    /**
+     * The merge queue: `finish.check` names the suite as it runs in the app container, `_merge` is this checkout's merge
+     * clone, main holds nothing the remote's lacks, no lease of this checkout is left with nothing merging, and no card
+     * waits on a steering question (the queue merges such changes as any other).
+     */
+    private function checkMerge(?Snapshot $snapshot): void
+    {
+        $paths = $this->paths();
+        $commands = (new Suite($this->config()))->commands();
+        $this->add(...($commands === [] ? ['fail', MergeStep::NO_SUITE] : ['ok', 'finish.check: '.implode(' · ', $commands)]));
+        foreach ($commands as $command) {
+            if (preg_match('/\b(docker|compose|kanban-exec)\b/', $command) === 1 && ($this->config()['agents']['shell'] ?? null) !== 'host') {
+                $this->add('warn', "finish.check runs in the app container: `{$command}` names docker, compose or kanban-exec; write it as it runs in there");
+            }
+        }
+        $clone = new MergeClone($paths, $this->config());
+        if ((file_exists($clone->path) || is_link($clone->path)) && $clone->foreign()) {
+            $this->add('fail', $paths->relative($clone->path)." is not this checkout's merge clone: remove it");
+        }
+        $this->checkMainAhead();
+        if ($snapshot === null) {
+            return;
+        }
+        $lease = $snapshot->mergeLease();
+        $merge = (new MergeState($paths))->read();
+        if ($lease !== null && ($merge['lease'] ?? null) === $lease['id'] && ! (new MergeRun($paths))->alive()) {
+            $agents = new AgentRun($paths, $this->config());
+            $beat = new MergeBeat($paths, new MergeLease($this->store(), $paths, $this->actor()), $agents);
+            $beat->mergerAlive((string) $lease['card'])
+                || $this->add('warn', "merge lease {$lease['id']} is this checkout's with no merge running: `kanban finish {$lease['card']}` goes on with it, `kanban finish {$lease['card']} --abort` gives it back");
+        }
+        foreach ($snapshot->cards(fn (Card $c) => $c->asks() && preg_match('/^Steering:/m', (string) ($c->data['body'] ?? '')) === 1) as $card) {
+            $this->add('warn', "{$card->id()} waits on a steering question: any answer unblocks it and the merge queue merges it as it is; to have its worker revert the changes, send it back first: `kanban move {$card->id()} doing --reason=\"revert …\"`, then answer");
+        }
+    }
+
+    /** Local main against the remote's as last fetched: the merge queue merges onto the remote's, so commits only here diverge them. */
+    private function checkMainAhead(): void
+    {
+        $git = new Git($this->paths()->main);
+        $branch = (string) ($this->config()['main_branch'] ?? 'main');
+        $remote = (string) ($this->config()['remote'] ?? 'origin')."/{$branch}";
+        $theirs = $git->line(['rev-parse', '--verify', '-q', "refs/remotes/{$remote}"]);
+        $ours = $git->line(['rev-parse', '--verify', '-q', "refs/heads/{$branch}"]);
+        if ($theirs === null || $ours === null || $git->attempt(['merge-base', '--is-ancestor', $ours, $theirs])->ok()) {
+            return;
+        }
+        $this->add('warn', $git->attempt(['merge-base', '--is-ancestor', $theirs, $ours])->ok()
+            ? "{$branch} holds ".$git->line(['rev-list', '--count', $ours, "^{$theirs}"])." commit(s) {$remote} lacks: `kanban publish` pushes them; the next merge goes onto {$remote} and leaves {$branch} diverged"
+            : "{$branch} and {$remote} diverged: the merge queue cannot bring the main checkout up to date; merge {$remote} into {$branch} by hand, then `kanban publish`");
     }
 
     /** A shell word as git's `sh -c` reads it: single quotes are literal and a backslash escapes the next character. */
@@ -344,10 +408,10 @@ class DoctorCommand extends Command
             $free += self::freeBlocks((string) ($pool['Base'] ?? ''), (int) ($pool['Size'] ?? 0), $ranges);
         }
         $pools = implode(', ', array_map(fn (array $p) => "{$p['Base']} (/{$p['Size']} networks)", $pools));
-        // one network per card stack, up to stack.max_stacks
-        $min = (int) $this->setting('stack.max_stacks', 12);
+        // one network per card stack, up to stack.max_stacks, and one for the merge stack
+        $min = (int) $this->setting('stack.max_stacks', 12) + 1;
         $this->add(...($free < $min
-            ? ['warn', "docker address pools: {$free} free networks (< {$min}, stack.max_stacks) in {$pools}: widen default-address-pools in /etc/docker/daemon.json (README)"]
+            ? ['warn', "docker address pools: {$free} free networks (< {$min}, stack.max_stacks and the merge stack) in {$pools}: widen default-address-pools in /etc/docker/daemon.json (README)"]
             : ['ok', "docker address pools: {$free} free networks"]));
     }
 

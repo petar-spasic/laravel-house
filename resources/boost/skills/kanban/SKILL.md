@@ -4,9 +4,9 @@ description: >-
   For a project on the kanban board (docs/kanban present, kanban:install run).
   The main session orchestrates: it cuts cohesive cards an agent finishes in
   one go, runs `vendor/bin/kanban run --until-attention` in the background
-  (the routine in code: clones, Docker stacks, headless kanban-planner,
-  kanban-worker and kanban-evaluator agents, merges) and acts on what it
-  hands back, and runs the owner's morning: the summary, every open question
+  (the routine in code: clones, Docker stacks, headless agents, the merge
+  queue) and acts on what it hands back, and runs the owner's morning: the
+  summary, every open question
   as a multiple choice, the answers recorded with `kanban answer`. Covers card
   sizing and folding, the question format, provisional decisions, wrapping
   up, recovery, the exact vendor/bin/kanban commands and exit codes, and
@@ -14,7 +14,8 @@ description: >-
   cut or split work into cards, answer or record the owner's questions, do
   the morning, or wrap up. Triggers — kanban, board,
   run the board, kanban run, morning, questions, answer, cut cards, fold
-  cards, kanban-planner, kanban-worker, kanban-evaluator, vendor/bin/kanban.
+  cards, kanban-planner, kanban-worker, kanban-evaluator, kanban-merger,
+  merge queue, vendor/bin/kanban.
 ---
 
 # Kanban orchestrator (main session)
@@ -30,9 +31,9 @@ are in `references/protocol.md`; card sizing in depth is `references/planning.md
 ## Ground rules
 
 - Only the main session (and the `kanban run` it starts) runs `start`, `refresh`, `finish`, `stop`, `publish`, `promote`, `new`, `set`,
-  `move`, `fold`, `plan`, `answer`, `allow-steering`, `drain` and `upstream file|new|dismiss`, from the main checkout. One orchestrator per machine holds
+  `move`, `fold`, `plan`, `answer`, `drain` and `upstream file|new|dismiss`, from the main checkout. One orchestrator per machine holds
   the lease; another one gets exit 6 from `start`, `refresh`, `finish`, `stop` and `apply`, and nothing changed. While
-  `kanban run` is running, leave starting, refreshing, finishing and stopping cards to it. A session that ends frees its lease;
+  `kanban run` is running, leave starting, refreshing, merging and stopping cards to it. A session that ends frees its lease;
   a new session of the same transcript (after `/compact` or a restart) takes it at SessionStart. `lease --takeover`
   when the holder is your own previous session, otherwise only when the owner says so.
 - Never edit `docs/kanban` by hand and never write code in the main checkout for a card.
@@ -65,14 +66,15 @@ Before a card is created, and before it is promoted:
 - **No enabler cards.** A card whose only job is to unblock others is folded into them; `hubs:` in the brief and the
   `hint:` lines of `new` and `set` point at candidates. `fold <FROM>… --into=<ID>` merges them in one commit.
 - **Split only to run in parallel**, on different areas, and only when each part is worth an agent of its own.
-- **Group criteria per surface**: up to 24, each one the evaluator can check, naming the real entry point that shows
-  it, never "the full suite passes". Check them against the governing `CLAUDE.md` rules (test technique included) and
-  the open questions on the same topic. The planner checks them against the code, and blocks a card whose criterion
-  cannot be done as written.
+- **The body is for people, the plan for agents.** The body says what and why in short, plain sentences: the outcome
+  the owner sees. Files, steps, traps and commands go in the plan
+  (`references/planning.md`, "The body and the criteria").
+- **One observable outcome per criterion**, up to 24. Each names where it shows and the test that proves it. Never an
+  implementation step or "the full suite passes" (the same section). Check them against the governing `CLAUDE.md`
+  rules (test technique included) and the open questions on the same topic. The planner checks them against the code,
+  and blocks a card whose criterion cannot be done as written.
 - **A page change** names the browser spec that proves it, and the design reference section when the owner decided one.
 - **A shared contract** (a type, rule, enum or event several cards use) is its own small card on its own area.
-- **A change the owner asked for to a file that steers the agents or git** (`config/kanban.php`, `.claude/`, git
-  hooks, `.gitattributes`): `allow-steering <ID> <path>` when you plan it, so `finish` merges it without a question.
 - **Discovered items** fold into the open card on their area before a new card is made; check each against main first.
 - After a rename lands, grep the open cards' criteria for the old names before their workers start.
 - **Rule files stay lean.** The brief's `rules over 40 KB` line names a `CLAUDE.md` every agent there reads whole: plan
@@ -83,10 +85,12 @@ Before a card is created, and before it is promoted:
 
 ## Running the board
 
-You orchestrate; `kanban run` does the routine in code: finishes approvals, refreshes and evaluates review cards,
-resumes rejected or conflicted workers (merging main first), parks question cards in backlog, moves planned cards to
-ready, promotes cards into planning, starts ready cards up to capacity and planners on the slots workers leave, each
-agent a headless `claude -p` session. It runs under your session's lease.
+You orchestrate; `kanban run` does the routine in code: evaluates review cards as they are, merges approved cards
+through the merge queue (one merge at a time for the whole project; a `kanban-merger` agent for a conflict or a failed
+check), resumes rejected or sent-back workers (merging main first), parks question cards in backlog, moves planned cards
+to ready, promotes cards into planning, starts ready cards up to capacity and planners on the slots workers leave, each
+agent a headless `claude -p` session. It runs under your session's lease. The queue merges nothing until main's
+`finish.check` names the whole suite: set it with the owner (house README, "The Merge Queue").
 
 1. `status`. A `checks:` item not ok → `doctor` first.
 2. Start `vendor/bin/kanban run --until-attention` in the background (`run_in_background`). It returns with an
@@ -99,11 +103,24 @@ agent a headless `claude -p` session. It runs under your session's lease.
      criterion (`set`) or split the card, then unblock it.
    - `<ID> parked in backlog: question: …` or `<ID> waits on the owner: question: …`: it waits for the owner's batch
      ("Morning").
-   - `main red …`: the bug card it filed goes first (`set <ID> priority=high`).
-   - `<ID> main red: …: a failure already on main`: the agents filed it; give it an area (`set <ID> labels=+area:…`)
-     and `promote` it.
-   - `<ID> merged, then: …`: the card is done; a step after the merge (an install, the rebuild, `migrate`, `finish.after`) failed
-     on main. Fix it on main, or cut a card for it.
+   - `<ID> main red: …: a failure already on main`: the agents or the merge queue filed it; give it an area
+     (`set <ID> labels=+area:…`) and `promote` it. When the queue found it, approved cards wait (`waits for <ID>
+     (failing on main)`) until main moves.
+   - `<ID> merged, then: …`: the card is done; following main on this machine (an install, the rebuild, `migrate`,
+     `finish.after`) failed. Fix it on main, or cut a card for it. A line about its stack, clone or branch here
+     (`stack down failed`, `branch … kept`, `has uncommitted changes`): as for `done; its leftovers here` below.
+     `… reached main but left review`: its code is on main, but the card was moved during the push; tell the owner.
+   - `<ID> done; its leftovers here: …`: the card's clone, stack or branch on this machine could not go. `has uncommitted
+     changes`: tell the owner, who decides what of them to keep; once the clone is clean or gone, the next run tidies it.
+   - `main checkout …` (`not moved`, `not brought to the remote's main`, or `main checkout: <step>: …`): this machine's
+     main checkout could not follow origin's main, or a step after it failed; merging goes on. The line names the fix:
+     commits only here → `publish` them (diverged from origin's main: the owner merges it by hand first);
+     uncommitted changes → commit or stash them with the owner; a failed step → fix it on main.
+   - `<ID> merge failed: …`, or another line that starts with `<ID>:`: the queue retries in 5 min. `finish.check: …
+     not found in the app container`: the command is written for the host; make it the plain command as the container
+     runs it.
+   - `<ID> sent back by the merge: …`, `<ID> waits for <RED> (failing on main)`, `merge lease held by … no beat for N
+     min`: for your summary; the board carries on (a lease whose beat stood still 15 min is taken over).
    - `promote --auto: skipped <ID>: …`: that card could not be written (an invalid card file); `validate` names the
      fault. Fix it; the other cards were promoted.
    - `upstream: N … pending`: "Package findings".
@@ -180,6 +197,9 @@ owner hands you for a card in planning: `plan <ID> --plan-file=…`, in the plan
 - **Give up on a card:** `stop <ID> --to=ready|backlog|dropped [--reason=…]` (its `kanban run` agent is ended; a
   branch with commits is parked; it is planned again, and the next `start` reuses it with main merged in, printing a
   conflict for the worker to conclude first; a drain never restarts it). A card a planner holds: `stop <ID> --to=backlog|dropped`.
+- **A merge that stays stuck** (`status`'s `merge:` line): `stack _merge logs`; once no `finish` runs, `finish <ID>
+  --abort` gives the lease back and leaves the card queued (exit 11 `a merge runs here` while one does: each check ends
+  within 30 min, or `stop <ID> --to=…` ends one `kanban run` started; refused while main is pushed: `finish <ID>` settles that push first).
 - **Leftovers:** `stack gc`, `doctor`, `sweep`, `apply --all`.
 
 ## Package findings

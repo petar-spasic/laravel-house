@@ -38,9 +38,10 @@ it('merges settings, writes agents, .gitignore and the CLAUDE.md block, and is i
         ->toContain('wrote .claude/agents/kanban-planner.md')
         ->toContain('wrote .claude/agents/kanban-worker.md')
         ->toContain('wrote .claude/agents/kanban-evaluator.md')
+        ->toContain('wrote .claude/agents/kanban-merger.md')
         ->toContain('added the kanban block to CLAUDE.md')
         ->toContain('.gitignore += /.claude/worktrees')
-        ->toContain('next: commit on main: .gitignore .claude/agents/ .claude/settings.json CLAUDE.md')
+        ->toContain('next: commit on main (.gitignore .claude/agents/ .claude/settings.json CLAUDE.md), then run vendor/bin/kanban publish')
         ->toEndWith("next: restart Claude Code (agents and hooks load at session start); then `vendor/bin/kanban lease --takeover` if an old session holds the lease\n");
 
     $settings = json_decode(file_get_contents($sandbox->root.'/.claude/settings.json'), true);
@@ -56,7 +57,7 @@ it('merges settings, writes agents, .gitignore and the CLAUDE.md block, and is i
                 ['type' => 'command', 'command' => 'php', 'args' => ['-d', 'display_errors=0', '-d', 'display_startup_errors=0', '${CLAUDE_PROJECT_DIR}/vendor/petar-spasic/laravel-house/bin/kanban-guard'], 'timeout' => 10],
             ]],
         ])
-        ->and($settings['hooks']['SubagentStop'])->toBe([['matcher' => 'kanban-planner|kanban-worker|kanban-evaluator', 'hooks' => [$kanban('subagent-stop') + ['timeout' => 300]]]])
+        ->and($settings['hooks']['SubagentStop'])->toBe([['matcher' => 'kanban-planner|kanban-worker|kanban-evaluator|kanban-merger', 'hooks' => [$kanban('subagent-stop') + ['timeout' => 300]]]])
         ->and($settings['hooks']['Stop'])->toBe([['hooks' => [$kanban('stop') + ['timeout' => 300]]]])
         ->and($settings['hooks']['WorktreeCreate'][0]['hooks'][0])->toBe($kanban('worktree-create') + ['timeout' => 120])
         ->and($settings['permissions']['allow'])->toBe(['Bash(npm run check)', 'Bash(vendor/bin/kanban *)'])
@@ -93,7 +94,7 @@ it('gives the agents only built-in tools and Boost\'s docs search', function (st
     $builtIn = ['Read', 'Grep', 'Glob', 'LSP', 'Bash', 'Edit', 'Write', 'TodoWrite', 'Skill', 'Monitor', 'TaskStop', 'WebFetch', 'WebSearch'];
     expect(array_values(array_diff(explode(', ', $m[1]), $builtIn)))->toBe(['mcp__laravel-boost__search-docs'])
         ->and(explode(', ', $m[1]))->toContain('TaskStop', 'Monitor', 'Bash');
-})->with(['planner', 'worker', 'evaluator']);
+})->with(['planner', 'worker', 'evaluator', 'merger']);
 
 it('replaces an outdated CLAUDE.md block in place, never twice', function () {
     $sandbox = Sandbox::create();
@@ -180,17 +181,20 @@ it('writes each agent\'s model and effort from kanban.agents, and doctor --fix f
     $planner = fn () => file_get_contents($sandbox->root.'/.claude/agents/kanban-planner.md');
     $worker = fn () => file_get_contents($sandbox->root.'/.claude/agents/kanban-worker.md');
     $evaluator = fn () => file_get_contents($sandbox->root.'/.claude/agents/kanban-evaluator.md');
+    $merger = fn () => file_get_contents($sandbox->root.'/.claude/agents/kanban-merger.md');
 
     expect($planner())->toContain("model: opus\neffort: high\n")
         ->and($worker())->toContain("model: sonnet\neffort: high\n")
         ->and($evaluator())->toContain("model: opus\neffort: medium\n")
+        ->and($merger())->toStartWith("---\nname: kanban-merger\n")->toContain("model: opus\neffort: medium\n")
         ->and($worker())->not->toContain('isolation:');
 
     @mkdir($sandbox->root.'/config', 0775, true);
-    file_put_contents($sandbox->root.'/config/kanban.php', "<?php return ['agents' => ['worker' => ['model' => 'opus', 'effort' => 'max'], 'planner' => ['effort' => 'xhigh']]];\n");
+    file_put_contents($sandbox->root.'/config/kanban.php', "<?php return ['agents' => ['worker' => ['model' => 'opus', 'effort' => 'max'], 'planner' => ['effort' => 'xhigh'], 'merger' => ['effort' => 'high']]];\n");
 
     expect($sandbox->kanban(['doctor'])->getOutput())->toContain('warn .claude/agents/kanban-worker.md outdated')
         ->toContain('warn .claude/agents/kanban-planner.md outdated')
+        ->toContain('warn .claude/agents/kanban-merger.md outdated')
         ->not->toContain('warn .claude/agents/kanban-evaluator.md');
 
     $sandbox->kanban(['doctor', '--fix']);
@@ -198,5 +202,6 @@ it('writes each agent\'s model and effort from kanban.agents, and doctor --fix f
     expect($planner())->toContain("model: opus\neffort: xhigh\n")
         ->and($worker())->toContain("model: opus\neffort: max\n")
         ->and($evaluator())->toContain("model: opus\neffort: medium\n")
+        ->and($merger())->toContain("model: opus\neffort: high\n")
         ->and($sandbox->kanban(['doctor'])->getOutput())->toContain("ok .claude/agents/kanban-worker.md\n");
 });

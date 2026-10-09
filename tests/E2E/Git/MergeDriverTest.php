@@ -284,3 +284,42 @@ it('takes the newer side when only the local side replaced a claim the ancestor 
 
     expect($merged['claim'])->toBe($takeover);
 });
+
+function boardSettings(array $overrides = []): array
+{
+    return array_replace(['version' => 3, 'key' => 'ACME', 'id_length' => 6, 'max_parallel' => 6, 'ready_buffer' => 12, 'wip' => ['review' => 6],
+        'stale_after_minutes' => 20, 'locked' => ['doing', 'review', 'done'], 'updated' => '2026-09-28T10:00:00.000+00:00'], $overrides);
+}
+
+function mergeLease(string $id, string $card, string $beat, array $more = []): array
+{
+    return ['beat' => $beat, 'card' => $card, 'by' => 'ana@host-a', 'since' => '2026-09-28T10:00:00.000+00:00', 'id' => $id] + $more;
+}
+
+it('keeps the merge lease of the upstream side when both sides changed it, from either side', function () {
+    $o = boardSettings(['merge' => mergeLease('1111111111111111', 'ACME-7K2M9Q', '2026-09-28T10:00:00.000+00:00')]);
+    $beat = boardSettings(['merge' => mergeLease('1111111111111111', 'ACME-7K2M9Q', '2026-09-28T10:02:00.000+00:00')]);
+    $taken = boardSettings(['merge' => mergeLease('2222222222222222', 'ACME-9X4R2T', '2026-09-28T10:20:00.000+00:00')]);
+    $released = boardSettings();
+
+    expect(mergeDriver($o, $taken, $beat, 'kanban.json')[1]['merge']['id'])->toBe('2222222222222222')
+        ->and(mergeDriver($o, $beat, $taken, 'kanban.json')[1]['merge']['id'])->toBe('1111111111111111')
+        ->and(mergeDriver($o, $released, $beat, 'kanban.json')[1])->not->toHaveKey('merge')
+        ->and(mergeDriver($o, $beat, $released, 'kanban.json')[1]['merge']['beat'])->toBe('2026-09-28T10:02:00.000+00:00');
+});
+
+it('merges a merge lease changed on one side beside other settings, in canonical order', function () {
+    $o = boardSettings();
+    $taken = boardSettings(['merge' => mergeLease('2222222222222222', 'ACME-9X4R2T', '2026-09-28T10:20:00.000+00:00', ['who' => 'Ana', 'pushing' => str_repeat('b', 40)])]);
+    $edited = boardSettings(['max_parallel' => 4, 'updated' => '2026-09-28T10:30:00.000+00:00']);
+
+    [$exit, $merged] = mergeDriver($o, $edited, $taken, 'kanban.json');
+    [, $swapped] = mergeDriver($o, $taken, $edited, 'kanban.json');
+
+    expect($exit)->toBe(0)
+        ->and($merged)->toBe($swapped)
+        ->and($merged['max_parallel'])->toBe(4)
+        ->and($merged['merge']['id'])->toBe('2222222222222222')
+        ->and(array_keys($merged))->toBe(['version', 'key', 'id_length', 'max_parallel', 'ready_buffer', 'wip', 'stale_after_minutes', 'locked', 'merge', 'updated'])
+        ->and(array_keys($merged['merge']))->toBe(['id', 'card', 'by', 'who', 'since', 'beat', 'pushing']);
+});

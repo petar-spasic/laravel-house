@@ -11,7 +11,7 @@ class PublishCommand extends Command
 {
     protected $signature = 'kanban:publish';
 
-    protected $description = 'Sync the board, then push main (merging origin/main when it moved)';
+    protected $description = 'Sync the board, then push main when it is ahead of origin/main (commits made outside the merge queue); never merges';
 
     protected function perform(): int
     {

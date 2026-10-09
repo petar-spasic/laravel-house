@@ -237,3 +237,46 @@ it("resolves a card agent's relative file path, or none, in its card rather than
     'Glob without a path' => ['Glob', ['pattern' => '**/*.php'], 'path', '{wt}'],
     'Grep a relative directory' => ['Grep', ['pattern' => 'x', 'path' => 'app'], 'path', '{wt}/app'],
 ]);
+
+it('binds a merger on EnterWorktree of the merge clone to the card merge.json names, while it is in review', function (?string $merging, string $path, ?string $card) {
+    $sandbox = new GuardSandbox;
+    $sandbox->merge();
+    if ($merging !== GuardSandbox::REVIEW) {
+        $merging === null ? unlink($sandbox->main.'/.git/laravel-house/merge.json') : $sandbox->merge($merging);
+    }
+
+    $result = $sandbox->case('merger:m1', 'EnterWorktree', ['path' => $path]);
+
+    expect($result['out'])->toBe('')
+        ->and(agentRecord($sandbox, 'm1')['card'] ?? null)->toBe($card)
+        ->and(agentRecord($sandbox, 'm1')['worktree'] ?? null)->toBe($card === null ? null : GuardSandbox::MERGE);
+})->with([
+    'the merge clone' => [GuardSandbox::REVIEW, '{merge}', GuardSandbox::REVIEW],
+    'the merge clone, relative' => [GuardSandbox::REVIEW, GuardSandbox::MERGE, GuardSandbox::REVIEW],
+    "the card's own clone" => [GuardSandbox::REVIEW, '{review}', null],
+    'a merge of a card not in review' => [GuardSandbox::DOING, '{merge}', null],
+    'no merge here' => [null, '{merge}', null],
+]);
+
+it('records a hand spawn of a merger for the card being merged, in the merge clone', function () {
+    $sandbox = new GuardSandbox;
+    $sandbox->merge();
+
+    $sandbox->case('main', 'Agent', ['subagent_type' => 'kanban-merger', 'prompt' => 'Card ACME-A1B2C3. Worktree {merge}']);
+
+    expect(json_decode(file_get_contents($sandbox->main.'/.git/laravel-house/spawns/ACME-A1B2C3.json'), true))
+        ->toMatchArray(['card' => GuardSandbox::REVIEW, 'agent_type' => 'kanban-merger', 'worktree' => GuardSandbox::MERGE]);
+});
+
+it('records no merger spawn for a card this checkout is not merging', function (?string $merging, string $prompt) {
+    $sandbox = new GuardSandbox;
+    $merging === null || $sandbox->merge($merging);
+
+    $sandbox->case('main', 'Agent', ['subagent_type' => 'kanban-merger', 'prompt' => $prompt]);
+
+    expect(glob($sandbox->main.'/.git/laravel-house/spawns/*.json') ?: [])->toBe([]);
+})->with([
+    'no merge here' => [null, 'Card ACME-A1B2C3. Worktree {merge}'],
+    'another card merged' => ['ACME-ZZZZ00', 'Card ACME-A1B2C3. Worktree {merge}'],
+    'a card not in review' => [GuardSandbox::DOING, 'Card ACME-7K2M9Q. Worktree {merge}'],
+]);

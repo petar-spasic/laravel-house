@@ -22,6 +22,12 @@ function gone(ProtocolSandbox $p, string $agent): void
     touch($p->runtime("agents/{$agent}.json"), time() - 30 * 60);
 }
 
+/** A merge of main the worker makes in its clone, as a card in review may hold from an earlier round. */
+function mergeMain(ProtocolSandbox $p, string $wt): void
+{
+    $p->git($wt, 'pull', '-q', '--no-rebase', '--no-edit', $p->main, 'main');
+}
+
 function commitMain(ProtocolSandbox $p, string $file, string $content): void
 {
     file_put_contents($p->main.'/'.$file, $content);
@@ -29,7 +35,7 @@ function commitMain(ProtocolSandbox $p, string $file, string $content): void
     $p->git($p->main, 'commit', '-q', '-m', "main: {$file}");
 }
 
-it('supersedes a verdict staged before a refresh instead of applying it', function () {
+it('supersedes a verdict staged before a return to doing instead of applying it', function () {
     $this->p->commit($this->wt, 'app.php', "<?php\n", "{$this->id}: clauses");
     $this->p->in($this->wt, ['report', $this->id, '--status=review', '--tick=1,2', '--summary=Done'])->mustRun();
     stopAgent($this->p, $this->wt);
@@ -37,14 +43,13 @@ it('supersedes a verdict staged before a refresh instead of applying it', functi
     $this->p->enter($this->wt, 'e1', 'kanban-evaluator');
     $this->p->in($this->wt, ['verdict', $this->id, 'reject', '--check=1:pass:ok', '--check=2:fail:"no test"'])->mustRun();
     gone($this->p, 'e1');
-    commitMain($this->p, 'other.txt', "other\n");
-    $this->p->sandbox->ok(['refresh', $this->id]);
+    $this->p->sandbox->ok(['move', $this->id, 'doing', '--reason=Handle the empty list']);
 
     $applied = $this->p->sandbox->ok(['apply', $this->id]);
 
     $card = $this->p->card($this->id);
-    expect($applied)->toContain("{$this->id}: verdict superseded: a refresh at ")
-        ->and($card['stage'])->toBe('review')
+    expect($applied)->toContain("{$this->id}: verdict superseded: a return to doing at ")
+        ->and($card['stage'])->toBe('doing')
         ->and(array_column($card['acceptance'], 'done'))->toBe([true, true])
         ->and(array_values(array_filter($card['log'], fn ($e) => $e['event'] === 'verdict_superseded'))[0] ?? null)->toMatchArray(['decision' => 'reject'])
         ->and(glob($this->p->runtime('staged/*')))->toBe([]);
@@ -91,6 +96,7 @@ it('shows the evaluator every report of the attempt and the merges that resolved
     $this->p->commit($this->wt, 'app.php', "<?php\n\nreturn 'branch';\n", "{$this->id}: clauses");
     $this->p->in($this->wt, ['report', $this->id, '--status=review', '--tick=1', '--summary=First pass', '--verified=pest --filter=Clauses → 4 passed'])->mustRun();
     stopAgent($this->p, $this->wt);
+    $this->p->sandbox->ok(['move', $this->id, 'doing', '--reason=Handle the empty list']);
     commitMain($this->p, 'other.txt', "other\n");
     $this->p->sandbox->ok(['refresh', $this->id]);
     commitMain($this->p, 'app.php', "<?php\n\nreturn 'main';\n");
@@ -150,54 +156,6 @@ it('keeps why the stop hook failed beside the staged report', function () {
     expect($stop->getExitCode())->toBe(1)
         ->and($this->p->sandbox->ok(['status']))->toMatch('/^doing  '.$this->id.' .*, report staged, not applied: hook failed: /m')
         ->and($this->p->sandbox->kanban(['refresh', $this->id])->getErrorOutput())->toContain('its stop hook failed, so `vendor/bin/kanban apply` settles it');
-});
-
-it('asks only for a re-verify when nothing but a clean merge of main followed the approval', function () {
-    $this->p->commit($this->wt, 'app.php', "<?php\n", "{$this->id}: clauses");
-    $this->p->in($this->wt, ['report', $this->id, '--status=review', '--tick=1,2', '--summary=Done'])->mustRun();
-    stopAgent($this->p, $this->wt);
-    $this->p->hook('subagent-start', $this->p->payload('subagent-start', ['agent' => 'e1', 'type' => 'kanban-evaluator']));
-    $this->p->enter($this->wt, 'e1', 'kanban-evaluator');
-    $this->p->in($this->wt, ['verdict', $this->id, 'approve', '--check=1:pass:ok', '--check=2:pass:ok'])->mustRun();
-    stopAgent($this->p, $this->wt, 'e1', 'kanban-evaluator');
-    $approved = $this->p->card($this->id)['work']['approved']['head'];
-    commitMain($this->p, 'app.php.md', "Acme Notes\n");
-    $this->p->sandbox->ok(['refresh', $this->id]);
-
-    expect($this->p->sandbox->ok(['context', $this->id, '--evaluate']))
-        ->toContain('re-verify: approved @'.substr($approved, 0, 7).'; since then only clean merges of main, in no file the card changes. Run `vendor/bin/kanban gates` and the whole suite once: no full review (`finish.check` is empty, so nothing runs the suite on main after the merge).');
-    $this->p->config(['gates' => ['report' => []], 'finish' => ['check' => ['php artisan test']]]);
-    expect($this->p->sandbox->ok(['context', $this->id, '--evaluate']))
-        ->toContain('re-verify: approved @'.substr($approved, 0, 7).'; since then only clean merges of main, in no file the card changes. Run `vendor/bin/kanban gates` only: no full review, no whole suite (`finish.check` runs on main after the merge).');
-
-    $this->p->commit($this->wt, 'more.php');
-    expect($this->p->sandbox->ok(['context', $this->id, '--evaluate']))->not->toContain('re-verify');
-});
-
-it('names in the re-verify the files both main and the card changed, and asks only for their tests while finish.check runs the suite on main', function () {
-    gone($this->p, 'a4d2c0ffee');
-    commitMain($this->p, 'shared.txt', "one\ntwo\nthree\nfour\nfive\n");
-    $this->p->sandbox->ok(['refresh', $this->id]);
-    $this->p->hook('subagent-start', $this->p->payload('subagent-start', ['agent' => 'w2']));
-    $this->p->enter($this->wt, 'w2');
-    file_put_contents($this->wt.'/shared.txt', "ONE\ntwo\nthree\nfour\nfive\n");
-    $this->p->git($this->wt, 'add', 'shared.txt');
-    $this->p->commit($this->wt, 'app.php', "<?php\n", "{$this->id}: clauses");
-    $this->p->in($this->wt, ['report', $this->id, '--status=review', '--tick=1,2', '--summary=Done'])->mustRun();
-    stopAgent($this->p, $this->wt, 'w2');
-    $this->p->hook('subagent-start', $this->p->payload('subagent-start', ['agent' => 'e1', 'type' => 'kanban-evaluator']));
-    $this->p->enter($this->wt, 'e1', 'kanban-evaluator');
-    $this->p->in($this->wt, ['verdict', $this->id, 'approve', '--check=1:pass:ok', '--check=2:pass:ok'])->mustRun();
-    stopAgent($this->p, $this->wt, 'e1', 'kanban-evaluator');
-    $approved = $this->p->card($this->id)['work']['approved']['head'];
-    commitMain($this->p, 'shared.txt', "one\ntwo\nthree\nfour\nFIVE\n");
-    $this->p->sandbox->ok(['refresh', $this->id]);
-
-    expect($this->p->sandbox->ok(['context', $this->id, '--evaluate']))
-        ->toContain('re-verify: approved @'.substr($approved, 0, 7).'; since then only clean merges of main, touching files the card changes too: shared.txt. Run `vendor/bin/kanban gates` and the whole suite once: no full review');
-    $this->p->config(['gates' => ['report' => []], 'finish' => ['check' => ['php artisan test']]]);
-    expect($this->p->sandbox->ok(['context', $this->id, '--evaluate']))
-        ->toContain('re-verify: approved @'.substr($approved, 0, 7).'; since then only clean merges of main, touching files the card changes too: shared.txt. Run `vendor/bin/kanban gates` and only the tests among or covering those files: no full review, no whole suite (`finish.check` runs on main after the merge).');
 });
 
 it('never merges main into uncommitted changes', function () {
@@ -296,7 +254,7 @@ it('rebuilds a card in review whose follow-up report the stop gate refused for a
     $this->p->in($this->wt, ['report', $this->id, '--status=review', '--tick=1,2', '--summary=Done'])->mustRun();
     stopAgent($this->p, $this->wt);
     commitMain($this->p, 'other.txt', "other\n");
-    $this->p->sandbox->ok(['refresh', $this->id]);
+    mergeMain($this->p, $this->wt);
     file_put_contents($this->wt.'/stray.php', "<?php\n");
     $this->p->git($this->wt, 'add', 'stray.php');
     $this->p->git($this->wt, 'commit', '-q', '--amend', '--no-edit');
@@ -337,7 +295,7 @@ it('refuses to rebuild a clone that is not on the card\'s branch, or whose evalu
     $this->p->in($this->wt, ['report', $this->id, '--status=review', '--tick=1,2', '--summary=Done'])->mustRun();
     stopAgent($this->p, $this->wt);
     commitMain($this->p, 'other.txt', "other\n");
-    $this->p->sandbox->ok(['refresh', $this->id]);
+    mergeMain($this->p, $this->wt);
     file_put_contents($this->wt.'/stray.php', "<?php\n");
     $this->p->git($this->wt, 'add', 'stray.php');
     $this->p->git($this->wt, 'commit', '-q', '--amend', '--no-edit');
@@ -373,7 +331,7 @@ it('takes no one in the clone but its worker for the worker', function () {
     $this->p->in($this->wt, ['report', $this->id, '--status=review', '--tick=1,2', '--summary=Done'])->mustRun();
     stopAgent($this->p, $this->wt);
     commitMain($this->p, 'other.txt', "other\n");
-    $this->p->sandbox->ok(['refresh', $this->id]);
+    mergeMain($this->p, $this->wt);
     file_put_contents($this->wt.'/stray.php', "<?php\n");
     $this->p->git($this->wt, 'add', 'stray.php');
     $this->p->git($this->wt, 'commit', '-q', '--amend', '--no-edit');

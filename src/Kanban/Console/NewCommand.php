@@ -46,10 +46,8 @@ class NewCommand extends Command
 
         $card = $store->create($ref, $fields, $this->actor());
         $this->say("created {$card->id()} {$card->board} {$card->stage()}");
-        if ($card->areas() !== [] || $card->dependsOn() !== []) {
-            foreach (Shape::hints($store->snapshot(), $card, $card->areas(), $card->dependsOn()) as $hint) {
-                $this->say($hint);
-            }
+        foreach (Shape::hints($store->snapshot(), $card, $card->areas(), $card->dependsOn(), (string) ($card->data['body'] ?? ''), array_column($card->acceptance(), 'text')) as $hint) {
+            $this->say($hint);
         }
         $this->reportPending();
 

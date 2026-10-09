@@ -63,6 +63,9 @@ every guess you pass on is a mistake it builds.
 Write `<worktree>/.tmp/plan.md`. It is read by an agent: terse and imperative, every line a fact or an instruction. No
 prose, background or alternatives, no "consider" or "maybe": decide.
 
+The plan carries every instruction: files, steps, traps, commands. The card's body is the owner's summary in plain
+words: never move instructions into it, and never ask for it to be rewritten as instructions.
+
 The plan says what to build, where, in which order and how to check it; the worker writes the code. Spend words where a
 smaller model goes wrong, not where any Laravel developer gets it right:
 
@@ -81,7 +84,7 @@ One or two lines: what the card delivers.
 - read `app/Models/Invoice.php` — the casts and the `issued()` scope the export reuses
 - change `routes/web.php` — the export route, after `invoices.index`
 - create `app/Http/Controllers/InvoiceExportController.php` — invokable, shaped like `ReportExportController`
-- create `tests/Feature/InvoiceExportTest.php` — criteria 1 and 2
+- create `tests/E2E/InvoiceExportTest.php` — criteria 1 and 2
 
 ## Rules
 - `app/Http/CLAUDE.md`: controllers are invokable; validation lives in form requests
@@ -93,7 +96,7 @@ One or two lines: what the card delivers.
 2. …
 
 ## Criteria
-- 1: `tests/Feature/InvoiceExportTest.php` `it lists the month's invoices`: 3 issued and 1 draft → 3 rows;
+- 1: `tests/E2E/InvoiceExportTest.php` `it lists the month's invoices`: 3 issued and 1 draft → 3 rows;
   `php artisan test --compact --filter=InvoiceExport`
 - 2: …
 

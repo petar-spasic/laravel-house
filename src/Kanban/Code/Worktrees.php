@@ -13,7 +13,7 @@ use Symfony\Component\Process\Process;
 
 /**
  * Code worktrees under `<main>/.claude/worktrees/` and the slot, `.env` and Docker stack that go with each. A card's
- * worktree is a clone of main (its own `.git`, objects hardlinked, `kanban.main` naming main), so its agents run git
+ * worktree is a clone of main (its own `.git`, objects hardlinked), so its agents run git
  * inside their stack without reaching main's refs, config or runtime. Other worktrees are git worktrees.
  */
 final class Worktrees
@@ -89,11 +89,11 @@ final class Worktrees
         return rtrim($end === false || $end === 0 ? mb_substr($title, 0, $max) : mb_substr($cut, 0, $end), ' ,.;:-');
     }
 
-    /** The Agent call that spawns $agent (kanban-worker, kanban-planner, kanban-evaluator) on the card's worktree at $path. */
+    /** The Agent call that spawns $agent (kanban-worker, kanban-planner, kanban-evaluator, kanban-merger) on $path: the card's worktree, or the merge clone. */
     public static function spawnLine(Card $card, string $agent, string $path): string
     {
         $description = $card->id().match ($agent) {
-            'kanban-evaluator' => ' review ', 'kanban-planner' => ' plan ', default => ' '
+            'kanban-evaluator' => ' review ', 'kanban-planner' => ' plan ', 'kanban-merger' => ' merge ', default => ' '
         }.self::label($card->title());
 
         return "Agent(subagent_type=\"{$agent}\", description=\"{$description}\", prompt=\"Card {$card->id()}. Worktree {$path}\")";
@@ -123,15 +123,21 @@ final class Worktrees
         return false;
     }
 
-    /** A card clone of this repository: its own `.git` directory, with `kanban.main` naming this main checkout. */
+    /** A card clone of this repository: its own `.git` directory, under this checkout's `.claude/worktrees/` (Paths::cloneMainOf). */
     public function isClone(string $path): bool
     {
         return is_dir($path.'/.git') && Paths::cloneMainOf($path) === $this->paths->main;
     }
 
+    /** This checkout's merge clone (Paths::mergeClone): its stack is outside `stack.max_stacks`, and no card's branch is in it. */
+    public function isMergeClone(string $path): bool
+    {
+        return (realpath($path) ?: $path) === (realpath($this->paths->mergeClone()) ?: $this->paths->mergeClone());
+    }
+
     /**
      * A card's clone at $path on $branch: an existing branch is fetched from main, otherwise it is created from local
-     * main. It carries main's identity and hooks path, and `kanban.main`, which `Paths` follows back to main.
+     * main. It carries main's identity and hooks path, and `kanban.main`, which tells its container it is in a clone.
      */
     public function add(string $path, string $branch): void
     {
@@ -172,13 +178,13 @@ final class Worktrees
      */
     public function sync(string $path, ?string $branch = null): void
     {
-        if (! $this->isClone(realpath($path) ?: $path)) {
+        if (! $this->isClone(realpath($path) ?: $path) || $this->isMergeClone($path)) {
             return;
         }
         $main = $this->mainBranch();
         $clone = Git::untrusted($path);
         // by path, never the clone's `origin`: its remote config (an upload-pack, a URL) is the agent's
-        $clone->attempt(['fetch', '-q', '--no-tags', $this->paths->main, "+refs/heads/{$main}:refs/heads/{$main}"]);
+        $clone->attempt(['fetch', '-q', '--no-tags', '--no-recurse-submodules', $this->paths->main, "+refs/heads/{$main}:refs/heads/{$main}"]);
         $branch ??= $clone->line(['symbolic-ref', '--short', '-q', 'HEAD']);
         if ($branch !== null && $branch !== $main) {
             // the upload-pack serving it runs in the clone, with the clone's config: untrusted
@@ -287,14 +293,14 @@ final class Worktrees
         $env = $this->env();
         $entry = $this->registry()->allocate($path, [
             'project' => $env->project($path), 'repo' => $this->paths->main, 'branch' => $branch, 'card' => $card,
-        ], $avoid);
+        ] + ($this->isMergeClone($path) ? ['purpose' => PortRegistry::MERGE] : []), $avoid);
         $env->write($path, $entry['ports']);
 
         return $entry + ['url' => $env->url($path, $entry['ports'])];
     }
 
     /**
-     * Resource precheck (not for a recreate), project name check, `up -d --build` (no wait), with `--force-recreate` too
+     * Resource precheck (not for a recreate, nor the merge stack: a busy machine still drains its merge queue), project name check, `up -d --build` (no wait), with `--force-recreate` too
      * when the docker files changed since the recorded up. "port is already allocated" → the next slot, `.env`
      * rewritten, one retry. The stack record is written after a successful up.
      *
@@ -305,7 +311,7 @@ final class Worktrees
         $entry = $this->prepare($path, $branch, $card) ?? throw new StackFailed('stacks are disabled (stack.compose_file unset or missing)');
         $hash = $this->stackRecord($path)['hash'] ?? null;
         $recreate = $recreate || ($hash !== null && $hash !== $this->dockerHash($path));
-        $refusals = $recreate ? [] : $this->registry()->resourceRefusals();
+        $refusals = $recreate || $this->isMergeClone($path) ? [] : $this->registry()->resourceRefusals();
         if ($refusals !== []) {
             throw new StackFailed('not starting a stack: '.implode('; ', $refusals), $refusals);
         }
@@ -415,8 +421,13 @@ final class Worktrees
         if (! $git->attempt(['rev-parse', '-q', '--verify', 'MERGE_HEAD'])->ok()) {
             return null;
         }
+        // the index alone: no content of the clone is read, so nothing its config names runs
+        $files = [];
+        foreach (array_filter(explode("\0", $git->attempt(['ls-files', '-u', '-z'])->out)) as $line) {
+            $files[substr($line, strpos($line, "\t") + 1)] = true;
+        }
 
-        return array_values(array_filter(explode("\n", trim($git->attempt(['diff', '--name-only', '--diff-filter=U'])->out))));
+        return array_keys($files);
     }
 
     /**
@@ -483,7 +494,7 @@ final class Worktrees
     /** @return list<string> uncommitted changes to tracked files: what a merge would carry, or a removed clone lose */
     public function changed(string $path): array
     {
-        return array_values(array_filter(explode("\n", rtrim($this->git($path)->attempt(['status', '--porcelain', '--untracked-files=no'])->out))));
+        return array_values(array_filter(explode("\n", rtrim($this->status($path, ['--untracked-files=no'])))));
     }
 
     /**
@@ -492,7 +503,10 @@ final class Worktrees
      */
     public function leftovers(string $path): ?string
     {
-        $untracked = is_dir($path) ? array_map(fn (string $l) => substr($l, 3), array_values(array_diff($this->dirty($path), $this->changed($path)))) : [];
+        if ($this->changed($path) !== []) {
+            return null;
+        }
+        $untracked = array_map(fn (string $l) => substr($l, 3), $this->dirty($path));
 
         return $untracked === [] ? null : 'removed with the clone, untracked: '.implode(', ', array_slice($untracked, 0, 10)).(count($untracked) > 10 ? ' …' : '');
     }
@@ -500,14 +514,25 @@ final class Worktrees
     /** Tracked changes or untracked files (ignored files do not count). */
     public function dirty(string $path): array
     {
-        $out = $this->git($path)->attempt(['status', '--porcelain', '--untracked-files=all']);
+        return array_values(array_filter(explode("\n", rtrim($this->status($path, ['--untracked-files=all'])))));
+    }
 
-        return array_values(array_filter(explode("\n", rtrim($out->out))));
+    /**
+     * `git status --porcelain` of a worktree; a repository nested in it never counts.
+     *
+     * @param  list<string>  $args
+     */
+    private function status(string $path, array $args): string
+    {
+        return is_dir($path) ? $this->git($path)->attempt(['status', '--porcelain', '--ignore-submodules=all', ...$args])->out : '';
     }
 
     /** A clone's branch ($branch, the card's, else the one it has checked out) reaches main first, so removing it never loses a commit. */
     public function remove(string $path, bool $force = false, ?string $branch = null): void
     {
+        if ($this->isMergeClone($path)) {
+            return;
+        }
         if (! $this->isClone(realpath($path) ?: $path)) {
             $this->git()->run(['worktree', 'remove', ...($force ? ['--force'] : []), $path]);
 

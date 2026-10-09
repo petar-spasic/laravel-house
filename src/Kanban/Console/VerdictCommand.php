@@ -32,14 +32,12 @@ class VerdictCommand extends Command
             throw new PolicyRefused("{$card->id()} is {$card->stage()}, not review: only a card in review takes a verdict");
         }
         $git = Git::untrusted($worktree);
-        $main = 'refs/heads/'.$this->setting('main_branch', 'main');
         $runtime = new Runtime($this->paths());
         $evaluator = $runtime->agentFor($card->id(), SubagentStop::EVALUATOR);
         $since = $evaluator === null || $runtime->state($evaluator) !== 'live' ? null
             : (max((string) ($evaluator['started_at'] ?? ''), (string) ($evaluator['bound_at'] ?? '')) ?: null);
         $verdict = Staged::verdict($card, (string) $this->argument('decision'), $this->option('check'), $this->option('issue'), $this->option('discovered'), $this->option('note'), [
             'head' => (string) $git->line(['rev-parse', 'HEAD']),
-            'base' => $git->line(['merge-base', 'HEAD', $main]),
             'worktree' => $this->paths()->relative($worktree),
             'session' => (getenv('KANBAN_SESSION') ?: null),
             'since' => $since,

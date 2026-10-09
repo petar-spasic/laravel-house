@@ -6,21 +6,21 @@
     const BASE = body.dataset.base ?? '/kanban';
     const POLL = Math.max(1000, Number(body.dataset.pollMs) || 3000);
     const root = document.getElementById('app');
-    const SUMMARY = ['id', 'short', 'title', 'stage', 'priority', 'type', 'labels', 'epic', 'blocked', 'question', 'blocks', 'deps', 'progress', 'agent', 'url', 'since', 'rev'];
+    const SUMMARY = ['id', 'short', 'title', 'stage', 'priority', 'type', 'labels', 'epic', 'blocked', 'question', 'blocks', 'deps', 'progress', 'agent', 'url', 'merge', 'since', 'rev'];
     const PRIORITIES = ['urgent', 'high', 'normal', 'low'];
     const MAX = { body: 20000, criteria: Number(body.dataset.maxCriteria), criterion: Number(body.dataset.maxCriterion), labels: 10 };
     // what an empty lane says
     const EMPTY = {
         backlog: 'No cards yet. Press N to add one.', planning: 'Cards that pass the ready checks wait here for their plan.', ready: 'Planned cards wait here for a worker.',
-        doing: 'Started by agents: kanban start.', review: 'Finished work waits here for evaluation.', done: 'Completed cards collect here.', dropped: 'Nothing dropped.',
+        doing: 'Started by agents: kanban start.', review: 'Reported work waits here for its evaluator, then for the merge queue.', done: 'Completed cards collect here.', dropped: 'Nothing dropped.',
     };
     // lanes a card cannot be dropped into, and how a card gets there; and how one gets out
     const CLI_HINT = {
         ready: "A plan moves cards here: their planner's, or vendor/bin/kanban plan ID", doing: 'Cards move here from the command line: vendor/bin/kanban start ID',
-        review: "A worker's report moves cards here: vendor/bin/kanban apply ID", done: 'Finished from the command line: vendor/bin/kanban finish ID',
+        review: "A worker's report moves cards here: vendor/bin/kanban apply ID", done: 'The merge queue moves approved cards here: kanban run, or vendor/bin/kanban finish ID',
     };
     const CLI_ONWARD = {
-        doing: 'It moves to review when a worker reports: vendor/bin/kanban apply ID', review: 'It moves to done with vendor/bin/kanban finish ID',
+        doing: 'It moves to review when a worker reports: vendor/bin/kanban apply ID', review: 'The merge queue moves it to done once an evaluator approves it: kanban run, or vendor/bin/kanban finish ID',
         done: 'Finished cards stay done', held: 'A planner is working on it: it moves to ready with its plan; vendor/bin/kanban stop ID --to=backlog takes the planner off',
     };
     const TYPES = ['feature', 'bug', 'chore', 'spike'];
@@ -744,7 +744,7 @@
 
     function fillCard(el, c) {
         const moves = hasMoves(c);
-        const signature = JSON.stringify([c.rev, c.deps, c.blocks, c.agent && [c.agent.state, c.agent.since, c.agent.beat], moves, [...S.filter.epic], [...S.filter.label]]);
+        const signature = JSON.stringify([c.rev, c.deps, c.blocks, c.agent && [c.agent.state, c.agent.since, c.agent.beat], c.merge, moves, [...S.filter.epic], [...S.filter.label]]);
         if (el._sig === signature) return;
         el._sig = signature;
         if (el._rev !== undefined && el._rev !== c.rev && S.fromPoll && S.loaded) flash(el);
@@ -761,6 +761,7 @@
         if (c.deps.open) tags.push(h('span', { class: 'tag amber', title: c.deps.open + ' of ' + c.deps.total + ' dependencies not done' }, svg('clock'), 'Waits on ' + c.deps.open));
         if (c.blocks) tags.push(h('span', { class: 'tag', title: c.blocks + ' open cards wait on this one; if they are one piece of work, fold them into it' }, svg('arrow-right'), 'Blocks ' + c.blocks));
         if (c.agent) tags.push(agentTag(c.agent));
+        if (c.merge) tags.push(mergeTag(c.merge));
         const facts = [];
         const reason = c.question ?? c.blocked;
         if (reason) facts.push(h('span', { class: 'fact reason', title: reason, text: reason }));
@@ -792,6 +793,13 @@
         return h('button', { class: cls + (on ? ' is-on' : ''), type: 'button', draggable: 'false', 'aria-pressed': String(on),
             title: (on ? 'Show all cards again' : 'Show only these cards') + ' (' + (key === 'epic' ? 'epic ' : '') + value + ')',
             onclick: (e) => { e.stopPropagation(); toggleFilter(key, value); } }, mark, h('span', { text }));
+    }
+
+    /** Where an approved card stands in the merge queue: being merged, waiting for a red main, or at its place. */
+    function mergeTag(merge) {
+        if (merge.state === 'merging') return h('span', { class: 'tag green', title: 'Being merged into main by ' + merge.by + ' since ' + when(merge.since) }, svg('arrow-right'), 'Merging');
+        if (merge.state === 'held') return h('span', { class: 'tag amber', title: 'It ' + merge.waits }, svg('clock'), 'Waits on main');
+        return h('span', { class: 'tag', title: 'Approved: number ' + merge.position + ' in the merge queue' }, svg('clock'), 'Queued ' + merge.position);
     }
 
     /** An agent on a card: working (with how long), stale (no heartbeat) or stopped. */
@@ -2088,7 +2096,7 @@
     function renderFacts(P, c) {
         const f = c.facts;
         const at = (value) => text(value).slice(0, 16).replace('T', ' ');
-        const rows = [['In stage', age(now() - c.since) + ' (since ' + at(f.stage_since) + ')'], ['Branch', f.branch], ['Worktree', f.worktree], ['Merge', f.merge], ['Parked branch', f.parked_branch],
+        const rows = [['In stage', age(now() - c.since) + ' (since ' + at(f.stage_since) + ')'], ['Branch', f.branch], ['Worktree', f.worktree], ['Merge queue', f.queue], ['Merge', f.merge], ['Parked branch', f.parked_branch],
             ['Claimed by', f.claim && f.claim.by + ' · ' + at(f.claim.at)], ['Host', f.host], ['Created', at(f.created)], ['Updated', at(f.updated)]].filter(([, v]) => v);
         const wasOpen = P.facts.open;
         P.facts.replaceChildren(h('summary', { text: 'Details' }), h('dl', { class: 'facts' }, rows.flatMap(([k, v]) => [h('dt', { text: k }), h('dd', { text: v })])));
@@ -2134,6 +2142,13 @@
         if (entry.event === 'plan') return 'could not plan it' + (entry.reason ? ': ' + entry.reason : '');
         if (entry.event === 'conflict') return 'kept the other version of ' + (entry.field === 'flow' ? 'the stage' : entry.field) + ' in a merge';
         if (entry.event === 'set') return 'changed ' + (entry.fields || []).join(', ') + (entry.acceptance_removed ? ' (removed criteria ' + entry.acceptance_removed.join(', ') + ')' : '');
+        if (entry.event === 'merge') {
+            return {
+                conflict: 'met conflicts merging into main: ' + (entry.files || []).join(', '), red: 'went red merging into main: ' + entry.command,
+                main: 'found ' + entry.command + ' failing on main too (' + entry.red + ')', resolved: 'resolved the conflicts of its merge', fixed: 'fixed what its merge turned red',
+                back: 'sent it back from the merge queue', stale: 'took it out of the merge queue: its branch moved past the approval', landed: 'found it on main already',
+            }[entry.result] || 'merge ' + entry.result;
+        }
 
         return entry.event + Object.entries(entry).filter(([key]) => !['id', 'at', 'by', 'who', 'event'].includes(key)).map(([key, value]) => ' ' + key + ': ' + (value !== null && typeof value === 'object' ? JSON.stringify(value) : value)).join('');
     }
@@ -2143,7 +2158,7 @@
         P.log.replaceChildren(...c.log.map((entry) => {
             const icon = { note: 'note', stage: 'arrow-right', set: 'pencil', conflict: 'alert' }[entry.event] || 'more';
             const since = Date.parse(entry.at) / 1000;
-            const quote = entry.event === 'note' ? entry.text : entry.event === 'stage' ? entry.reason || null : null;
+            const quote = entry.event === 'note' ? entry.text : entry.event === 'stage' ? entry.reason || null : entry.event === 'merge' ? entry.note || null : null;
             return h('li', {}, h('span', { class: 'log-i' }, svg(icon)),
                 h('div', { class: 'log-b' },
                     h('div', { class: 'log-h' }, h('span', { class: 'who', text: logActor(entry) }), h('span', { text: ' ' + logPhrase(entry) }),

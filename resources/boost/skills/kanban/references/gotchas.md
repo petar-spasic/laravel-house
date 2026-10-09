@@ -2,7 +2,8 @@
 
 Surprises from real runs, one block each: **symptom** → cause → fix. This file ships with the package and is
 overwritten on update: a surprise specific to a project goes into that project's `CLAUDE.md`, and a defect in the
-package goes upstream (`--upstream`, `kanban upstream`).
+package goes upstream (`--upstream`, `kanban upstream`). The board's limits on agents (the clone, the container, the
+file fence, the merger gate) catch an agent's mistakes; they are no wall against a hostile one.
 
 **`kanban set` on a card in doing, review or done exits 3 with "a locked stage".** → Those stages are locked by
 default: the owner and the main session may add a note, block or unblock, tick or untick, and reword a criterion with
@@ -11,8 +12,8 @@ default: the owner and the main session may add a note, block or unblock, tick o
 (or `[]`) as `locked` in `docs/kanban/kanban.json`.
 
 **`next` starts one card while Ready holds several.** → Cards that share an `area:*` label never run at once, and a
-card in review holds its area until `finish`. → `next -v` names the wait; finish approved cards first, and plan one card
-per area (the kanban skill, "Cutting cards").
+card in review holds its area until it merges. → `next -v` names the wait; plan one card per area (the kanban skill,
+"Cutting cards").
 
 **A ready card went back to planning.** → Its criteria or body changed after it was planned, or the owner answered
 one of its questions other than by confirming what its plan took (another option, or a note). → Nothing to do: its
@@ -153,8 +154,30 @@ at the next sync.
 gates are main's (`gates` in protocol.md). → The worker runs the new gate's command itself and cites it in
 `report --verified`.
 
-**Approved cards go back to review after a merge that changed only Markdown or `docs/` files they change too.** → A project's
-`finish.overlap_ignore` replaces the defaults `*.md` and `docs/*` instead of adding to them. → Repeat them in your list.
+**Approved cards stay in review and nothing merges.** → The merge queue merges nothing while main's `finish.check` is
+empty (`kanban run` says so once; `finish` exits 3). → Set it to the whole suite, as `tests/CLAUDE.md` names it, in
+`config/kanban.php` on main.
+
+**A merge fails with exit 7: "finish.check: `…` is not found in the app container".** → `finish.check` runs where the
+gates run: in the merge stack's app container (on this machine with `KANBAN_AGENT_SHELL=host`); a command written
+for the host (`docker compose exec app …`) exits 127 there. → Write the command as you would type it inside the
+container.
+
+**A merge blocks the card: "merge conflict in files the merger may not edit: config/kanban.php".** → Main and the
+card both changed `config/kanban.php` or a file in `.claude/`, and the merger gate refuses those; unblocking alone
+conflicts again. → `kanban move ACME-X doing --reason="resolve <file> against main"`, then `kanban refresh ACME-X`
+(exit 5 leaves the conflict in its clone). A file in `.claude/`, which no agent may write, the owner resolves there and
+adds. Then unblock it: its worker concludes the merge and reports again.
+
+**Nothing merges on a board without a remote: "main checkout not moved: the merge of ACME-X adds …, which git does not
+track here".** → Without a remote the merge fast-forwards the main checkout, and git never overwrites a file it does
+not track (an agent's leftover). → Remove the file, or commit it on main; `git stash` leaves untracked files.
+
+**Every approved card waits: "waits for ACME-X (failing on main)".** → A merge found a `finish.check` command failing
+on main alone, filed or noted the `main-red` card ACME-X, and the queue merges nothing until origin's main moves. →
+Give ACME-X an area and `promote` it: it merges as soon as its own command passes. Keep its criterion "`<command>`
+passes on main" as filed: a `main-red` card without one waits like any other. A fix pushed to main by hand lifts the
+hold too.
 
 **Agents keep filing the same failure that is already on main.** → Each one met it in its own run and filed it from its
 own card. → Workers and evaluators file it with `--discovered='main: <command> — what fails'`, which keeps one card for

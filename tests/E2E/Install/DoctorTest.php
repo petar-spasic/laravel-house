@@ -1,6 +1,8 @@
 <?php
 
 use PetarSpasic\LaravelHouse\Kanban\Console\Install\Steps;
+use PetarSpasic\LaravelHouse\Kanban\Support\Json;
+use PetarSpasic\LaravelHouse\Tests\Support\Origin;
 use PetarSpasic\LaravelHouse\Tests\Support\Sandbox;
 use Symfony\Component\Process\Process;
 
@@ -20,6 +22,8 @@ it('passes on a correctly wired project', function () {
         ->toContain("ok vendor/petar-spasic/laravel-house/bin/kanban-guard executable\n")
         ->toContain("ok .claude/agents/kanban-planner.md\n")
         ->toContain("ok .claude/agents/kanban-worker.md\n")
+        ->toContain("ok .claude/agents/kanban-merger.md\n")
+        ->toContain("ok finish.check: php artisan test\n")
         ->toContain("ok CLAUDE.md kanban block\n")
         ->toContain("ok .gitignore /docs/kanban/ /.claude/worktrees /.claude/settings.local.json\n")
         ->toContain("ok runtime .git/laravel-house writable\n")
@@ -52,7 +56,7 @@ it('fails each compose problem and the missing project name, and warns about a p
         ->toContain('fail docker-compose.local.yml: top-level name: must be "${COMPOSE_PROJECT_NAME:?…}"')
         ->toContain("fail COMPOSE_PROJECT_NAME missing from .env: the main stack has no project name (add e.g. COMPOSE_PROJECT_NAME=main-local)\n")
         ->toContain("warn phpunit.xml hardcodes DB_HOST, DB_PORT: tests in a worktree would hit the main database; remove them\n")
-        ->toContain("warn docker address pools: 1 free networks (< 12, stack.max_stacks) in 198.18.0.0/15 (/16 networks): widen default-address-pools in /etc/docker/daemon.json (README)\n")
+        ->toContain("warn docker address pools: 1 free networks (< 13, stack.max_stacks and the merge stack) in 198.18.0.0/15 (/16 networks): widen default-address-pools in /etc/docker/daemon.json (README)\n")
         ->not->toContain('ok docker-compose.local.yml')
         ->and(substr_count($process->getOutput(), 'fixed host port'))->toBe(3);
 });
@@ -249,4 +253,102 @@ it('adds the card-stack lines to a compose file written before them, once, and l
         ], $before))
         ->and($again)->not->toContain('fix: added to')
         ->and(file_get_contents($file))->toBe($after);
+});
+
+it('fails without a suite in finish.check and warns about one written as a host command', function (array $check, string $line) {
+    $sandbox = doctorSandbox();
+    file_put_contents($sandbox->root.'/config/kanban.php', '<?php return '.var_export(['finish' => ['check' => $check]], true).';');
+
+    expect(doctor($sandbox)->getOutput())->toContain($line);
+})->with([
+    'none' => [[], "fail finish.check names no suite: no card merges until it does (config/kanban.php)\n"],
+    'a host command' => [['docker compose exec -T app php artisan test'], "warn finish.check runs in the app container: `docker compose exec -T app php artisan test` names docker, compose or kanban-exec; write it as it runs in there\n"],
+]);
+
+it('takes a finish.check written as a host command when the agents\' shell is the host', function () {
+    $sandbox = doctorSandbox();
+    file_put_contents($sandbox->root.'/config/kanban.php', '<?php return '.var_export(['finish' => ['check' => ['docker compose exec -T app php artisan test']]], true).';');
+
+    expect(doctor($sandbox, env: ['KANBAN_AGENT_SHELL' => 'host'])->getOutput())->not->toContain('finish.check runs in the app container');
+});
+
+it('fails stacks turned off, since the merge queue checks every merge in a stack of its own', function () {
+    $sandbox = doctorSandbox();
+    unlink($sandbox->root.'/docker-compose.local.yml');
+
+    $process = doctor($sandbox);
+
+    expect($process->getExitCode())->toBe(1)
+        ->and($process->getOutput())->toContain("fail worktree stacks disabled (stack.compose_file docker-compose.local.yml not found): no card merges, since the merge queue runs finish.check in a stack of its own\n");
+});
+
+it('warns while main holds commits the remote\'s main lacks, as this machine last fetched it', function () {
+    $sandbox = doctorSandbox();
+    $sandbox->addRemote(Origin::create());
+    $base = trim($sandbox->git('rev-parse', 'main'));
+
+    $even = doctor($sandbox)->getOutput();
+    $sandbox->git('commit', '-q', '--allow-empty', '-m', 'made outside the queue');
+    $ahead = doctor($sandbox)->getOutput();
+    $sandbox->git('update-ref', 'refs/remotes/origin/main', trim($sandbox->git('commit-tree', $base.'^{tree}', '-p', $base, '-m', 'merged elsewhere')));
+    $diverged = doctor($sandbox)->getOutput();
+
+    expect($even)->not->toContain('origin/main lacks')->not->toContain('diverged')
+        ->and($ahead)->toContain("warn main holds 1 commit(s) origin/main lacks: `kanban publish` pushes them; the next merge goes onto origin/main and leaves main diverged\n")
+        ->and($diverged)->toContain("warn main and origin/main diverged: the merge queue cannot bring the main checkout up to date; merge origin/main into main by hand, then `kanban publish`\n");
+});
+
+it('fails a _merge that is not this checkout\'s merge clone', function (Closure $arrange) {
+    $sandbox = doctorSandbox();
+    $arrange($sandbox->root.'/.claude/worktrees/_merge');
+
+    $process = doctor($sandbox);
+
+    expect($process->getExitCode())->toBe(1)
+        ->and($process->getOutput())->toContain("fail .claude/worktrees/_merge is not this checkout's merge clone: remove it\n");
+})->with([
+    'not a clone' => [fn (string $merge) => mkdir($merge, 0775, true)],
+    'its .git/info a symlink' => [function (string $merge) {
+        mkdir($merge.'/.git', 0775, true);
+        symlink(dirname($merge), $merge.'/.git/info');
+    }],
+]);
+
+it('warns about a merge lease of this checkout with no merge running, and not about another checkout\'s', function () {
+    $sandbox = doctorSandbox();
+    $id = $sandbox->readyCard('Tag notes');
+    $board = $sandbox->root.'/docs/kanban/kanban.json';
+    $kanban = json_decode((string) file_get_contents($board), true);
+    $kanban['merge'] = ['id' => '9f2c41d07a8b3e65', 'card' => $id, 'by' => 'ana@host-a',
+        'since' => '2026-10-09T08:00:00.000+00:00', 'beat' => '2026-10-09T08:04:00.000+00:00'];
+    Json::write($board, Json::encode($kanban, 'kanban'));
+    $sandbox->boardGit('commit', '-q', '-am', 'merge lease (test)');
+    @mkdir($sandbox->root.'/.git/laravel-house', 0775, true);
+    $state = fn (string $lease) => file_put_contents($sandbox->root.'/.git/laravel-house/merge.json', json_encode(['card' => $id, 'lease' => $lease, 'phase' => 'conflict']));
+
+    $state('0123456789abcdef');
+    $other = doctor($sandbox)->getOutput();
+    $state('9f2c41d07a8b3e65');
+    $mine = doctor($sandbox)->getOutput();
+
+    expect($other)->not->toContain('merge lease')
+        ->and($mine)->toContain("warn merge lease 9f2c41d07a8b3e65 is this checkout's with no merge running: `kanban finish {$id}` goes on with it, `kanban finish {$id} --abort` gives it back\n");
+});
+
+it('warns about a card that waits on a steering question, which the merge queue merges as any other change, and names a route back to its worker that works', function () {
+    $sandbox = doctorSandbox();
+    $id = $sandbox->card('Add a commit hook', ['--body='."## Open question\nMerge with changes to files that steer the agents or git?\nSteering: .husky/pre-commit\n1. Merge it\n2. Revert them\nRecommended: 1"]);
+    $card = $sandbox->read($id);
+    $card = ['stage' => 'review', 'claim' => ['by' => 'worker', 'session' => 's1', 'at' => $card['updated']],
+        'work' => ['branch' => 'card/hook', 'approved' => ['head' => str_repeat('a', 40), 'at' => $card['updated']]]] + $card;
+    file_put_contents($sandbox->root."/docs/kanban/work/{$id}.json", json_encode($card, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n");
+    $sandbox->ok(['set', $id, 'blocked=question: merge with changes to files that steer the agents or git?']);
+
+    expect(doctor($sandbox)->getOutput())
+        ->toContain("warn {$id} waits on a steering question: any answer unblocks it and the merge queue merges it as it is; to have its worker revert the changes, send it back first: `kanban move {$id} doing --reason=\"revert …\"`, then answer\n");
+
+    $sandbox->ok(['move', $id, 'doing', '--reason=revert .husky/pre-commit']);
+    $sandbox->ok(['answer', $id, '2']);
+    expect($sandbox->read($id))->toMatchArray(['stage' => 'doing', 'blocked' => null])
+        ->and($sandbox->read($id)['work']['approved'])->toBeNull();
 });

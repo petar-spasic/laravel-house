@@ -116,7 +116,8 @@ it('leaves out a finished card\'s open questions but keeps its provisional decis
     $this->p->enter($this->wt, 'e1', 'kanban-evaluator');
     $this->p->in($this->wt, ['verdict', $done, 'approve', '--check=1:pass:ok', '--check=2:pass:ok'])->mustRun();
     $this->p->hook('subagent-stop', $this->p->payload('subagent-stop', ['cwd' => $this->wt, 'agent' => 'e1', 'type' => 'kanban-evaluator']))->mustRun();
-    $this->p->sandbox->ok(['finish', $done], ['KANBAN_SESSION' => 's1']);
+    // merged by the queue
+    $this->p->sandbox->ok(['move', $done, 'done', '--force'], ['KANBAN_SESSION' => 's1']);
     $asks = $this->p->sandbox->card('Seat limits', ['--body=Seats.'."\n\n".OPEN, '--label=area:seats']);
     $this->p->sandbox->ok(['set', $asks, 'blocked=question: who may download an invoice?']);
 
@@ -180,7 +181,8 @@ it('lists the morning: merged cards, cards blocked without a question, and open 
     $this->p->enter($this->wt, 'e1', 'kanban-evaluator');
     $this->p->in($this->wt, ['verdict', $this->id, 'approve', '--check=1:pass:ok', '--check=2:pass:ok'])->mustRun();
     $this->p->hook('subagent-stop', $this->p->payload('subagent-stop', ['cwd' => $this->wt, 'agent' => 'e1', 'type' => 'kanban-evaluator']))->mustRun();
-    $this->p->sandbox->ok(['finish', $this->id], ['KANBAN_SESSION' => 's1']);
+    // merged by the queue
+    $this->p->sandbox->ok(['move', $this->id, 'done', '--force'], ['KANBAN_SESSION' => 's1']);
 
     $runs = $this->p->runtime('runs.jsonl');
     @mkdir(dirname($runs), 0775, true);

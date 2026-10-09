@@ -49,7 +49,8 @@ it('files what an approval found when the card was finished on an earlier approv
     $p->hook('subagent-stop', $p->payload('subagent-stop', ['cwd' => $this->wt, 'agent' => 'e1', 'type' => 'kanban-evaluator']))->mustRun();
     $p->enter($this->wt, 'e2', 'kanban-evaluator');
     $p->in($this->wt, ['verdict', $this->id, 'approve', '--check=1:pass:ok', '--check=2:pass:ok', '--discovered=chore: Cache the clause list'])->mustRun();
-    $p->sandbox->ok(['finish', $this->id], ['KANBAN_SESSION' => 's1']);
+    // merged on the first approval
+    $p->sandbox->ok(['move', $this->id, 'done', '--force'], ['KANBAN_SESSION' => 's1']);
 
     $stop = $p->hook('subagent-stop', $p->payload('subagent-stop', ['cwd' => $this->wt, 'agent' => 'e2', 'type' => 'kanban-evaluator']));
 
@@ -102,12 +103,6 @@ it('files a failure already on main as one high-priority main-red card on no are
         ->and($second->getErrorOutput())->toContain("already on the board: {$filed[0]['id']}")
         ->and($p->in($this->wt, ['context'])->getOutput())
         ->toContain("failing on main already (not yours to file; subtract them from yours): {$filed[0]['id']} main red: php artisan test --compact\n");
-
-    $main = trim($p->git($p->main, 'rev-parse', 'HEAD'));
-    file_put_contents($p->runtime('main-check.json'), json_encode(['sha' => $main, 'after' => 'ACME-7K2QF9', 'command' => 'php artisan test --compact',
-        'tail' => 'Tests: 1 failed', 'card' => $filed[0]['id'], 'at' => '2026-10-08T09:00:00Z']));
-    expect($p->in($this->wt, ['context'])->getOutput())
-        ->toContain('main red: `php artisan test --compact` fails since ACME-7K2QF9 merged ('.substr($main, 0, 7)."), bug card {$filed[0]['id']}: not yours to file; subtract its failures from yours\n");
 });
 
 it('ends a main: command at its dash or its closing backtick, and splits any other item at its first separator', function () {

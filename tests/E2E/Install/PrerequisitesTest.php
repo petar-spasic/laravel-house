@@ -29,7 +29,7 @@ it('checks the prerequisites and installs nothing', function () {
         ->toContain('warn no boost.json: ')
         ->toContain('warn main has uncommitted changes: ')
         ->toContain("ok origin reachable\n")
-        ->toContain("warn no docker-compose.local.yml: cards get a clone of main and no stack\n")
+        ->toContain("warn no docker-compose.local.yml: cards get a clone of main and no stack, and the merge queue merges nothing\n")
         ->not->toContain('fail ')
         ->and(is_dir($sandbox->root.'/docs/kanban'))->toBeFalse()
         ->and(file_exists($sandbox->root.'/.claude/settings.json'))->toBeFalse();

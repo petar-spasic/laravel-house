@@ -5,6 +5,7 @@ namespace PetarSpasic\LaravelHouse\Kanban\Code;
 use Illuminate\Support\Str;
 use PetarSpasic\LaravelHouse\Kanban\Support\DotEnv;
 use PetarSpasic\LaravelHouse\Kanban\Support\Json;
+use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
 
 /**
  * The worktree `.env`: main's `.env` minus the managed keys, plus the `stack.env` block with its
@@ -34,9 +35,13 @@ final class EnvWriter
         return trim(substr(trim((string) preg_replace('/[^a-z0-9]+/', '-', strtolower(basename($worktree))), '-'), 0, 40), '-') ?: 'wt';
     }
 
+    /**
+     * `stack.project` resolved for the worktree; the merge clone's is `{app}-merge-<8 hex of main's path>`, which no
+     * worktree name and no other checkout of the app on this machine takes.
+     */
     public function project(string $worktree): string
     {
-        return $this->resolve((string) ($this->config['stack']['project'] ?? '{app}-wt-{name}'), $this->values($worktree, []));
+        return $this->values($worktree, [])['project'];
     }
 
     /** The URL the LAN opens: LOCAL_APP_URL of the block, else `{scheme}://{host}:{WEB_PORT}`, or null without a web port. */
@@ -95,7 +100,10 @@ final class EnvWriter
             'scheme' => (string) ($parts['scheme'] ?? 'http'),
             'host' => is_string($host) && $host !== '' ? $host : (string) ($parts['host'] ?? 'localhost'),
         ];
-        $values['project'] = $this->resolve((string) ($this->config['stack']['project'] ?? '{app}-wt-{name}'), $values);
+        $main = realpath($this->main) ?: $this->main;
+        $values['project'] = (realpath($worktree) ?: $worktree) === $main.'/'.Paths::WORKTREES.'/'.Paths::MERGE_CLONE
+            ? $values['app'].'-merge-'.substr(sha1($main), 0, 8)
+            : $this->resolve((string) ($this->config['stack']['project'] ?? '{app}-wt-{name}'), $values);
 
         return $values + array_map('strval', $ports);
     }

@@ -25,10 +25,14 @@ final class Git
     ) {}
 
     /**
-     * Git in a directory whose config and attributes a card's agent controls (a card clone): nothing from them runs on
-     * this machine. No hooks, fsmonitor, ssh command, pager, editor, external diff or signing program, and attributes read
-     * from the empty tree, so no filter or diff driver either. Passed on to the git a command starts (an upload-pack in
-     * the clone, say) through GIT_CONFIG_PARAMETERS.
+     * Git in a directory whose config and attributes a card's agent controls (a card clone), for fetching by path and
+     * reading refs and objects. No hooks, fsmonitor, ssh command, pager, editor, external diff or signing program, and the
+     * worktree's `.gitattributes` read from the empty tree, and no recursion into a repository nested in the worktree. Not
+     * covered: `$GIT_DIR/info/attributes`, the merge drivers, filters, textconv and diff commands the clone's own config
+     * defines for it, and a status of a nested repository, which a `.gitmodules` turns on over any config (CloneGit adds
+     * `--ignore-submodules=all`); so a command that reads or writes the clone's working tree or diffs content runs through
+     * CloneGit::inContainer. Passed on to the git a command starts (an upload-pack in the clone, say) through
+     * GIT_CONFIG_PARAMETERS.
      */
     public static function untrusted(string $cwd): self
     {
@@ -36,7 +40,8 @@ final class Git
             '-c', 'core.pager=cat', '-c', 'core.editor=false', '-c', 'sequence.editor=false', '-c', 'diff.external=',
             '-c', 'core.alternateRefsCommand=', '-c', 'commit.gpgSign=false', '-c', 'tag.gpgSign=false', '-c', 'log.showSignature=false',
             '-c', 'gpg.program=false', '-c', 'gpg.openpgp.program=false', '-c', 'gpg.ssh.program=false', '-c', 'gpg.x509.program=false',
-            '-c', 'protocol.allow=never', '-c', 'protocol.file.allow=always', '-c', 'attr.tree=4b825dc642cb6eb9a060e54bf8d69288fbee4904', '--no-replace-objects']);
+            '-c', 'protocol.allow=never', '-c', 'protocol.file.allow=always', '-c', 'attr.tree=4b825dc642cb6eb9a060e54bf8d69288fbee4904',
+            '-c', 'submodule.recurse=false', '-c', 'fetch.recurseSubmodules=false', '--no-replace-objects']);
     }
 
     /** @param  array<string, string>  $env */

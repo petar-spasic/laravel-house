@@ -25,9 +25,13 @@ final class GuardSandbox
 
     private static ?self $shared = null;
 
+    /** The merge clone, relative to main. */
+    public const MERGE = '.claude/worktrees/_merge';
+
     /**
      * One read-mostly sandbox for table-driven cases: `worker-agent` is bound to the doing card,
-     * `evaluator-agent` to the review card, `planner-agent` to the planning card.
+     * `evaluator-agent` to the review card, `planner-agent` to the planning card, `merger-agent` to the review card in
+     * the merge clone.
      */
     public static function shared(): self
     {
@@ -36,13 +40,15 @@ final class GuardSandbox
             self::$shared->bind('worker-agent', 'kanban-worker', self::DOING);
             self::$shared->bind('evaluator-agent', 'kanban-evaluator', self::REVIEW);
             self::$shared->bind('planner-agent', 'kanban-planner', self::PLANNING);
+            self::$shared->merge();
+            self::$shared->bind('merger-agent', 'kanban-merger', self::REVIEW, worktree: self::MERGE);
         }
 
         return self::$shared;
     }
 
     /**
-     * Runs a table case: $actor is main | worker | evaluator | planner | other, or `worker:<agent id>` for another worker.
+     * Runs a table case: $actor is main | worker | evaluator | planner | merger | other, or `worker:<agent id>` for another worker.
      *
      * @param  array<string, mixed>  $input
      * @return array{decision: ?string, reason: ?string, out: string, ms: float, input: ?array}
@@ -107,6 +113,33 @@ final class GuardSandbox
         return $container;
     }
 
+    /**
+     * The merge clone of main (`kanban.main` set), with this checkout's `merge.json` naming $card: what `finish` leaves
+     * for its merger. Its path.
+     */
+    public function merge(string $card = self::REVIEW, string $phase = 'conflict'): string
+    {
+        $clone = $this->main.'/'.self::MERGE;
+        if (! is_dir($clone)) {
+            $this->git('clone -q '.escapeshellarg($this->main).' '.escapeshellarg($clone));
+            $this->git('config kanban.main '.escapeshellarg($this->main), $clone);
+        }
+        $this->json('.git/laravel-house/merge.json', ['card' => $card, 'lease' => '9f2c41d07a8b3e65', 'phase' => $phase, 'round' => 1]);
+
+        return $clone;
+    }
+
+    /** The merge stack's record. Its container. */
+    public function mergeStack(string $shell = 'container'): string
+    {
+        $container = 'acme-merge-0a1b2c3d-app-1';
+        $this->json('.git/laravel-house/stacks/_merge.json', [
+            'worktree' => $this->main.'/'.self::MERGE, 'project' => 'acme-merge-0a1b2c3d', 'container' => $container, 'shell' => $shell, 'hash' => 'x',
+        ]);
+
+        return $container;
+    }
+
     public function __destruct()
     {
         (new Process(['rm', '-rf', $this->root]))->run();
@@ -118,7 +151,7 @@ final class GuardSandbox
     }
 
     /**
-     * Replaces {main}, {wt}, {review}, {plan}, {board}, {outside} in a string.
+     * Replaces {main}, {wt}, {review}, {plan}, {merge}, {board}, {outside} in a string.
      */
     public function expand(string $text): string
     {
@@ -127,6 +160,7 @@ final class GuardSandbox
             '{wt}' => $this->wt(self::DOING),
             '{review}' => $this->wt(self::REVIEW),
             '{plan}' => $this->wt(self::PLANNING),
+            '{merge}' => $this->main.'/'.self::MERGE,
             '{board}' => $this->main.'/docs/kanban',
             '{outside}' => $this->root.'/outside',
         ]);
@@ -140,12 +174,12 @@ final class GuardSandbox
         ]);
     }
 
-    public function bind(string $agentId, string $type, ?string $card, int $ageMinutes = 0, ?string $stoppedAt = null): string
+    public function bind(string $agentId, string $type, ?string $card, int $ageMinutes = 0, ?string $stoppedAt = null, ?string $worktree = null): string
     {
         $file = $this->main."/.git/laravel-house/agents/{$agentId}.json";
         file_put_contents($file, json_encode([
             'agent_id' => $agentId, 'agent_type' => $type, 'card' => $card,
-            'worktree' => $card === null ? null : '.claude/worktrees/'.strtolower($card),
+            'worktree' => $worktree ?? ($card === null ? null : '.claude/worktrees/'.strtolower($card)),
             'bound_at' => '2026-09-28T19:00:00.000+00:00', 'stopped_at' => $stoppedAt, 'stop_blocks' => 0,
         ]));
         touch($file, time() - $ageMinutes * 60);
@@ -154,7 +188,7 @@ final class GuardSandbox
     }
 
     /**
-     * Runs the guard. $actor: main | worker | evaluator | planner | other (general-purpose).
+     * Runs the guard. $actor: main | worker | evaluator | planner | merger | other (general-purpose).
      *
      * @param  array<string, mixed>  $input
      * @return array{decision: ?string, reason: ?string, out: string, ms: float, input: ?array}
@@ -178,6 +212,7 @@ final class GuardSandbox
                 'worker' => 'kanban-worker',
                 'evaluator' => 'kanban-evaluator',
                 'planner' => 'kanban-planner',
+                'merger' => 'kanban-merger',
                 default => 'general-purpose',
             };
         }

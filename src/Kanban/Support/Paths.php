@@ -8,12 +8,15 @@ final class Paths
 {
     public const BOARD = 'docs/kanban';
 
-    /** Git config key in a card clone naming its main checkout. */
+    /** Git config key in a card clone naming its main checkout: how a card's container, where main is not mounted, knows it is in one. */
     public const CLONE_KEY = 'kanban.main';
 
     public const RUNTIME = '.git/laravel-house';
 
     public const WORKTREES = '.claude/worktrees';
+
+    /** The merge clone under WORKTREES: no card worktree or named worktree takes this name (EnvWriter::name maps to [a-z0-9-]). */
+    public const MERGE_CLONE = '_merge';
 
     /**
      * @param  string  $main  the main checkout (the directory whose .git is a directory)
@@ -29,10 +32,13 @@ final class Paths
     public static function discover(string $from): self
     {
         $start = realpath($from) ?: $from;
+        if (($main = self::cloneMainOf($start)) !== null) {
+            return new self($main, $start);
+        }
         for ($dir = $start; ; $dir = dirname($dir)) {
             $git = $dir.'/.git';
             if (is_dir($git)) {
-                return new self(self::cloneMainOf($dir) ?? $dir, $start);
+                return new self($dir, $start);
             }
             if (is_file($git) && ($main = self::mainOf($git)) !== null) {
                 return new self($main, $start);
@@ -58,19 +64,22 @@ final class Paths
     }
 
     /**
-     * Main checkout of a card clone: `kanban.main` in the clone's `.git/config`, when that directory is a checkout
-     * whose `.claude/worktrees/` holds the clone. Null for any other repository, and inside a card's container, where
-     * main is not mounted.
+     * Main checkout of a card clone, or of any directory in one: the outermost checkout (its `.git` a directory) whose
+     * `.claude/worktrees/` holds $dir. Taken from the path alone, never from the clone's own config, which its
+     * container can write. Null for any other directory, and inside a card's container, where main is not mounted.
      */
     public static function cloneMainOf(string $dir): ?string
     {
-        $config = @file_get_contents($dir.'/.git/config');
-        if (! is_string($config) || ! preg_match('/^\[kanban\]\R(?:[ \t]+[^\[\r\n]*\R)*?[ \t]+main[ \t]*=[ \t]*(.+?)[ \t]*$/m', $config, $m)) {
-            return null;
+        $path = (realpath($dir) ?: $dir).'/';
+        $marker = '/'.self::WORKTREES.'/';
+        for ($at = strpos($path, $marker); $at !== false; $at = strpos($path, $marker, $at + 1)) {
+            $main = substr($path, 0, $at);
+            if ($main !== '' && strlen($path) > $at + strlen($marker) && is_dir($main.'/.git')) {
+                return $main;
+            }
         }
-        $main = realpath($m[1]);
 
-        return $main !== false && is_dir($main.'/.git') && str_starts_with(realpath($dir) ?: $dir, $main.'/'.self::WORKTREES.'/') ? $main : null;
+        return null;
     }
 
     /** Inside a card's container: the nearest repository is a card clone whose main checkout is not there. */
@@ -176,6 +185,20 @@ final class Paths
     public function worktrees(): string
     {
         return $this->main.'/'.self::WORKTREES;
+    }
+
+    /** Where the merge queue merges and checks a card: a clone of main with its own stack, one per main checkout. */
+    public function mergeClone(): string
+    {
+        return $this->worktrees().'/'.self::MERGE_CLONE;
+    }
+
+    /** Whether discovery started in the merge clone or a directory in it. */
+    public function insideMergeClone(): bool
+    {
+        $clone = $this->mergeClone();
+
+        return $this->cwd === $clone || str_starts_with($this->cwd, $clone.'/');
     }
 
     /**

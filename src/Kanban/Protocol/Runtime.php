@@ -13,7 +13,7 @@ use Symfony\Component\Process\Process;
 
 /**
  * Per-machine runtime files under `.git/laravel-house/`: agent records (mtime = heartbeat), staged and applied
- * reports/verdicts, and the write-ahead inbox of hook payloads.
+ * reports, verdicts, plans and merge results, and the write-ahead inbox of hook payloads.
  */
 final class Runtime
 {
@@ -143,6 +143,7 @@ final class Runtime
             $drop($file, self::APPLIED_DAYS * 86400);
         }
         $drop($this->paths->leaseFile(), Lease::IDLE_SECONDS);
+        $drop($this->paths->runtime('main-check.json'), -1);
         foreach (glob($this->paths->worktrees().'/.copying/*') ?: [] as $dir) {
             if ((int) @filemtime($dir) < time() - 3600) {
                 (new Process(['rm', '-rf', $dir]))->run();
@@ -218,7 +219,7 @@ final class Runtime
     {
         $items = [];
         foreach (glob($this->paths->staged('*.json')) ?: [] as $file) {
-            if (preg_match('/^(.+)\.(report|verdict|plan)\.json$/', basename($file), $m)) {
+            if (preg_match('/^(.+)\.(report|verdict|plan|merge)\.json$/', basename($file), $m)) {
                 $items[] = ['card' => $m[1], 'kind' => $m[2], 'file' => $file];
             }
         }

@@ -9,8 +9,8 @@ use PetarSpasic\LaravelHouse\Tests\Support\Sandbox;
 use Symfony\Component\Process\Process;
 
 beforeEach(function () {
-    $this->code = CodeSandbox::create();
-    $this->code->configure(['gates' => ['report' => []]]);
+    $this->code = CodeSandbox::create(['gates' => ['report' => []]]);
+    $this->code->defaults = ['FAKE_DOCKER_SERVE' => '1'];
     $this->claude = Sandbox::tmp();
     runAgent($this->claude, 'worker', <<<'SH'
         cd "$WORKTREE" && echo "$RANDOM" >> feature.txt && git add -A && git commit -qm "$CARD: feature" && cd - > /dev/null
@@ -25,37 +25,6 @@ beforeEach(function () {
         SH);
 });
 
-/** What the fake claude does for a kanban agent of $type. */
-function runAgent(string $claude, string $type, string $script): void
-{
-    file_put_contents("{$claude}/kanban-{$type}.sh", $script);
-}
-
-/** One `run --once` pass, then waits until the agents it launched have ended. */
-function runPass(CodeSandbox $code, string $claude, array $args = ['--once'], array $env = []): string
-{
-    $process = $code->kanban(['run', ...$args], [
-        'PATH' => Sandbox::package().'/tests/Support/FakeClaude:'.Sandbox::package().'/tests/Support/FakeDocker:'.getenv('PATH'),
-        'FAKE_CLAUDE_DIR' => $claude,
-    ] + $env);
-    $deadline = microtime(true) + 60;
-    do {
-        $live = array_filter(glob($code->root().'/.git/laravel-house/runs/*.pid') ?: [],
-            fn (string $f) => posix_kill((int) (json_decode((string) file_get_contents($f), true)['pid'] ?? 0), 0));
-        $live === [] || usleep(100_000);
-    } while ($live !== [] && microtime(true) < $deadline);
-
-    return $process->getOutput().$process->getErrorOutput();
-}
-
-/** @return list<list<string>> the fake claude's argv, one per launch */
-function runLaunches(string $claude): array
-{
-    $log = $claude.'/calls.log';
-
-    return is_file($log) ? array_map(fn ($l) => json_decode($l, true), array_values(array_filter(explode("\n", (string) file_get_contents($log))))) : [];
-}
-
 it('takes a ready card to done: a headless worker, a headless evaluator, then the merge', function () {
     $id = $this->code->sandbox->readyCard('Add login page');
 
@@ -69,7 +38,9 @@ it('takes a ready card to done: a headless worker, a headless evaluator, then th
         ->and($this->code->sandbox->read($id)['work']['approved'])->not->toBeNull();
 
     $third = runPass($this->code, $this->claude);
-    expect($third)->toContain("merged {$id} into main")
+    $fourth = runPass($this->code, $this->claude);
+    expect($third)->toContain(" {$id} merging\n")
+        ->and($fourth)->toContain("merged {$id} into main")
         ->and($this->code->sandbox->read($id)['stage'])->toBe('done');
 
     [$worker, $evaluator] = runLaunches($this->claude);
@@ -185,6 +156,7 @@ it('launches the agent the claim is for when a card changed stage while the pass
     // while the first card's stack comes up, the owner rewords the second: it goes back to planning
     $this->code->ok(['set', $second, 'accept[1]=It works on a phone']);
     $run->wait();
+    runSettled($this->code);
     $out = runPass($this->code, $this->claude, ['--drain', '--until-attention', '--timeout=0']);
 
     expect(array_slice(array_column(runLaunches($this->claude), 2), 0, 2))->toBe(['kanban-worker', 'kanban-planner'])
@@ -226,7 +198,7 @@ it('resumes the same worker session after a reject', function () {
         SH);
     $id = $this->code->sandbox->readyCard('Add login page');
 
-    foreach (range(1, 5) as $n) {
+    foreach (range(1, 6) as $n) {
         runPass($this->code, $this->claude);
     }
 
@@ -280,6 +252,7 @@ it('never merges main into a clone with uncommitted changes: its worker commits 
         ->and(is_file($wt.'/fix.txt'))->toBeFalse()
         ->and($this->code->sandbox->read($id)['stage'])->toBe('review');
 
+    runPass($this->code, $this->claude);
     runPass($this->code, $this->claude);
     expect(runPass($this->code, $this->claude))->toContain("merged {$id} into main")
         ->and((string) file_get_contents($this->code->root().'/feature.txt'))->toContain("left over\n");
@@ -491,21 +464,12 @@ it('evaluates a review card whose clone holds only untracked leftovers, and fini
     file_put_contents($this->code->worktree($id).'/screenshot.png', "png\n");
 
     $evaluated = runPass($this->code, $this->claude);
+    runPass($this->code, $this->claude);
     $finished = runPass($this->code, $this->claude);
 
     expect($evaluated)->not->toContain('back to doing')->toContain("{$id} evaluator")
         ->and($finished)->toContain("merged {$id} into main")
         ->and($this->code->sandbox->read($id)['stage'])->toBe('done');
-});
-
-it('blocks and reports a review card that refresh refuses, instead of waiting on it', function () {
-    $id = $this->code->sandbox->readyCard('Add login page');
-    runPass($this->code, $this->claude);
-    $this->code->gitIn($this->code->worktree($id), 'checkout', '-q', '--detach');
-
-    $out = runPass($this->code, $this->claude, ['--until-attention', '--timeout=0']);
-
-    expect($out)->toContain("attention:\n")->toContain("{$id} blocked: kanban run: ")->toContain('not on its branch');
 });
 
 it('merges main into a resumed worker whose clone holds only untracked files', function () {
@@ -692,29 +656,6 @@ it('lets one run drive a checkout, and turns a live one into a drain without sto
         ->and(is_file($this->code->root().'/.git/laravel-house/run.drain'))->toBeFalse();
 });
 
-it('asks the owner about an approved change to files that steer the agents, and merges it once approved', function () {
-    runAgent($this->claude, 'worker', <<<'SH'
-        cd "$WORKTREE" && mkdir -p .husky && echo '#!/bin/sh' > .husky/pre-commit && echo x > feature.txt && git add -A && git commit -qm "$CARD: hook" && cd - > /dev/null
-        vendor/bin/kanban --in="$WORKTREE" report "$CARD" --status=review --tick=1 --summary=Done
-        SH);
-    $id = $this->code->sandbox->readyCard('Add a commit hook');
-    runPass($this->code, $this->claude);
-    runPass($this->code, $this->claude);
-
-    $asked = runPass($this->code, $this->claude, ['--until-attention', '--timeout=0']);
-    $again = runPass($this->code, $this->claude, ['--until-attention', '--timeout=0']);
-
-    expect($asked)->toContain("attention:\n  {$id} waits on the owner: question: merge with changes to files that steer the agents or git?\n")
-        ->and($again)->not->toContain("{$id} waits on the owner")
-        ->and($this->code->sandbox->read($id))->toMatchArray(['stage' => 'review', 'blocked' => 'question: merge with changes to files that steer the agents or git?']);
-
-    expect(runPass($this->code, $this->claude, ['--drain', '--until-attention', '--timeout=0']))->toContain('drained: no card in flight');
-
-    $this->code->sandbox->ok(['answer', $id, '1']);
-    expect(runPass($this->code, $this->claude))->toContain("merged {$id} into main")
-        ->and($this->code->sandbox->read($id)['stage'])->toBe('done');
-});
-
 it('blocks a card after three agent runs that change nothing', function () {
     file_put_contents("{$this->claude}/kanban-worker.error", json_encode(['subtype' => 'error_during_execution']));
     $id = $this->code->sandbox->readyCard('Add login page');
@@ -771,19 +712,6 @@ it('hands back to the orchestrator once what needs judgment: a card blocked with
     expect($first)->toContain("{$id} started; worker")->toContain('nothing needs you: run it again')->not->toContain('attention:')
         ->and($second)->toContain("attention:\n")->toContain("\n  {$id} blocked: the stack lacks a package\n")
         ->and($third)->not->toContain("{$id} blocked");
-});
-
-it('blocks a card on the board when a command fails for it, and says so', function () {
-    $id = $this->code->sandbox->readyCard('Add login page');
-    runPass($this->code, $this->claude);
-    runPass($this->code, $this->claude);
-    file_put_contents($this->code->root().'/feature.txt', "local edit\n");
-
-    $out = runPass($this->code, $this->claude, ['--until-attention', '--timeout=0']);
-
-    expect($this->code->sandbox->read($id))->toMatchArray(['stage' => 'review'])
-        ->and($this->code->sandbox->read($id)['blocked'])->toStartWith('kanban run: ')
-        ->and($out)->toContain("attention:\n")->toContain("\n  {$id} blocked: kanban run: ");
 });
 
 it('drives the board as the orchestrating session when one runs it, under its lease', function () {
@@ -968,6 +896,7 @@ it('leaves a merged card done and unblocked when a step after the merge fails, a
     $id = $this->code->sandbox->readyCard('Add login page');
     runPass($this->code, $this->claude);
     runPass($this->code, $this->claude);
+    runPass($this->code, $this->claude);
 
     $out = runPass($this->code, $this->claude, ['--until-attention', '--timeout=0']);
 
@@ -976,9 +905,7 @@ it('leaves a merged card done and unblocked when a step after the merge fails, a
         ->and($this->code->sandbox->read($id))->toMatchArray(['stage' => 'done', 'blocked' => null]);
 });
 
-it('logs what a finish that merged cleanly printed on stderr, and raises nothing for it', function () {
-    $this->code->configure(['gates' => ['report' => []]]);
-    $this->code->sandbox->git('commit', '-q', '-am', 'gates');
+it('raises a branch the merge could not delete as a step that failed after it, and leaves the card done', function () {
     $id = $this->code->sandbox->readyCard('Add login page');
     runPass($this->code, $this->claude);
     runPass($this->code, $this->claude);
@@ -989,15 +916,70 @@ it('logs what a finish that merged cleanly printed on stderr, and raises nothing
         ."while read -r old new ref; do case \"\$new \$ref\" in 0000000000000000000000000000000000000000\\ refs/heads/card/*) exit 1 ;; esac; done\n");
     chmod($hooks.'/reference-transaction', 0755);
 
+    runPass($this->code, $this->claude);
     $out = runPass($this->code, $this->claude, ['--until-attention', '--timeout=0']);
 
     expect($out)->toContain("merged {$id} into main")
-        ->toMatch('/ branch card\\/\S+ kept \\(git branch -d refused\\)\n/')
-        ->not->toContain('attention:')
-        ->toContain('nothing needs you')
+        ->toMatch("/attention:\n  {$id} merged, then: branch card\\/\\S+ kept: git branch -D refused\n/")
         ->and($this->code->sandbox->read($id))->toMatchArray(['stage' => 'done', 'blocked' => null]);
 });
 
+it('judges a merge lease another machine holds by what this pass saw of it, also while a merge runs here', function () {
+    $id = $this->code->started('Tag notes');
+    $this->code->commit($id, 'notes.php', "<?php\n");
+    $this->code->approve($id);
+    $lease = function (string $beat) use ($id) {
+        $board = $this->code->root().'/docs/kanban/kanban.json';
+        $kanban = json_decode((string) file_get_contents($board), true);
+        $kanban['merge'] = ['id' => '9f2c41d07a8b3e65', 'card' => $id, 'by' => 'ana@host-a', 'who' => 'Ana', 'since' => '2026-10-09T08:00:00.000+00:00', 'beat' => $beat];
+        Json::write($board, Json::encode($kanban, 'kanban'));
+        $this->code->sandbox->boardGit('commit', '-q', '-am', 'merge lease (test)');
+    };
+    $lease('2026-10-09T08:04:00.000+00:00');
+    $this->code->seen(500);
+    expect(runPass($this->code, $this->claude, ['--until-attention', '--timeout=0']))->toContain('no beat for 8 min');
+    $state = $this->code->root().'/.git/laravel-house/run.json';
+    file_put_contents($state, json_encode(array_diff_key(json_decode((string) file_get_contents($state), true), ['upstream' => 0])));
+    $run = new Process([PHP_BINARY, $this->code->root().'/vendor/bin/kanban', 'run', '--until-attention', '--timeout=10'], $this->code->root(), $this->code->env([
+        'PATH' => Sandbox::package().'/tests/Support/FakeClaude:'.Sandbox::package().'/tests/Support/FakeDocker:'.getenv('PATH'), 'FAKE_CLAUDE_DIR' => $this->claude]), null, 60);
+    $run->start();
+    // its first pass has seen the lease stand still (watch() writes `upstream` last), then a merge runs here and the holder beats
+    for ($until = microtime(true) + 20; ! array_key_exists('upstream', (array) json_decode((string) @file_get_contents($state), true)) && $run->isRunning() && microtime(true) < $until;) {
+        usleep(50_000);
+    }
+    $lock = fopen($this->code->root().'/.git/laravel-house/merge.run.lock', 'c');
+    flock($lock, LOCK_EX);
+    $lease('2026-10-09T08:06:00.000+00:00');
+    file_put_contents($state, json_encode(array_diff_key(json_decode((string) file_get_contents($state), true), ['upstream' => 0])));
+
+    try {
+        $run->wait();
+    } finally {
+        flock($lock, LOCK_UN);
+        fclose($lock);
+    }
+
+    expect($run->getOutput())->not->toContain('no beat for')->toContain('nothing needs you')
+        ->and(json_decode((string) file_get_contents($state), true))->toHaveKey('upstream');
+});
+
+it('raises a done card\'s leftovers it cannot tidy once, as leftovers, across runs', function () {
+    $id = $this->code->sandbox->readyCard('Add login page');
+    runPass($this->code, $this->claude);
+    runPass($this->code, $this->claude);
+    file_put_contents($this->code->worktree($id).'/feature.txt', "edited after the approval\n");
+    runPass($this->code, $this->claude);
+
+    $merged = runPass($this->code, $this->claude, ['--until-attention', '--timeout=0']);
+    $runs = array_map(fn () => runPass($this->code, $this->claude, ['--until-attention', '--timeout=0']), range(1, 4));
+
+    $leftovers = array_filter($runs, fn (string $out) => str_contains($out, "  {$id} done; its leftovers here: removing the clone"));
+    expect($merged)->toContain("  {$id} merged, then: removing the clone")
+        ->and(implode('', $runs))->not->toContain('merged, then')
+        ->and($leftovers)->toHaveCount(1)
+        ->and(is_file($this->code->worktree($id).'/feature.txt'))->toBeTrue()
+        ->and($this->code->sandbox->read($id))->toMatchArray(['stage' => 'done', 'blocked' => null]);
+});
 it('reads the agent models at each launch, so a change reaches the next agent of a run already going, and names them', function () {
     runAgent($this->claude, 'worker', 'true');
     $first = $this->code->sandbox->readyCard('Add login page');
@@ -1068,43 +1050,16 @@ it('blocks a card on a reject loop in a later pass when the block could not be w
     expect($this->code->sandbox->read($id)['blocked'])->toBe('kanban run: rejected 2× on criterion 1: feature.txt lacks the index');
 });
 
-it('raises a red main after a merge once, as the red main, not as a failed step of the merged card', function () {
-    $this->code->configure(['gates' => ['report' => []], 'migrate' => null, 'finish' => ['after' => [], 'check' => ["echo 'Tests: 1 failed'; exit 1"]]]);
-    $this->code->sandbox->git('commit', '-q', '-am', 'check');
-    $id = $this->code->sandbox->readyCard('Add login page');
-    runPass($this->code, $this->claude);
-    runPass($this->code, $this->claude);
-
-    $out = runPass($this->code, $this->claude, ['--until-attention', '--timeout=0']);
-
-    expect($out)->toContain("merged {$id} into main")
-        ->toContain('main red since')
-        ->not->toContain("{$id} merged, then:");
-});
-
-it('raises a red main once when the bug card finish filed has no area, and not again once main is green', function () {
-    // what finish leaves after a merged card with no area: its bug card in backlog, labelled main-red, and the marker
-    $bug = $this->code->sandbox->card('main red after ACME-1: php artisan test', ['--type=bug', '--label=main-red']);
-    $filed = $this->code->sandbox->card('main red: vendor/bin/pest', ['--type=bug', '--label=main-red']);
-    @mkdir($this->code->root().'/.git/laravel-house', 0775, true);
-    file_put_contents($this->code->root().'/.git/laravel-house/main-check.json', json_encode(['sha' => str_repeat('a', 40), 'after' => 'ACME-1',
-        'command' => 'php artisan test', 'tail' => 'Tests: 1 failed', 'card' => $bug, 'at' => '2026-01-01T00:00:00Z']));
+it('raises a failure the merge queue filed as already on main once, while it has no area', function () {
+    $bug = $this->code->sandbox->card('main red: vendor/bin/pest', ['--type=bug', '--label=main-red']);
     $log = fn () => (string) @file_get_contents($this->code->root().'/.git/laravel-house/run.log');
 
     $out = runPass($this->code, $this->claude, ['--until-attention', '--timeout=0']);
     runPass($this->code, $this->claude, ['--until-attention', '--timeout=0']);
 
-    expect($out)->toContain("attention:\n")->toContain("  main red since aaaaaaa: `php artisan test` fails ({$bug})\n")
-        ->and(substr_count($log(), "main red since aaaaaaa: `php artisan test` fails ({$bug})"))->toBe(1)
-        ->and(substr_count($log(), "{$filed} main red: vendor/bin/pest: a failure already on main"))->toBe(1)
-        ->and($log())->not->toContain("{$bug} main red after");
-
-    unlink($this->code->root().'/.git/laravel-house/main-check.json');
-    runPass($this->code, $this->claude, ['--until-attention', '--timeout=0']);
-    expect($log())->not->toContain("{$bug} main red after")
+    expect($out)->toContain("attention:\n")->toContain("  {$bug} main red: vendor/bin/pest: a failure already on main, in backlog: give it an area and promote it first\n")
         ->and(substr_count($log(), 'a failure already on main'))->toBe(1);
 });
-
 it('hands back a failure the agents filed as already on main', function () {
     runAgent($this->claude, 'worker', <<<'SH'
         cd "$WORKTREE" && echo x > feature.txt && git add -A && git commit -qm "$CARD: feature" && cd - > /dev/null
@@ -1156,4 +1111,50 @@ it('counts one reject applied twice as one reject', function () {
     runPass($this->code, $this->claude);
 
     expect($s->read($id)['blocked'])->toBeNull();
+});
+
+it('launches no merger for a merge whose result landed while the pass looked at the queue', function () {
+    $id = $this->code->started('Tag notes');
+    $this->code->commit($id, 'RED', "the suite fails\n");
+    $this->code->approve($id);
+    runPass($this->code, $this->claude);
+    expect($this->code->mergeState()['phase'])->toBe('red');
+    // a merger's Stop hook applies its result at the moment the pass asks main's config whether the queue can merge
+    $config = $this->code->root().'/config/kanban.php';
+    $merge = $this->code->root().'/.git/laravel-house/merge.json';
+    file_put_contents($config, str_replace("<?php\n", "<?php\n\nif (in_array('cannotMerge', array_column(debug_backtrace(), 'function'), true)) {\n"
+        .'    file_put_contents('.var_export($merge, true).', json_encode([\'phase\' => \'checks\', \'merger_runs\' => 0] + json_decode(file_get_contents('.var_export($merge, true)."), true)));\n}\n", (string) file_get_contents($config)));
+
+    runPass($this->code, $this->claude);
+
+    expect(array_map(fn (array $argv) => $argv[2], runLaunches($this->claude)))->not->toContain('kanban-merger')
+        ->and($this->code->mergeState()['phase'])->toBe('checks');
+});
+
+it('names the merge left waiting here while the queue cannot merge, and how to end it', function () {
+    $id = $this->code->started('Tag notes');
+    $this->code->commit($id, 'RED', "the suite fails\n");
+    $this->code->approve($id);
+    runPass($this->code, $this->claude);
+    $this->code->configure(['gates' => ['report' => []], 'finish' => ['check' => []]]);
+
+    $out = runPass($this->code, $this->claude, ['--until-attention', '--timeout=0']);
+
+    expect($out)->toContain("attention:\n  finish.check names no suite: no card merges until it does (config/kanban.php); "
+        ."the merge of {$id} waits here until then (`vendor/bin/kanban finish {$id} --abort` ends it)\n")
+        ->and($this->code->mergeState()['phase'])->toBe('red');
+});
+
+it('raises the idle notice while only a follow of the remote\'s main runs here', function () {
+    $runtime = $this->code->root().'/.git/laravel-house';
+    @mkdir("{$runtime}/merge", 0775, true);
+    file_put_contents("{$runtime}/merge/run.json", json_encode(['pid' => 0, 'card' => 'follow', 'started' => '2026-01-01T00:00:00Z']));
+    $lock = fopen("{$runtime}/merge.run.lock", 'c');
+    flock($lock, LOCK_EX);
+
+    $out = $this->code->kanban(['run', '--until-attention', '--timeout=0'], [
+        'PATH' => Sandbox::package().'/tests/Support/FakeClaude:'.Sandbox::package().'/tests/Support/FakeDocker:'.getenv('PATH'), 'FAKE_CLAUDE_DIR' => $this->claude]);
+    flock($lock, LOCK_UN);
+
+    expect($out->getOutput())->toContain("attention:\n  idle: no agent runs and no card can start");
 });

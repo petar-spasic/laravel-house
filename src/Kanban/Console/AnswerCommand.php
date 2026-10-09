@@ -2,8 +2,6 @@
 
 namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
-use PetarSpasic\LaravelHouse\Kanban\Code\MergeCheck;
-use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
 use PetarSpasic\LaravelHouse\Kanban\Policy\Plan;
 use PetarSpasic\LaravelHouse\Kanban\Policy\PullPolicy;
 use PetarSpasic\LaravelHouse\Kanban\Policy\Questions;
@@ -50,29 +48,15 @@ class AnswerCommand extends Command
             $answer = "{$option}. {$question['options'][(int) $option]}".($note === '' ? '' : "\n\n{$note}");
         }
 
-        // only what `finish --ask` asked about: a Steering: line anywhere else approves nothing. Worked out before the answer
-        // is written, so an approval that cannot be given here leaves the question open
-        $steering = array_values(array_intersect(Questions::steering($question), MergeCheck::asked($card)));
-        $approval = $steering !== [] && (int) $option === 1
-            ? MergeCheck::approvalOf(new Worktrees($this->paths(), $this->config()), $this->paths()->main, $card, $steering) : null;
-        // the answer, the approval it gives, the block it clears and the send-back it asks for: one write, so none lands without
-        // the others
+        // the answer, the block it clears and the replan it asks for: one write, so none lands without the others
         $asked = $card->asks();
         $overruled = $question['kind'] === Questions::PROVISIONAL && (int) $option !== $question['taken'];
         $before = $card->stage();
-        $revert = $asked && $steering !== [] && (int) $option === 2;
-        $card = $this->store()->update($card->id(), function (array $data) use ($question, $answer, $approval, $overruled, $handle, $option, $revert, $steering) {
+        $card = $this->store()->update($card->id(), function (array $data) use ($question, $answer, $overruled, $handle, $option) {
             $before = $data;
             $data['body'] = Questions::answer((string) ($data['body'] ?? ''), $question['n'], $answer);
-            if ($approval !== null) {
-                $data['log'][] = $approval;
-            }
             if ($question['kind'] === Questions::OPEN && str_starts_with((string) ($data['blocked'] ?? ''), Card::QUESTION) && Questions::unanswered($data['body']) === 0) {
                 $data['blocked'] = null;
-                if ($revert && $data['stage'] === 'review') {
-                    $data = Transitions::sentBack(Transitions::noted($before, $data), 'move', 'the owner sent it back: revert the changes to '.implode(', ', $steering));
-                    $data['log'][array_key_last($data['log'])]['unblocked'] = $before['blocked'];
-                }
             }
             // a plan covers the owner's answers but a confirmation of what it took: no worker follows one built without them
             if ($data['stage'] === 'ready' && Plan::hash($data) !== Plan::hash($before)) {
@@ -82,9 +66,6 @@ class AnswerCommand extends Command
             return $data;
         }, $this->actor());
         $this->say("{$handle} answered: ".strtok($answer, "\n"));
-        if ($approval !== null) {
-            $this->say("{$card->id()}: the owner approved ".implode(', ', $steering).' as they are; the next finish merges it');
-        }
         if ($question['kind'] === Questions::PROVISIONAL) {
             if ($overruled && in_array($before, ['backlog', 'planning', 'ready'], true)) {
                 $this->say("{$handle}: the agent took {$question['taken']}; the card is planned again for {$option}".($before === 'ready' ? " ({$before}→{$card->stage()})" : ''));
@@ -101,9 +82,6 @@ class AnswerCommand extends Command
         }
         if ($asked && $card->blocked() === null) {
             $this->say("{$card->id()} unblocked");
-            if ($revert && $before === 'review' && $card->stage() === 'doing') {
-                $this->say("{$card->id()} review→doing: its worker reverts them");
-            }
         }
         if ($card->stage() === 'backlog' && $card->blocked() === null) {
             try {

@@ -2,12 +2,14 @@
 
 namespace PetarSpasic\LaravelHouse\Kanban\Protocol;
 
+use Closure;
 use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
 use PetarSpasic\LaravelHouse\Kanban\Guard\Guard;
 use PetarSpasic\LaravelHouse\Kanban\Support\Clock;
 use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
 use Symfony\Component\Process\Exception\ProcessTimedOutException;
 use Symfony\Component\Process\Process;
+use Throwable;
 
 /**
  * The `gates.report` commands a worker's branch must pass before its review report is applied. `kanban report` runs
@@ -21,6 +23,9 @@ final class Gates
     public const TAIL_LINES = 40;
 
     public const TAIL_CHARS = 3000;
+
+    /** How often a long command's tick runs (MergeStep stops the command when the merge lease was lost). */
+    public const TICK_SECONDS = 15;
 
     /** @param  array<string, mixed>  $config  the `kanban` config */
     public function __construct(private readonly array $config) {}
@@ -86,10 +91,23 @@ final class Gates
     /** The first failing gate as a message (command, exit, output tail), or null when all pass. */
     public function failure(string $worktree): ?string
     {
+        $failed = $this->failed($worktree);
+
+        return $failed === null ? null : 'Gate failed: `'.$failed['run'].'` ('.$failed['why'].')'.($failed['tail'] === '' ? '' : ":\n{$failed['tail']}");
+    }
+
+    /**
+     * The first failing gate, or null when all pass. $tick runs every TICK_SECONDS while a gate runs; what it throws
+     * stops the gate and is thrown on.
+     *
+     * @return array{run: string, ok: bool, code: ?int, why: string, tail: string}|null
+     */
+    public function failed(string $worktree, ?Closure $tick = null): ?array
+    {
         foreach ($this->commands() as $gate) {
-            $result = $this->run($gate, $worktree);
+            $result = $this->run($gate, $worktree, $tick);
             if (! $result['ok']) {
-                return 'Gate failed: `'.$gate['run'].'` ('.$result['why'].')'.($result['tail'] === '' ? '' : ":\n{$result['tail']}");
+                return ['run' => $gate['run'], ...$result];
             }
         }
 
@@ -97,10 +115,10 @@ final class Gates
     }
 
     /**
-     * A gate runs the card's own code, so in a card whose agents' shells run in its container it runs there too, unless
-     * it is a `vendor/bin/kanban` command (the host's, like the agents' own).
+     * A gate runs the card's own code, so in a card whose agents' shells run in its container it runs there too (at $cwd,
+     * the worktree or a directory in it), unless it is a `vendor/bin/kanban` command (the host's, like the agents' own).
      */
-    private function where(string $command, string $worktree): string
+    public function where(string $command, string $worktree, ?string $cwd = null): string
     {
         $paths = Paths::discover($worktree);
         if ($paths->main !== (realpath($worktree) ?: $worktree) && ($host = Guard::hostKanban($paths->main, $command)) !== null) {
@@ -110,8 +128,46 @@ final class Gates
         if (($record['shell'] ?? null) !== 'container' || ! is_string($record['container'] ?? null) || ! is_file($paths->main.'/vendor/bin/kanban-exec')) {
             return $command;
         }
+        $cwd ??= $worktree;
 
-        return Guard::exec($paths->main).' '.escapeshellarg($record['container']).' '.escapeshellarg(realpath($worktree) ?: $worktree).' '.escapeshellarg($command);
+        return Guard::exec($paths->main).' '.escapeshellarg($record['container']).' '.escapeshellarg(realpath($cwd) ?: $cwd).' '.escapeshellarg($command);
+    }
+
+    /**
+     * Runs $process to its end: its exit code, or null when it timed out. $tick runs before it starts and every
+     * TICK_SECONDS while it runs; what it throws stops the process and is thrown on.
+     */
+    public static function wait(Process $process, ?Closure $tick = null): ?int
+    {
+        $tick === null || $tick();
+        $process->start();
+        $next = microtime(true) + self::TICK_SECONDS;
+        try {
+            while ($process->isRunning()) {
+                $process->checkTimeout();
+                if ($tick !== null && microtime(true) >= $next) {
+                    $tick();
+                    $next = microtime(true) + self::TICK_SECONDS;
+                }
+                usleep(50_000);
+            }
+        } catch (ProcessTimedOutException) {
+            return null;
+        } catch (Throwable $e) {
+            $process->stop(5);
+
+            throw $e;
+        }
+
+        return $process->getExitCode();
+    }
+
+    /** The last TAIL_LINES lines of a process's output, cut to TAIL_CHARS. */
+    public static function tail(Process $process): string
+    {
+        $tail = trim(implode("\n", array_slice(explode("\n", rtrim($process->getOutput()."\n".$process->getErrorOutput())), -self::TAIL_LINES)));
+
+        return strlen($tail) > self::TAIL_CHARS ? '…'.substr($tail, -self::TAIL_CHARS) : $tail;
     }
 
     /**
@@ -136,7 +192,7 @@ final class Gates
     /**
      * Every gate, run in order.
      *
-     * @return list<array{run: string, ok: bool, why: string, tail: string}>
+     * @return list<array{run: string, ok: bool, code: ?int, why: string, tail: string}>
      */
     public function results(string $worktree): array
     {
@@ -145,29 +201,19 @@ final class Gates
 
     /**
      * @param  array{run: string, timeout: int, when: ?string}  $gate
-     * @return array{ok: bool, why: string, tail: string}
+     * @return array{ok: bool, code: ?int, why: string, tail: string}
      */
-    private function run(array $gate, string $worktree): array
+    private function run(array $gate, string $worktree, ?Closure $tick = null): array
     {
         if ($gate['when'] !== null && ! file_exists($worktree.'/'.$gate['when'])) {
-            return ['ok' => true, 'why' => "skipped: no {$gate['when']}", 'tail' => ''];
+            return ['ok' => true, 'code' => 0, 'why' => "skipped: no {$gate['when']}", 'tail' => ''];
         }
         $process = Process::fromShellCommandline($this->where($gate['run'], $worktree), $worktree, ['XDEBUG_MODE' => 'off'], null, $gate['timeout']);
-        try {
-            $process->run();
-            $code = $process->getExitCode();
-        } catch (ProcessTimedOutException) {
-            $code = null;
-        }
+        $code = self::wait($process, $tick);
         if ($code === 0) {
-            return ['ok' => true, 'why' => 'exit 0', 'tail' => ''];
-        }
-        $lines = array_slice(explode("\n", rtrim($process->getOutput()."\n".$process->getErrorOutput())), -self::TAIL_LINES);
-        $tail = trim(implode("\n", $lines));
-        if (strlen($tail) > self::TAIL_CHARS) {
-            $tail = '…'.substr($tail, -self::TAIL_CHARS);
+            return ['ok' => true, 'code' => 0, 'why' => 'exit 0', 'tail' => ''];
         }
 
-        return ['ok' => false, 'why' => $code === null ? "timed out after {$gate['timeout']} s" : "exit {$code}", 'tail' => $tail];
+        return ['ok' => false, 'code' => $code, 'why' => $code === null ? "timed out after {$gate['timeout']} s" : "exit {$code}", 'tail' => self::tail($process)];
     }
 }

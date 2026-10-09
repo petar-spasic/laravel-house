@@ -17,8 +17,8 @@ use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
 use Throwable;
 
 /**
- * SubagentStop for kanban-worker / kanban-evaluator / kanban-planner: refuses the stop until a report (verdict, plan) is
- * staged and the card supports it, then applies it and unbinds the agent.
+ * SubagentStop for kanban-worker / kanban-evaluator / kanban-planner / kanban-merger: refuses the stop until a report
+ * (verdict, plan, merge result) is staged and the card supports it, then applies it and unbinds the agent.
  */
 final class SubagentStop
 {
@@ -28,8 +28,10 @@ final class SubagentStop
 
     public const PLANNER = 'kanban-planner';
 
+    public const MERGER = 'kanban-merger';
+
     /** What each kanban agent stages. */
-    public const KINDS = [self::WORKER => 'report', self::EVALUATOR => 'verdict', self::PLANNER => 'plan'];
+    public const KINDS = [self::WORKER => 'report', self::EVALUATOR => 'verdict', self::PLANNER => 'plan', self::MERGER => 'merge'];
 
     public const MAX_BLOCKS = 3;
 
@@ -78,6 +80,11 @@ final class SubagentStop
 
             // a card that left this agent's hands (stopped, re-claimed, moved on another machine) has nothing to report on, and a block written now would land on someone else's card
             $card = $snapshot->resolve($cardId);
+            if ($kind === 'merge' && ($stale = $applier->staleMerge($card)) !== null) {
+                $this->unbind($runtime, $agent, $cardId);
+
+                return self::done("kanban: {$cardId}: no merge result needed: {$stale}");
+            }
             if (($stale = match ($kind) {
                 'report' => $applier->stale($card), 'plan' => $applier->stalePlan($card), default => null
             }) !== null) {
@@ -96,6 +103,7 @@ final class SubagentStop
             return $this->block($runtime, $agent, $cardId, match ($kind) {
                 'report' => "No report staged for {$cardId}. Run: vendor/bin/kanban report {$cardId} --status=review|blocked [--tick=N …] --summary-file=- <<'EOF' … EOF (blocked needs --reason=\"…\"). If vendor/bin/kanban cannot reach the board, end your last message with why: after ".self::MAX_BLOCKS.' refusals the stop goes through and the card is blocked',
                 'plan' => "No plan staged for {$cardId}. Write it to .tmp/plan.md, then run: vendor/bin/kanban plan {$cardId} --plan-file=.tmp/plan.md (blocked: --status=blocked --reason=\"…\", or an Open question in --question-file). If vendor/bin/kanban cannot reach the board, end your last message with why: after ".self::MAX_BLOCKS.' refusals the stop goes through and the card is blocked',
+                'merge' => "No merge result staged for {$cardId}. Run: vendor/bin/kanban merged {$cardId} resolved|fixed|back|main --note=\"…\"",
                 default => "No verdict staged for {$cardId}. Run: vendor/bin/kanban verdict {$cardId} approve|reject --check=N:pass|fail:\"evidence\" … (one --check per criterion)",
             });
         }
@@ -115,7 +123,7 @@ final class SubagentStop
         }
         try {
             $line = match ($kind) {
-                'report' => $applier->report($staged), 'plan' => $applier->plan($staged), default => $applier->verdict($staged)
+                'report' => $applier->report($staged), 'plan' => $applier->plan($staged), 'merge' => $applier->merge($staged), default => $applier->verdict($staged)
             };
         } catch (StaleReport $e) {
             $this->unbind($runtime, $agent, $cardId);
@@ -245,6 +253,7 @@ final class SubagentStop
                     str_starts_with($reason, 'No report') => 'worker stopped without report',
                     str_starts_with($reason, 'No verdict') => 'evaluator stopped without verdict',
                     str_starts_with($reason, 'No plan') => 'planner stopped without a plan',
+                    str_starts_with($reason, 'No merge result') => 'merger stopped without a result',
                     default => "{$role} stopped: ".strtok($reason, "\n"),
                 };
                 try {

@@ -18,6 +18,12 @@ final class BoardRepo
 
     public const DEFAULT_AUTHOR = 'Kanban UI <kanban-ui@localhost>';
 
+    /**
+     * A push the remote refused because the ref moved: a non-fast-forward, or a lost ref race (older git names that only on
+     * a `remote: error: cannot lock ref … but expected` line; the [remote rejected] line just says `failed to update ref`).
+     */
+    public const REJECTED = '/\[rejected\]|non-fast-forward|fetch first|cannot lock ref|\[remote rejected\].*(stale|lock|incorrect old value)/';
+
     /** @param  array<string, mixed>  $config  the `kanban` config */
     public function __construct(
         private readonly Paths $paths,
@@ -221,8 +227,14 @@ final class BoardRepo
     /** Fetches origin's kanban branch. False when origin has no such branch; RemoteFailed when unreachable. */
     public function fetch(float $timeout = 120): bool
     {
+        return self::fetchRef($this->required(), $this->remote(), '+refs/heads/'.self::BRANCH.':'.$this->remoteRef(), $timeout);
+    }
+
+    /** Fetches $refspec from $remote with $git. False when the remote has no such ref; RemoteFailed when unreachable. */
+    public static function fetchRef(Git $git, string $remote, string $refspec, float $timeout = 120): bool
+    {
         for ($attempt = 1; ; $attempt++) {
-            $result = $this->required()->attempt(['fetch', '-q', $this->remote(), '+refs/heads/'.self::BRANCH.':'.$this->remoteRef()], null, $timeout);
+            $result = $git->attempt(['fetch', '-q', $remote, $refspec], null, $timeout);
             if ($result->ok()) {
                 return true;
             }
@@ -300,8 +312,7 @@ final class BoardRepo
         if ($result->ok()) {
             return 'ok';
         }
-        // older git names a lost ref race only on a `remote: error: cannot lock ref … but expected` line; the [remote rejected] line just says `failed to update ref`
-        if (preg_match('/\[rejected\]|non-fast-forward|fetch first|cannot lock ref|\[remote rejected\].*(stale|lock|incorrect old value)/', $result->err) === 1) {
+        if (preg_match(self::REJECTED, $result->err) === 1) {
             return 'rejected';
         }
         throw new RemoteFailed('push failed: '.trim($result->err));

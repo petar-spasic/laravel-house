@@ -1,6 +1,7 @@
 <?php
 
 use PetarSpasic\LaravelHouse\Kanban\Policy\Transitions;
+use PetarSpasic\LaravelHouse\Kanban\Protocol\MergeState;
 use PetarSpasic\LaravelHouse\Kanban\Store\Actor;
 use PetarSpasic\LaravelHouse\Kanban\Store\BoardRef;
 use PetarSpasic\LaravelHouse\Kanban\Store\Store;
@@ -429,4 +430,41 @@ it('gives a card whose board file is missing a board to show it under', function
     $card = $this->getJson("/kanban/_api/cards/{$id}")->assertOk()->json('card');
 
     expect($card['board'])->toMatchArray(['ref' => 'work', 'title' => 'work'])->and($card['targets'])->toBeArray();
+});
+
+it('says where each approved card stands in the merge queue: being merged, waiting for a red main, or at its place', function () {
+    $s = $this->sandbox;
+    $store = app(Store::class);
+    $main = new Actor('main', 's1');
+    $approved = function (string $title, array $options, string $at) use ($s, $store, $main): string {
+        $id = $s->readyCard($title, $options);
+        (new Transitions($store))->start($id, $main, null, ['branch' => 'card/'.strtolower($id), 'stack' => null]);
+        (new Transitions($store))->apply($id, $main);
+        $store->update($id, function (array $data) use ($at) {
+            $data['work']['approved'] = ['head' => str_repeat('a', 40), 'at' => $at];
+
+            return $data;
+        }, $main);
+
+        return $id;
+    };
+    $merging = $approved('Tag notes', [], '2026-10-09T07:00:00.000+00:00');
+    $fix = $approved('Fix the export test', ['--label=main-red', '--accept=`php artisan test` passes on main'], '2026-10-09T07:10:00.000+00:00');
+    $held = $approved('Archive notes', [], '2026-10-09T07:20:00.000+00:00');
+    $store->update($held, function (array $data) use ($fix, $s) {
+        $data['log'][] = MergeState::entry('main', ['red' => $fix, 'command' => 'php artisan test', 'base' => trim($s->git('rev-parse', 'refs/heads/main'))]);
+
+        return $data;
+    }, $main);
+    $store->lease(fn (?array $old) => [['id' => '9f2c41d07a8b3e65', 'card' => $merging, 'by' => 'ana@host-a', 'who' => 'Ana',
+        'since' => '2026-10-09T08:00:00.000+00:00', 'beat' => '2026-10-09T08:04:00.000+00:00'], [], "merge lease {$merging} taken"], $main);
+
+    $cards = collect($this->getJson('/kanban/_api/work')->assertOk()->json('stages'))->pluck('cards')->flatten(1)->keyBy('id');
+    $facts = $this->getJson("/kanban/_api/cards/{$merging}")->json('card.facts');
+
+    expect($cards[$merging]['merge'])->toBe(['state' => 'merging', 'by' => 'Ana', 'since' => strtotime('2026-10-09T08:00:00Z')])
+        ->and($cards[$fix]['merge'])->toBe(['state' => 'queued', 'position' => 1])
+        ->and($cards[$held]['merge'])->toBe(['state' => 'held', 'waits' => "waits for {$fix} (failing on main)"])
+        ->and($facts['queue'])->toBe('merging on host-a (Ana) since 08:00')
+        ->and($this->getJson("/kanban/_api/cards/{$fix}")->json('card.facts.queue'))->toBe('queued 1st');
 });

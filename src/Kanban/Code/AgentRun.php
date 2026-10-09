@@ -6,6 +6,7 @@ use PetarSpasic\LaravelHouse\Kanban\Console\Install\ClaudeAgents;
 use PetarSpasic\LaravelHouse\Kanban\Console\Install\ClaudeSettings;
 use PetarSpasic\LaravelHouse\Kanban\Console\Standalone;
 use PetarSpasic\LaravelHouse\Kanban\Guard\Guard;
+use PetarSpasic\LaravelHouse\Kanban\Protocol\MergeState;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Runtime;
 use PetarSpasic\LaravelHouse\Kanban\Store\Card;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
@@ -16,7 +17,7 @@ use Symfony\Component\Process\Process;
 use Throwable;
 
 /**
- * Headless card agents for `kanban run`: each is `claude -p --agent kanban-worker|kanban-planner|kanban-evaluator` in main's checkout,
+ * Headless card agents for `kanban run`: each is `claude -p --agent kanban-worker|kanban-planner|kanban-evaluator|kanban-merger` in main's checkout,
  * with the model and effort of `kanban.agents.<role>` (read at each launch) passed as flags and none inherited from the environment,
  * detached (its own session, so stopping `run` leaves it working), bound to its card by its session id. A run's pid
  * file sits in `runs/` until the run is reaped; its result JSON and stderr beside it; one line per ended run in
@@ -29,6 +30,8 @@ final class AgentRun
     public const EVALUATOR = 'kanban-evaluator';
 
     public const PLANNER = 'kanban-planner';
+
+    public const MERGER = 'kanban-merger';
 
     /** A `stop` under way younger than this holds the card; an older mark is one a killed `stop` left. */
     public const STOPPING_SECONDS = 600;
@@ -44,7 +47,7 @@ final class AgentRun
     {
         $finder = new ExecutableFinder;
 
-        $missing = array_values(array_filter([self::WORKER, self::PLANNER, self::EVALUATOR], fn (string $agent) => ! is_file($this->paths->main."/.claude/agents/{$agent}.md")));
+        $missing = array_values(array_filter([self::WORKER, self::PLANNER, self::EVALUATOR, self::MERGER], fn (string $agent) => ! is_file($this->paths->main."/.claude/agents/{$agent}.md")));
 
         return match (true) {
             ($this->config['agents']['shell'] ?? 'container') !== 'container' || ($this->config['stack']['compose_file'] ?? null) === null => 'kanban run needs card containers (agents.shell container and stack.compose_file set): a headless agent may run only the commands Guard routes into one',
@@ -55,15 +58,21 @@ final class AgentRun
         };
     }
 
-    /** Launches a new session for the card, or resumes $resume; returns the session id. */
-    public function launch(Card $card, string $type, ?string $resume = null): string
+    /**
+     * Launches a new session for the card, or resumes $resume; returns the session id. $worktree, absolute, is where the
+     * agent works instead of the card's own clone (a merger's merge clone).
+     */
+    public function launch(Card $card, string $type, ?string $resume = null, ?string $worktree = null): string
     {
         if ($this->stopping($card->id())) {
             throw new PolicyRefused("{$card->id()} is being stopped: no agent is launched for it");
         }
         $session = $resume ?? self::uuid();
-        $worktree = (string) ($card->work()['worktree'] ?? '');
-        $worktree = realpath($this->paths->main.'/'.$worktree) ?: $this->paths->main.'/'.$worktree;
+        if ($worktree === null) {
+            $worktree = (string) ($card->work()['worktree'] ?? '');
+            $worktree = $this->paths->main.'/'.$worktree;
+        }
+        $worktree = realpath($worktree) ?: $worktree;
         $prompt = $resume === null
             ? "Card {$card->id()}. Worktree {$worktree}"
             : "Resumed for card {$card->id()}: run vendor/bin/kanban context and act on what it shows (section 5 of your instructions).";
@@ -106,6 +115,11 @@ final class AgentRun
             }
             $this->end([['session' => $session] + $run]);
             throw new PolicyRefused("{$card->id()} is being stopped: its agent was ended as it launched");
+        }
+        if ($type === self::MERGER) {
+            // launches since the merger's last result: the third that ends with none blocks the card
+            (new MergeState($this->paths))->update(fn (array $state) => ($state['card'] ?? null) === $card->id()
+                ? ['merger_runs' => (int) ($state['merger_runs'] ?? 0) + 1] + $state : $state);
         }
 
         return $session;
@@ -172,17 +186,17 @@ final class AgentRun
     }
 
     /**
-     * Ends the card's headless runs, and every command they started: Claude Code runs each shell in a session of its
-     * own, so a run's process group alone would leave them working in the clone. Only a run whose process is proven to
-     * be it (owns()) is ended; each one ended is reaped as ended() would.
+     * Ends the card's headless runs (with $type, only those of that agent type), and every command they started: Claude
+     * Code runs each shell in a session of its own, so a run's process group alone would leave them working in the clone.
+     * Only a run whose process is proven to be it (owns()) is ended; each one ended is reaped as ended() would.
      *
      * @return list<array<string, mixed>> the runs that were live, each with its `session`
      */
-    public function stopCard(string $id, int $grace = 10): array
+    public function stopCard(string $id, int $grace = 10, ?string $type = null): array
     {
         $runs = [];
         foreach ($this->running() as $session => $run) {
-            if (($run['card'] ?? null) === $id && self::owns((int) $run['pid'], $session) === true) {
+            if (($run['card'] ?? null) === $id && ($type === null || ($run['type'] ?? null) === $type) && self::owns((int) $run['pid'], $session) === true) {
                 $runs[] = ['session' => $session] + $run;
             }
         }

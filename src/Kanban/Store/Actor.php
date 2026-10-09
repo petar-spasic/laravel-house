@@ -6,7 +6,7 @@ use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Invalid;
 
 final class Actor
 {
-    public const ROLES = ['owner', 'main', 'planner', 'worker', 'evaluator', 'hook', 'import'];
+    public const ROLES = ['owner', 'main', 'planner', 'worker', 'evaluator', 'merger', 'hook', 'import'];
 
     public function __construct(public readonly string $role, public readonly ?string $session = null)
     {

@@ -8,7 +8,7 @@ use PetarSpasic\LaravelHouse\Kanban\Store\CardType;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Invalid;
 use PetarSpasic\LaravelHouse\Kanban\Support\Clock;
 
-/** Builds and validates the staged report (worker), verdict (evaluator) and plan (planner) of a card. */
+/** Builds and validates the staged report (worker), verdict (evaluator), plan (planner) and merge result (merger) of a card. */
 final class Staged
 {
     /** Characters of a report's summary the card log keeps. */
@@ -63,7 +63,7 @@ final class Staged
      * @param  list<string>  $checks  `N:pass|fail:evidence`
      * @param  list<string>  $issues
      * @param  list<string>  $discovered  `type: Title — body`; outside the card, so they never decide the verdict
-     * @param  array{head: string, base: ?string, worktree: string, session: ?string, since: ?string, after: ?string}  $at  since: when its evaluator started or resumed; after: the card's last verdict entry
+     * @param  array{head: string, worktree: string, session: ?string, since: ?string, after: ?string}  $at  since: when its evaluator started or resumed; after: the card's last verdict entry
      * @param  list<array{title: string, body: string}>  $upstream
      * @return array<string, mixed>
      */
@@ -157,6 +157,40 @@ final class Staged
             'reason' => $reason,
             'note' => self::text($note),
         ] + ($questions === [] ? [] : ['questions' => $questions]) + $at);
+    }
+
+    /**
+     * A merger's result for the merge in flight, $state (MergeState): resolved or fixed at the merge clone's `head`, back
+     * to the card's worker, or main (the failed check fails on main too), with the note on what it did or found. The
+     * merge's `lease`, `round` and the approved head it merges (`card_head`) name the merge it answers.
+     *
+     * @param  array<string, mixed>  $state
+     * @param  array{head: ?string, session: ?string}  $at
+     * @return array<string, mixed>
+     */
+    public static function merge(Card $card, string $outcome, ?string $note, array $state, array $at): array
+    {
+        if (! in_array($outcome, MergeState::OUTCOMES, true)) {
+            throw new Invalid("the merge result is resolved, fixed, back or main, not '{$outcome}'");
+        }
+        $note = self::text($note) ?? throw new Invalid("{$outcome} needs --note=\"…\": ".match ($outcome) {
+            'back' => 'the files or failing tests, and what the worker must decide or fix',
+            'main' => '<command> — what fails on main',
+            default => 'what you did, and why',
+        });
+        if (($length = mb_strlen($note)) > self::VERDICT_TEXT) {
+            throw new Invalid("--note: {$length} characters, at most ".self::VERDICT_TEXT.': cut prose, keep the facts');
+        }
+
+        return self::seal([
+            'card' => $card->id(),
+            'outcome' => $outcome,
+            'note' => $note,
+            'card_head' => $state['head'] ?? null,
+            'lease' => $state['lease'] ?? null,
+            'round' => $state['round'] ?? null,
+            'merger_rounds' => $state['merger_rounds'] ?? 0,
+        ] + $at);
     }
 
     /**

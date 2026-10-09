@@ -9,9 +9,10 @@ use Throwable;
 /**
  * Claude Code PreToolUse hook. It keeps the runtime files the rest of kanban reads: the agent's heartbeat
  * (agents/<id>.json mtime), its binding to a card at EnterWorktree, and the spawn record that WorktreeCreate hands
- * to the next isolated kanban agent. For a bound worker, planner or evaluator it routes every shell command but a plain
- * `vendor/bin/kanban` one (alone, or after a `cd` into the card) into the card's container (`updatedInput`), and fences its file tools to the card's
- * directory, a planner's writes to the card's `.tmp`: the only thing it denies. Any error is swallowed and prints nothing.
+ * to the next isolated kanban agent. A merger works in the merge clone, for the card this checkout's merge.json names.
+ * For a bound worker, planner, evaluator or merger it routes every shell command but a plain `vendor/bin/kanban` one
+ * (alone, or after a `cd` into its directory) into its stack's container (`updatedInput`), and fences its file tools to
+ * its directory, a planner's writes to the card's `.tmp`: the only thing it denies. Any error is swallowed and prints nothing.
  */
 final class Guard
 {
@@ -24,8 +25,13 @@ final class Guard
 
     private const PLANNER = 'kanban-planner';
 
+    private const MERGER = 'kanban-merger';
+
     /** Each kanban agent and the stage of the cards it works on. */
-    private const STAGES = [self::WORKER => 'doing', self::EVALUATOR => 'review', self::PLANNER => 'planning'];
+    private const STAGES = [self::WORKER => 'doing', self::EVALUATOR => 'review', self::PLANNER => 'planning', self::MERGER => 'review'];
+
+    /** Where a merger works (Paths::mergeClone), relative to main. */
+    private const MERGE_CLONE = '.claude/worktrees/_merge';
 
     private const HELD_SECONDS = 300;
 
@@ -40,7 +46,7 @@ final class Guard
 
     private const WRITES = ['Edit', 'Write', 'NotebookEdit'];
 
-    /** A kanban agent's type: a worker, planner or evaluator. */
+    /** A kanban agent's type: a worker, planner, evaluator or merger. */
     private static function isAgent(mixed $type): bool
     {
         return is_string($type) && isset(self::STAGES[$type]);
@@ -308,27 +314,22 @@ final class Guard
         }
 
         $target = self::canonical($path[0] === '/' ? $path : $cwd.'/'.$path);
-        $stage = self::STAGES[$type];
 
-        foreach (self::cards($main) as $card) {
-            $worktree = $card['work']['worktree'] ?? null;
-            if (($card['stage'] ?? null) !== $stage || ! is_string($worktree) || $worktree === '') {
-                continue;
-            }
+        foreach (self::workplaces($main, $type) as $id => $worktree) {
             if (self::canonical($worktree[0] === '/' ? $worktree : $main.'/'.$worktree) !== $target) {
                 continue;
             }
-            if (! empty($binding['card']) && $binding['card'] !== $card['id']) {
+            if (! empty($binding['card']) && $binding['card'] !== $id) {
                 return;
             }
-            if (self::heldByAnother($main, $agentId, $type, $card['id'])) {
+            if (self::heldByAnother($main, $agentId, $type, $id)) {
                 return;
             }
 
             self::write($file, [
                 'agent_id' => $agentId,
                 'agent_type' => $type,
-                'card' => $card['id'],
+                'card' => $id,
                 'worktree' => $worktree,
                 'bound_at' => (new DateTimeImmutable('now', new DateTimeZone('UTC')))->format('Y-m-d\TH:i:s.vP'),
                 'stopped_at' => null,
@@ -370,22 +371,13 @@ final class Guard
             return;
         }
 
-        $stage = self::STAGES[$type];
-        $cards = self::cards($main);
-        $named = [];
+        $places = self::workplaces($main, $type);
         $prompt = (string) ($input['prompt'] ?? '');
         // the spawn line starts `Card <ID>.`; otherwise any one id the prompt names
         preg_match('/^Card ([A-Z][A-Z0-9]{1,9}-[0-9A-Z]{4,12})\./i', $prompt, $lead);
         preg_match_all('/\b[A-Z][A-Z0-9]{1,9}-[0-9A-Z]{4,12}\b/i', $prompt, $m);
         $leading = strtoupper($lead[1] ?? '');
-        if (($cards[$leading]['stage'] ?? null) === $stage && ! empty($cards[$leading]['work']['worktree'])) {
-            $m[0] = [$leading];
-        }
-        foreach (array_unique(array_map('strtoupper', $m[0])) as $id) {
-            if (($cards[$id]['stage'] ?? null) === $stage && ! empty($cards[$id]['work']['worktree'])) {
-                $named[] = $cards[$id];
-            }
-        }
+        $named = array_values(array_intersect(isset($places[$leading]) ? [$leading] : array_unique(array_map('strtoupper', $m[0])), array_keys($places)));
         if (count($named) !== 1) {
             return;
         }
@@ -398,12 +390,38 @@ final class Guard
                 @unlink($file);
             }
         }
-        self::write($main.'/.git/laravel-house/spawns/'.$named[0]['id'].'.json', [
-            'card' => $named[0]['id'],
+        self::write($main.'/.git/laravel-house/spawns/'.$named[0].'.json', [
+            'card' => $named[0],
             'agent_type' => $type,
-            'worktree' => $named[0]['work']['worktree'],
+            'worktree' => $places[$named[0]],
             'at' => microtime(true),
         ]);
+    }
+
+    /**
+     * The cards an agent of $type may work on, by id, each with its directory: for a merger the merge clone, for the card
+     * this checkout's merge.json names while it is in review.
+     *
+     * @return array<string, string>
+     */
+    private static function workplaces(string $main, string $type): array
+    {
+        $cards = self::cards($main);
+        if ($type === self::MERGER) {
+            $merge = json_decode((string) @file_get_contents($main.'/.git/laravel-house/merge.json'), true);
+            $id = strtoupper((string) ($merge['card'] ?? ''));
+
+            return ($cards[$id]['stage'] ?? null) === self::STAGES[$type] ? [$id => self::MERGE_CLONE] : [];
+        }
+        $places = [];
+        foreach ($cards as $id => $card) {
+            $worktree = $card['work']['worktree'] ?? null;
+            if (($card['stage'] ?? null) === self::STAGES[$type] && is_string($worktree) && $worktree !== '') {
+                $places[(string) $id] = $worktree;
+            }
+        }
+
+        return $places;
     }
 
     /**
@@ -429,12 +447,15 @@ final class Guard
     private static function findMain(string $dir): ?string
     {
         $dir = realpath($dir) ?: null;
+        if ($dir !== null && ($main = self::cloneMain($dir)) !== null) {
+            return $main;
+        }
 
         while ($dir !== null) {
             $git = $dir.'/.git';
 
             if (is_dir($git)) {
-                return self::cloneMain($dir) ?? $dir;
+                return $dir;
             }
 
             if (is_file($git) && preg_match('/^gitdir:\s*(.+)$/m', (string) file_get_contents($git), $m)) {
@@ -453,16 +474,18 @@ final class Guard
         return null;
     }
 
-    /** A card clone's main checkout (`kanban.main`, see Paths::cloneMainOf), or null. */
+    /** The main checkout whose `.claude/worktrees/` holds $dir, by its path alone (see Paths::cloneMainOf), or null. */
     private static function cloneMain(string $dir): ?string
     {
-        $config = @file_get_contents($dir.'/.git/config');
-        if (! is_string($config) || ! preg_match('/^\[kanban\]\R(?:[ \t]+[^\[\r\n]*\R)*?[ \t]+main[ \t]*=[ \t]*(.+?)[ \t]*$/m', $config, $m)) {
-            return null;
+        $path = $dir.'/';
+        for ($at = strpos($path, '/.claude/worktrees/'); $at !== false; $at = strpos($path, '/.claude/worktrees/', $at + 1)) {
+            $main = substr($path, 0, $at);
+            if ($main !== '' && strlen($path) > $at + 19 && is_dir($main.'/.git')) {
+                return $main;
+            }
         }
-        $main = realpath($m[1]);
 
-        return $main !== false && is_dir($main.'/.git') && str_starts_with($dir, $main.'/.claude/worktrees/') ? $main : null;
+        return null;
     }
 
     /** Absolute path with symlinks resolved as far as the path exists. */

@@ -80,6 +80,18 @@ final class Snapshot
         return $value;
     }
 
+    /**
+     * The merge lease (`merge` in kanban.json), or null when no merge holds it.
+     *
+     * @return array{id: string, card: string, by: string, who?: string, since: string, beat: string, pushing?: string}|null
+     */
+    public function mergeLease(): ?array
+    {
+        $lease = $this->kanban['merge'] ?? null;
+
+        return is_array($lease) ? $lease : null;
+    }
+
     public function card(string $id): ?Card
     {
         return $this->cards[$id] ?? null;

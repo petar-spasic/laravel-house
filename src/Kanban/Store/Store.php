@@ -52,6 +52,20 @@ interface Store
      */
     public function claim(string $id, Claim $claim, Actor $by, ?Closure $verify = null, ?array $work = null, ?Closure $mutate = null): Card;
 
+    /**
+     * Compare-and-set of the merge lease (`merge` in kanban.json), won like a claim: with sync on, by the push that lands,
+     * fetched, rebased and decided again each round (three, then RemoteFailed). $decide gets the lease on the board and the
+     * snapshot (origin's, after the pull, when sync is on) under the write lock, and returns the new lease (null frees it),
+     * the cards to change in the same commit (id => mutation) and the commit message; it throws to refuse (Waiting,
+     * LostClaim). Returning the lease it was given and no card writes nothing. A new lease without `who` gets the writer's,
+     * as a log entry does; kanban.json's `updated` is left alone.
+     * Returns the lease after the write, or null: freed, or the board lock was busy and $try (a beat) skipped the write.
+     *
+     * @param  Closure(array<string, mixed>|null, Snapshot): array{0: array<string, mixed>|null, 1: array<string, Closure(array<string, mixed>): array<string, mixed>>, 2: string}  $decide
+     * @return array<string, mixed>|null
+     */
+    public function lease(Closure $decide, Actor $by, bool $try = false, float $pushTimeout = 30): ?array;
+
     public function sync(): SyncResult;
 
     /**

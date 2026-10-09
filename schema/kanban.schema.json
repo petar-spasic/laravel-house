@@ -30,6 +30,20 @@
                 "main_write_paths": { "type": "array", "items": { "type": "string", "minLength": 1 } }
             }
         },
+        "merge": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "card", "by", "since", "beat"],
+            "properties": {
+                "id": { "type": "string", "pattern": "^[0-9a-f]{16}$" },
+                "card": { "type": "string", "pattern": "^[A-Z][A-Z0-9]{1,9}-[0-9A-HJKMNP-TV-Z]{4,12}$" },
+                "by": { "type": "string", "minLength": 1 },
+                "who": { "type": "string", "minLength": 1, "maxLength": 80 },
+                "since": { "$ref": "#/$defs/timestamp" },
+                "beat": { "$ref": "#/$defs/timestamp" },
+                "pushing": { "type": "string", "pattern": "^[0-9a-f]{40}$" }
+            }
+        },
         "updated": { "$ref": "#/$defs/timestamp" }
     },
     "$defs": {

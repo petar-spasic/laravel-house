@@ -2,9 +2,12 @@
 
 namespace PetarSpasic\LaravelHouse\Kanban\Http;
 
+use PetarSpasic\LaravelHouse\Kanban\Code\MainPush;
+use PetarSpasic\LaravelHouse\Kanban\Policy\MergeQueue;
 use PetarSpasic\LaravelHouse\Kanban\Policy\Plan;
 use PetarSpasic\LaravelHouse\Kanban\Policy\PullPolicy;
 use PetarSpasic\LaravelHouse\Kanban\Policy\Shape;
+use PetarSpasic\LaravelHouse\Kanban\Protocol\Brief;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Context;
 use PetarSpasic\LaravelHouse\Kanban\Store\Board;
 use PetarSpasic\LaravelHouse\Kanban\Store\BoardRef;
@@ -35,6 +38,9 @@ final class Presenter
 
     /** @var array<string, list<string>>|null */
     private ?array $hubs = null;
+
+    /** @var array{origin: ?string, cards: array<string, array<string, mixed>>}|null the merge queue, read on first use */
+    private ?array $queue = null;
 
     public function __construct(private readonly Snapshot $snapshot, private readonly Paths $paths) {}
 
@@ -178,6 +184,7 @@ final class Presenter
             // a planner holds it: `stop` moves it, never the board
             'held' => $card->stage() === 'planning' && $card->claim() !== null,
             'url' => $card->atWork() ? ($card->work()['stack']['url'] ?? null) : null,
+            'merge' => $this->queue()['cards'][$card->id()] ?? null,
             'since' => $this->timestamp($card->stageSince()),
             'rev' => (string) $card->rev,
         ];
@@ -216,6 +223,7 @@ final class Presenter
                 'branch' => $fact('branch'),
                 'worktree' => $fact('worktree'),
                 'merge' => $fact('merge'),
+                'queue' => $card->stage() === 'review' ? Brief::place($card, $this->snapshot, $this->paths, $this->queue()['origin'], $this->queue()['cards']) : null,
                 'parked_branch' => $fact('parked_branch'),
                 'claim' => $card->claim(),
                 'host' => $card->host(),
@@ -226,6 +234,27 @@ final class Presenter
             'log' => array_slice(array_reverse($log), 0, self::LOG_SHOWN),
             'log_total' => count($log),
         ];
+    }
+
+    /**
+     * The cards in the merge queue: the one being merged (by whom, since when), those held while main is red (what they
+     * wait for), the others at their place.
+     *
+     * @return array{origin: ?string, cards: array<string, array<string, mixed>>}
+     */
+    private function queue(): array
+    {
+        if ($this->queue !== null) {
+            return $this->queue;
+        }
+        $origin = MainPush::of($this->paths, (array) config('kanban', []))->known();
+        $lease = $this->snapshot->mergeLease();
+        $cards = [];
+        foreach (MergeQueue::states($this->snapshot, $origin) as $id => $state) {
+            $cards[$id] = $state['state'] === 'merging' ? $state + ['by' => $lease['who'] ?? $lease['by'], 'since' => $this->timestamp((string) $lease['since'])] : $state;
+        }
+
+        return $this->queue = ['origin' => $origin, 'cards' => $cards];
     }
 
     /** Seconds since the epoch of a card timestamp; 0 for one a damaged file holds. */

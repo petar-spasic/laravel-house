@@ -36,7 +36,7 @@
 - [Kanban Configuration](#kanban-configuration)
     - [Agent Models](#agent-models)
     - [Quality Gates](#quality-gates)
-    - [Commands After Merging](#commands-after-merging)
+    - [The Merge Queue](#the-merge-queue)
 - [The Board](#the-board)
     - [Boards and Cards](#boards-and-cards)
     - [Stages](#stages)
@@ -567,11 +567,13 @@ Every card follows the same path:
    `.claude/worktrees` and brings up a Docker stack for it on its own ports.
 4. **A worker writes the code.** A background `kanban-worker` agent follows the plan and commits to the card's branch.
    When it is done, it reports back, and the card moves to `review`.
-5. **An evaluator checks it.** A read-only `kanban-evaluator` agent checks every acceptance criterion and approves or
-   rejects the work. Rejected work goes back to the worker.
-6. **Approved work is merged.** `kanban finish` merges the branch into `main`, marks the card `done`, and removes the
-   clone and its stack. Every few merges, it pushes `main` too.
-7. **The run is published.** At the end of a run, `kanban publish` pushes the board and `main` to your remote.
+5. **An evaluator checks it.** A read-only `kanban-evaluator` agent checks the branch as it is against every
+   acceptance criterion, and approves or rejects the work. Rejected work goes back to the worker.
+6. **Approved work goes through the merge queue.** One merge runs at a time for the whole project. In a merge clone
+   with its own Docker stack, the queue merges `main` and the card, runs the gates and your test suite, then pushes
+   `main` and marks the card `done`. A conflict or a failing test goes to a `kanban-merger` agent first. See
+   [The Merge Queue](#the-merge-queue).
+7. **The run is published.** At the end of a run, `kanban publish` pushes the board to your remote.
 
 Requiring the package does not put a project on the board. The `/implement-kanban` skill does:
 
@@ -612,8 +614,8 @@ The installer makes the following changes:
   kept. It also turns off Claude Code's commit and PR attribution, because the hooks would reject those trailers.
 - It adds the permissions that name this checkout's path, for its `vendor/bin/kanban` and `vendor/bin/kanban-exec`, to
   `.claude/settings.local.json`. That file stays out of git, so each machine gets its own.
-- It writes the three agents to `.claude/agents/kanban-planner.md`, `.claude/agents/kanban-worker.md` and
-  `.claude/agents/kanban-evaluator.md`.
+- It writes the four agents to `.claude/agents/kanban-planner.md`, `.claude/agents/kanban-worker.md`,
+  `.claude/agents/kanban-evaluator.md` and `.claude/agents/kanban-merger.md`.
 - It writes a marked `## Kanban` block into the root `CLAUDE.md`, before Boost's guidelines when they are there. The
   block points Claude at the `kanban` skill.
 - With Boost, it makes sure `petar-spasic/laravel-house` is in the `packages` list in `boost.json`, so
@@ -625,8 +627,10 @@ The installer makes the following changes:
 - It adds the card-stack lines to a local compose file written before them. See
   [Where Agents Run](#where-agents-run).
 
-Review these changes and commit them to `main`. The settings in `.claude/settings.json` apply to everyone who clones
-the project.
+Before your first card can merge, set `finish.check` to your test suite, as [The Merge Queue](#the-merge-queue)
+says. Review these changes, commit them to `main` and run `vendor/bin/kanban publish`: the queue merges onto your
+remote's `main`, so a commit left only on yours makes it diverge. The settings in `.claude/settings.json` apply to
+everyone who clones the project.
 
 > [!NOTE]
 > Claude Code loads agents and hooks only when a session starts. Restart Claude Code after installing.
@@ -679,14 +683,15 @@ KANBAN_UPSTREAM=false     # Set to true to let Claude file package issues. See "
 <a name="agent-models"></a>
 ### Agent Models
 
-By default, the planner runs on Opus with high effort, the worker on Sonnet with high effort, and the evaluator on Opus
-with medium effort. You may change any of them in the `agents` section of `config/kanban.php`:
+By default, the planner runs on Opus with high effort, the worker on Sonnet with high effort, and the evaluator and
+the merger on Opus with medium effort. You may change any of them in the `agents` section of `config/kanban.php`:
 
 ```php
 'agents' => [
     'planner' => ['model' => 'opus', 'effort' => 'high'],
     'worker' => ['model' => 'sonnet', 'effort' => 'high'],
     'evaluator' => ['model' => 'opus', 'effort' => 'medium'],
+    'merger' => ['model' => 'opus', 'effort' => 'medium'],
 ],
 ```
 
@@ -727,17 +732,73 @@ stays unless the branch adds a migration, and `npm run check` in `frontend/` whe
 ],
 ```
 
-Agents run them with `vendor/bin/kanban gates`. Publishing `config/kanban.php` replaces the whole `gates` list, so copy
-the defaults you keep.
+Agents run them with `vendor/bin/kanban gates`, and the [merge queue](#the-merge-queue) runs them again on the merged
+code. Publishing `config/kanban.php` replaces the whole `gates` list, so copy the defaults you keep.
 
-<a name="commands-after-merging"></a>
-### Commands After Merging
+<a name="the-merge-queue"></a>
+### The Merge Queue
 
-After `finish` merges a card into `main`, it takes the card's stack and clone down. Then it installs your dependencies
-when the card changed `composer.lock` or a `package-lock.json`. In projects with a [worktree stack](#worktree-stacks),
-it then runs the `migrate` command and the commands in `finish.after`, read from the merged code. They run in your main
-stack's app container, as the agents run them in theirs, and `finish` starts the stack first when it is down. By
-default, they seed reference data:
+Approved cards wait in the merge queue, oldest approval first. One merge runs at a time for the whole project, across
+every machine that shares the board. Each merge:
+
+1. takes the merge lease on the board, so no other machine merges at the same time;
+2. brings your main checkout up to `main` on your remote, then merges the card's approved commit into that `main`;
+3. runs the quality gates and your test suite on the merged code, in a merge clone with its own Docker stack;
+4. pushes `main` to your remote, marks the card `done`, and removes the card's clone, stack and branch;
+5. brings your main checkout and its stack up to the new `main`.
+
+The queue never changes the card's branch. A commit the worker adds after the approval is not merged: the approval
+lapses, and the evaluator checks the branch again. Without a remote, the queue merges into your local `main`, which
+must be checked out in the main checkout with no uncommitted changes. An untracked file where the card adds one also
+stops it.
+
+The queue merges nothing until `finish.check` names your whole test suite. It runs where the gates run: in the merge
+stack's app container, or on your machine with `KANBAN_AGENT_SHELL=host`. List each command as you would type it
+there, without `docker compose exec`. Each command may run for 30 minutes:
+
+```php
+'finish' => [
+    'check' => [
+        'php artisan test --compact',
+    ],
+],
+```
+
+The queue reads the gates and `finish.check` from `config/kanban.php` on `main`, never from the card. A card that
+changes them takes effect from the next merge on.
+
+When the merge conflicts, or a gate or test fails on the merged code, a `kanban-merger` agent takes over in the merge
+clone. The queue keeps the lease meanwhile. The merger ends with one of four results:
+
+- **resolved**: it resolved the conflict, and the checks run again.
+- **fixed**: the two sides broke each other, and it fixed that. The checks run again.
+- **back**: the failure is the card's own, or the merger cannot tell what the card meant. The card goes back to its
+  worker with the merger's note.
+- **main**: the failure is already on `main`, as below.
+
+The merger may not edit `.claude/` or `config/kanban.php`, delete a test, or skip one. A conflict in `.claude/` or
+`config/kanban.php` blocks the card for you instead. Send it back with a reason
+(`vendor/bin/kanban move ID doing --reason="…"`), run `vendor/bin/kanban refresh` on it, resolve a `.claude/` file in
+its clone yourself, and unblock it. Its worker concludes the merge. A merge that still fails after three merger
+rounds goes back to the worker.
+
+When a test command fails on the merged code, the queue first runs it on `main` alone, in the same stack, when the card
+changed no lockfile, docker file or compose file. If it fails there too, `main` is red. The queue files one
+high-priority `main red: <command>` card, or adds a note to the open one, and merges nothing more until `main` moves.
+The card that found it keeps its approval and waits. The card filed for the red `main` merges once its own command
+passes.
+
+A card merges only on the machine that built it, because card branches never leave their machine. When another
+machine's card heads the queue, your machine waits. Once that card has headed the queue for 15 minutes, as your machine
+sees it, your machine merges its own cards first.
+
+A machine that stops while it holds the lease lets go of it after 15 minutes without a heartbeat. When your remote
+rejects the push, `main` moved in the meantime: the queue merges again on the new `main`, up to three rounds in all.
+
+After the push, the queue fast-forwards your main checkout. It installs your dependencies when the merge changed
+`composer.lock` or a `package-lock.json`. In projects with a [worktree stack](#worktree-stacks), it then runs the
+`migrate` command and the commands in `finish.after`, read from `main`. They run in your main stack's app container,
+and the queue starts the stack first when it is down. By default, they seed reference data:
 
 ```php
 'migrate' => 'php artisan migrate --force',
@@ -746,37 +807,29 @@ default, they seed reference data:
     'after' => [
         'php artisan db:seed --class=ReferenceDataSeeder --force',
     ],
-    'check' => [],
 ],
 ```
 
-A `db:seed --class=…` command is skipped while that seeder does not exist. List your test suite in `finish.check` to
-run it on `main` after each merge: while it fails, the next `finish` waits. `finish` also pushes `main` once
-`publish.every` merges (5 by default) are not on your remote. When the merge changed a lockfile, a docker file or the
-compose file, `finish` rebuilds your main stack before these steps. It builds the images first, while your stack
-keeps serving, then recreates the containers. If that fails, it prints the command to run, and the card stays done.
-Pass `--no-rebuild` to skip it.
+A `db:seed --class=…` command is skipped while that seeder does not exist. When the merge changed a lockfile, a docker
+file or the compose file, the queue rebuilds your main stack before these steps. It builds the images first, while
+your stack keeps serving, then recreates the containers. If that fails, it prints the command to run. Pass
+`--no-rebuild` to `finish` to skip it.
 
-When a step after the merge fails, the card is still done, and the steps after it still run. Only a failed install
-skips some: `migrate`, `finish.after` and `finish.check`. `finish` exits with code 10, and `kanban run` reports each
-failure to Claude without blocking the card.
+The merging machine does the same before each merge, and `kanban run` does it on every other machine at most every two
+minutes, so your main checkout keeps up with `main`. A step that fails never holds the queue. The card stays done,
+`finish` exits with code 10, and `kanban run` reports each failure to Claude. A failed install skips `migrate` and
+`finish.after`.
 
-A card that changes the files that steer the agents or git (`.claude/`, `config/kanban.php`, a hooks directory,
-`.gitattributes`) merges only with your approval. When you plan such a change, approve it up front:
+`kanban run` drives the queue for you. Without it, `vendor/bin/kanban finish` merges this machine's next card. To give
+up a merge that waits for its merger, or one a failure stopped, abort it. The card stays approved and queued:
 
 ```shell
-vendor/bin/kanban allow-steering ACME-7K2QF9 config/kanban.php
+vendor/bin/kanban finish ACME-7K2QF9 --abort
 ```
 
-An approval given before the card changes the file covers any change to it. Otherwise `kanban run` asks you on the
-card once the evaluator approves it, with the diff to read, and your answer to `questions` merges the card or sends it
-back to its worker. That answer approves the file as it is: a later change to it asks again.
-
-An approved card keeps its approval when `main` moved only in files that match `finish.overlap_ignore` (Markdown files
-and `docs/` by default), or in none of the files the card changes; otherwise `finish` asks for a refresh and a new
-review. A list of your own replaces the defaults, so repeat `*.md` and `docs/*` in it. When the refresh merges
-cleanly, the new review runs the gates and the whole suite once. With a suite listed in `finish.check`, which runs on
-`main` after the merge, it runs only the gates and the tests of the files both `main` and the card changed.
+Abort refuses while a `finish` still runs. Each test command ends after 30 minutes at most. To end a `finish` that
+`kanban run` started at once, `stop` the card: it gives the merge up the same way and takes the card out of review.
+Neither runs while `main` is being pushed.
 
 <a name="the-board"></a>
 ## The Board
@@ -824,13 +877,13 @@ Cards move through these stages:
 | `planning` | Fully described; a planner agent writes its plan. |
 | `ready` | Planned, and waiting for a worker. |
 | `doing` | A worker is on it, in its own worktree. |
-| `review` | The worker is done; the evaluator checks the work. |
+| `review` | The worker is done; the evaluator checks the work, and approved work waits for the merge queue. |
 | `done` | Merged into `main`. |
 | `dropped` | Not going to happen. Dropping a card asks for a reason. |
 
 You move cards from `backlog` to `planning`, back to `backlog`, and to `dropped`. A card enters `ready` through its
 plan. The rest of the path belongs to the workflow: a card enters `doing` through `start`, `review` through the
-worker's report, and `done` through `finish`.
+worker's report, and `done` through the [merge queue](#the-merge-queue).
 
 <a name="card-ids"></a>
 ### Card IDs
@@ -853,8 +906,13 @@ A card may leave the `backlog` only when it is complete enough for an agent to w
 - every card it depends on exists;
 - it is not blocked, and has no open question.
 
-Write each acceptance criterion as something the evaluator can check, such as "GET /invoices.csv lists the month's
-invoices". `kanban promote` tells you which rule a card misses.
+Write each acceptance criterion as something the evaluator can check, and name the test that proves it, such as
+"`GET /invoices.csv` lists the month's invoices (`tests/E2E/InvoiceExportTest.php`)". `kanban promote` tells you which
+rule a card misses.
+
+Write the description for a person, in short, plain sentences: what changes and why. Each criterion holds one outcome.
+`kanban new` and `kanban set` print a hint for a sentence or a criterion over 25 words. The kanban skill's
+`references/planning.md` holds the rules and an example.
 
 The card then waits in `planning`. Once the cards it depends on are done, a planner agent takes it, in a clone and a
 stack of its own. The planner reads the code, checks every name against it, and writes the plan for the worker: the
@@ -971,7 +1029,7 @@ The main session follows the `kanban` skill. The routine runs in code, in `vendo
 keeps going in the background:
 - it moves complete cards from `backlog` to `planning`, and has a planner plan each one;
 - it starts as many planned cards as the limits allow, with a worker for each; planners and workers share the limit;
-- it sends finished work to the evaluator and merges what is approved;
+- it sends finished work to the evaluator, and merges approved cards through the [merge queue](#the-merge-queue);
 - a card that waits on your answer goes back to `backlog`, and the board carries on with the others. Once you answer,
   its kept branch starts again ahead of new cards.
 
@@ -994,7 +1052,8 @@ summary.
 > Only one Claude Code session per machine may run the board at a time. A session that ends lets go of the board, and
 > after `/compact` or a restart the new session takes over from the old one of the same conversation. If a session that
 > crashed, or started before you updated the package, still holds it, run `vendor/bin/kanban lease --takeover`, or wait
-> 15 minutes.
+> 15 minutes. One merge runs at a time for the whole project, and a machine that stops while it merges lets go of the
+> merge after 15 minutes.
 
 <a name="your-morning"></a>
 ### Your Morning
@@ -1086,15 +1145,24 @@ Each card's clone runs its own copy of your local Docker stack. It has its own p
 worker can migrate, seed and test without touching your main stack.
 
 The stack is built from your project's `docker-compose.local.yml`. The `start` command writes a `.env` into the
-clone with the stack's name and ports, then runs `docker compose up`. `finish` and `stop` take the stack down
-again.
+clone with the stack's name and ports, then runs `docker compose up`. The merge queue and `stop` take the stack
+down again.
+
+The [merge queue](#the-merge-queue) runs one more stack on each checkout, for its merge clone in
+`.claude/worktrees/_merge`. It stays up between merges and goes down when this machine has no approved card left to
+merge. To see its address or its logs, name it `_merge`:
+
+```shell
+vendor/bin/kanban stack _merge url
+```
 
 <a name="where-agents-run"></a>
 ### Where Agents Run
 
 A card's agents work in its clone and in its stack's container. Their shell commands run inside the container, git
 included, so tests, Artisan, npm and browser checks run where your app does. A plain `vendor/bin/kanban` command runs
-on your machine. Their file tools reach only the card's clone.
+on your machine. Their file tools reach only the card's clone. The agents are your own: these limits catch their
+mistakes, and they are no wall against an agent that tries to get out.
 
 The local compose file mounts the card's clone at its own path too, gives the card a `TMPDIR` inside it, and keeps the
 deploy key out of card stacks:
@@ -1109,8 +1177,8 @@ services:
       TMPDIR: ${KANBAN_TMPDIR:-/tmp}
 ```
 
-`vendor/bin/kanban doctor --fix` adds these lines to a compose file written before them. Set `KANBAN_AGENT_SHELL=host`
-to run agents' commands on your machine instead.
+`vendor/bin/kanban doctor --fix` adds these lines to a compose file written before them. Set `KANBAN_AGENT_SHELL=host` to
+run agents' commands on your machine instead.
 
 <a name="preparing-your-compose-file"></a>
 ### Preparing Your Compose File
@@ -1137,7 +1205,8 @@ port of the block, so you list nothing.
 `vendor/bin/kanban doctor` checks these rules and names any line that breaks one. It also warns when `phpunit.xml`
 sets `DB_HOST` or `DB_PORT`, because tests in a worktree would then hit your main database.
 
-If you do not use Docker, set `stack.compose_file` to `null`. Cards then get a worktree without a stack.
+If you do not use Docker, set `stack.compose_file` to `null`. Cards then get a worktree without a stack, and the
+merge queue merges nothing, because it runs your test suite in a stack of its own.
 
 <a name="ports"></a>
 ### Ports
@@ -1150,7 +1219,8 @@ across every project on the machine, so two projects never collide. Keep your ma
 
 Before it starts a stack, the package checks that the machine has room: at most `KANBAN_MAX_STACKS` stacks (12 by
 default, room for six cards in doing and six in review, which keep their stacks), at least 8 GiB of free memory, at
-least 20 GiB of free disk, and a load below 75% of the CPUs.
+least 20 GiB of free disk, and a load below 75% of the CPUs. The merge stack is outside these limits, so a busy
+machine still merges.
 
 <a name="docker-address-pools"></a>
 ### Docker Address Pools
@@ -1175,7 +1245,7 @@ sudo systemctl restart docker
 vendor/bin/kanban doctor
 ```
 
-`doctor` shows how many networks are free, and warns below `KANBAN_MAX_STACKS`.
+`doctor` shows how many networks are free, and warns below `KANBAN_MAX_STACKS` plus one for the merge stack.
 
 <a name="team-sync"></a>
 ## Team Sync
@@ -1191,8 +1261,7 @@ seconds: while the board page is open, when a Claude Code session starts, when `
 Teammates join with `vendor/bin/kanban attach`, as in [Joining an Existing Board](#joining-an-existing-board). When
 two machines try to start the same card, only one of them gets it.
 
-The board runs ahead of the code. `finish` marks a card `done` for everyone at once, but its code reaches your
-teammates only when `kanban publish` pushes `main`.
+Every merge pushes `main`, so your teammates get a card's code as soon as the card is `done`.
 
 <a name="keeping-a-board-local"></a>
 ### Keeping a Board Local
@@ -1203,7 +1272,8 @@ To keep the board on your machine, add the following to `.env` before installing
 KANBAN_SYNC=off
 ```
 
-Board changes then stay local until you run `vendor/bin/kanban publish`.
+Board changes then stay local until you run `vendor/bin/kanban publish`. The merge queue still pushes `main` on
+every merge while the project has an `origin`.
 
 > [!NOTE]
 > A published `config/kanban.php` that reads `env('KANBAN_SYNC', 'off')` keeps sync off. Change the default to
@@ -1296,19 +1366,18 @@ The [protocol reference](resources/boost/skills/kanban/references/protocol.md) l
 
 | Command | Description |
 |---|---|
-| `run` | The routine of running the board: starts cards, agents and merges. Claude runs it for you. |
+| `run` | The routine of running the board: starts cards and agents, and runs the merge queue. Claude runs it for you. |
 | `drain` | Makes `run` wrap up: it starts no new card and stops once none is in flight. `drain --off` undoes it. |
 | `start ID` | Claims a card and creates its clone and stack: a ready card for its worker, a planning card for its planner. A branch that `stop` kept is reused, with the latest `main` merged in. A refusal names the card ahead on the same area, or the limit it hit. |
-| `refresh ID` | Merges the latest `main` into the card's branch, once everything in its clone is committed. When the merge changes a lockfile, a docker file or the compose file, it recreates the card's stack. |
+| `refresh ID` | Merges the latest `main` into the branch of a card in `doing` or `planning`, in the card's container, once everything in its clone is committed. When the merge changes a lockfile, a docker file or the compose file, it recreates the card's stack. A card in `review` is merged as it is, by the merge queue. |
 | `rebuild-branch ID` | Turns a card's branch into one commit with the same files, when a merge of `main` carries changes of its own. |
 | `wait [ID]` | Waits until the card's agent has stopped and its plan, report or verdict is on the board. Without an ID, it waits for any card an agent works on. |
-| `finish ID` | Merges an approved card into `main` and cleans up. Exit code 10 means the card merged, but a step after the merge failed. |
-| `allow-steering ID PATH` | Approves a card's change to a file that steers the agents or git, so `finish` merges it. |
+| `finish [ID]` | The merge queue's step: merges the card, or this machine's next approved card, into `main`, pushes it and cleans up. `--abort` gives back a merge that no `finish` runs for. Exit code 10 means the card merged, but a step on this machine failed: following `main`, before the merge or after it, or the cleanup; 11 that it waits its turn; 12 that the merger takes over; 13 that the card left the queue. |
 | `stop ID --to=STAGE` | Takes a card out of work, ends the agent `kanban run` started for it and cleans up. A branch with commits is kept for the next `start`. A card its planner has planned moves to `ready` this way. |
-| `stack ID up\|down\|reload\|logs\|url` | Manages a card's stack. `stack ID exec -- CMD` runs a command in it. |
+| `stack ID up\|down\|reload\|logs\|url` | Manages a card's stack, or the merge stack as `stack _merge`. `stack ID exec -- CMD` runs a command in it. |
 | `gates` | Runs the quality gates in a card. |
 | `sync` | Pulls and pushes the board. |
-| `publish` | Pushes the board and `main`. |
+| `publish` | Pushes the board, and `main` when it holds commits made outside the merge queue. It never merges. |
 | `attach` | Checks out the board on this machine. |
 
 <a name="kanban-troubleshooting"></a>
@@ -1324,6 +1393,7 @@ cause and its fix. The most common ones are:
   refused `start` names the card ahead.
 - **A ready card went back to `planning`.** Its criteria or description changed after it was planned, and its
   planner plans it again.
+- **Approved cards never merge.** `finish.check` names no test suite. See [The Merge Queue](#the-merge-queue).
 - **Every command says "an older board format".** The board predates version 3: boards inside epic directories.
   Run `/implement-kanban`.
 - **Compose fails after about six stacks.** Widen the [Docker address pools](#docker-address-pools).
@@ -1359,7 +1429,9 @@ vendor/bin/kanban doctor --fix
 php artisan boost:update
 ```
 
-Skip the `doctor` line in a project without the board. Then restart Claude Code. Releases are semver tags.
+Skip the `doctor` line in a project without the board. On the board, commit the changes to `main` and run
+`vendor/bin/kanban publish`, so your `main` does not diverge from the remote's at the next merge. Then restart Claude
+Code. Releases are semver tags.
 
 > [!WARNING]
 > While the package is at 0.x, `^0.N` stays on `0.N.x`, so `composer update` alone never reaches a new minor
@@ -1379,6 +1451,23 @@ Skip the `doctor` line in a project without the board. Then restart Claude Code.
 > [!WARNING]
 > Every clone that shares a board must run the same version of the package. Commit `composer.lock`. Each other clone
 > then runs `composer install` and `vendor/bin/kanban doctor --fix`.
+
+> [!WARNING]
+> Version 0.12 merges approved cards through the merge queue, which pushes `main` on every merge. A machine on an
+> older version merges around the queue, so stop `kanban run` on every machine before you update any of them. Then:
+>
+> 1. Answer every open question whose card has a `Steering:` line (a change to `.claude/`, `config/kanban.php`,
+>    `.gitattributes` or a hooks directory). The new version merges such a card as it is.
+> 2. Run `vendor/bin/kanban publish` on each machine, so no merge stays only on its own `main`.
+> 3. On one machine, update the package and run `vendor/bin/kanban doctor --fix`. It writes the merger agent.
+> 4. Set `finish.check`, or rewrite it, as your test suite runs in the app container (on your machine with
+>    `KANBAN_AGENT_SHELL=host`), without `docker compose exec`. Until you do, nothing merges.
+> 5. Commit these changes to `main` and run `vendor/bin/kanban publish` before `kanban run` starts again. The queue
+>    merges onto the remote's `main`, so a commit left only on yours makes it diverge. Every other machine then pulls
+>    `main`, runs `composer install` and `vendor/bin/kanban doctor --fix`.
+>
+> A project without worktree stacks merges nothing at all, because the queue runs that suite in a stack of its own.
+> Approved cards keep their approval and merge in approval order.
 
 > [!WARNING]
 > Version 0.10 renders the house rules on every `composer update`. A house project set up earlier has no

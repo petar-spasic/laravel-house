@@ -88,7 +88,7 @@
                 "properties": {
                     "id": { "type": "string", "pattern": "^[0-9A-HJKMNP-TV-Z]{8}$" },
                     "at": { "$ref": "#/$defs/timestamp" },
-                    "by": { "enum": ["owner", "main", "planner", "worker", "evaluator", "hook", "import"] },
+                    "by": { "enum": ["owner", "main", "planner", "worker", "evaluator", "merger", "hook", "import"] },
                     "who": { "type": "string", "minLength": 1, "maxLength": 80 },
                     "event": { "type": "string", "minLength": 1 }
                 }

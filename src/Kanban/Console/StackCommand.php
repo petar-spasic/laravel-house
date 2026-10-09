@@ -11,6 +11,7 @@ use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Conflict;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Invalid;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\NotFound;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
+use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Output\ConsoleOutputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -25,10 +26,10 @@ class StackCommand extends Command
     private const OWN = ['reload', 'exec'];
 
     protected $signature = 'kanban:stack
-        {target? : Card id, worktree path or name (default: the worktree of the current directory); or the action}
+        {target? : Card id, worktree path or name, or `_merge` for the merge stack (default: the worktree of the current directory); or the action}
         {action? : create, up, down, status, wait, reload, exec, logs, url; `stack list`, `stack gc`}
         {args?* : exec: the command, after `--` (`stack <id> exec -- php artisan test`)}
-        {--force : gc: also remove unregistered *-wt-* compose projects}';
+        {--force : gc: also remove unregistered *-wt-* and *-merge-* compose projects}';
 
     protected $description = 'Per-worktree Docker stack: create, up, down, status, wait, reload, exec, logs, url; list and gc machine-wide';
 
@@ -76,6 +77,9 @@ class StackCommand extends Command
                 ?? throw new Invalid('not inside a code worktree: give a card id or a worktree path');
 
             return [$path, $this->cardOf($path)];
+        }
+        if ($target === Paths::MERGE_CLONE) {
+            return [$this->paths()->mergeClone(), null];
         }
         if (str_contains($target, '/') || $target === '.' || $target === '..') {
             $path = str_starts_with($target, '/') ? $target : $this->paths()->cwd.'/'.$target;
@@ -140,6 +144,9 @@ class StackCommand extends Command
         if (! is_dir($path)) {
             if ($card !== null) {
                 throw new PolicyRefused("{$card} has no worktree; `kanban start {$card}` creates it");
+            }
+            if ($this->worktrees->isMergeClone($path)) {
+                throw new PolicyRefused('the merge queue makes the merge clone '.$this->paths()->relative($path).' at its first merge');
             }
             if (dirname($path) !== $this->paths()->worktrees()) {
                 throw new PolicyRefused("only worktrees under {$this->paths()->relative($this->paths()->worktrees())}/ are managed");
@@ -344,9 +351,9 @@ class StackCommand extends Command
                 $exit = 7;
             }
         }
-        $ours = $this->worktrees->env()->app().'-wt-';
+        $app = $this->worktrees->env()->app();
         foreach (Stack::projects() as $project) {
-            if (! str_starts_with($project, $ours) || in_array($project, $known, true)) {
+            if (! (str_starts_with($project, "{$app}-wt-") || str_starts_with($project, "{$app}-merge-")) || in_array($project, $known, true)) {
                 continue;
             }
             if (! $this->option('force')) {

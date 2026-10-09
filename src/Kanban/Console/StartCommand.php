@@ -2,6 +2,7 @@
 
 namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
+use PetarSpasic\LaravelHouse\Kanban\Code\CloneFile;
 use PetarSpasic\LaravelHouse\Kanban\Code\Dependencies;
 use PetarSpasic\LaravelHouse\Kanban\Code\StackFailed;
 use PetarSpasic\LaravelHouse\Kanban\Code\StackUser;
@@ -117,10 +118,11 @@ class StartCommand extends Command
                     $merged = $this->mergeMain($worktrees, $path, $id);
                 }
             }
-            // a planner revises the card's earlier plan in place; a worker reads the plan from the card
-            if ($planning && ($plan = $card->plan()) !== null && ! is_file($path.'/.tmp/plan.md')) {
-                @mkdir($path.'/.tmp', 0775, true);
-                file_put_contents($path.'/.tmp/plan.md', rtrim($plan)."\n");
+            // a planner revises the card's earlier plan in place; a worker reads the plan from the card. Never written
+            // through a .tmp its container made a symlink
+            if ($planning && ($plan = $card->plan()) !== null && CloneFile::read($path, '.tmp/plan.md') === null) {
+                @mkdir($path.'/.tmp', 0775);
+                CloneFile::write($path, '.tmp/plan.md', rtrim($plan)."\n");
             }
             $worktrees->copyDependencies($path);
             if ($worktrees->prepare($path, $branch, $id) !== null) {

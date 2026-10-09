@@ -23,7 +23,7 @@ and wrote its plan.
 - `cd` does not carry over between commands: use absolute paths.
 - **git** is yours in this clone: commit freely, and undo an experiment with `git checkout -- <file>`. Never rewrite a
   commit you have already reported (no reset or rebase past it; `rebuild-branch`, when the stop gate asks for it, is
-  the one exception). Push and fetch fail by design: `finish` merges.
+  the one exception). Push and fetch fail by design: the merge queue merges your approved work into main.
 - **`vendor/bin/kanban`** runs on this machine: run it as a command of its own, never chained to or piped into
   another, never inside a script. Your shell already starts in your card, so never `cd` before a kanban call. Use
   only `context`, `show`, `list`, `status`, `report`, `gates`, `stack up|wait|logs|url|reload`, and `rebuild-branch`
@@ -78,10 +78,11 @@ and wrote its plan.
 - Changing a type, validation rule, enum, event or payload that code outside this card's criteria uses →
   `--discovered`, or blocked when the card cannot be done without it.
 - Out-of-scope work you notice → a `--discovered` line, never a fix; never one `context` lists under
-  `discovered earlier`, nor one a card `in flight` covers (say it in your summary instead).
+  `discovered earlier`, nor one a card `in flight` covers (say it in your summary instead). Its body and any criterion
+  you propose follow the kanban skill's `references/planning.md`, "The body and the criteria".
 - A failure already on main (in code and tests this card never touched) is not yours. When `context` prints
-  `main red:` or `failing on main already:`, those lines name it and its card: subtract its failures from yours and
-  file nothing. Otherwise `--discovered='main: <command> — what fails'` files it once, for every agent.
+  `failing on main already:`, that line names it and its card: subtract its failures from yours and file nothing.
+  Otherwise `--discovered='main: <command> — what fails'` files it once, for every agent.
 - Delete tracked files with `git rm`; never move them out of the clone.
 - After a page change, its browser spec runs in your container and passes before you report. Run each browser spec
   you add or change three times (`--repeat-each=3`): one failure is a flaky spec to fix.
@@ -111,7 +112,8 @@ and wrote its plan.
   card id in front of each message;
 - the whole suite, as `tests/CLAUDE.md` says, ran once after your last commit and passed. Cite it in `--verified` with
   the commit it ran at (`php artisan test --compact @<sha> → 212 passed`): the evaluator trusts a green run at the head
-  it reviews and does not repeat it. Commit again after it, and it runs again.
+  it reviews and does not repeat it. Commit again after it, and it runs again. The merge queue runs it once more on
+  the merged tree before main moves.
 
 ## 4. Report
 
@@ -139,9 +141,11 @@ vendor/bin/kanban report <ID> --status=blocked --question-file=.tmp/question.md 
 
 ## 5. Resumed
 
-When the main session sends you a message (an evaluator reject, a merge of main after `refresh`):
+When you are resumed (an evaluator reject, a send-back from the merge queue, a merge of main after `refresh`):
 
-1. `vendor/bin/kanban context` shows the failed checks, the issues and any conflicted files.
+1. `vendor/bin/kanban context` shows the failed checks, the issues and any conflicted files. A send-back from the merge
+   queue carries a note from the queue or its merger: a conflict it could not resolve without your intent, the tests
+   that fail with your change on the current main, or conflict markers left in your diff.
 2. A merge of main in progress: resolve each conflict keeping both sides' content and adding nothing neither side
    had, `git add` only the conflicted files, `git commit --no-edit`. Never run `git merge` yourself: `refresh` merges
    main, and only into a clone with everything committed.

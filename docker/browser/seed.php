@@ -6,8 +6,9 @@
  * The server replaces this process (exec), so the sandbox's shutdown cleanup never runs while it is served.
  *
  * With --rich the board also holds every state the UI draws (agents working, stale and stopped, review and done cards,
- * blocked and waiting cards, an open question, a card three others wait on, long titles, many labels, a stack link, two
- * epics and a second board) and realistic ages; the default seed stays small so the checks' counts do not move.
+ * blocked and waiting cards, an open question, a card three others wait on, long titles, many labels, a stack link, a
+ * merge queue with a card being merged, one queued and one waiting for a red main, two epics and a second board) and
+ * realistic ages; the default seed stays small so the checks' counts do not move.
  *
  * With --perf it holds 300 more chores in the backlog (first-render timing).
  *
@@ -26,6 +27,7 @@ use Orchestra\Testbench\Foundation\Application;
 use PetarSpasic\LaravelHouse\Kanban\KanbanServiceProvider;
 use PetarSpasic\LaravelHouse\Kanban\Policy\Creation;
 use PetarSpasic\LaravelHouse\Kanban\Policy\Transitions;
+use PetarSpasic\LaravelHouse\Kanban\Protocol\MergeState;
 use PetarSpasic\LaravelHouse\Kanban\Store\Actor;
 use PetarSpasic\LaravelHouse\Kanban\Store\BoardRef;
 use PetarSpasic\LaravelHouse\Kanban\Store\Store;
@@ -118,6 +120,30 @@ if ($rich) {
     $transitions->start($ids['r1'], $main, null, $stack('feed', 21030));
     $transitions->apply($ids['r1'], $main);
     $agent('worker-3', $ids['r1'], 5400, 60, true);
+
+    // the merge queue: a card being merged, the fix for a red main queued, and one that waits for that fix
+    foreach (['m_merging' => ['Import notes from a ZIP file', ['area:sync'], 3600], 'm_queued' => ['main red: php artisan test', ['main-red', 'area:auth'], 3000], 'm_held' => ['Archive old notebooks', ['area:export'], 2400]] as $key => [$title, $labels, $ago]) {
+        $ids[$key] = $ready($title, ['labels' => $labels]);
+        // areas the board already colours (at most ten), so the start goes past their cards in flight
+        $transitions->start($ids[$key], $main, null, ['branch' => 'card/'.str_replace('_', '-', $key), 'stack' => null], force: true);
+        $transitions->apply($ids[$key], $main);
+        $store->update($ids[$key], function (array $data) use ($ago, $key) {
+            $data['work']['approved'] = ['head' => str_repeat('a', 40), 'at' => gmdate('Y-m-d\TH:i:s.000+00:00', time() - $ago)];
+            if ($key === 'm_queued') {
+                // a main-red card is the fix only with its command's criterion
+                $data['acceptance'][0]['text'] = '`php artisan test` passes on main';
+            }
+
+            return $data;
+        }, $main);
+    }
+    $store->update($ids['m_held'], function (array $data) use ($ids, $base) {
+        $data['log'][] = MergeState::entry('main', ['red' => $ids['m_queued'], 'command' => 'php artisan test', 'base' => $base]);
+
+        return $data;
+    }, $main);
+    $store->lease(fn (?array $old) => [['id' => '9f2c41d07a8b3e65', 'card' => $ids['m_merging'], 'by' => 'ana@host-a', 'who' => 'Ana',
+        'since' => gmdate('Y-m-d\TH:i:s.000+00:00', time() - 600), 'beat' => gmdate('Y-m-d\TH:i:s.000+00:00', time() - 60)], [], "merge lease {$ids['m_merging']} taken"], $main);
 
     // planning: a card waiting for its planner, one a planner works on, and a planned one in ready
     $ids['to_plan'] = $make('Tag notes from the editor', ['body' => 'Tags are typed in the editor and saved with the note.', 'accept' => ['A tag typed in the editor is saved'], 'stage' => 'planning', 'labels' => ['area:sync']]);

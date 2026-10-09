@@ -6,6 +6,7 @@ use PetarSpasic\LaravelHouse\Kanban\Console\Install\ClaudeSettings;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Brief;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Context;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Lease;
+use PetarSpasic\LaravelHouse\Kanban\Protocol\MergeState;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Runtime;
 use PetarSpasic\LaravelHouse\Kanban\Store\Actor;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\KanbanException;
@@ -18,7 +19,8 @@ use Throwable;
 
 /**
  * SessionStart: attach when needed, flush the journal, retry the inbox, mark stale agents, export KANBAN_SESSION,
- * then print the brief — or, in a card's worktree, the card context as additionalContext with a session title.
+ * then print the brief — or, in a card's worktree, the card context as additionalContext with a session title (in the
+ * merge clone, the merger's).
  */
 final class SessionStart
 {
@@ -85,10 +87,11 @@ final class SessionStart
         $cwd = is_string($payload['cwd'] ?? null) && $payload['cwd'] !== '' ? $payload['cwd'] : $this->paths->cwd;
         $context = new Context($this->paths, $this->config);
         $card = str_starts_with(realpath($cwd) ?: $cwd, $this->paths->worktrees().'/') ? $context->cardAt($snapshot, $cwd) : null;
+        $merge = $card !== null && $context->inMergeClone($cwd) ? (new MergeState($this->paths))->read() : null;
         if ($card !== null) {
             $json = ['hookSpecificOutput' => [
                 'hookEventName' => 'SessionStart',
-                'additionalContext' => implode("\n", $context->lines($card, $snapshot, $card->stage() === 'review')),
+                'additionalContext' => implode("\n", $merge !== null ? $context->mergeLines($card, $merge, $snapshot) : $context->lines($card, $snapshot, $card->stage() === 'review')),
                 'sessionTitle' => "{$card->id()} {$card->title()}",
             ]];
             $stdout = json_encode($json, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)."\n";

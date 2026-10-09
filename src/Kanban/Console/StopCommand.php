@@ -3,13 +3,17 @@
 namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
 use PetarSpasic\LaravelHouse\Kanban\Code\AgentRun;
+use PetarSpasic\LaravelHouse\Kanban\Code\MergeRun;
+use PetarSpasic\LaravelHouse\Kanban\Code\MergeStep;
 use PetarSpasic\LaravelHouse\Kanban\Code\StackFailed;
 use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
 use PetarSpasic\LaravelHouse\Kanban\Policy\Plan;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Lease;
+use PetarSpasic\LaravelHouse\Kanban\Protocol\MergeState;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Runtime;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Invalid;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Waiting;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Throwable;
 
@@ -63,12 +67,24 @@ class StopCommand extends Command
 
         $exists = is_dir($path);
         // in review the worker left a clean clone: untracked files since are what a check left, removed with it. A planner's
-        // clone holds nothing to keep. Checked before its agent is ended, which a refusal then leaves working, and again after
+        // clone holds nothing to keep. Checked before its agent and merge are ended, which a refusal then leaves working,
+        // and again after
         $review = $card->stage() === 'review';
         $dirty = fn () => $exists && ! $force && ! $planning && ($changed = $review ? $worktrees->changed($path) : $worktrees->dirty($path)) !== []
             ? new PolicyRefused("{$this->paths()->relative($path)} has uncommitted changes; commit them on the branch or use --force", $changed) : null;
         if (($refused = $dirty()) !== null) {
             throw $refused;
+        }
+        // a merge of the card in flight here: after any refusal, its run ended and its lease given back, never mid-push
+        $merging = (new MergeState($this->paths()))->read();
+        $mergeLock = null;
+        if (($merging['card'] ?? null) === $id) {
+            if ($merging['phase'] === MergeState::PUSHING) {
+                throw new Waiting("{$id} is being pushed to main: wait for it");
+            }
+            $run = new MergeRun($this->paths());
+            $run->stop();
+            $mergeLock = $run->lock();
         }
         // marked from before its agent ends until its stage changes, so no `kanban run` pass resumes or restarts it meanwhile.
         // A failure from here keeps the mark until it expires: the owner stopped the agent, so no pass may bring it back
@@ -79,11 +95,14 @@ class StopCommand extends Command
             foreach ($agents->stopCard($id) as $run) {
                 $this->say('stopped its '.str_replace('kanban-', '', (string) $run['type']).' '.substr((string) $run['session'], 0, 8));
             }
-            // what the agent's commands wrote until they ended
-            if (($refused = $dirty()) !== null) {
+            if ($mergeLock !== null) {
+                (new MergeStep($this->paths(), $this->config(), $this->store(), $this->actor(), $this->say(...), $this->fault(...)))->abort($id);
+            }
+            // what the agent's commands wrote until they ended; leftovers are named only beside no tracked change
+            $leftovers = $exists && ! $force && $review ? $worktrees->leftovers($path) : null;
+            if ($leftovers === null && ($refused = $dirty()) !== null) {
                 throw $refused;
             }
-            $leftovers = $exists && ! $force && $review ? $worktrees->leftovers($path) : null;
             if (! $worktrees->down($path, $work['stack']['project'] ?? null)) {
                 throw new StackFailed("docker compose down failed for {$path}; the slot is kept. Retry, or `kanban stack gc` later");
             }

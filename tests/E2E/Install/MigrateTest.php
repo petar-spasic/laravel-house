@@ -1,5 +1,6 @@
 <?php
 
+use PetarSpasic\LaravelHouse\Kanban\Console\Install\ClaudeAgents;
 use PetarSpasic\LaravelHouse\Kanban\Console\Install\Steps;
 use PetarSpasic\LaravelHouse\Tests\Support\Sandbox;
 
@@ -14,7 +15,7 @@ function oldLayout(): array
     file_put_contents($root.'/.git/laravel-kanban/deploy_key', "key\n");
     @mkdir($root.'/.git/laravel-kanban/agents', 0775, true);
     file_put_contents($root.'/.git/laravel-kanban/agents/a1.json', json_encode(['card' => 'ACME-1', 'stopped_at' => '2026-01-01T00:00:00Z']));
-    foreach (['CLAUDE.md', '.claude/agents/kanban-worker.md', '.claude/agents/kanban-evaluator.md'] as $file) {
+    foreach (['CLAUDE.md', ...array_map(fn (string $agent) => ".claude/agents/{$agent}.md", ClaudeAgents::AGENTS)] as $file) {
         file_put_contents($root.'/'.$file, str_replace(
             ['<!-- laravel-house:kanban:start -->', '<!-- laravel-house:kanban:end -->', '<!-- laravel-house:kanban-agent'],
             ['<!-- laravel-kanban:start -->', '<!-- laravel-kanban:end -->', '<!-- laravel-kanban:agent'],

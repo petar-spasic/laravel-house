@@ -2,6 +2,7 @@
 
 namespace PetarSpasic\LaravelHouse\Kanban\Console\Install;
 
+use PetarSpasic\LaravelHouse\Kanban\Code\Suite;
 use PetarSpasic\LaravelHouse\Kanban\Store\Git\Bootstrap;
 use PetarSpasic\LaravelHouse\Kanban\Support\Git;
 
@@ -24,7 +25,8 @@ final class NextSteps extends Step
 
         return array_values(array_filter([
             'next: review .claude/settings.json (hooks, permissions.allow'.(Bootstrap::rejectsCoAuthored($this->config) ? ', attribution off' : '').'): it applies to everyone who clones the repo',
-            $changed === [] ? null : 'next: commit on main: '.implode(' ', $changed),
+            $changed === [] ? null : 'next: commit on main ('.implode(' ', $changed).'), then run vendor/bin/kanban publish',
+            (new Suite($this->config))->commands() !== [] ? null : 'next: set finish.check in config/kanban.php to your whole suite as it runs in the app container: no card merges until it names it',
             'next: on every other machine or fresh clone: composer install, then vendor/bin/kanban attach; check with vendor/bin/kanban doctor',
         ]));
     }

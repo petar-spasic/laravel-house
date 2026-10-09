@@ -44,7 +44,7 @@ The templates override parts of Boost. Re-check each one after a Boost upgrade.
 `house:update` writes every file under `.ai/` again from the package, so each project follows the overrides as they
 change here, except a path its `config/house.php` lists under `overrides`.
 
-- `.ai/guidelines/foundation`, `laravel/core` and `boost/core` are Boost 2.10.2's with these hunks changed. After an
+- `.ai/guidelines/foundation`, `laravel/core` and `boost/core` are Boost 2.10.3's with these hunks changed. After an
   upgrade, carry the new upstream text over and keep only these:
   - `foundation`: the JS packages line (`frontend/package.json` with spa); dependencies (convention 6); Verification
     Scripts (E2E only); Frontend Bundling (the stack's dev server, and `frontend/` with spa);

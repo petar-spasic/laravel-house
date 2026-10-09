@@ -2,9 +2,12 @@
 
 namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
+use PetarSpasic\LaravelHouse\Kanban\Code\MainPush;
 use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
 use PetarSpasic\LaravelHouse\Kanban\Policy\Plan;
+use PetarSpasic\LaravelHouse\Kanban\Protocol\Brief;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Context;
+use PetarSpasic\LaravelHouse\Kanban\Protocol\MergeState;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\NotFound;
 use PetarSpasic\LaravelHouse\Kanban\Support\Clock;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -63,10 +66,19 @@ class ShowCommand extends Command
         if (($agent = $this->agent($card->id(), $snapshot)) !== null) {
             $this->say("agent: {$agent}");
         }
-        if ($card->atWork() && is_string($worktree = $card->work()['worktree'] ?? null)) {
+        if ($card->stage() === 'review' && ($place = Brief::place($card, $snapshot, $this->paths(), MainPush::of($this->paths(), $this->config())->known())) !== null) {
+            $this->say("merge: {$place}");
+        }
+        $merge = (new MergeState($this->paths()))->read();
+        if (($merge['card'] ?? null) === $card->id() && in_array($merge['phase'], [MergeState::CONFLICT, MergeState::RED], true)) {
+            $this->say('spawn: '.Worktrees::spawnLine($card, 'kanban-merger', $this->paths()->mergeClone()));
+        } elseif ($card->atWork() && ! ($card->stage() === 'review' && isset($card->work()['approved'])) && is_string($worktree = $card->work()['worktree'] ?? null)) {
+            // an approved card waits for the merge queue, never for another evaluator
             $agent = ['planning' => 'kanban-planner', 'doing' => 'kanban-worker', 'review' => 'kanban-evaluator'][$card->stage()];
             $this->say('spawn: '.Worktrees::spawnLine($card, $agent, $this->paths()->main.'/'.$worktree));
-            $last = array_values(array_filter($card->log(), fn (array $e) => in_array($e['event'] ?? null, ['verdict', 'report', 'refresh'], true)));
+            // the last verdict, report or send-back by the merge says what the worker does next
+            $last = array_values(array_filter($card->log(), fn (array $e) => in_array($e['event'] ?? null, ['verdict', 'report'], true)
+                || (($e['event'] ?? null) === 'merge' && ($e['result'] ?? null) === 'back')));
             if ($card->stage() === 'doing' && ($last[count($last) - 1]['event'] ?? null) === 'verdict' && ($last[count($last) - 1]['decision'] ?? null) === 'reject') {
                 $this->say("SendMessage (its worker, or a fresh one): Evaluator rejected {$card->id()}; run `vendor/bin/kanban context` for the failed checks, fix them, then report again.");
             }

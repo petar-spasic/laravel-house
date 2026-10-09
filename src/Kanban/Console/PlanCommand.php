@@ -2,6 +2,7 @@
 
 namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
+use PetarSpasic\LaravelHouse\Kanban\Code\CloneFile;
 use PetarSpasic\LaravelHouse\Kanban\Policy\Plan;
 use PetarSpasic\LaravelHouse\Kanban\Policy\Questions;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Context;
@@ -56,13 +57,13 @@ class PlanCommand extends Command
         $git = Git::untrusted($worktree);
         $status = (string) $this->option('status');
         $questions = $this->option('question-file') !== null
-            ? Questions::file($this->readFile($this->inside($worktree, (string) $this->option('question-file'))), $status) : [];
+            ? Questions::file(CloneFile::given($worktree, (string) $this->option('question-file')), $status) : [];
         $plan = null;
         if ($status === 'ready') {
             $file = $this->option('plan-file') ?? throw new Invalid('a plan needs --plan-file=.tmp/plan.md (the file you wrote it in)');
             // the worker's clone holds main's files too: a fresh one is cloned from main, a parked branch gets main merged in
             $main = 'refs/heads/'.$this->setting('main_branch', 'main');
-            $plan = Plan::check($this->readFile($this->inside($worktree, (string) $file)), array_column($card->acceptance(), 'id'),
+            $plan = Plan::check(CloneFile::given($worktree, (string) $file), array_column($card->acceptance(), 'id'),
                 fn (string $path) => $git->attempt(['cat-file', '-e', "HEAD:{$path}"])->ok() || $git->attempt(['cat-file', '-e', "{$main}:{$path}"])->ok());
         }
         $staged = Staged::plan($card, $status, $plan, $this->option('reason') ?? Questions::block($questions), $this->option('discovered'), $this->option('note'), [
@@ -122,12 +123,7 @@ class PlanCommand extends Command
         return self::SUCCESS;
     }
 
-    /** A relative file is the worktree's: the CLI may run from main's checkout with --in. */
-    private function inside(string $worktree, string $file): string
-    {
-        return $file === '-' || str_starts_with($file, '/') ? $file : $worktree.'/'.$file;
-    }
-
+    /** The owner's or main session's plan file, read on this machine (`-` reads stdin). */
     private function readFile(string $file): string
     {
         $content = $file === '-' ? stream_get_contents(STDIN) : @file_get_contents($file);

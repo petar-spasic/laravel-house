@@ -11,9 +11,9 @@ use Symfony\Component\Console\Attribute\AsCommand;
 class GatesCommand extends Command
 {
     protected $signature = 'kanban:gates
-        {id? : The card (default: the card whose worktree is the cwd)}';
+        {id? : The card (default: the card whose worktree is the cwd, or the one the merge clone merges)}';
 
-    protected $description = "Run main's gates in the card's worktree, every one of them, and say which fail (stages nothing)";
+    protected $description = "Run main's gates in the card's worktree or the merge clone, every one of them, and say which fail (stages nothing)";
 
     protected function perform(): int
     {
@@ -22,7 +22,7 @@ class GatesCommand extends Command
         $card = $this->argument('id') !== null
             ? $snapshot->resolve($this->argument('id'))
             : ($context->cardAt($snapshot, $this->paths()->cwd) ?? throw new NotFound('the cwd is not the worktree of a card in doing or review: run it from the card\'s worktree'));
-        $worktree = $context->requireInside($card, $this->paths()->cwd, 'gates');
+        $worktree = $context->requireInside($card, $this->paths()->cwd, 'gates', merge: true);
         $gates = new Gates($this->config());
         foreach ($gates->freshen($worktree) as $line) {
             $this->say($line);

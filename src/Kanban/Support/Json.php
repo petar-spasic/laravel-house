@@ -10,7 +10,7 @@ final class Json
 {
     /** @var array<string, list<string>> */
     public const ORDER = [
-        'kanban' => ['version', 'key', 'id_length', 'max_parallel', 'ready_buffer', 'wip', 'stale_after_minutes', 'locked', 'guard', 'updated'],
+        'kanban' => ['version', 'key', 'id_length', 'max_parallel', 'ready_buffer', 'wip', 'stale_after_minutes', 'locked', 'guard', 'merge', 'updated'],
         'epic' => ['title', 'goal', 'done_when', 'body', 'order', 'updated'],
         'board' => ['title', 'body', 'order', 'wip', 'updated'],
         'card' => ['id', 'type', 'title', 'stage', 'priority', 'epic', 'labels', 'body', 'acceptance', 'plan', 'depends_on', 'blocked',
@@ -21,6 +21,7 @@ final class Json
         'work' => ['branch', 'base', 'worktree', 'host', 'stack', 'attempt', 'head', 'approved', 'merge', 'started', 'finished', 'parked_branch'],
         'stack' => ['project', 'slot', 'ports', 'url'],
         'log' => ['id', 'at', 'by', 'event'],
+        'lease' => ['id', 'card', 'by', 'who', 'since', 'beat', 'pushing'],
     ];
 
     public const SETS = ['labels', 'depends_on'];
@@ -79,6 +80,8 @@ final class Json
                 $key === 'acceptance' => self::acceptance($value),
                 $key === 'guard', $key === 'claim' => self::ordered($value, self::ORDER[$key]),
                 $key === 'work' => self::work($value),
+                // `merge` is also a key of `work`: in kanban.json it is the merge lease
+                $kind === 'kanban' && $key === 'merge' => self::ordered($value, self::ORDER['lease']),
                 default => $value,
             };
         }

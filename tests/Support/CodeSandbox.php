@@ -25,6 +25,12 @@ final class CodeSandbox
      */
     public readonly int $base;
 
+    /** Environment every call of this sandbox gets (a machine of twoMachines() syncs its board). @var array<string, string|false> */
+    public array $defaults = [];
+
+    /** @var list<self> the sandboxes of the running test, whose servers end with it */
+    private static array $live = [];
+
     /** Host of worktree URLs: taken from the environment's LOCAL_APP_URL, never a machine address in code. */
     public static function lanHost(): string
     {
@@ -41,7 +47,19 @@ final class CodeSandbox
         $this->base = 22000 + ($worker === false ? random_int(0, 49) : (int) $worker % 50) * 200;
         mkdir($this->docker, 0775, true);
         mkdir($this->home, 0775, true);
-        register_shutdown_function(fn () => $this->killServers());
+        self::$live[] = $this;
+    }
+
+    /**
+     * Ends the servers the running test's stacks left up (FAKE_DOCKER_SERVE): a stack never brought down, such as the
+     * merge stack, would otherwise keep its ports bound, and the tests after it in this worker would find no free slot.
+     */
+    public static function endTest(): void
+    {
+        foreach (self::$live as $sandbox) {
+            $sandbox->killServers();
+        }
+        self::$live = [];
     }
 
     /** @param  array<string, mixed>  $overrides  merged over the package config (top-level keys, as the project file does) */
@@ -78,7 +96,8 @@ final class CodeSandbox
                 'min_mem_available_gib' => 0, 'min_disk_free_gib' => 0, 'max_load_ratio' => 0, 'wait_timeout' => 3],
             'worktrees' => ['host' => null],
             'migrate' => null,
-            'finish' => ['after' => []],
+            // the suite: red while a RED file is in the merged tree
+            'finish' => ['after' => [], 'check' => ['test ! -e RED']],
         ]);
         // left to KANBAN_SYNC, as in every sandbox: the package file read here would write this process's value in
         unset($config['sync']);
@@ -102,7 +121,7 @@ final class CodeSandbox
     /** @return array<string, string|false> */
     public function env(array $env = []): array
     {
-        return $env + [
+        return $env + $this->defaults + [
             'PATH' => __DIR__.'/FakeDocker:'.getenv('PATH'),
             'FAKE_DOCKER_DIR' => $this->docker,
             'KANBAN_STATE_DIR' => $this->state,
@@ -202,17 +221,80 @@ final class CodeSandbox
     }
 
     /** Puts the card in review with an approval of the branch head (what report + verdict do), committed on the board. */
-    public function approve(string $id, ?string $head = null, ?string $base = null, ?string $at = null): void
+    public function approve(string $id, ?string $head = null, ?string $at = null): void
     {
         $card = $this->sandbox->read($id);
         $branch = $card['work']['branch'];
         $head ??= trim($this->gitIn($this->worktree($id), 'rev-parse', 'refs/heads/'.$branch));
         $card['stage'] = 'review';
         $card['work']['head'] = $head;
-        $card['work']['approved'] = ['head' => $head, 'base' => $base ?? trim($this->sandbox->git('rev-parse', 'refs/heads/main')), 'at' => $at ?? $card['updated']];
+        $card['work']['approved'] = ['head' => $head, 'at' => $at ?? $card['updated']];
         $files = glob($this->root().'/docs/kanban/*/'.$id.'.json');
         Json::write($files[0], Json::encode($card, 'card'));
         $this->sandbox->boardGit('commit', '-q', '-am', "{$id} approved (test)");
+    }
+
+    /** The compose file mounting the worktree into its container, so the agents' shells, the gates and the suite run there. */
+    public function mountWorktree(): void
+    {
+        file_put_contents($this->root().'/docker-compose.local.yml', "name: \"\${COMPOSE_PROJECT_NAME:?unset}\"\nservices:\n  app:\n    volumes: ['./:\${KANBAN_WORKTREE_PATH:-/app}']\n");
+        $this->sandbox->git('commit', '-q', '-am', 'mount the worktree');
+    }
+
+    public function mergeClone(): string
+    {
+        return $this->root().'/.claude/worktrees/_merge';
+    }
+
+    /** @return array<string, mixed>|null the merge lease on this checkout's board */
+    public function lease(): ?array
+    {
+        return json_decode((string) file_get_contents($this->root().'/docs/kanban/kanban.json'), true)['merge'] ?? null;
+    }
+
+    /** @return array<string, mixed>|null this checkout's merge.json */
+    public function mergeState(): ?array
+    {
+        $file = $this->root().'/.git/laravel-house/merge.json';
+
+        return is_file($file) ? json_decode((string) file_get_contents($file), true) : null;
+    }
+
+    /**
+     * merge-seen.json as if this machine had seen the board's lease, and $heads at the front of the queue, since $ago
+     * seconds ago.
+     *
+     * @param  list<string>  $heads
+     */
+    public function seen(int $ago, array $heads = []): void
+    {
+        $now = hrtime(true) / 1e9;
+        $lease = $this->lease();
+        $seen = ['boot' => trim((string) file_get_contents('/proc/sys/kernel/random/boot_id'))]
+            + ($lease === null ? [] : ['lease' => ['id' => $lease['id'], 'beat' => $lease['beat'], 'seen' => $now - $ago]])
+            + ['heads' => array_fill_keys($heads, ['since' => $now - $ago])];
+        @mkdir($this->root().'/.git/laravel-house', 0775, true);
+        file_put_contents($this->root().'/.git/laravel-house/merge-seen.json', json_encode($seen));
+    }
+
+    /**
+     * Two machines sharing $origin: this sandbox's main and board pushed there, and a clone of it with its own `.env`,
+     * docker, state and home; both sync their board.
+     */
+    public function twoMachines(Origin $origin): self
+    {
+        $this->sandbox->addRemote($origin);
+        $this->defaults = ['KANBAN_SYNC' => 'on'];
+        $this->ok(['sync']);
+        $clone = $origin->clone('b');
+        foreach (['.env', 'node_modules', 'storage'] as $item) {
+            (new Process(['cp', '-a', $this->root().'/'.$item, $clone->root.'/'.$item]))->mustRun();
+        }
+        $other = new self($clone);
+        $other->defaults = ['KANBAN_SYNC' => 'on'];
+        $other->ok(['attach']);
+
+        return $other;
     }
 
     public function gitIn(string $dir, string ...$args): string

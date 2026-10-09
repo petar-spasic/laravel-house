@@ -139,7 +139,7 @@ class CardsController
                 return $card;
             }
             if (in_array($to, Ui::CLI_ONLY, true)) {
-                throw new PolicyRefused("CLI only: {$to} is reached through `kanban start`, a worker report or `kanban finish`");
+                throw new PolicyRefused("CLI only: {$to} is reached through `kanban start`, a worker report or the merge queue (`kanban run`, `kanban finish`)");
             }
 
             return (new Transitions($this->store))->move($card->id(), $to, Actor::owner(), $input['reason'] ?? null, expected: $rev);

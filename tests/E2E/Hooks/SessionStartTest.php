@@ -1,5 +1,6 @@
 <?php
 
+use PetarSpasic\LaravelHouse\Kanban\Support\Json;
 use PetarSpasic\LaravelHouse\Tests\Support\ProtocolSandbox;
 use PetarSpasic\LaravelHouse\Tests\Support\Sandbox;
 use Symfony\Component\Process\Process;
@@ -296,4 +297,36 @@ it('names the rule files over 40 KB, so a pruning card keeps them lean', functio
     $p->sandbox->git('commit', '-qm', 'rules');
 
     expect($p->sandbox->ok('status'))->toContain("\nrules over 40 KB (prune them): frontend/CLAUDE.md 46 KB\n");
+});
+
+it('lists the merge queue in its order: the card being merged with its phase, then each card\'s place', function () {
+    $p = ProtocolSandbox::create();
+    $approved = [];
+    foreach (['Tag notes', 'Archive notes', 'Export notes'] as $n => $title) {
+        [$id, $wt] = $p->started($title);
+        $p->commit($wt, "f{$n}.php", "<?php\n", "{$id}: {$title}");
+        $p->approve($id, $wt);
+        $approved[] = $id;
+    }
+    [$first, $merging, $third] = $approved;
+    $p->merging($merging, 'red');
+    $board = $p->main.'/docs/kanban/kanban.json';
+    $kanban = json_decode((string) file_get_contents($board), true);
+    $kanban['merge'] = ['id' => '9f2c41d07a8b3e65', 'card' => $merging, 'by' => 'ana@host-a', 'who' => 'Ana',
+        'since' => '2026-10-09T08:00:00.000+00:00', 'beat' => '2026-10-09T08:04:00.000+00:00'];
+    Json::write($board, Json::encode($kanban, 'kanban'));
+    $p->sandbox->boardGit('commit', '-q', '-am', 'merge lease (test)');
+
+    $lines = explode("\n", rtrim($p->hook('session-start', $p->payload('session-start'))->getOutput()));
+
+    expect($lines[2])->toBe("merge: held by ana@host-a (Ana) for {$merging} since 2026-10-09T08:00:00.000+00:00, last beat 2026-10-09T08:04:00.000+00:00")
+        ->and(array_values(array_filter($lines, fn (string $l) => str_starts_with($l, 'review '))))->toBe([
+            "review {$merging} norm work Archive notes: merging on host-a (Ana) since 08:00: red: `php artisan test`",
+            "review {$first} norm work Tag notes: queued 2nd",
+            "review {$third} norm work Export notes: queued 3rd",
+        ])
+        ->and(json_decode($p->sandbox->ok(['status', '--json']), true)['merge'])->toBe(['lease' => $kanban['merge'], 'queue' => $approved, 'held' => []])
+        ->and($p->sandbox->ok(['show', $third]))->toContain("\nmerge: queued 3rd\n")
+        ->and($p->sandbox->ok(['show', $merging]))->toContain("\nmerge: merging on host-a (Ana) since 08:00: red: `php artisan test`\n")
+        ->toContain("\nspawn: Agent(subagent_type=\"kanban-merger\", description=\"{$merging} merge Archive notes\"");
 });

@@ -51,15 +51,23 @@ final class PortRegistry
         return $entries;
     }
 
-    /** Why no further stack fits under `stack.max_stacks`, or null when one does. */
+    /** The `purpose` of the merge clone's stack: one per main checkout, outside `stack.max_stacks`. */
+    public const MERGE = 'merge';
+
+    /** Why no further card stack fits under `stack.max_stacks`, or null when one does. */
     public function full(): ?string
     {
-        return $this->fullAt(count($this->all()));
+        return $this->fullAt($this->all());
     }
 
-    private function fullAt(int $registered): ?string
+    /** @param  iterable<array<string, mixed>>  $entries */
+    private function fullAt(iterable $entries): ?string
     {
         $max = (int) ($this->stack['max_stacks'] ?? 12);
+        $registered = 0;
+        foreach ($entries as $entry) {
+            $registered += ($entry['purpose'] ?? null) === self::MERGE ? 0 : 1;
+        }
 
         return $registered >= $max
             ? self::NO_SLOT.": {$max} stacks registered on this machine (stack.max_stacks); finish or stop a card, or `kanban stack gc`"
@@ -81,7 +89,7 @@ final class PortRegistry
     /**
      * The worktree's slot, allocating the first free one. Metadata (project, branch, card) is refreshed on reuse.
      *
-     * @param  array{project: string, repo: string, branch: string|null, card: string|null}  $meta
+     * @param  array{project: string, repo: string, branch: string|null, card: string|null, purpose?: string}  $meta
      * @param  list<int>  $avoid  slots not to take (a retry after "port is already allocated")
      * @return array<string, mixed> the entry
      */
@@ -99,7 +107,7 @@ final class PortRegistry
                     unset($data['stacks'][$slot]);
                 }
             }
-            if (($full = $this->fullAt(count($data['stacks']))) !== null) {
+            if (($meta['purpose'] ?? null) !== self::MERGE && ($full = $this->fullAt($data['stacks'])) !== null) {
                 throw new StackFailed($full, array_map(
                     fn (array $e) => "slot {$e['slot']} {$e['project']} {$e['worktree']}", array_values($data['stacks'])));
             }
@@ -125,7 +133,7 @@ final class PortRegistry
                     'card' => $meta['card'],
                     'ports' => $this->ports($pool, $slot),
                     'created_at' => Clock::now(),
-                ];
+                ] + (isset($meta['purpose']) ? ['purpose' => $meta['purpose']] : []);
 
                 return [$data, $data['stacks'][(string) $slot]];
             }

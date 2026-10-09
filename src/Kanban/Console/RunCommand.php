@@ -3,18 +3,28 @@
 namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
 use PetarSpasic\LaravelHouse\Kanban\Code\AgentRun;
-use PetarSpasic\LaravelHouse\Kanban\Code\MainCheck;
+use PetarSpasic\LaravelHouse\Kanban\Code\CloneFile;
+use PetarSpasic\LaravelHouse\Kanban\Code\MainCheckout;
+use PetarSpasic\LaravelHouse\Kanban\Code\MainPush;
+use PetarSpasic\LaravelHouse\Kanban\Code\MergeBeat;
+use PetarSpasic\LaravelHouse\Kanban\Code\MergeClone;
+use PetarSpasic\LaravelHouse\Kanban\Code\MergeRun;
+use PetarSpasic\LaravelHouse\Kanban\Code\MergeStep;
 use PetarSpasic\LaravelHouse\Kanban\Code\PortRegistry;
 use PetarSpasic\LaravelHouse\Kanban\Code\Stack;
 use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
+use PetarSpasic\LaravelHouse\Kanban\Policy\MergeQueue;
 use PetarSpasic\LaravelHouse\Kanban\Policy\Plan;
 use PetarSpasic\LaravelHouse\Kanban\Policy\PullPolicy;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Applier;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Lease;
+use PetarSpasic\LaravelHouse\Kanban\Protocol\MergeLease;
+use PetarSpasic\LaravelHouse\Kanban\Protocol\MergeState;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Runtime;
 use PetarSpasic\LaravelHouse\Kanban\Store\Actor;
 use PetarSpasic\LaravelHouse\Kanban\Store\Card;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\LockTimeout;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\LostClaim;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
 use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
 use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
@@ -24,9 +34,10 @@ use Symfony\Component\Process\Process;
 use Throwable;
 
 /**
- * The board's driver: the run loop in code. Each pass reaps ended agents, finishes approved cards, starts evaluators,
- * workers and planners headless (AgentRun), parks question cards in backlog, moves planned cards to ready and fills the
- * free slots, workers first and planners on what they leave; every board change is a
+ * The board's driver: the run loop in code. Each pass reaps ended agents, drives the merge queue (one detached `finish`
+ * at a time, MergeRun, and the merger when it needs judgement), starts evaluators, workers and planners headless
+ * (AgentRun), parks question cards in backlog, moves planned cards to ready and fills the free slots, workers first and
+ * planners on what they leave; every board change is a
  * `vendor/bin/kanban` command run as the orchestrating session (KANBAN_SESSION, else `run:<host>`), which holds the
  * lease. What needs the orchestrator's judgment is a notice; `--until-attention` returns with them. One run drives a
  * checkout at a time (`run.pid`); `kanban drain` (`run.drain`) makes it, and the runs after it, drain until one has.
@@ -57,6 +68,15 @@ class RunCommand extends Command
 
     private const LEAKED_SECONDS = 600;
 
+    /** How long a merge that failed outright (exit 1, 2, 4, 7, 9) waits before the queue tries again. */
+    private const MERGE_RETRY_SECONDS = 300;
+
+    /** How often the main checkout follows the remote's main while no merge runs here. */
+    private const FOLLOW_SECONDS = 120;
+
+    /** The merger's launches that end without a result before its card is blocked. */
+    private const MERGER_RUNS = 3;
+
     private Worktrees $worktrees;
 
     /** Why the stack cap stopped starts in this pass, for the idle notice. */
@@ -73,6 +93,14 @@ class RunCommand extends Command
     private array $notices = [];
 
     private bool $published = false;
+
+    private ?MergeStep $step = null;
+
+    /** What MergeStep::queue saw in this pass: the queue's next card here and the lease as observed. @var array<string, mixed> */
+    private array $queue = [];
+
+    /** Done cards whose leftovers here were tidied in this run, once each. @var array<string, true> */
+    private array $tidied = [];
 
     protected function perform(): int
     {
@@ -191,18 +219,7 @@ class RunCommand extends Command
         $this->kanban(['apply', '--all']);
         $paused = ($state['paused_until'] ?? 0) > time();
         $running = array_column($this->agents->running(), 'card');
-        $acted = false;
-
-        $snapshot = $this->store()->snapshot();
-        // an approved card that asks the owner (a change to files that steer the agents) waits for the answer
-        $approved = $this->local($snapshot, fn (Card $c) => $c->stage() === 'review' && is_string($c->work()['approved']['at'] ?? null) && ! $c->asks());
-        usort($approved, fn (Card $a, Card $b) => strcmp($a->work()['approved']['at'], $b->work()['approved']['at']));
-        foreach ($approved as $card) {
-            if (! in_array($card->id(), $running, true)) {
-                $acted = $this->finish($card, $paused) || $acted;
-                break;
-            }
-        }
+        $acted = $this->merge($paused);
 
         $snapshot = $this->store()->snapshot();
         foreach ($this->local($snapshot, fn (Card $c) => $c->stage() === 'review' && ! isset($c->work()['approved'])) as $card) {
@@ -230,31 +247,34 @@ class RunCommand extends Command
                 $stop = $this->kanban(['stop', $card->id(), '--to=backlog']);
                 $stop->isSuccessful() ? $this->notice("{$card->id()} parked in backlog: {$card->blocked()}") : $this->block($card->id(), $stop);
                 $acted = true;
-            } elseif (($loop = $this->rejectLoop($card)) !== null) {
+            } elseif (($loop = $this->mergeLoop($card) ?? $this->rejectLoop($card)) !== null) {
                 // a third round on what failed twice is no better: the orchestrator judges it, and watch() reports it.
-                // Once per verdict, kept only once the block is written
-                [$why, $hash] = $loop;
+                // Once per verdict or send-back, kept only once the block is written
+                [$why, $key, $mark] = $loop;
                 if ($this->kanban(['set', $card->id(), "blocked={$why}"])->isSuccessful()) {
                     $kept = $this->state();
-                    $kept['looped'][$card->id()] = $hash;
+                    $kept[$key][$card->id()] = $mark;
                     $this->saveState($kept);
                 }
                 $acted = true;
             } elseif (! $paused) {
                 $resume = $this->resumable($runtime, $card, AgentRun::WORKER);
-                // a fix that unblocked the card may have landed on main; 5: the worker concludes the conflict first. Not into
-                // uncommitted edits (a session that ended mid-work): the worker commits them first (its stop gate), and the
-                // next round merges. Untracked files stay out of a merge, and the stop gate catches one folded into it
+                // a fix that unblocked the card may have landed on main, and a card the merge sent back meets main's conflict
+                // in its clone, whichever worker takes it; 5: the worker concludes the conflict first. Not into uncommitted
+                // edits (a session that ended mid-work): the worker commits them first (its stop gate), and the next round
+                // merges. Untracked files stay out of a merge, and the stop gate catches one folded into it
+                $merge = $resume !== null || self::lastMove($card) === 'merge';
                 $dirty = $this->changed($card);
-                if ($resume !== null && ! $dirty && ! in_array(($refresh = $this->kanban(['refresh', $card->id()]))->getExitCode(), [0, 5], true)) {
-                    $this->block($card->id(), $refresh);
+                if ($merge && ! $dirty && ! in_array(($refresh = $this->kanban(['refresh', $card->id()]))->getExitCode(), [0, 5], true)) {
+                    // an agent of the card not started headless still runs: it is waited for
+                    str_contains($refresh->getErrorOutput(), RefreshCommand::LIVE) || $this->block($card->id(), $refresh);
 
                     continue;
                 }
                 if (($session = $this->launch($card, AgentRun::WORKER, $resume)) === null) {
                     continue;
                 }
-                $this->log("{$card->id()} worker ".substr($session, 0, 8).($resume === null ? ' launched ' : ' resumed ').$this->agents->pins($session).($resume !== null && $dirty ? ', main not merged: uncommitted changes in its clone' : ''));
+                $this->log("{$card->id()} worker ".substr($session, 0, 8).($resume === null ? ' launched ' : ' resumed ').$this->agents->pins($session).($merge && $dirty ? ', main not merged: uncommitted changes in its clone' : ''));
                 $acted = true;
             }
         }
@@ -320,10 +340,332 @@ class RunCommand extends Command
             $this->published = false;
         } elseif (! $this->published) {
             $this->published = true;
-            $this->log('idle: '.strtok(trim($this->kanban(['publish'])->getOutput()) ?: 'published', "\n"));
-            $this->draining() || $this->notice('idle: '.($this->capped !== null ? "no card can start: {$this->capped}" : 'no agent runs and no card can start: plan or promote cards'));
+            $this->log('idle: '.strtok(trim($this->kanban(['sync'])->getOutput()) ?: 'synced', "\n"));
+            // approved cards that wait (main red, another machine's card first) are not for the orchestrator to start
+            $waiting = count($this->queued($this->store()->snapshot()));
+            match (true) {
+                $this->draining() => null,
+                $waiting > 0 => $this->log("idle: {$waiting} approved cards wait for the merge queue"),
+                default => $this->notice('idle: '.($this->capped !== null ? "no card can start: {$this->capped}" : 'no agent runs and no card can start: plan or promote cards')),
+            };
         }
         $this->watch($state);
+    }
+
+    /**
+     * The merge queue's part of a pass: what the last detached `finish` ended with, then the merge in flight here driven
+     * on (its merger launched while it needs judgement, aborted once its card left the queue), else this machine's next
+     * card in the queue started, a done card's leftovers tidied, or the main checkout brought to the remote's main. One
+     * `finish` runs at a time (MergeRun); this run never clears merge.json itself. Whether a merge is in flight (a
+     * follow is none).
+     */
+    private function merge(bool $paused): bool
+    {
+        // what the queue looked like in an earlier pass is not what it looks like now
+        $this->queue = [];
+        $run = new MergeRun($this->paths());
+        if ($run->alive()) {
+            return $run->card() !== 'follow';
+        }
+        // read before any start, which forgets it
+        if (($ended = $run->ended()) !== null) {
+            $this->mergeEnded($ended);
+        }
+        $merge = (new MergeState($this->paths()))->read();
+        $why = $this->cannotMerge();
+        // a push in flight is settled all the same: `finish` asks origin first, which needs no suite
+        if ($why !== null && ($merge['phase'] ?? null) !== MergeState::PUSHING) {
+            $this->mergeNotice($merge === null ? $why : "{$why}; the merge of {$merge['card']} waits here until then (`vendor/bin/kanban finish {$merge['card']} --abort` ends it)");
+            $merge === null && $this->follow($run);
+
+            return false;
+        }
+        $why === null && $this->forgetNotices('/^('.preg_quote(MergeStep::NO_SUITE, '/').'|'.preg_quote(MergeStep::NO_STACK, '/').')/');
+        $snapshot = $this->store()->snapshot();
+        $this->queue = $this->step()->queue($snapshot);
+        if ($merge !== null && in_array($merge['phase'], [MergeState::CONFLICT, MergeState::RED], true) && $this->mergeLease()->mine($snapshot)) {
+            return $this->merger($merge, $paused);
+        }
+        $waits = ($this->state()['merge_retry_at'] ?? 0) > time();
+        $env = ['KANBAN_SESSION' => $this->session];
+        if ($merge !== null) {
+            // finish goes on from merge.json: a push to settle, a result applied, a lease lost or to give back
+            $waits || $run->start(['finish', (string) $merge['card']], $env);
+
+            return ! $waits;
+        }
+        $lease = $snapshot->mergeLease();
+        if (! $paused && ! $waits && ($card = $this->queue['card']) !== null && ($lease === null || $this->queue['expired'])) {
+            $run->start(['finish', $card->id()], $env);
+            $this->saveState(['merge_follow_at' => time()] + $this->state());
+            $this->log("{$card->id()} merging");
+
+            return true;
+        }
+        if (! $waits && ($done = $this->leftover($snapshot)) !== null) {
+            $this->tidied[$done] = true;
+            $run->start(['finish', $done], $env);
+
+            return true;
+        }
+        if ($this->follow($run)) {
+            return false;
+        }
+        if ($this->queue['card'] === null && $this->queued($snapshot) === []) {
+            (new MergeClone($this->paths(), $this->config()))->down();
+        }
+
+        return false;
+    }
+
+    /** Why the queue merges nothing now (MergeStep::refusal), from main's config/kanban.php as it is, not as this run started. */
+    private function cannotMerge(): ?string
+    {
+        try {
+            $config = Standalone::config($this->paths()->main);
+        } catch (Throwable) {
+            $config = $this->config();
+        }
+
+        return MergeStep::refusal($config, $this->paths()->main);
+    }
+
+    /**
+     * `finish --follow` when FOLLOW_SECONDS have passed since the last merge or follow here: card clones take main from
+     * this checkout, so it follows what the one merge at a time pushed. Whether it started one.
+     */
+    private function follow(MergeRun $run): bool
+    {
+        $state = $this->state();
+        if (time() - (int) ($state['merge_follow_at'] ?? 0) < self::FOLLOW_SECONDS || ! MainPush::of($this->paths(), $this->config())->hasRemote()) {
+            return false;
+        }
+        $this->saveState(['merge_follow_at' => time()] + $state);
+        $run->start(['finish', '--follow'], ['KANBAN_SESSION' => $this->session]);
+
+        return true;
+    }
+
+    /**
+     * The merge in flight here waits on the merger (a conflict, a red check): one at work is left to it; else it is
+     * launched, unless the card left the queue or a usage limit pauses the agents (then the merge is aborted and the lease
+     * goes back).
+     *
+     * @param  array<string, mixed>  $merge  merge.json
+     */
+    private function merger(array $merge, bool $paused): bool
+    {
+        $id = (string) $merge['card'];
+        $env = ['KANBAN_SESSION' => $this->session];
+        $beat = new MergeBeat($this->paths(), $this->mergeLease(), $this->agents);
+        $why = $this->step()->left($merge);
+        if ($why === null && $beat->mergerAlive($id)) {
+            $beat->ensure((string) $merge['lease'], $env);
+
+            return true;
+        }
+        $why ??= $paused ? 'paused: usage limit' : null;
+        // read again once no merger runs: one that ended while this pass looked at the queue applied its result
+        $merge = (new MergeState($this->paths()))->read();
+        if ($merge === null || (string) $merge['card'] !== $id || ! in_array($merge['phase'], [MergeState::CONFLICT, MergeState::RED], true)) {
+            return true;
+        }
+        if ($why === null && (int) ($merge['merger_runs'] ?? 0) >= self::MERGER_RUNS) {
+            $why = 'merger stopped without a result '.self::MERGER_RUNS.'×';
+            $this->kanban(['set', $id, "blocked={$why}"]);
+        }
+        if ($why !== null) {
+            (new MergeRun($this->paths()))->start(['finish', $id, '--abort'], $env);
+            $this->log("merge of {$id} aborted: {$why}");
+
+            return true;
+        }
+        if (! (new MergeClone($this->paths(), $this->config()))->running()) {
+            // its shell runs in the merge stack: `finish` brings it up (after a reboot), then the merger is launched
+            ($this->state()['merge_retry_at'] ?? 0) > time() || (new MergeRun($this->paths()))->start(['finish', $id], $env);
+
+            return true;
+        }
+        if (($session = $this->launch($this->store()->snapshot()->resolve($id), AgentRun::MERGER, null, $this->paths()->mergeClone())) === null) {
+            return false;
+        }
+        $beat->ensure((string) $merge['lease'], $env);
+        $this->log("{$id} merger ".substr($session, 0, 8).' launched '.$this->agents->pins($session).': '.MergeState::turn($merge));
+
+        return true;
+    }
+
+    /**
+     * What a detached `finish` ended with: the merge and what rebuilding main's stack did, logged; what failed after a
+     * merge (exit 10) a notice, never a block on the card; a failure outright a notice once while it lasts, and the queue
+     * waits MERGE_RETRY_SECONDS (not for a follow); a card refused while still queued is blocked for the orchestrator.
+     *
+     * @param  array{card: string, exit: int, out: string, err: string}  $ended
+     */
+    private function mergeEnded(array $ended): void
+    {
+        $id = $ended['card'];
+        $exit = $ended['exit'];
+        $follow = $id === 'follow';
+        foreach (explode("\n", trim($ended['out'])) as $line) {
+            if (str_starts_with($line, "{$id} ") || str_starts_with($line, "{$id}:") || preg_match('/^(merged |rebuil|warning:|main checkout)/', $line) === 1) {
+                $this->log($line);
+            }
+        }
+        $errors = array_values(array_filter(explode("\n", rtrim($ended['err'])), fn (string $l) => trim($l) !== '' && ! str_starts_with($l, '  ')));
+        if (in_array($exit, [0, FinishCommand::STEP_FAILED], true)) {
+            $merged = str_contains($ended['out'], "merged {$id} ");
+            // a teardown that failed fails again at once: a later run tidies what it left
+            ($exit === FinishCommand::STEP_FAILED && ! $follow) && $this->tidied[$id] = true;
+            $merged && $this->forgetNotices('/^'.preg_quote($id, '/').'\b/');
+            ($exit === 0 && ! $follow) && $this->forgetNotices('/^'.preg_quote($id, '/').' done; its leftovers/');
+            ($exit === 0 && ($follow || $merged)) && $this->forgetNotices('/^main checkout/');
+            foreach ($errors as $line) {
+                match (true) {
+                    $exit === 0 => $this->log(($follow ? 'main checkout' : "{$id} finish").": {$line}"),
+                    $follow => $this->checkoutNotice($line),
+                    $merged => $this->notice("{$id} merged, then: {$line}"),
+                    // a card done before this finish (a tidy, or found on main already): what it could not remove, once while it lasts
+                    default => $this->mergeNotice("{$id} done; its leftovers here: {$line}"),
+                };
+            }
+
+            return;
+        }
+        // what the main checkout met before the merge's own failure is raised on its own
+        $checkout = preg_grep(MainCheckout::FAULT, $errors) ?: [];
+        array_map($this->checkoutNotice(...), $checkout);
+        $first = array_values(array_diff_key($errors, $checkout))[0] ?? "exit {$exit}";
+        if ($exit === FinishCommand::WAITING) {
+            // a wait on the main checkout is its notice
+            $checkout === [] && $this->mergeWaits($first);
+        } elseif (in_array($exit, [LostClaim::EXIT, LockTimeout::EXIT], true)) {
+            $this->log("{$id}: {$first}");
+        } elseif ($follow) {
+            // a follow that failed holds no merge back
+            $this->checkoutNotice("main checkout not brought to the remote's main: {$first}");
+        } elseif ($exit === PolicyRefused::EXIT) {
+            $this->refused($id, $first);
+        } elseif (! in_array($exit, [FinishCommand::MERGER, FinishCommand::RETURNED], true)) {
+            $this->mergeFailed(str_starts_with($first, $id) ? $first : "{$id} merge failed: {$first}");
+        }
+    }
+
+    /** What the main checkout met: it follows every FOLLOW_SECONDS, and what keeps failing there is raised once until a follow or merge here succeeds. */
+    private function checkoutNotice(string $line): void
+    {
+        $this->mergeNotice(str_starts_with($line, 'main checkout') ? $line : "main checkout: {$line}");
+    }
+
+    /** A card `finish` refused: blocked while it is still queued (its branch gone from here, say), else only logged; the queue's own refusal is a notice. */
+    private function refused(string $id, string $why): void
+    {
+        if (in_array($why, [MergeStep::NO_SUITE, MergeStep::NO_STACK], true)) {
+            $this->mergeNotice($why);
+
+            return;
+        }
+        if (in_array($id, array_map(fn (Card $c) => $c->id(), MergeQueue::cards($this->store()->snapshot())), true)) {
+            $this->kanban(['set', $id, 'blocked=kanban run: '.mb_substr($why, 0, 400)]);
+
+            return;
+        }
+        $this->log("{$id} not merged: {$why}");
+    }
+
+    private function mergeFailed(string $line): void
+    {
+        $this->mergeNotice($line);
+        $this->saveState(['merge_retry_at' => time() + self::MERGE_RETRY_SECONDS] + $this->state());
+    }
+
+    /**
+     * A notice once while its cause lasts, whatever commits it names (run.json `merge_notices`, the last ones kept; one
+     * is forgotten once its cause cleared, so a cause that comes back is raised again).
+     */
+    private function mergeNotice(string $line): void
+    {
+        $state = $this->state();
+        $seen = (array) ($state['merge_notices'] ?? []);
+        $key = preg_replace('/\b[0-9a-f]{7,64}\b/', '<sha>', $line);
+        if (in_array($key, $seen, true)) {
+            return;
+        }
+        $this->notice($line);
+        $state['merge_notices'] = array_slice([...$seen, $key], -20);
+        $this->saveState($state);
+    }
+
+    /** Forgets the merge notices that match $pattern: their cause cleared. */
+    private function forgetNotices(string $pattern): void
+    {
+        $state = $this->state();
+        if (($kept = self::forget($state, $pattern)) !== $state) {
+            $this->saveState($kept);
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $state  run.json
+     * @return array<string, mixed>
+     */
+    private static function forget(array $state, string $pattern): array
+    {
+        $seen = (array) ($state['merge_notices'] ?? []);
+        $kept = array_values(preg_grep($pattern, $seen, PREG_GREP_INVERT) ?: []);
+
+        return $kept === $seen ? $state : ['merge_notices' => $kept] + $state;
+    }
+
+    /** Why the queue waits, logged once per reason (run.json `merge_waits`). */
+    private function mergeWaits(string $why): void
+    {
+        $state = $this->state();
+        if (($state['merge_waits'] ?? null) !== $why) {
+            $this->log("merge waits: {$why}");
+            $this->saveState(['merge_waits' => $why] + $state);
+        }
+    }
+
+    /**
+     * The cards of this machine in the merge queue.
+     *
+     * @return list<Card>
+     */
+    private function queued(Snapshot $snapshot): array
+    {
+        $queued = array_map(fn (Card $c) => $c->id(), MergeQueue::cards($snapshot));
+
+        return $this->local($snapshot, fn (Card $c) => in_array($c->id(), $queued, true));
+    }
+
+    /** A done card whose clone is still here (another machine merged it, or a teardown failed), not tidied yet in this run. */
+    private function leftover(Snapshot $snapshot): ?string
+    {
+        foreach (glob($this->paths()->worktrees().'/*', GLOB_ONLYDIR) ?: [] as $dir) {
+            $head = trim((string) CloneFile::read($dir, '.git/HEAD'));
+            if (! str_starts_with($head, 'ref: refs/heads/') || $this->worktrees->isMergeClone($dir)) {
+                continue;
+            }
+            $branch = substr($head, strlen('ref: refs/heads/'));
+            foreach ($snapshot->cards(fn (Card $c) => $c->stage() === 'done' && ($c->work()['branch'] ?? null) === $branch) as $card) {
+                if (! isset($this->tidied[$card->id()])) {
+                    return $card->id();
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private function step(): MergeStep
+    {
+        return $this->step ??= new MergeStep($this->paths(), $this->config(), $this->store(), new Actor('main', $this->session), $this->log(...), $this->log(...));
+    }
+
+    private function mergeLease(): MergeLease
+    {
+        return new MergeLease($this->store(), $this->paths(), new Actor('main', $this->session));
     }
 
     /** `promote --auto`; what it could not write is a notice once per message (run.json `promote`), not in every pass. */
@@ -340,10 +682,11 @@ class RunCommand extends Command
     }
 
     /**
-     * The block for a card whose last two verdicts since its start rejected it on the same criteria, with the last
-     * verdict's hash, or null. Once per verdict (run.json `looped`): a card unblocked by hand goes on.
+     * The block for a card whose last two verdicts since its start rejected it on the same criteria, with the
+     * run.json key that keeps it and the last verdict's hash, or null. Once per verdict (`looped`): a card unblocked by
+     * hand goes on.
      *
-     * @return array{string, string}|null
+     * @return array{string, string, string}|null
      */
     private function rejectLoop(Card $card): ?array
     {
@@ -360,15 +703,39 @@ class RunCommand extends Command
         $failed = $ids($last);
 
         return [mb_strimwidth('kanban run: rejected 2× on '.(count($failed) === 1 ? 'criterion ' : 'criteria ').implode(', ', $failed).': '
-            .preg_replace('/^\d+: /', '', (string) $last['failed'][0]), 0, 500, '…'), (string) $last['hash']];
+            .preg_replace('/^\d+: /', '', (string) $last['failed'][0]), 0, 500, '…'), 'looped', (string) $last['hash']];
+    }
+
+    /**
+     * The block for a card the merge sent back MERGER_RUNS times since its start (`merge` entries `result: back`), with
+     * the run.json key that keeps it and the last one's id, or null. Once per send-back (`looped_merge`), as rejectLoop.
+     *
+     * @return array{string, string, string}|null
+     */
+    private function mergeLoop(Card $card): ?array
+    {
+        $since = (string) ($card->work()['started'] ?? '');
+        $back = array_values(array_filter($card->log(), fn (array $e) => ($e['event'] ?? null) === 'merge' && ($e['result'] ?? null) === 'back' && (string) ($e['at'] ?? '') >= $since));
+        $last = end($back);
+        if (count($back) < self::MERGER_RUNS || ($this->state()['looped_merge'][$card->id()] ?? null) === $last['id']) {
+            return null;
+        }
+
+        return [mb_strimwidth('kanban run: sent back by the merge '.count($back).'×: '.strtok((string) $last['note'], "\n"), 0, 340, '…'), 'looped_merge', (string) $last['id']];
     }
 
     /** Parked work a drain finishes: not a card whose last move was a `stop`. */
     private static function inFlight(Card $card): bool
     {
+        return PullPolicy::parked($card) && self::lastMove($card) !== 'stop';
+    }
+
+    /** What moved the card to its stage last (its last `stage` entry's `via`). */
+    private static function lastMove(Card $card): ?string
+    {
         $stages = array_values(array_filter($card->log(), fn (array $e) => ($e['event'] ?? null) === 'stage'));
 
-        return PullPolicy::parked($card) && (end($stages)['via'] ?? null) !== 'stop';
+        return $stages === [] ? null : ($stages[count($stages) - 1]['via'] ?? null);
     }
 
     /** The headless session of the card's agent of $type to resume: one started under the claim the card holds now. */
@@ -413,7 +780,8 @@ class RunCommand extends Command
 
     /**
      * Notices for what changed on the board since the last report: a card blocked without a question (by its agent, the
-     * stop gate or this run), a red main, more package findings. Each is reported once, kept in run.json.
+     * stop gate or this run), a failure filed as already on main, a card the merge sent back or holds, a merge lease
+     * another machine stopped beating, more package findings. Each is reported once, kept in run.json.
      *
      * @param  array<string, mixed>  $state
      */
@@ -427,22 +795,41 @@ class RunCommand extends Command
             $now[$card->id()] = (string) $card->blocked();
             if (($seen[$card->id()] ?? null) !== $now[$card->id()]) {
                 $this->notice("{$card->id()} blocked: {$card->blocked()}");
+                // the owner looks at it now: what fails after it is unblocked is raised again
+                $state = self::forget($state, '/^'.preg_quote($card->id(), '/').'\b/');
             }
         }
         $state['seen'] = $now;
-        $red = (new MainCheck($this->paths()))->red();
-        if ($red !== null && ($state['red'] ?? null) !== $red['sha']) {
-            $this->notice('main red since '.substr((string) $red['sha'], 0, 7).": `{$red['command']}` fails (".($red['card'] ?? 'no card').')');
-        }
-        $state['red'] = $red['sha'] ?? null;
-        // what the agents filed as already on main has no area, so no promote takes it. The red main's own bug card is
-        // reported as the red main, and counted as reported once main is green
+        // what the agents and the merge queue filed as already on main has no area, so no promote takes it
         $filed = array_map(fn (Card $c) => $c->id(), $snapshot->cards(fn (Card $c) => $c->stage() === 'backlog'
             && in_array(Applier::MAIN_RED, $c->labels(), true) && $c->areas() === []));
-        foreach (array_diff($filed, (array) ($state['main_red'] ?? []), [$red['card'] ?? null]) as $id) {
+        foreach (array_diff($filed, (array) ($state['main_red'] ?? [])) as $id) {
             $this->notice("{$id} ".$snapshot->card($id)?->title().': a failure already on main, in backlog: give it an area and promote it first');
         }
-        $state['main_red'] = array_values(array_unique([...$filed, ...(isset($red['card']) ? [$red['card']] : [])]));
+        $state['main_red'] = $filed;
+        // the send-back reported last of each card at work, wherever it has been since
+        $back = array_intersect_key((array) ($state['merge_back'] ?? []), array_flip(array_map(fn (Card $c) => $c->id(), $snapshot->cards(fn (Card $c) => $c->atWork()))));
+        foreach ($this->local($snapshot, fn (Card $c) => $c->stage() === 'doing') as $card) {
+            $last = array_values(array_filter($card->log(), fn (array $e) => ($e['event'] ?? null) === 'merge' && ($e['result'] ?? null) === 'back'
+                && (string) ($e['at'] ?? '') >= (string) ($card->work()['started'] ?? '')));
+            if (($entry = end($last)) !== false && ($back[$card->id()] ?? null) !== $entry['id']) {
+                $back[$card->id()] = $entry['id'];
+                $this->notice("{$card->id()} sent back by the merge: ".mb_strimwidth((string) strtok((string) $entry['note'], "\n"), 0, 300, '…'));
+            }
+        }
+        $state['merge_back'] = $back;
+        $held = array_intersect_key(MergeQueue::heldCards($snapshot, $this->step()->originMain()), array_flip(array_map(fn (Card $c) => $c->id(), $this->queued($snapshot))));
+        foreach ($held as $id => $why) {
+            ($state['merge_held'][$id] ?? null) === $why || $this->notice("{$id} {$why}");
+        }
+        $state['merge_held'] = $held;
+        $lease = $snapshot->mergeLease();
+        $stood = $this->queue['stood'] ?? null;
+        if ($lease !== null && $stood !== null && $stood >= MergeLease::EXPIRE_SECONDS / 2 && ! $this->mergeLease()->mine($snapshot)
+            && ($state['merge_stalled'] ?? null) !== $lease['id'].$lease['beat']) {
+            $this->notice('merge lease '.MergeLease::describe($lease).', no beat for '.intdiv((int) $stood, 60).' min');
+            $state['merge_stalled'] = $lease['id'].$lease['beat'];
+        }
         $pending = count(Findings::pending($snapshot));
         if ($pending > (int) ($state['upstream'] ?? 0)) {
             $this->notice("upstream: {$pending} package findings pending (`kanban upstream`)");
@@ -457,71 +844,30 @@ class RunCommand extends Command
     }
 
     /**
-     * No agent runs, no start of this checkout waits to be finished, and no card of this machine is at work (doing, review,
-     * held in planning) unblocked: one waiting on the owner is not in flight.
+     * No agent runs, no merge runs or waits here, no start of this checkout waits to be finished, and no card of this
+     * machine is at work (doing, review, held in planning) unblocked: one waiting on the owner, or an approved one the
+     * queue holds while main is red or cannot merge at all, is not in flight.
      */
     private function drained(): bool
     {
         $snapshot = $this->store()->snapshot();
+        $held = $this->cannotMerge() !== null ? array_map(fn (Card $c) => $c->id(), MergeQueue::cards($snapshot))
+            : array_keys(MergeQueue::heldCards($snapshot, $this->step()->originMain()));
 
-        return $this->agents->running() === [] && $this->unstarted($snapshot) === []
-            && $this->local($snapshot, fn (Card $c) => $c->atWork() && ! $c->asks()) === [];
+        return $this->agents->running() === [] && ! (new MergeRun($this->paths()))->alive() && (new MergeState($this->paths()))->read() === null
+            && $this->unstarted($snapshot) === []
+            && $this->local($snapshot, fn (Card $c) => $c->atWork() && ! $c->asks() && ! in_array($c->id(), $held, true)) === [];
     }
 
-    /** Merges an approved card; `main moved` sends it back to an evaluator. */
-    private function finish(Card $card, bool $paused): bool
-    {
-        $finish = $this->kanban(['finish', $card->id(), '--ask']);
-        if ($finish->isSuccessful() || $finish->getExitCode() === FinishCommand::STEP_FAILED) {
-            foreach (explode("\n", trim($finish->getOutput())) as $n => $line) {
-                // the merge line, what rebuilding main's stack did and the warnings
-                if ($n === 0 || str_starts_with($line, 'rebuil') || str_starts_with($line, 'warning:')) {
-                    $this->log($line);
-                }
-            }
-            // merged and done: what failed after the merge (exit 10) is main's to act on, never a block on the card; what a
-            // clean finish printed on stderr (a branch kept) is only logged. A failed finish.check (its line and output
-            // tail) is the red main, which watch() reports
-            $failed = $finish->getExitCode() === FinishCommand::STEP_FAILED;
-            foreach (array_filter(explode("\n", rtrim($finish->getErrorOutput())), fn (string $l) => trim($l) !== ''
-                && ! str_starts_with($l, 'check: ') && ! str_starts_with($l, '  ')) as $line) {
-                $failed ? $this->notice("{$card->id()} merged, then: {$line}") : $this->log("{$card->id()} finish: {$line}");
-            }
-
-            return true;
-        }
-        if ($finish->getExitCode() === 5 && str_contains($finish->getErrorOutput(), FinishCommand::MOVED) && ! $paused) {
-            return $this->evaluate($card->id());
-        }
-        if (($asks = $this->store()->snapshot()->resolve($card->id()))->asks()) {
-            $this->notice("{$card->id()} waits on the owner: {$asks->blocked()}");
-
-            return true;
-        }
-        $this->block($card->id(), $finish);
-
-        return false;
-    }
-
-    /** Merges main into the card's branch, then launches an evaluator on it. A clone with uncommitted changes goes back to its worker. */
+    /** Launches an evaluator on the card's branch as it is. A clone with uncommitted changes goes back to its worker. */
     private function evaluate(string $id): bool
     {
-        // uncommitted changes to tracked files are the worker's; untracked files are what a check left, which a merge leaves alone
+        // uncommitted changes to tracked files are the worker's; untracked files are what a check left
         if ($this->changed($this->store()->snapshot()->resolve($id))) {
             $back = $this->kanban(['move', $id, 'doing', '--reason=uncommitted changes in its clone: its worker commits them']);
             $back->isSuccessful() ? $this->log("{$id} back to doing: uncommitted changes in its clone") : $this->block($id, $back);
 
             return $back->isSuccessful();
-        }
-        $refresh = $this->kanban(['refresh', $id]);
-        if (! $refresh->isSuccessful()) {
-            // 5: a conflict sent the card back to doing, where its worker resumes; an agent of it still running settles on
-            // its own. Anything else (a clone off its branch, say) is the orchestrator's: blocked, so watch() reports it
-            if ($refresh->getExitCode() !== 5 && ! str_contains($refresh->getErrorOutput(), RefreshCommand::LIVE)) {
-                $this->block($id, $refresh);
-            }
-
-            return $refresh->getExitCode() === 5;
         }
         if (($session = $this->launch($this->store()->snapshot()->resolve($id), AgentRun::EVALUATOR)) === null) {
             return false;
@@ -550,8 +896,8 @@ class RunCommand extends Command
 
             return $this->saveState($state);
         }
-        if ($this->agents->stopping($id)) {
-            // ended by a `stop`: no strike against the card
+        if ($this->agents->stopping($id) || $run['type'] === AgentRun::MERGER) {
+            // ended by a `stop`, or a merger, whose runs without a result merger() counts: no strike against the card
             return $state;
         }
         $card = $this->store()->snapshot()->card($id);
@@ -670,10 +1016,10 @@ class RunCommand extends Command
     }
 
     /** The session of the agent launched for the card, or null when a `stop` under way refuses it: the pass goes on with the next card. */
-    private function launch(Card $card, string $type, ?string $resume = null): ?string
+    private function launch(Card $card, string $type, ?string $resume = null, ?string $worktree = null): ?string
     {
         try {
-            return $this->agents->launch($card, $type, $resume);
+            return $this->agents->launch($card, $type, $resume, $worktree);
         } catch (PolicyRefused $e) {
             $this->log("{$card->id()} ".str_replace('kanban-', '', $type).' not launched: '.$e->getMessage());
 

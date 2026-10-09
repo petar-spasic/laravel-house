@@ -134,9 +134,9 @@ it('applies an evaluator approval for the branch HEAD and a rejection back to do
     expect(stop($this->p, $this->wt, 'e2', 'kanban-evaluator')['out'])->toBe('');
 
     $card = $this->p->card($this->id);
-    $base = trim($this->p->git($this->wt, 'merge-base', 'HEAD', 'main'));
     expect($card['stage'])->toBe('review')
-        ->and($card['work']['approved'])->toMatchArray(['head' => $head, 'base' => $base])
+        ->and(array_keys($card['work']['approved']))->toBe(['head', 'at'])
+        ->and($card['work']['approved']['head'])->toBe($head)
         ->and($card['work']['approved']['at'])->toMatch('/^\d{4}-\d\d-\d\dT/')
         ->and(array_column($card['acceptance'], 'done'))->toBe([true, true]);
 });

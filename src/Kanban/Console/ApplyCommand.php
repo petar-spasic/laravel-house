@@ -15,7 +15,7 @@ class ApplyCommand extends Command
         {id? : Only this card}
         {--all : Every staged item (the default)}';
 
-    protected $description = 'Apply staged reports, verdicts and plans whose agent is gone; retry hook payloads left in the inbox';
+    protected $description = 'Apply staged reports, verdicts, plans and merge results whose agent is gone; retry hook payloads left in the inbox';
 
     protected function perform(): int
     {

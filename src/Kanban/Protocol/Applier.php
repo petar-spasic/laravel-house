@@ -3,9 +3,10 @@
 namespace PetarSpasic\LaravelHouse\Kanban\Protocol;
 
 use Closure;
-use PetarSpasic\LaravelHouse\Kanban\Code\MainCheck;
+use PetarSpasic\LaravelHouse\Kanban\Code\CloneGit;
 use PetarSpasic\LaravelHouse\Kanban\Code\MergeCheck;
 use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
+use PetarSpasic\LaravelHouse\Kanban\Policy\MergeQueue;
 use PetarSpasic\LaravelHouse\Kanban\Policy\Plan;
 use PetarSpasic\LaravelHouse\Kanban\Policy\Questions;
 use PetarSpasic\LaravelHouse\Kanban\Policy\Transitions;
@@ -22,7 +23,7 @@ use PetarSpasic\LaravelHouse\Kanban\Support\Git;
 use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
 
 /**
- * Applies staged reports, verdicts and plans to the board under the store lock, once per content hash.
+ * Applies staged reports, verdicts, plans and merge results to the board under the store lock, once per content hash.
  */
 final class Applier
 {
@@ -72,7 +73,11 @@ final class Applier
         if ($merging) {
             return 'A merge of main is in progress: conclude it (`git add` the resolved files, `git commit --no-edit`), then report again.';
         }
-        $dirty = array_values(array_filter(explode("\n", rtrim($git->attempt(['status', '--porcelain', '--untracked-files=all'])->out))));
+        $status = Git::untrusted($worktree)->attempt(['status', '--porcelain', '--untracked-files=all', '--ignore-submodules=all']);
+        if (! $status->ok()) {
+            return 'git status failed in the clone: '.Worktrees::tail($status->err ?: $status->out);
+        }
+        $dirty = array_values(array_filter(explode("\n", rtrim($status->out))));
         if ($dirty !== []) {
             return 'The worktree has uncommitted changes; commit them (git add … && git commit -m "'.$card->id().': …"):'."\n"
                 .implode("\n", array_slice($dirty, 0, 20)).(count($dirty) > 20 ? "\n… ".(count($dirty) - 20).' more' : '');
@@ -86,11 +91,17 @@ final class Applier
         if ((int) $git->line(['rev-list', '--count', $range]) === 0) {
             return "No commits beyond work.base ({$range}): commit your work on the card's branch first.";
         }
-        if (($markers = (new MergeCheck($git, $main))->markers('refs/heads/'.$main)) !== []) {
+        // its commits are read in main, whose config and attributes are this machine's: the clone's never run here
+        $head = (string) $git->line(['rev-parse', 'HEAD']);
+        $checks = new MergeCheck(new Git($this->paths->main));
+        if (preg_match('/^[0-9a-f]{40,64}$/', $head) !== 1 || ! $checks->has($head)) {
+            return 'HEAD '.substr($head, 0, 7).' did not reach main with the card\'s branch: commit on '.($card->work()['branch'] ?? 'the card\'s branch').', then report again.';
+        }
+        if (($markers = $checks->markers('refs/heads/'.$main, $head)) !== []) {
             return MergeCheck::markersMessage($markers);
         }
         // the card's own merges: what main brought along was judged when it merged there
-        if (($evil = (new MergeCheck($git, $main))->evilMerges("refs/heads/{$main}..HEAD")) !== []) {
+        if (($evil = $checks->evilMerges("refs/heads/{$main}..{$head}")) !== []) {
             return 'A merge of '.$main.' carries changes neither side had (uncommitted work committed with it?), where no review sees them as the card\'s change:'
                 ."\n".implode("\n", $evil)."\n".'Run `vendor/bin/kanban rebuild-branch '.$card->id().'`: one commit on '.$main.' with the same files, so the whole change is reviewed; then report again.';
         }
@@ -135,8 +146,8 @@ final class Applier
     }
 
     /**
-     * Applies whatever is staged for the card (report, verdict or plan) without an agent to answer: a review report the
-     * branch does not support yet stays staged. Returns what happened, one line, or null when nothing is staged.
+     * Applies whatever is staged for the card (report, verdict, plan or merge result) without an agent to answer: a review
+     * report the branch does not support yet stays staged. Returns what happened, one line, or null when nothing is staged.
      */
     public function settle(string $cardId, string $kind): ?string
     {
@@ -147,6 +158,9 @@ final class Applier
         try {
             if ($kind === 'plan') {
                 return $this->plan($item);
+            }
+            if ($kind === 'merge') {
+                return $this->merge($item);
             }
             if ($kind === 'report') {
                 $card = $this->store->card($cardId);
@@ -350,7 +364,7 @@ final class Applier
             if ($approve) {
                 $this->store->update($id, function (array $data) use ($verdict, $entry) {
                     $data['acceptance'] = self::tick($data['acceptance'] ?? [], array_column($data['acceptance'] ?? [], 'id'), true);
-                    $data['work']['approved'] = ['head' => $verdict['head'], 'base' => $verdict['base'] ?? null, 'at' => Clock::now()];
+                    $data['work']['approved'] = ['head' => $verdict['head'], 'at' => Clock::now()];
                     $data['log'] = [...$data['log'], $entry, ...self::upstream($verdict)];
 
                     return $data;
@@ -374,6 +388,251 @@ final class Applier
 
             return "{$id}: rejected, stage {$card->stage()}".self::found($created, $verdict, $known);
         });
+    }
+
+    /**
+     * Applies a merger's staged result to the merge it answers (Staged::merge): resolved and fixed are checked again on
+     * the merge clone as it is now (mergerHead()), logged, and the merge goes back to its checks; back sends the card to
+     * its worker in the same write as its log entry; main files or notes the main-red card. back and main leave the merge
+     * `released`, for `finish` to give the lease back. A result for a merge that is over is logged as moot. The board
+     * write comes first: applied again after a failure, it settles the merge state alone.
+     *
+     * @param  array<string, mixed>  $item
+     */
+    public function merge(array $item): string
+    {
+        $id = (string) $item['card'];
+        $hash = (string) $item['hash'];
+        $outcome = (string) $item['outcome'];
+
+        return $this->locked(function () use ($item, $id, $hash, $outcome) {
+            $states = new MergeState($this->paths);
+            $state = $states->read();
+            $card = $this->store->card($id);
+            $ours = $state !== null && ($state['card'] ?? null) === $id && ($state['lease'] ?? null) === $item['lease'] && ($state['round'] ?? null) === $item['round']
+                && in_array($state['phase'] ?? null, [MergeState::CONFLICT, MergeState::RED], true);
+            if (is_file($this->runtime->appliedFile($id, 'merge', $hash)) || self::landed($card, ['merge', 'merge_moot'], 'hash', $hash)) {
+                $ours && $this->settled($states, $card, $item, $state);
+                $this->runtime->markApplied($id, 'merge', $hash);
+
+                return "{$id}: merge result {$hash} already applied";
+            }
+            $by = new Actor('merger');
+            $moot = match (true) {
+                $card->stage() !== 'review' => "the card is {$card->stage()}",
+                ($card->work()['approved']['head'] ?? null) !== $item['card_head'] => 'its approval changed',
+                ($state['card'] ?? null) !== $id => 'no merge of it runs here',
+                ! $ours => 'the merge it answers is over',
+                default => null,
+            };
+            if ($moot !== null) {
+                $this->store->update($id, function (array $data) use ($hash, $moot) {
+                    $data['log'][] = MergeState::moot($hash, $moot);
+
+                    return $data;
+                }, $by);
+                $this->runtime->markApplied($id, 'merge', $hash);
+
+                return "{$id}: merge result {$outcome} moot: {$moot}";
+            }
+            $note = (string) $item['note'];
+            if (in_array($outcome, ['resolved', 'fixed'], true)) {
+                $head = $this->mergerHead($card, $state, $outcome);
+                if ($head !== $item['head']) {
+                    throw new PolicyRefused('the merge clone moved since the result was staged ('.substr((string) $item['head'], 0, 7).' → '.substr((string) $head, 0, 7).'): run `vendor/bin/kanban merged` again');
+                }
+                $entry = MergeState::entry($outcome, ['head' => $head, 'hash' => $hash, 'note' => $note]);
+                $this->store->update($id, function (array $data) use ($entry) {
+                    $data['log'][] = $entry;
+
+                    return $data;
+                }, $by);
+            } elseif ($outcome === 'back') {
+                $what = ($state['conflicts'] ?? []) !== [] ? ['files' => array_values((array) $state['conflicts'])] : ['command' => (string) ($state['failure']['command'] ?? '')];
+                $this->store->update($id, function (array $data) use ($note, $hash, $what) {
+                    $data['log'][] = MergeState::entry('back', ['note' => $note, 'hash' => $hash] + $what);
+
+                    return Transitions::sentBack($data, 'merge', $note);
+                }, $by);
+            } else {
+                $this->mergerHead($card, $state, $outcome);
+                $command = (string) ($state['failure']['command'] ?? '');
+                $red = $this->failingOnMain($card, $command, $note, $by);
+                $this->store->update($id, function (array $data) use ($red, $command, $state, $hash, $note) {
+                    $data['log'][] = MergeState::entry('main', ['red' => $red, 'command' => $command, 'base' => (string) $state['base'], 'hash' => $hash, 'note' => $note]);
+
+                    return $data;
+                }, $by);
+            }
+            $this->settled($states, $card, $item, $state);
+            $this->runtime->markApplied($id, 'merge', $hash);
+
+            return "{$id}: merge result {$outcome} applied";
+        });
+    }
+
+    /**
+     * Why the merge of $card takes no merger result now (none runs here, or it is past the merger's turn), or null.
+     */
+    public function staleMerge(Card $card): ?string
+    {
+        $state = (new MergeState($this->paths))->read();
+
+        return match (true) {
+            ($state['card'] ?? null) !== $card->id() => 'no merge of it runs here',
+            ! in_array($state['phase'] ?? null, [MergeState::CONFLICT, MergeState::RED], true) => "the merge is {$state['phase']}",
+            default => null,
+        };
+    }
+
+    /**
+     * The merge clone's HEAD that the merger's resolved or fixed stands on, fetched into main as
+     * `refs/merge-queue/<id>/staged`; null for back and main. PolicyRefused when the merge in flight ($state) does not take
+     * $outcome now: resolved needs a conflict concluded in one merge commit of the round's two pins, fixed commits on
+     * top of the tree the check failed on, main a failure notOnMain() allows; and what the merger changed must pass the
+     * merger gate.
+     *
+     * @param  array<string, mixed>  $state
+     */
+    public function mergerHead(Card $card, array $state, string $outcome): ?string
+    {
+        $id = $card->id();
+        $phase = (string) ($state['phase'] ?? '');
+        $failure = (array) ($state['failure'] ?? []);
+        if (! in_array($phase, [MergeState::CONFLICT, MergeState::RED], true)) {
+            throw new PolicyRefused("the merge of {$id} is {$phase}: it takes no merger result now");
+        }
+        $wants = ['resolved' => MergeState::CONFLICT, 'fixed' => MergeState::RED, 'main' => MergeState::RED][$outcome] ?? $phase;
+        if ($phase !== $wants) {
+            throw new PolicyRefused("{$outcome} answers ".($wants === MergeState::CONFLICT ? 'a conflict' : 'a failed check')."; the merge of {$id} is {$phase}");
+        }
+        if ($outcome === 'main' && ($why = self::notOnMain($card, $failure)) !== null) {
+            throw new PolicyRefused($why);
+        }
+        if (! in_array($outcome, ['resolved', 'fixed'], true)) {
+            return null;
+        }
+        $clone = $this->paths->mergeClone();
+        $git = new CloneGit($this->paths, $this->config);
+        if ($git->inContainer($clone, ['rev-parse', '-q', '--verify', 'MERGE_HEAD'])->ok() || trim($git->inContainer($clone, ['ls-files', '-u'])->out) !== '') {
+            throw new PolicyRefused('the merge is not concluded: resolve each conflict, `git add` the files, `git commit --no-edit`');
+        }
+        if (($dirty = trim($git->inContainer($clone, ['status', '--porcelain', '--untracked-files=all'])->out)) !== '') {
+            throw new PolicyRefused("the merge clone has changes no commit holds; commit them (`git add` a new file first) or remove them:\n{$dirty}");
+        }
+        $main = new Git($this->paths->main);
+        $staged = "refs/merge-queue/{$id}/staged";
+        // the upload-pack serving it runs in the clone, with the clone's config: untrusted
+        $fetch = Git::untrusted($this->paths->main)->attempt(['fetch', '-q', '--no-tags', $clone, "+HEAD:{$staged}"]);
+        $head = $fetch->ok() ? $main->line(['rev-parse', '--verify', '-q', $staged]) : null;
+        if ($head === null) {
+            throw new PolicyRefused('cannot read the merge clone\'s HEAD: '.Worktrees::tail($fetch->err ?: $fetch->out));
+        }
+        [$base, $pinned] = [(string) $state['base'], (string) $state['head']];
+        if ($outcome === 'resolved' && array_slice(explode(' ', (string) $main->line(['rev-list', '--parents', '-n', '1', $head])), 1) !== [$base, $pinned]) {
+            throw new PolicyRefused('HEAD '.substr($head, 0, 7).' is not the merge of main '.substr($base, 0, 7).' and the card '.substr($pinned, 0, 7)
+                .': conclude the merge with `git commit --no-edit`, and commit nothing after it');
+        }
+        $checked = (string) ($state['checked'] ?? '');
+        if ($outcome === 'fixed' && ! self::fixes($main, $checked, $head)) {
+            throw new PolicyRefused('fixed needs your commits on top of '.substr($checked, 0, 7).', the tree the check failed on, each made on `merge` itself: no merge commit');
+        }
+        if (($why = $this->mergerGate($base, $pinned, $head)) !== []) {
+            throw new PolicyRefused('your changes to the merge '.implode('; ', $why).': change that back in a commit of yours, then run `vendor/bin/kanban merged` again');
+        }
+
+        return $head;
+    }
+
+    /**
+     * Why the merger may not answer `main` to the failed check $failure of $card's merge, or null: it passed on main
+     * alone; or the card is filed for main red, and it is the card's own command, or no finish.check command.
+     *
+     * @param  array<string, mixed>  $failure
+     */
+    public static function notOnMain(Card $card, array $failure): ?string
+    {
+        $own = MergeQueue::fixes($card);
+
+        return match (true) {
+            ($failure['base_rerun'] ?? null) === 'passed' => "`{$failure['command']}` passed on main alone: its failure is the merge's (fixed) or the card's (back), not main's",
+            $own === null => null,
+            $own === ($failure['command'] ?? null) => "{$card->id()} holds `{$own}` failing on main, and it still fails with the card's change: back",
+            ($failure['step'] ?? null) !== 'suite' => "{$card->id()} is filed for main red: a failed {$failure['step']} that fails on main too is fixed in the merge (fixed) or the card's (back)",
+            default => null,
+        };
+    }
+
+    /** How many commits $from..$head holds when they are fixes on top of $from, one parent each (what a push of main takes); else null. */
+    public static function fixes(Git $main, string $from, string $head): ?int
+    {
+        if (! $main->attempt(['merge-base', '--is-ancestor', $from, $head])->ok() || $main->line(['rev-list', '--min-parents=2', "{$from}..{$head}"]) !== '') {
+            return null;
+        }
+
+        return (int) $main->line(['rev-list', '--count', "{$from}..{$head}"]);
+    }
+
+    /**
+     * What the merger changed up to $head, against git's own merge of $base and $card (conflicts left as markers), that
+     * no merger may: a change to config/kanban.php or .claude/, a deleted test (a moved one too), an added line that skips a test. Read in
+     * main from objects only.
+     *
+     * @return list<string>
+     */
+    public function mergerGate(string $base, string $card, string $head): array
+    {
+        $main = new Git($this->paths->main);
+        // -z: git quotes a path it would print with a quote, a backslash or a byte outside ASCII
+        $merged = $main->attempt(['--attr-source='.$base, 'merge-tree', '--write-tree', '--name-only', '--no-messages', '-z', $base, $card]);
+        $tree = $merged->code <= 1 ? strtok($merged->out, "\0") : false;
+        if ($tree === false) {
+            return ['cannot be read: git merge-tree failed: '.Worktrees::tail($merged->err)];
+        }
+        $diff = fn (array $args) => $main->run(['diff', '--no-ext-diff', '--no-textconv', ...$args, $tree, $head, '--']);
+        $why = [];
+        $listed = explode("\0", rtrim($diff(['--name-status', '--no-renames', '-z']), "\0"));
+        for ($i = 0; $i + 1 < count($listed); $i += 2) {
+            [$status, $path] = [$listed[$i], $listed[$i + 1]];
+            if ($path === 'config/kanban.php' || str_starts_with($path, '.claude/')) {
+                $why[$path] = "change {$path}, which no agent may edit";
+            }
+            if ($status === 'D' && preg_match('#(^|/)tests/#', $path) === 1) {
+                $why[$path] = "delete the test {$path}";
+            }
+        }
+        $file = '';
+        foreach (explode("\n", $diff(['-U0'])) as $line) {
+            if (str_starts_with($line, '+++ ')) {
+                $file = substr($line, 6);
+            } elseif (str_starts_with($line, '+') && preg_match(Context::SKIPPED, $line) === 1) {
+                $why["skip {$file}"] = "add a skipped test in {$file}";
+            }
+        }
+
+        return array_values($why);
+    }
+
+    /**
+     * The merge state after the merger's result $item: back to its checks (resolved, fixed, and main for a card filed for
+     * main red, whose checks no longer stop at that command), or released (back, main); the merger's launches counted
+     * afresh.
+     *
+     * @param  array<string, mixed>  $item
+     * @param  array<string, mixed>  $state
+     */
+    private function settled(MergeState $states, Card $card, array $item, array $state): void
+    {
+        $goesOn = $item['outcome'] === 'main' && MergeQueue::fixes($card) !== null;
+        $fields = match (true) {
+            $item['outcome'] === 'resolved' => ['phase' => MergeState::CHECKS, 'merge_commit' => $item['head'], 'conflicts' => null],
+            $item['outcome'] === 'fixed' => ['phase' => MergeState::CHECKS, 'failure' => null],
+            $goesOn => ['phase' => MergeState::CHECKS, 'failure' => null,
+                'on_main' => array_values(array_unique([...(array) ($state['on_main'] ?? []), (string) ($state['failure']['command'] ?? '')]))],
+            default => ['phase' => MergeState::RELEASED],
+        };
+        $rounds = $fields['phase'] === MergeState::CHECKS ? ['merger_rounds' => (int) ($state['merger_rounds'] ?? 0) + 1] : [];
+        $states->set($fields + $rounds + ['merger_runs' => 0], (string) $item['lease']);
     }
 
     /**
@@ -509,15 +768,10 @@ final class Applier
         return $created;
     }
 
-    /** The open card that holds main red: the one `finish` filed for it, else one labelled `main-red`. */
-    private function mainRed(Snapshot $snapshot): ?string
+    /** An open card labelled `main-red`, other than $except. */
+    private function mainRed(Snapshot $snapshot, ?string $except = null): ?string
     {
-        $open = fn (?Card $c) => $c !== null && ! in_array($c->stage(), ['done', 'dropped'], true);
-        $marked = (new MainCheck($this->paths))->red()['card'] ?? null;
-        if (is_string($marked) && $open($snapshot->card($marked))) {
-            return $marked;
-        }
-        foreach ($snapshot->cards(fn (Card $c) => $open($c) && in_array(self::MAIN_RED, $c->labels(), true)) as $red) {
+        foreach ($snapshot->cards(fn (Card $c) => $c->id() !== $except && ! in_array($c->stage(), ['done', 'dropped'], true) && in_array(self::MAIN_RED, $c->labels(), true)) as $red) {
             return $red->id();
         }
 
@@ -525,8 +779,20 @@ final class Applier
     }
 
     /**
+     * $command fails on main, as the merge of $card found: noted on an open main-red card other than $card, or filed as
+     * one (onMain()). Returns that card's id.
+     */
+    public function failingOnMain(Card $card, string $command, string $body, Actor $by): string
+    {
+        $created = [];
+        $known = [];
+
+        return $this->onMain($card, ['type' => 'bug', 'title' => $command, 'body' => $body], $by, 'merging', $this->mainRed($this->store->snapshot(), $card->id()), $created, $known);
+    }
+
+    /**
      * A failure already on main: noted on the open main-red card, or filed as one, high priority, on no area, with the
-     * command passing on main as its criterion. Main is marked red only by `finish`'s own check.
+     * command passing on main as its criterion.
      *
      * @param  array{type: string, title: string, body: string}  $found
      * @param  list<string>  $created

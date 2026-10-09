@@ -112,7 +112,7 @@ it('stages a verdict only with every criterion covered and a consistent decision
     $staged = json_decode(file_get_contents($this->p->runtime("staged/{$this->id}.verdict.json")), true);
     expect($staged)->toMatchArray(['decision' => 'reject', 'checks' => ['1' => ['result' => 'pass', 'evidence' => 'curl shows it'], '2' => ['result' => 'fail', 'evidence' => 'no test']], 'issues' => [],
         'discovered' => [['type' => 'bug', 'title' => 'Login fails on main', 'body' => '/login answers 500 without this change']]])
-        ->and($staged['base'])->toBe(trim($this->p->git($this->wt, 'merge-base', 'HEAD', 'main')));
+        ->and($staged)->not->toHaveKey('base');
 });
 
 it('refuses main-only commands from inside a card worktree', function (array $args) {

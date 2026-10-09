@@ -2,9 +2,9 @@
 
 namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
+use PetarSpasic\LaravelHouse\Kanban\Code\CloneGit;
 use PetarSpasic\LaravelHouse\Kanban\Code\MergeCheck;
 use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
-use PetarSpasic\LaravelHouse\Kanban\Policy\Transitions;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Lease;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Runtime;
 use PetarSpasic\LaravelHouse\Kanban\Store\Card;
@@ -12,7 +12,7 @@ use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Invalid;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\NotFound;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
 use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
-use PetarSpasic\LaravelHouse\Kanban\Store\Stage;
+use PetarSpasic\LaravelHouse\Kanban\Support\GitResult;
 use Symfony\Component\Console\Attribute\AsCommand;
 
 #[AsCommand(name: 'kanban:refresh')]
@@ -20,9 +20,9 @@ class RefreshCommand extends Command
 {
     protected $signature = 'kanban:refresh
         {id? : Card id or unique prefix}
-        {--all : Every doing or review card with a worktree on this machine}';
+        {--all : Every card in doing or planning with a clone on this machine}';
 
-    protected $description = 'Merge main into a card branch (a conflict is left in progress and handed back to the worker); a planner\'s fresh branch moves to main';
+    protected $description = 'Merge main into a card branch in its container (a conflict is left in progress for the worker); a planner\'s fresh branch moves to main';
 
     /** In the refusal while an agent of the card runs: `kanban run` waits for it rather than blocking the card. */
     public const LIVE = 'is still running';
@@ -34,7 +34,7 @@ class RefreshCommand extends Command
         (new Lease($this->paths()))->acquire($this->actor());
         $snapshot = $this->store()->snapshot();
         if ($this->option('all')) {
-            $cards = $snapshot->cards(fn (Card $c) => Stage::isActive($c->stage()) && isset($c->work()['worktree'])
+            $cards = $snapshot->cards(fn (Card $c) => in_array($c->stage(), ['doing', 'planning'], true) && isset($c->work()['worktree'])
                 && is_dir($this->paths()->main.'/'.$c->work()['worktree']));
         } elseif ($this->argument('id') !== null) {
             $cards = [$this->store()->card($this->argument('id'))];
@@ -44,9 +44,12 @@ class RefreshCommand extends Command
 
         $exit = self::SUCCESS;
         foreach ($cards as $card) {
+            if ($card->stage() === 'review') {
+                throw new PolicyRefused("{$card->id()} is in review: a card in review is judged and merged as it is; the merge queue merges main");
+            }
             if (($live = $this->live($card, $snapshot)) !== null) {
                 if (! $this->option('all')) {
-                    $kind = ['worker' => 'report', 'planner' => 'plan'][$live] ?? 'verdict';
+                    $kind = $live === 'planner' ? 'plan' : 'report';
                     $failed = str_starts_with((new Runtime($this->paths()))->refusal($card->id(), $kind)['reason'] ?? '', 'hook failed');
                     throw new PolicyRefused("{$card->id()}: its {$live} ".self::LIVE." (what it stages applies when it stops); `vendor/bin/kanban wait {$card->id()}`"
                         .($failed ? '; its stop hook failed, so `vendor/bin/kanban apply` settles it' : ''));
@@ -81,6 +84,7 @@ class RefreshCommand extends Command
             return $this->follow($card, $worktrees, $path);
         }
         $main = $worktrees->mainBranch();
+        $clones = new CloneGit($this->paths(), $this->config());
         // a merge would carry the edits into the merge commit, where nobody reviews them as the card's change. Untracked files
         // stay out of a merge (and the stop gate catches one a resolution folds in)
         if (($dirty = $worktrees->changed($path)) !== [] || $worktrees->merging($path) !== null) {
@@ -93,20 +97,24 @@ class RefreshCommand extends Command
         if (($branch = $card->work()['branch'] ?? null) !== null && $git->line(['symbolic-ref', '--short', '-q', 'HEAD']) !== $branch) {
             throw new PolicyRefused("{$id}: its clone is not on its branch {$branch}; its worker checks it out first");
         }
-        $worktrees->sync($path, $card->work()['branch'] ?? null);
+        $worktrees->sync($path, $branch);
         $before = $worktrees->head('HEAD', $path);
-        $merge = $git->attempt(['merge', '--no-edit', $main]);
-        $migrations = array_values(array_filter(explode("\n", trim($git->attempt(['diff', '--name-only', '--diff-filter=A', "{$before}...refs/heads/{$main}", '--', 'database/migrations/'])->out))));
+        $merge = $this->inContainer($clones, $worktrees, $card, $path, ['merge', '--no-edit', $main]);
+        // read in main, from objects: the card's head before the merge is there since the sync
+        $migrations = array_values(array_filter(explode("\n", trim($worktrees->git()->attempt(['diff', '--name-only', '--diff-filter=A', "{$before}...refs/heads/{$main}", '--', 'database/migrations/'])->out))));
         $arrived = $migrations === [] ? null : count($migrations)." migration(s) arrived from {$main}: the card's agent runs the `database` commands `kanban context` prints";
-        $conflicted = array_values(array_filter(explode("\n", trim($git->attempt(['diff', '--name-only', '--diff-filter=U'])->out))));
+        $conflicted = [];
+        foreach (array_filter(explode("\n", $clones->inContainer($path, ['ls-files', '-u'])->out)) as $line) {
+            $conflicted[substr($line, strpos($line, "\t") + 1)] = true;
+        }
+        $conflicted = array_keys($conflicted);
 
         if ($conflicted !== []) {
-            $this->round($card, ['from' => $before, 'conflicts' => $conflicted], 'merge of '.$main.' conflicts in '.implode(', ', $conflicted));
+            $this->round($card, ['from' => $before, 'conflicts' => $conflicted]);
             $this->say("conflict {$id}: merge of {$main} left in progress in {$path}");
             foreach ($conflicted as $file) {
                 $this->say("conflicted {$file}");
             }
-            $this->say("{$id} → doing");
             if (is_string($project = $card->work()['stack']['project'] ?? null)) {
                 $this->say("stack {$project} serves the conflicted tree until the worker concludes the merge; run no checks against it");
             }
@@ -124,7 +132,7 @@ class RefreshCommand extends Command
             return 1;
         }
         $after = $worktrees->head('HEAD', $path);
-        $worktrees->sync($path, $card->work()['branch'] ?? null);
+        $worktrees->sync($path, $branch);
         if ($after === $before) {
             $this->say("up to date {$id}");
             $this->spawn($card, $path);
@@ -132,18 +140,41 @@ class RefreshCommand extends Command
             return self::SUCCESS;
         }
         $this->round($card, ['from' => $before, 'head' => $after]);
-        $this->say("refreshed {$id}: merged {$main} (".substr($before, 0, 7).'..'.substr($after, 0, 7).')'.($card->stage() === 'review' ? '; re-verify before finish' : ''));
+        $this->say("refreshed {$id}: merged {$main} (".substr($before, 0, 7).'..'.substr($after, 0, 7).')');
         if ($arrived !== null) {
             $this->say($arrived);
         }
-        $rebuild = MergeCheck::rebuildFiles(array_values(array_filter(explode("\n", trim($git->attempt(['diff', '--name-only', "{$before}...{$after}"])->out)))),
+        $this->reload($worktrees, $path, $before, $after);
+        $this->spawn($card, $path);
+
+        return self::SUCCESS;
+    }
+
+    /**
+     * `git $args` in the card's container: brought up first when its stack record names one that is not running (kanban-exec
+     * refuses with 125), so the merge never falls back to this machine.
+     *
+     * @param  list<string>  $args
+     */
+    private function inContainer(CloneGit $clones, Worktrees $worktrees, Card $card, string $path, array $args): GitResult
+    {
+        $result = $clones->inContainer($path, $args);
+        if ($result->code === 125) {
+            $worktrees->up($path, $card->work()['branch'] ?? null, $card->id());
+            $result = $clones->inContainer($path, $args);
+        }
+
+        return $result;
+    }
+
+    /** Recreates the card's stack when $before..$after (both in main) changed its docker files or lockfiles. */
+    private function reload(Worktrees $worktrees, string $path, string $before, string $after): void
+    {
+        $rebuild = MergeCheck::rebuildFiles(array_values(array_filter(explode("\n", trim($worktrees->git()->attempt(['diff', '--name-only', "{$before}...{$after}"])->out)))),
             $this->config()['stack']['compose_file'] ?? null);
         if ($rebuild !== [] && ($entry = $worktrees->freshen($path)) !== null) {
             $this->say("reloaded {$entry['project']}: ".implode(', ', $rebuild).' changed');
         }
-        $this->spawn($card, $path);
-
-        return self::SUCCESS;
     }
 
     /**
@@ -169,14 +200,16 @@ class RefreshCommand extends Command
         $before = $worktrees->head('HEAD', $path);
         $after = $worktrees->head('refs/heads/'.$main, $path);
         if ($before !== $after) {
-            $git->run(['reset', '-q', '--hard', 'refs/heads/'.$main]);
+            $clones = new CloneGit($this->paths(), $this->config());
+            $reset = $this->inContainer($clones, $worktrees, $card, $path, ['reset', '-q', '--hard', 'refs/heads/'.$main]);
+            if (! $reset->ok()) {
+                $this->fault("refresh {$id}: git reset {$main} failed: ".Worktrees::tail($reset->err ?: $reset->out));
+
+                return 1;
+            }
             $worktrees->sync($path, $branch);
             $this->say("refreshed {$id}: its planning branch moved to {$main} (".substr($before, 0, 7).'..'.substr($after, 0, 7).')');
-            $rebuild = MergeCheck::rebuildFiles(array_values(array_filter(explode("\n", trim($git->attempt(['diff', '--name-only', "{$before}...{$after}"])->out)))),
-                $this->config()['stack']['compose_file'] ?? null);
-            if ($rebuild !== [] && ($entry = $worktrees->freshen($path)) !== null) {
-                $this->say("reloaded {$entry['project']}: ".implode(', ', $rebuild).' changed');
-            }
+            $this->reload($worktrees, $path, $before, $after);
         } else {
             $this->say("up to date {$id}");
         }
@@ -185,38 +218,33 @@ class RefreshCommand extends Command
         return self::SUCCESS;
     }
 
-    /** The agent the card in its stage takes next: its planner in planning, its worker in doing, an evaluator in review. */
+    /** The agent the card in its stage takes next: its planner in planning, its worker in doing. */
     private function spawn(Card $card, string $path): void
     {
-        $this->say('spawn: '.Worktrees::spawnLine($card, ['planning' => 'kanban-planner', 'review' => 'kanban-evaluator'][$card->stage()] ?? 'kanban-worker', $path));
+        $this->say('spawn: '.Worktrees::spawnLine($card, $card->stage() === 'planning' ? 'kanban-planner' : 'kanban-worker', $path));
     }
 
-    /** An agent of the card that has not stopped (`planner`, `worker`, `evaluator`), or null. */
+    /** An agent of the card that has not stopped (`planner`, `worker`), or null. */
     private function live(Card $card, Snapshot $snapshot): ?string
     {
         $runtime = new Runtime($this->paths(), $snapshot->staleMinutes());
-        foreach ($card->stage() === 'planning' ? ['kanban-planner'] : ['kanban-worker', 'kanban-evaluator'] as $type) {
-            if (($agent = $runtime->agentFor($card->id(), $type)) !== null && $runtime->state($agent) === 'live') {
-                return str_replace('kanban-', '', $type);
-            }
-        }
+        $type = $card->stage() === 'planning' ? 'kanban-planner' : 'kanban-worker';
+        $agent = $runtime->agentFor($card->id(), $type);
 
-        return null;
+        return $agent !== null && $runtime->state($agent) === 'live' ? substr($type, 7) : null;
     }
 
     /**
-     * Records the round boundary in one write: a `refresh` log entry, the approval cleared, and on a conflict the card back
-     * in doing. A report staged for the old head is discarded.
+     * Records the round boundary in one write: a `refresh` log entry. A report staged for the old head is discarded.
      *
      * @param  array<string, mixed>  $entry
      */
-    private function round(Card $card, array $entry, ?string $conflict = null): void
+    private function round(Card $card, array $entry): void
     {
-        $this->store()->update($card->id(), function (array $data) use ($entry, $conflict) {
-            $data['work']['approved'] = null;
+        $this->store()->update($card->id(), function (array $data) use ($entry) {
             $data['log'][] = ['event' => 'refresh', ...$entry];
 
-            return $conflict !== null && $data['stage'] === 'review' ? Transitions::stage($data, 'doing', 'refresh', $conflict) : $data;
+            return $data;
         }, $this->actor());
         $staged = (new Runtime($this->paths()))->stagedFile($card->id(), 'report');
         if (is_file($staged) && @unlink($staged)) {

@@ -3,8 +3,8 @@
 namespace PetarSpasic\LaravelHouse\Kanban\Protocol;
 
 use PetarSpasic\LaravelHouse\Kanban\Code\DatabaseSteps;
-use PetarSpasic\LaravelHouse\Kanban\Code\MainCheck;
-use PetarSpasic\LaravelHouse\Kanban\Code\MergeCheck;
+use PetarSpasic\LaravelHouse\Kanban\Code\MergeStep;
+use PetarSpasic\LaravelHouse\Kanban\Code\Suite;
 use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
 use PetarSpasic\LaravelHouse\Kanban\Policy\Plan;
 use PetarSpasic\LaravelHouse\Kanban\Store\Card;
@@ -14,7 +14,7 @@ use PetarSpasic\LaravelHouse\Kanban\Support\Git;
 use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
 use PetarSpasic\LaravelHouse\Kanban\Upstream\Findings;
 
-/** What an agent needs about its card: `kanban context` and the SessionStart context of a card worktree. */
+/** What an agent needs about its card: `kanban context` and the SessionStart context of a card worktree or the merge clone. */
 final class Context
 {
     /** Claude Code keeps only a 2 KB preview of hook output over 10,000 characters: the gates and protocol lines come after the body. */
@@ -27,15 +27,26 @@ final class Context
 
     private const REFUSAL_LIMIT = 1200;
 
+    /** An added line that skips a test (Pest, PHPUnit, Playwright, Vitest). */
+    public const SKIPPED = '/->(skip|todo)\(|markTest(Skipped|Incomplete)|\b(test|it|describe)\.(skip|only|fixme)\(/';
+
     /** @param  array<string, mixed>  $config  the `kanban` config */
     public function __construct(
         private readonly Paths $paths,
         private readonly array $config,
     ) {}
 
-    /** The card whose worktree contains $dir (a code worktree under `.claude/worktrees/`), or null. */
+    /**
+     * The card whose worktree contains $dir (a code worktree under `.claude/worktrees/`), or null. In the merge clone, the
+     * card this checkout merges.
+     */
     public function cardAt(Snapshot $snapshot, string $dir): ?Card
     {
+        if ($this->inMergeClone($dir)) {
+            $id = (new MergeState($this->paths))->read()['card'] ?? null;
+
+            return is_string($id) ? $snapshot->card($id) : null;
+        }
         $dir = realpath($dir) ?: $dir;
         foreach ($snapshot->cards(fn (Card $c) => $c->atWork()) as $card) {
             $worktree = $this->worktree($card);
@@ -58,9 +69,24 @@ final class Context
         return realpath($path) ?: $path;
     }
 
-    /** The card's worktree when $cwd is inside it; refused otherwise (agents act only on their own card). */
-    public function requireInside(Card $card, string $cwd, string $what): string
+    /** Whether $dir is the merge clone or a directory in it. */
+    public function inMergeClone(string $dir): bool
     {
+        $dir = realpath($dir) ?: $dir;
+        $clone = realpath($this->paths->mergeClone()) ?: $this->paths->mergeClone();
+
+        return $dir === $clone || str_starts_with($dir, $clone.'/');
+    }
+
+    /**
+     * The card's worktree when $cwd is inside it; refused otherwise (agents act only on their own card). With $merge, also
+     * the merge clone while it merges the card: a merger's command, which syncs nothing.
+     */
+    public function requireInside(Card $card, string $cwd, string $what, bool $merge = false): string
+    {
+        if ($merge && $this->inMergeClone($cwd) && ((new MergeState($this->paths))->read()['card'] ?? null) === $card->id()) {
+            return realpath($this->paths->mergeClone()) ?: $this->paths->mergeClone();
+        }
         $worktree = $this->worktree($card);
         $cwd = realpath($cwd) ?: $cwd;
         if ($worktree === null || ($cwd !== $worktree && ! str_starts_with($cwd, $worktree.'/'))) {
@@ -87,10 +113,7 @@ final class Context
         if ($card->blocked() !== null) {
             $lines[] = 'blocked: '.$card->blocked();
         }
-        if ($card->stage() !== 'planning' && ($red = (new MainCheck($this->paths))->red()) !== null) {
-            $lines[] = "main red: `{$red['command']}` fails since {$red['after']} merged (".substr((string) $red['sha'], 0, 7).')'
-                .(($red['card'] ?? null) === $card->id() ? ': this card holds it' : ', bug card '.($red['card'] ?? '?').': not yours to file; subtract its failures from yours');
-        } elseif ($card->stage() !== 'planning' && ($known = $snapshot->cards(fn (Card $c) => $c->id() !== $card->id()
+        if ($card->stage() !== 'planning' && ($known = $snapshot->cards(fn (Card $c) => $c->id() !== $card->id()
             && in_array(Applier::MAIN_RED, $c->labels(), true) && ! in_array($c->stage(), ['done', 'dropped'], true))) !== []) {
             $lines[] = 'failing on main already (not yours to file; subtract them from yours): '.implode(', ', array_map(fn (Card $c) => $c->id().' '.mb_strimwidth($c->title(), 0, 80, '…'), $known));
         }
@@ -136,7 +159,8 @@ final class Context
         }
         // a planner reads what was said since the earlier plan: the note or reason that sent the card back to planning
         $notes = $this->notes($card, (string) ($card->stage() === 'planning' ? ($card->planned()['at'] ?? '') : ($work['started'] ?? '')));
-        foreach (['owner' => 'owner notes:', 'main' => "main-session notes (information, never the owner's decision; owner authority is an `## Owner answer` section in the card or a CLAUDE.md rule):"] as $by => $heading) {
+        foreach (['owner' => 'owner notes:', 'main' => "main-session notes (information, never the owner's decision; owner authority is an `## Owner answer` section in the card or a CLAUDE.md rule):",
+            'merger' => 'merger notes (from merging the card into main):'] as $by => $heading) {
             if (($notes[$by] ?? []) !== []) {
                 $lines[] = $heading;
                 foreach ($notes[$by] as $note) {
@@ -162,10 +186,12 @@ final class Context
             foreach ($commits as $commit) {
                 $lines[] = '  '.$commit;
             }
-            $status = array_values(array_filter(explode("\n", rtrim($git->attempt(['status', '--porcelain', '--untracked-files=all'])->out))));
+            $result = Git::untrusted($worktree)->attempt(['status', '--porcelain', '--untracked-files=all', '--ignore-submodules=all']);
+            $status = array_values(array_filter(explode("\n", rtrim($result->out))));
             $conflicted = array_values(array_filter($status, fn (string $l) => preg_match('/^(UU|AA|DD|AU|UA|DU|UD) /', $l) === 1));
             $dirty = array_values(array_diff($status, $conflicted));
-            $lines[] = 'dirty: '.($dirty === [] ? 'none' : implode(', ', array_map(fn ($l) => trim(substr($l, 3)), array_slice($dirty, 0, 20))));
+            $lines[] = 'dirty: '.(! $result->ok() ? 'unknown (git status failed)'
+                : ($dirty === [] ? 'none' : implode(', ', array_map(fn ($l) => trim(substr($l, 3)), array_slice($dirty, 0, 20)))));
             if ($conflicted !== []) {
                 $lines[] = 'conflicted: '.implode(', ', array_map(fn ($l) => substr($l, 3), $conflicted)).' (a merge of main is in progress: resolve, git add, git commit)';
             }
@@ -182,7 +208,7 @@ final class Context
         }
 
         if ($git !== null) {
-            $lines = [...$lines, ...self::findings($git, $main, MergeCheck::approvals($card))];
+            $lines = [...$lines, ...self::findings($git, $main)];
         }
         $planning = $card->stage() === 'planning';
         if ($planning && $git !== null) {
@@ -197,11 +223,8 @@ final class Context
             $lines = [...$lines, ...$this->reports($card, (string) ($work['started'] ?? ''))];
             if ($git !== null) {
                 $lines[] = 'this card\'s changes, diff --stat main...HEAD:';
-                foreach (array_filter(explode("\n", rtrim($git->attempt(['diff', '--stat', $main.'...HEAD'])->out))) as $line) {
+                foreach (array_filter(explode("\n", rtrim($git->attempt(['diff', '--no-ext-diff', '--no-textconv', '--stat', $main.'...HEAD'])->out))) as $line) {
                     $lines[] = '  '.trim($line);
-                }
-                if (($reverify = $this->reverify($card, $git, $main)) !== null) {
-                    $lines[] = $reverify;
                 }
                 $resolved = $this->resolutions($git, $main);
                 if ($resolved !== []) {
@@ -256,14 +279,92 @@ final class Context
     }
 
     /**
+     * What the merger needs about the merge of $card in flight ($state, MergeState): the merge, the conflicted files or
+     * the failed check, what main brought since the card's base, the card's criteria and approval, the commands it runs
+     * and the exact `merged` results it may stage.
+     *
+     * @param  array<string, mixed>  $state
+     * @return list<string>
+     */
+    public function mergeLines(Card $card, array $state, Snapshot $snapshot): array
+    {
+        $id = $card->id();
+        $main = (string) ($this->config['main_branch'] ?? 'main');
+        $clone = realpath($this->paths->mergeClone()) ?: $this->paths->mergeClone();
+        $git = new Git($this->paths->main);
+        $base = (string) ($state['base'] ?? '');
+        $head = (string) ($state['head'] ?? '');
+        $failure = is_array($state['failure'] ?? null) ? $state['failure'] : null;
+        $lines = ["{$id} {$card->stage()} {$card->priority()} {$card->type()} {$card->board} {$card->title()}"];
+        $lines[] = "merging into {$main}: merge clone {$clone}, branch merge, base ".substr($base, 0, 7).', card '.substr($head, 0, 7)
+            .', round '.($state['round'] ?? 1).', merger round '.((int) ($state['merger_rounds'] ?? 0) + 1).'/'.MergeStep::MERGER_ROUNDS;
+        if (($state['conflicts'] ?? []) !== []) {
+            $lines[] = 'conflicted: '.implode(', ', (array) $state['conflicts']);
+        }
+        if ($failure !== null) {
+            $lines[] = "failed: {$failure['step']} `{$failure['command']}` (exit {$failure['exit']}) at ".substr((string) ($state['checked'] ?? ''), 0, 7)
+                .'; on main alone: '.match (true) {
+                    ($failure['base_rerun'] ?? null) === 'passed' => 'it passes',
+                    ($failure['base_rerun'] ?? null) === 'failed' => 'it fails too',
+                    $failure['step'] === 'suite' => 'not rerun (its dependencies differ)',
+                    default => 'not rerun (only finish.check commands are)',
+                };
+            foreach (explode("\n", rtrim((string) ($failure['tail'] ?? ''))) as $line) {
+                $lines[] = '  '.$line;
+            }
+        }
+        $from = $git->line(['merge-base', $base, $head]);
+        $commits = $from === null ? [] : array_values(array_filter(explode("\n", $git->attempt(['log', '--no-decorate', '--format=%h %s', '-n', '20', "{$from}..{$base}"])->out)));
+        $lines[] = "main's commits since the card's base:".($commits === [] ? ' none' : '');
+        foreach ($commits as $commit) {
+            $lines[] = '  '.$commit;
+        }
+        $lines[] = 'acceptance:';
+        foreach ($card->acceptance() as $criterion) {
+            $lines[] = '  ['.($criterion['done'] ? 'x' : ' ')."] {$criterion['id']}. {$criterion['text']}";
+        }
+        if (($verdict = $this->last($card, 'verdict')) !== null && $verdict['decision'] === 'approve') {
+            $lines[] = 'approved @'.substr((string) ($verdict['head'] ?? ''), 0, 7).(isset($verdict['note']) ? ": {$verdict['note']}" : '');
+        }
+        $known = $snapshot->cards(fn (Card $c) => $c->id() !== $id && in_array(Applier::MAIN_RED, $c->labels(), true) && ! in_array($c->stage(), ['done', 'dropped'], true));
+        if ($known !== []) {
+            $lines[] = 'failing on main already: '.implode(', ', array_map(fn (Card $c) => $c->id().' '.mb_strimwidth($c->title(), 0, 80, '…'), $known));
+        }
+        $record = (new Worktrees($this->paths, $this->config))->stackRecord($clone);
+        $lines[] = ($record['shell'] ?? null) === 'container'
+            ? "shell in container {$record['container']}, git included; a plain vendor/bin/kanban command runs on this machine"
+            : 'shell on this machine (no merge container), started in the merge clone';
+        $lines[] = "checks (main's config/kanban.php; `vendor/bin/kanban gates` runs the gates here, then the queue runs finish.check):";
+        foreach ((new Gates($this->config))->commands() as $gate) {
+            $lines[] = '  '.$gate['run'];
+        }
+        foreach ((new Suite($this->config))->commands() as $check) {
+            $lines[] = '  '.$check;
+        }
+        $refused = (new Runtime($this->paths))->refusal($id, 'merge');
+        if ($refused !== null) {
+            $lines[] = 'your staged merge result was not applied ('.substr($refused['at'], 0, 16).'):';
+            foreach (explode("\n", mb_strimwidth($refused['reason'], 0, self::REFUSAL_LIMIT, '…')) as $line) {
+                $lines[] = '  '.$line;
+            }
+        }
+        $merged = "vendor/bin/kanban merged {$id}";
+        $lines[] = $failure === null
+            ? "protocol: resolve each file, `git add` it, `git commit --no-edit`, run the gates (a fix they need goes into that commit: `git commit --amend --no-edit`); then `{$merged} resolved --note=\"…\"`; the card's intent unclear: `{$merged} back --note=\"<files, hunks, what to decide>\"`"
+            : "protocol: a failure the merge caused: fix and commit it, then `{$merged} fixed --note=\"…\"`; the card's own: `{$merged} back --note=\"<failing tests, why>\"`"
+                .(Applier::notOnMain($card, $failure) !== null ? '' : "; one on main already: `{$merged} main --note=\"<command> — what fails\"`");
+
+        return $lines;
+    }
+
+    /**
      * What the branch's own diff shows without judgement: new composer or npm packages, and added lines holding a
      * TODO or FIXME, a skipped test, or a private IPv4 address. The worker reports a package outside the approved set
      * as blocked; the evaluator weighs each line.
      *
-     * @param  list<array<string, mixed>>  $approvals  the owner's approvals of steering files for the card
      * @return list<string>
      */
-    public static function findings(Git $git, string $main, array $approvals = []): array
+    public static function findings(Git $git, string $main): array
     {
         $lines = [];
         $packages = [];
@@ -291,17 +392,9 @@ final class Context
         if ($packages !== []) {
             $lines[] = 'new packages: '.implode(', ', $packages);
         }
-        $files = array_values(array_filter(explode("\n", $git->attempt(['diff', '--name-only', $main.'...HEAD'])->out)));
-        $held = MergeCheck::unapproved($files, $approvals, fn (string $file) => (string) $git->line(['rev-parse', '--verify', '-q', "HEAD:{$file}"]));
-        if ($held !== []) {
-            $lines[] = "changes kanban's own files (finish needs the owner): ".implode(', ', $held);
-        }
-        if (($approved = array_values(array_diff(MergeCheck::protected($files), $held))) !== []) {
-            $lines[] = "changes kanban's own files the owner approved: ".implode(', ', $approved);
-        }
         $patterns = [
             'TODO or FIXME' => '/\b(TODO|FIXME)\b/',
-            'a skipped test' => '/->(skip|todo)\(|markTest(Skipped|Incomplete)|\b(test|it|describe)\.(skip|only|fixme)\(/',
+            'a skipped test' => self::SKIPPED,
             'a private IPv4 address' => '/\b(10\.\d{1,3}|172\.(1[6-9]|2\d|3[01])|192\.168)\.\d{1,3}\.\d{1,3}\b/',
         ];
         $found = [];
@@ -394,15 +487,15 @@ final class Context
     }
 
     /**
-     * Notes and stage-change reasons the owner and main left since the card was started, by author.
+     * Notes and stage-change reasons the owner, main and the merger left since the card was started, by author.
      *
-     * @return array{owner?: list<string>, main?: list<string>}
+     * @return array{owner?: list<string>, main?: list<string>, merger?: list<string>}
      */
     private function notes(Card $card, string $since): array
     {
         $notes = [];
         foreach ($card->log() as $entry) {
-            if (($entry['at'] ?? '') < $since || ! in_array($entry['by'] ?? null, ['owner', 'main'], true)) {
+            if (($entry['at'] ?? '') < $since || ! in_array($entry['by'] ?? null, ['owner', 'main', 'merger'], true)) {
                 continue;
             }
             $text = match ($entry['event'] ?? null) {
@@ -484,36 +577,6 @@ final class Context
     }
 
     /**
-     * The re-verify line when the card's last approval still holds but for clean merges of main since: no commit of the
-     * card's own and no merge resolution after the approved head. With a `finish.check` in main's config, which runs on
-     * main after the merge, it asks for the gates and the tests of the files both sides changed; without one, for the
-     * gates and the whole suite once.
-     */
-    private function reverify(Card $card, Git $git, string $main): ?string
-    {
-        $verdict = $this->last($card, 'verdict');
-        $head = $verdict['head'] ?? null;
-        if (($verdict['decision'] ?? null) !== 'approve' || ! is_string($head) || (string) ($verdict['at'] ?? '') < (string) ($card->work()['started'] ?? '')
-            || $git->line(['rev-parse', 'HEAD']) === $head || ! $git->attempt(['merge-base', '--is-ancestor', $head, 'HEAD'])->ok()
-            || (int) $git->line(['rev-list', '--no-merges', '--count', $head.'..HEAD', '^'.$main]) > 0 || $this->resolutions($git, $head) !== []) {
-            return null;
-        }
-        $names = fn (array $args) => array_filter(explode("\n", trim($git->attempt($args)->out)));
-        $touched = array_values(array_intersect($names(['diff', '--name-only', $head, 'HEAD']), $names(['diff', '--name-only', $main.'...HEAD'])));
-        $files = implode(', ', array_slice($touched, 0, 10)).(count($touched) > 10 ? ' …' : '');
-        $line = 're-verify: approved @'.substr($head, 0, 7).'; since then only clean merges of main, '
-            .($touched === [] ? 'in no file the card changes' : 'touching files the card changes too: '.$files);
-        if (array_filter((array) ($this->config['finish']['check'] ?? [])) === []) {
-            return $line.'. Run `vendor/bin/kanban gates` and the whole suite once: no full review (`finish.check` is empty, so nothing runs the suite on main after the merge).';
-        }
-
-        return $line.($touched === []
-            ? '. Run `vendor/bin/kanban gates` only'
-            : '. Run `vendor/bin/kanban gates` and only the tests among or covering those files')
-            .': no full review, no whole suite (`finish.check` runs on main after the merge).';
-    }
-
-    /**
      * Merges since $from whose combined diff is not empty: a conflict resolution wrote lines that neither parent had.
      *
      * @return list<string> `<sha> <subject>`
@@ -522,7 +585,7 @@ final class Context
     {
         $merges = array_values(array_filter(explode("\n", $git->attempt(['log', '--merges', '--format=%h %s', '-n', '10', $from.'..HEAD'])->out)));
 
-        return array_values(array_filter($merges, fn (string $merge) => trim($git->attempt(['show', '--format=', '--cc', explode(' ', $merge, 2)[0]])->out) !== ''));
+        return array_values(array_filter($merges, fn (string $merge) => trim($git->attempt(['show', '--no-ext-diff', '--no-textconv', '--format=', '--cc', explode(' ', $merge, 2)[0]])->out) !== ''));
     }
 
     /**

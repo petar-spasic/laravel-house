@@ -1,42 +1,93 @@
 <?php
 
 use PetarSpasic\LaravelHouse\Tests\Support\CodeSandbox;
+use PetarSpasic\LaravelHouse\Tests\Support\Origin;
+use PetarSpasic\LaravelHouse\Tests\Support\Sandbox;
+use Symfony\Component\Process\Exception\ProcessSignaledException;
 use Symfony\Component\Process\Process;
 
 beforeEach(function () {
     $this->code = CodeSandbox::create();
+    configureMerge($this->code);
+    $this->code->mountWorktree();
+    $this->code->defaults = ['FAKE_DOCKER_SERVE' => '1'];
+    $this->origin = Origin::create();
+    $this->code->sandbox->addRemote($this->origin);
 });
 
-it('merges an approved card, marks it done and tears down its stack, worktree and branch', function () {
+/** config/kanban.php with $overrides, committed; its gate passes only in a container (FakeDocker's exec marks what it runs). */
+function configureMerge(CodeSandbox $code, array $overrides = []): void
+{
+    $code->configure($overrides + ['gates' => ['report' => ['test "$FAKE_DOCKER_EXEC" = 1']]]);
+    $code->sandbox->git('commit', '-q', '-am', 'config');
+    if (trim($code->sandbox->git('remote')) !== '') {
+        $code->sandbox->git('push', '-q', 'origin', 'main');
+    }
+}
+
+function mergeProject(CodeSandbox $code): string
+{
+    return 'acme-merge-'.substr(sha1(realpath($code->root())), 0, 8);
+}
+
+/** A commit on main, pushed: the remote's main moves. */
+function pushMain(CodeSandbox $code, string $file, string $content): string
+{
+    @mkdir(dirname($code->root().'/'.$file), 0775, true);
+    $sha = $code->commitMain($file, $content);
+    $code->sandbox->git('push', '-q', 'origin', 'main');
+
+    return $sha;
+}
+
+/** @return list<array<string, mixed>> the card's `merge` log entries */
+function merges(CodeSandbox $code, string $id): array
+{
+    return array_values(array_filter($code->sandbox->read($id)['log'], fn (array $e) => $e['event'] === 'merge'));
+}
+
+it('merges an approved card in the merge clone, pushes main and tears the card down', function () {
     $code = $this->code;
-    $code->configure(['finish' => ['after' => ['echo migrated > after.txt', 'php artisan db:seed --class=ReferenceDataSeeder --force']]]);
+    configureMerge($code, ['finish' => ['after' => ['echo migrated > after.txt']]]);
+    $before = trim($code->sandbox->git('rev-parse', 'main'));
     $id = $code->started('Add login page');
-    $lc = strtolower($id);
     $name = basename($code->worktree($id));
     $wt = $code->worktree($id);
-    $code->commit($id, 'login.php', "<?php\n", 'Login page');
+    $head = $code->commit($id, 'login.php', "<?php\n", 'Login page');
     $code->approve($id);
-    $branch = "card/{$lc}-add-login-page";
+    $branch = $code->sandbox->read($id)['work']['branch'];
+    $board = file_get_contents($code->root().'/docs/kanban/kanban.json');
 
     $output = $code->ok(['finish', $id]);
 
     $sha = trim($code->sandbox->git('rev-parse', 'main'));
+    $merge = $code->mergeClone();
     expect($output)->toBe(implode("\n", [
+        "merge lease taken for {$id}",
+        "{$id}: gates and finish.check pass on the merged tree",
         "merged {$id} into main ".substr($sha, 0, 7),
         "{$id} review→done",
         "stack down acme-wt-{$name}; slot released",
         "removed worktree .claude/worktrees/{$name}",
         "deleted branch {$branch}",
+        'main checkout at '.substr($sha, 0, 7),
         'after: echo migrated > after.txt ok',
     ])."\n")
-        ->and(trim($code->sandbox->git('log', '-1', '--format=%s%n%P', 'main')))->toMatch("/^{$id}: Add login page\n\\S+ \\S+$/")
+        ->and($this->origin->log('main')[0])->toBe("{$id}: Add login page")
+        ->and(trim($code->gitIn($this->origin->path, 'rev-parse', 'main')))->toBe($sha)
+        ->and(trim($code->sandbox->git('log', '-1', '--format=%P', $sha)))->toBe("{$before} {$head}")
         ->and(is_file($code->root().'/login.php'))->toBeTrue()
         ->and(trim(file_get_contents($code->root().'/after.txt')))->toBe('migrated')
         ->and(is_dir($wt))->toBeFalse()
         ->and(trim($code->sandbox->git('branch', '--list', $branch)))->toBe('')
-        ->and(trim($code->sandbox->git('worktree', 'list')))->not->toContain($name)
-        ->and($code->stacks())->toBe([])
-        ->and($code->calls())->toContain("compose --project-directory {$wt} -f {$wt}/docker-compose.local.yml -p acme-wt-{$name} down -v --remove-orphans --rmi local -t 5");
+        ->and(trim($code->sandbox->git('for-each-ref', 'refs/merge-queue/')))->toBe('')
+        ->and($code->lease())->toBeNull()
+        ->and($code->mergeState())->toBeNull()
+        ->and(file_get_contents($code->root().'/docs/kanban/kanban.json'))->toBe($board)
+        ->and(is_file($merge.'/login.php'))->toBeTrue()
+        ->and($code->stacks())->toHaveCount(1)
+        ->and($code->stacks()[0])->toMatchArray(['project' => mergeProject($code), 'purpose' => 'merge', 'worktree' => realpath($merge)])
+        ->and($code->calls())->toContain("compose --project-directory {$merge} -f {$merge}/docker-compose.local.yml -p ".mergeProject($code).' up -d --build');
 
     $card = $code->sandbox->read($id);
     expect($card['stage'])->toBe('done')
@@ -45,7 +96,93 @@ it('merges an approved card, marks it done and tears down its stack, worktree an
         ->and($card['work']['merge'])->toBe($sha);
 });
 
-it('exits 6 and leaves the card in review while another main session holds the lease', function () {
+it('refuses a card the queue does not hold, and waits for one that is not its turn', function (Closure $arrange, int $exit, string $message) {
+    $code = $this->code;
+    $id = $code->started('Refused finish');
+    $code->commit($id, 'app.php', "<?php\n\nreturn 'branch';\n");
+    $arrange($code, $id);
+    $main = trim($code->sandbox->git('rev-parse', 'main'));
+
+    $run = $code->kanban(['finish', $id]);
+
+    expect($run->getExitCode())->toBe($exit)
+        ->and($run->getErrorOutput())->toContain($message)
+        ->and(trim($code->sandbox->git('rev-parse', 'main')))->toBe($main)
+        ->and($code->lease())->toBeNull()
+        ->and($code->mergeState())->toBeNull()
+        ->and(is_dir($code->mergeClone()))->toBeFalse();
+})->with([
+    'not in review' => [fn () => null, 3, 'is doing, not review'],
+    'no approval' => [function (CodeSandbox $c, string $id) {
+        $c->ok(['move', $id, 'review', '--force'], ['KANBAN_SESSION' => 's1']);
+    }, 3, 'has no approval: an evaluator approves it first'],
+    'blocked' => [function (CodeSandbox $c, string $id) {
+        $c->approve($id);
+        $c->sandbox->ok(['set', $id, 'blocked=waits on the owner']);
+    }, 3, 'is blocked: waits on the owner'],
+    'finish.check empty' => [function (CodeSandbox $c, string $id) {
+        configureMerge($c, ['finish' => ['check' => []]]);
+        $c->approve($id);
+    }, 3, 'finish.check names no suite: no card merges until it does'],
+    'stacks off' => [function (CodeSandbox $c, string $id) {
+        configureMerge($c, ['stack' => ['compose_file' => null]]);
+        $c->approve($id);
+    }, 3, 'the merge queue runs its checks in the merge stack: set stack.compose_file'],
+    'another card first' => [function (CodeSandbox $c, string $id) {
+        $first = $c->started('Older approval');
+        $c->commit($first, 'older.php', "<?php\n");
+        $c->approve($first, at: '2026-01-01T00:00:00.000+00:00');
+        $c->approve($id);
+    }, 11, 'waits its turn: '],
+    'a live agent' => [function (CodeSandbox $c, string $id) {
+        $c->approve($id);
+        @mkdir($c->root().'/.git/laravel-house/agents', 0775, true);
+        file_put_contents($c->root().'/.git/laravel-house/agents/a1.json', json_encode([
+            'agent_id' => 'a1', 'agent_type' => 'kanban-evaluator', 'card' => $id, 'worktree' => $c->worktree($id), 'stopped_at' => null,
+        ]));
+    }, 11, 'an agent is still bound to it (kanban-evaluator)'],
+]);
+
+it('passes over a card of this machine whose agent is still bound to it, and merges the next', function () {
+    $code = $this->code;
+    $busy = $code->started('Older approval');
+    $code->commit($busy, 'older.php', "<?php\n");
+    $code->approve($busy, at: '2026-01-01T00:00:00.000+00:00');
+    @mkdir($code->root().'/.git/laravel-house/agents', 0775, true);
+    file_put_contents($code->root().'/.git/laravel-house/agents/a1.json', json_encode([
+        'agent_id' => 'a1', 'agent_type' => 'kanban-evaluator', 'card' => $busy, 'worktree' => $code->worktree($busy), 'stopped_at' => null,
+    ]));
+    $id = $code->started('Add login page');
+    $code->commit($id, 'login.php', "<?php\n");
+    $code->approve($id);
+
+    $run = $code->kanban(['finish']);
+    $none = $code->kanban(['finish']);
+
+    expect($run->getExitCode())->toBe(0, $run->getErrorOutput())
+        ->and($code->sandbox->read($id)['stage'])->toBe('done')
+        ->and($code->sandbox->read($busy)['stage'])->toBe('review')
+        ->and($none->getExitCode())->toBe(11)
+        ->and($none->getErrorOutput())->toContain("nothing to merge here: {$busy} passed over (an agent is still bound to it (kanban-evaluator))");
+});
+
+it('waits while another finish runs in this checkout', function () {
+    $code = $this->code;
+    $id = $code->started('Add login page');
+    $code->commit($id, 'login.php', "<?php\n");
+    $code->approve($id);
+    @mkdir($code->root().'/.git/laravel-house', 0775, true);
+    $lock = fopen($code->root().'/.git/laravel-house/merge.run.lock', 'c');
+    flock($lock, LOCK_EX);
+
+    $run = $code->kanban(['finish', $id]);
+
+    expect($run->getExitCode())->toBe(11)
+        ->and($run->getErrorOutput())->toContain('a merge runs here')
+        ->and($code->sandbox->read($id)['stage'])->toBe('review');
+});
+
+it('exits 6 and leaves the card in review while another main session holds the orchestrator lease', function () {
     $code = $this->code;
     $id = $code->started('Add login page', ['KANBAN_SESSION' => 'session-a']);
     $code->commit($id, 'login.php', "<?php\n");
@@ -56,440 +193,1508 @@ it('exits 6 and leaves the card in review while another main session holds the l
     expect($run->getExitCode())->toBe(6)
         ->and($run->getErrorOutput())->toContain('another session holds the orchestrator lease (session-a')
         ->and($code->sandbox->read($id)['stage'])->toBe('review')
-        ->and(is_file($code->root().'/login.php'))->toBeFalse();
+        ->and($code->lease())->toBeNull();
 });
 
-it('merges the card\'s branch while its clone has another branch checked out', function () {
+it('clears an approval its branch moved past, and merges nothing', function () {
     $code = $this->code;
-    $id = $code->started('Scratch branch');
-    $branch = $code->sandbox->read($id)['work']['branch'];
-    $head = $code->commit($id, 'kept.php', "<?php\n");
+    $id = $code->started('Add login page');
+    $code->commit($id, 'login.php', "<?php\n");
     $code->approve($id);
-    $code->gitIn($code->worktree($id), 'checkout', '-q', '-b', 'scratch');
-
-    $code->ok(['finish', $id]);
-
-    expect(trim($code->sandbox->git('rev-parse', 'main^2')))->toBe($head)
-        ->and(is_file($code->root().'/kept.php'))->toBeTrue()
-        ->and(trim($code->sandbox->git('branch', '--list', 'scratch')))->toBe('')
-        ->and($branch)->toStartWith('card/');
-});
-
-it('rebuilds main\'s stack when the merge touches lockfiles, docker files or the stack compose file', function () {
-    $code = $this->code;
-    $code->configure(['finish' => ['install' => []]]);
-    $root = realpath($code->root());
-    $id = $code->started('Bump deps');
-    $code->commit($id, 'composer.lock', "{}\n");
-    $code->approve($id);
-
-    $before = count($code->calls());
-    expect($code->ok(['finish', $id]))->toContain("rebuild main: composer.lock changed; building its images, main keeps serving\n"
-        ."rebuild main: recreating its containers (`docker compose -p acme-local ps` follows them)\nrebuilt main's stack acme-local\n")
-        ->and(array_values(array_filter(array_slice($code->calls(), $before), fn ($call) => str_contains($call, ' -p acme-local '))))->toBe([
-            "compose --project-directory {$root} -f {$root}/docker-compose.local.yml -p acme-local build",
-            "compose --project-directory {$root} -f {$root}/docker-compose.local.yml -p acme-local up -d --force-recreate --wait",
-        ]);
-
-    $frontend = $code->started('Bump frontend deps');
-    @mkdir($code->worktree($frontend).'/frontend', 0775, true);
-    $code->commit($frontend, 'frontend/package-lock.json', "{}\n");
-    $code->approve($frontend);
-
-    $before = count($code->calls());
-    // a failed rebuild is a step that failed after the merge: exit 10, the card done
-    $failed = $code->kanban(['finish', $frontend], ['FAKE_DOCKER_FAIL' => 'build']);
-    expect($failed->getExitCode())->toBe(10)
-        ->and($failed->getOutput())->toContain('rebuild main: frontend/package-lock.json changed; building its images')
-        ->and($failed->getErrorOutput())->toContain('rebuild main failed to build, main runs on its old images: failed to solve')
-        ->toContain('; run `docker compose -f docker-compose.local.yml build && docker compose -f docker-compose.local.yml up -d --force-recreate --wait`')
-        ->and($code->sandbox->read($frontend)['stage'])->toBe('done')
-        ->and(collect(array_slice($code->calls(), $before))->contains(fn ($call) => str_contains($call, '-p acme-local up')))->toBeFalse();
-
-    $compose = $code->started('Publish the web port on IPv4 only');
-    $code->commit($compose, 'docker-compose.local.yml', file_get_contents($code->sandbox->root.'/docker-compose.local.yml')."# ipv4\n");
-    $code->approve($compose);
-    $before = count($code->calls());
-
-    expect($code->ok(['finish', $compose, '--no-rebuild']))->toContain('rebuild main: docker-compose.local.yml changed; run `docker compose -f docker-compose.local.yml build && docker compose -f docker-compose.local.yml up -d --force-recreate --wait`')
-        ->and(collect(array_slice($code->calls(), $before))->contains(fn ($call) => str_contains($call, ' up ')))->toBeFalse();
-});
-
-it('refuses to finish', function (Closure $arrange, int $exit, string $message, string $stage) {
-    $code = $this->code;
-    $id = $code->started('Refused finish');
-    $code->commit($id, 'app.php', "<?php\n\nreturn 'branch';\n");
-    $arrange($code, $id);
+    $head = $code->commit($id, 'more.php', "<?php\n");
 
     $run = $code->kanban(['finish', $id]);
 
-    expect($run->getExitCode())->toBe($exit)
-        ->and($run->getErrorOutput())->toContain($message)
-        ->and($code->sandbox->read($id)['stage'])->toBe($stage)
-        ->and(is_dir($code->worktree($id)))->toBeTrue()
-        ->and(trim($code->sandbox->git('log', '-1', '--format=%s', 'main')))->not->toContain($id)
-        ->and($code->stacks())->toHaveCount(1);
-})->with([
-    'not in review' => [fn () => null, 3, 'is doing, not review', 'doing'],
-    'head moved after approval' => [function (CodeSandbox $c, string $id) {
-        $c->approve($id);
-        $c->commit($id, 'more.txt', "more\n");
-    }, 3, 'no approval for the branch head', 'review'],
-    'dirty worktree' => [function (CodeSandbox $c, string $id) {
-        $c->approve($id);
-        file_put_contents($c->worktree($id).'/docker-compose.local.yml', "# x\n", FILE_APPEND);
-    }, 3, 'the worktree has uncommitted changes', 'review'],
-    'live agent' => [function (CodeSandbox $c, string $id) {
-        $c->approve($id);
-        @mkdir($c->root().'/.git/laravel-house/agents', 0775, true);
-        file_put_contents($c->root().'/.git/laravel-house/agents/a1.json', json_encode([
-            'agent_id' => 'a1', 'agent_type' => 'kanban-worker', 'card' => $id, 'worktree' => $c->worktree($id),
-            'bound_at' => gmdate('Y-m-d\TH:i:s.000+00:00'), 'stopped_at' => null, 'stop_blocks' => 0,
-        ]));
-    }, 3, 'an agent is still bound to the card', 'review'],
-    'main moved over the same files since approval' => [function (CodeSandbox $c, string $id) {
-        $c->approve($id);
-        $c->commitMain('app.php', "<?php\n\nreturn 'main';\n");
-    }, 5, 'main moved since approval', 'review'],
-    'branch does not merge' => [function (CodeSandbox $c, string $id) {
-        $c->commitMain('app.php', "<?php\n\nreturn 'main';\n");
-        $c->approve($id);
-    }, 5, 'does not merge cleanly', 'doing'],
-    'leftover conflict marker' => [function (CodeSandbox $c, string $id) {
-        $c->commit($id, 'notes.md', "<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> main\n");
-        $c->approve($id);
-    }, 3, 'the branch holds leftover conflict markers;', 'doing'],
-    'uncommitted main change to a branch file' => [function (CodeSandbox $c, string $id) {
-        $c->approve($id);
-        file_put_contents($c->root().'/app.php', "<?php\n\nreturn 'local';\n");
-    }, 3, 'uncommitted changes to files the branch changes', 'review'],
-    'main checkout on another branch' => [function (CodeSandbox $c, string $id) {
-        $c->approve($id);
-        $c->sandbox->git('checkout', '-q', '-b', 'other');
-    }, 3, "on 'other', not main", 'review'],
-]);
-
-it('merges main into the branch on refresh, clears the approval and logs the round', function () {
-    $code = $this->code;
-    $id = $code->started('Refresh me');
-    $before = $code->commit($id, 'feature.txt', "feature\n");
-    $code->approve($id);
-    $code->commitMain('other.txt', "other\n");
-
-    $output = $code->ok(['refresh', $id]);
-
-    $card = $code->sandbox->read($id);
-    $after = trim($code->gitIn($code->worktree($id), 'rev-parse', 'HEAD'));
-    expect($output)->toMatch("/^refreshed {$id}: merged main \\(\\w{7}\\.\\.\\w{7}\\); re-verify before finish\nspawn: Agent\\(subagent_type=\"kanban-evaluator\", .+\\)\n$/")
-        ->and($card['stage'])->toBe('review')
-        ->and($card['work']['approved'])->toBeNull()
-        ->and(array_values(array_filter($card['log'], fn ($e) => $e['event'] === 'refresh')))->sequence(
-            fn ($e) => $e->toMatchArray(['by' => 'owner', 'from' => $before, 'head' => $after]),
-        )
-        ->and(is_file($code->worktree($id).'/other.txt'))->toBeTrue()
-        ->and($code->ok(['refresh', $id]))->toStartWith("up to date {$id}\nspawn: Agent(subagent_type=\"kanban-evaluator\"")
-        ->and($code->sandbox->read($id)['log'])->toHaveCount(count($card['log']));
+    expect($run->getExitCode())->toBe(13)
+        ->and($run->getOutput())->toContain("{$id}: its branch is at ".substr($head, 0, 7).', past its approval of')
+        ->and($code->sandbox->read($id)['work']['approved'])->toBeNull()
+        ->and(merges($code, $id))->sequence(fn ($e) => $e->toMatchArray(['result' => 'stale', 'head' => $head]))
+        ->and($code->lease())->toBeNull()
+        ->and($this->origin->log('main')[0])->not->toContain($id);
 });
 
-it('logs a refresh of a card in doing that has no approval', function () {
-    $code = $this->code;
-    $id = $code->started('Still working');
-    $code->commit($id, 'feature.txt', "feature\n");
-    $code->commitMain('other.txt', "other\n");
-
-    $code->ok(['refresh', $id]);
-
-    expect(array_column($code->sandbox->read($id)['log'], 'event'))->toContain('refresh')
-        ->and($code->sandbox->read($id)['stage'])->toBe('doing');
-});
-
-it('says when a refresh brings migrations from main', function () {
-    $code = $this->code;
-    $id = $code->started('Tagged notes');
-    $code->commit($id, 'feature.txt', "feature\n");
-    @mkdir($code->root().'/database/migrations', 0775, true);
-    $code->commitMain('database/migrations/2026_01_10_093015_create_notes_table.php', "<?php\n");
-
-    expect($code->ok(['refresh', $id]))->toContain("1 migration(s) arrived from main: the card's agent runs the `database` commands `kanban context` prints\n");
-});
-
-it('reloads the card stack when a refresh brings changed docker files or lockfiles', function () {
-    $code = $this->code;
-    $id = $code->started('Caddy moved');
-    $code->commit($id, 'feature.txt', "feature\n");
-    $project = $code->sandbox->read($id)['work']['stack']['project'];
-    @mkdir($code->root().'/docker', 0775, true);
-    @mkdir($code->root().'/frontend', 0775, true);
-    file_put_contents($code->root().'/frontend/package-lock.json', "{}\n");
-    $code->sandbox->git('add', 'frontend/package-lock.json');
-    $code->commitMain('docker/Caddyfile.local', ":8080 {\n}\n");
-    $recreates = fn () => count(array_filter($code->calls(), fn ($call) => str_contains($call, 'up -d --build --force-recreate')));
-
-    expect($code->ok(['refresh', $id]))->toContain("reloaded {$project}: docker/Caddyfile.local, frontend/package-lock.json changed\n")
-        ->and($recreates())->toBe(1);
-
-    $code->commitMain('other.txt', "other\n");
-    expect($code->ok(['refresh', $id]))->not->toContain('reloaded')
-        ->and($recreates())->toBe(1);
-});
-
-it('refuses to refresh a card whose agent is still running, and skips it under --all', function () {
-    $code = $this->code;
-    $id = $code->started('Busy');
-    $code->commit($id, 'feature.txt', "feature\n");
-    $code->commitMain('other.txt', "other\n");
-    $agent = $code->root().'/.git/laravel-house/agents/a4d2c0ffee.json';
-    @mkdir(dirname($agent), 0775, true);
-    file_put_contents($agent, json_encode(['agent_id' => 'a4d2c0ffee', 'agent_type' => 'kanban-worker', 'card' => $id, 'stopped_at' => null]));
-    $head = trim($code->gitIn($code->worktree($id), 'rev-parse', 'HEAD'));
-
-    $refused = $code->kanban(['refresh', $id]);
-    $all = $code->kanban(['refresh', '--all']);
-
-    expect($refused->getExitCode())->toBe(3)
-        ->and($refused->getErrorOutput())->toContain("{$id}: its worker is still running (what it stages applies when it stops); `vendor/bin/kanban wait {$id}`")
-        ->and($all->getExitCode())->toBe(0)
-        ->and($all->getOutput())->toBe("skipped {$id}: worker live\n")
-        ->and(trim($code->gitIn($code->worktree($id), 'rev-parse', 'HEAD')))->toBe($head);
-
-    file_put_contents($agent, json_encode(['agent_id' => 'a4d2c0ffee', 'agent_type' => 'kanban-worker', 'card' => $id, 'stopped_at' => '2026-01-01T00:00:00.000+00:00']));
-    expect($code->ok(['refresh', $id]))->toStartWith("refreshed {$id}");
-});
-
-it('leaves a conflicting refresh in progress, sends the card back to doing and drops the report staged before it', function () {
+it('stops on a conflict for the merger, holding the lease and moving nothing', function () {
     $code = $this->code;
     $id = $code->started('Conflict');
-    $before = $code->commit($id, 'app.php', "<?php\n\nreturn 'branch';\n");
+    $head = $code->commit($id, 'app.php', "<?php\n\nreturn 'branch';\n");
     $code->approve($id);
-    $code->commitMain('app.php', "<?php\n\nreturn 'main';\n");
-    $staged = $code->root().'/.git/laravel-house/staged/'.$id.'.report.json';
-    @mkdir(dirname($staged), 0775, true);
-    file_put_contents($staged, json_encode(['card' => $id, 'status' => 'review', 'hash' => 'abc', 'staged_at' => '2026-01-01T00:00:00.000+00:00']));
+    $base = pushMain($code, 'app.php', "<?php\n\nreturn 'main';\n");
 
-    $run = $code->kanban(['refresh', $id]);
+    $run = $code->kanban(['finish', $id]);
 
-    $wt = $code->worktree($id);
-    $project = $code->sandbox->read($id)['work']['stack']['project'];
-    expect($run->getExitCode())->toBe(5)
-        ->and($run->getOutput())->toContain("discarded the report staged for {$id} before the merge\n"
-            ."conflict {$id}: merge of main left in progress in {$wt}\nconflicted app.php\n{$id} → doing\n"
-            ."stack {$project} serves the conflicted tree until the worker concludes the merge; run no checks against it\n"
-            ."SendMessage: Card {$id}: main moved; a merge of main into your branch is in progress in your worktree, with conflicts in app.php. "
-            ."Resolve each conflict by keeping both sides' content and adding nothing neither side had, then `git add` the files and "
-            .'`git commit --no-edit` to conclude the merge. After it, run `vendor/bin/kanban stack wait`, the `database` commands `vendor/bin/kanban context` lists, '
-            ."`vendor/bin/kanban gates` and the whole test suite, then report with `vendor/bin/kanban report {$id} --status=review`.\n")
-        ->and($staged)->not->toBeFile()
-        ->and($code->sandbox->read($id)['stage'])->toBe('doing')
-        ->and($code->sandbox->read($id)['work']['approved'])->toBeNull()
-        ->and(array_values(array_filter($code->sandbox->read($id)['log'], fn ($e) => $e['event'] === 'refresh'))[0])->toMatchArray(['from' => $before, 'conflicts' => ['app.php']])
-        ->and(array_values(array_filter($code->sandbox->read($id)['log'], fn ($e) => $e['event'] === 'stage' && ($e['via'] ?? null) === 'refresh')))->sequence(
-            fn ($e) => $e->toMatchArray(['from' => 'review', 'to' => 'doing']),
-        )
-        ->and(trim($code->gitIn($wt, 'rev-parse', '-q', '--verify', 'MERGE_HEAD')))->not->toBe('')
-        ->and($code->ok(['status']))->toMatch("/^doing  {$id} .*, merge in progress$/m");
+    expect($run->getExitCode())->toBe(12)
+        ->and($run->getOutput())->toContain("{$id}: conflicts in app.php; the merger's turn, the merge lease stays held\n")
+        ->toContain('merger: Agent(subagent_type="kanban-merger", description="'.$id.' merge Conflict", prompt="Card '.$id.'. Worktree '.$code->mergeClone().'")')
+        ->and($code->mergeState())->toMatchArray(['card' => $id, 'phase' => 'conflict', 'conflicts' => ['app.php'], 'base' => $base, 'head' => $head, 'round' => 1])
+        ->and(merges($code, $id))->sequence(fn ($e) => $e->toMatchArray(['result' => 'conflict', 'files' => ['app.php'], 'base' => $base, 'round' => 1]))
+        ->and($code->lease())->toMatchArray(['card' => $id])
+        ->and(trim($code->gitIn($code->worktree($id), 'rev-parse', 'HEAD')))->toBe($head)
+        ->and(trim($code->gitIn($this->origin->path, 'rev-parse', 'main')))->toBe($base)
+        ->and(file_get_contents($code->mergeClone().'/app.php'))->toContain('<<<<<<<')
+        ->and(is_file($code->mergeClone().'/.git/MERGE_HEAD'))->toBeTrue();
 
-    $code->gitIn($wt, 'checkout', '--theirs', 'app.php');
-    $code->gitIn($wt, 'add', 'app.php');
-    $code->gitIn($wt, 'commit', '-q', '--no-edit');
-    expect($code->ok(['status']))->not->toContain('merge in progress');
+    // the merger's turn: a finish meanwhile hands it back
+    $again = $code->kanban(['finish', $id]);
+    expect($again->getExitCode())->toBe(12)
+        ->and(merges($code, $id))->toHaveCount(1);
 });
 
-it('clears the approval when the card is sent back to doing', function () {
-    $code = $this->code;
-    $id = $code->started('Sent back');
-    $code->commit($id, 'app.php', "<?php\n");
-    $code->approve($id);
-
-    $code->ok(['move', $id, 'doing', '--reason=Put the table right after the title']);
-
-    expect($code->sandbox->read($id))->toMatchArray(['stage' => 'doing'])
-        ->and($code->sandbox->read($id)['work']['approved'])->toBeNull()
-        ->and($code->kanban(['finish', $id])->getExitCode())->toBe(3);
-});
-
-it("holds a card that changes kanban's own files until the owner forces it, and names them in context", function () {
+it('blocks a card whose merge conflicts in files the merger may not edit, and lets the lease go', function (string $file) {
     $code = $this->code;
     $id = $code->started('Tune the agents');
-    $code->commit($id, '.claude/settings.json', "{}\n", 'settings');
-    $code->commit($id, 'app/Tuned.php', "<?php\n", 'code');
+    $code->commit($id, $file, "{\"card\": true}\n");
+    $code->approve($id);
+    pushMain($code, $file, "{\"main\": true}\n");
+
+    $run = $code->kanban(['finish', $id]);
+
+    expect($run->getExitCode())->toBe(3)
+        ->and($run->getErrorOutput())->toContain("{$id}: merge conflict in files the merger may not edit: {$file}; resolve it on the card's branch, then unblock it (the kanban skill's gotchas.md says how)")
+        ->and($code->sandbox->read($id))->toMatchArray(['stage' => 'review', 'blocked' => "merge conflict in files the merger may not edit: {$file}"])
+        ->and(trim($code->sandbox->git('for-each-ref', "refs/merge-queue/{$id}/")))->toBe('')
+        ->and($code->lease())->toBeNull()
+        ->and($code->mergeState())->toBeNull();
+})->with([
+    'settings' => ['.claude/settings.json'],
+    'a name git quotes' => ['.claude/agents/x"ü.md'],
+]);
+
+it('stops on a red suite for the merger once the base passes it, pushing nothing', function () {
+    $code = $this->code;
+    $id = $code->started('Breaks the suite');
+    $code->commit($id, 'RED', "red\n");
+    $code->approve($id);
+    $origin = trim($code->gitIn($this->origin->path, 'rev-parse', 'main'));
+
+    $run = $code->kanban(['finish', $id]);
+
+    expect($run->getExitCode())->toBe(12)
+        ->and($run->getOutput())->toContain("{$id}: red: `test ! -e RED`; the merger's turn")
+        ->and($code->mergeState())->toMatchArray(['phase' => 'red', 'failure' => ['step' => 'suite', 'command' => 'test ! -e RED', 'exit' => 1, 'tail' => '', 'base_rerun' => 'passed']])
+        ->and($code->mergeState()['checked'])->toBe(trim($code->gitIn($code->mergeClone(), 'rev-parse', 'HEAD')))
+        ->and(merges($code, $id))->sequence(fn ($e) => $e->toMatchArray(['result' => 'red', 'step' => 'suite', 'command' => 'test ! -e RED', 'exit' => 1, 'base_rerun' => 'passed']))
+        ->and(trim($code->gitIn($this->origin->path, 'rev-parse', 'main')))->toBe($origin)
+        ->and(is_file($code->mergeClone().'/RED'))->toBeTrue();
+});
+
+it('runs finish.check in the merge container, on the merged tree and on the base alone', function () {
+    $code = $this->code;
+    $log = $code->root().'/../suite.log';
+    configureMerge($code, ['finish' => ['check' => ["echo \"suite \$FAKE_DOCKER_EXEC\" >> {$log}; test ! -e RED"]]]);
+    $id = $code->started('Breaks the suite');
+    $code->commit($id, 'RED', "red\n");
     $code->approve($id);
 
-    $context = $code->ok(['context', $id], cwd: $code->worktree($id));
-    $held = $code->kanban(['finish', $id]);
-    $forced = $code->kanban(['finish', $id, '--force']);
+    $run = $code->kanban(['finish', $id]);
 
-    expect($context)->toContain("changes kanban's own files (finish needs the owner): .claude/settings.json\n")
-        ->and($held->getExitCode())->toBe(3)
-        ->and($held->getErrorOutput())->toContain("{$id} changes files that steer the agents or git: .claude/settings.json; the owner approves them after reading the diff: `kanban allow-steering {$id} .claude/settings.json`")
-        ->and($forced->getExitCode())->toBe(0)
+    expect($run->getExitCode())->toBe(12, $run->getOutput().$run->getErrorOutput())
+        ->and($code->mergeState()['failure']['base_rerun'])->toBe('passed')
+        ->and(file($log, FILE_IGNORE_NEW_LINES))->toBe(['suite 1', 'suite 1']);
+});
+
+it('aborts a merge: the lease free, the merge clone at the base, the card still queued; never mid-push', function () {
+    $code = $this->code;
+    $id = $code->started('Breaks the suite');
+    $code->commit($id, 'RED', "red\n");
+    $code->approve($id);
+    expect($code->kanban(['finish', $id])->getExitCode())->toBe(12);
+    $state = $code->mergeState();
+    file_put_contents($code->root().'/.git/laravel-house/merge.json', json_encode(['phase' => 'pushing', 'merged' => str_repeat('a', 40)] + $state));
+
+    $refused = $code->kanban(['finish', $id, '--abort']);
+    file_put_contents($code->root().'/.git/laravel-house/merge.json', json_encode($state));
+    $aborted = $code->kanban(['finish', $id, '--abort']);
+
+    expect($refused->getExitCode())->toBe(11)
+        ->and($refused->getErrorOutput())->toContain("a push of aaaaaaa is in flight: `kanban finish {$id}` settles it")
+        ->and($aborted->getExitCode())->toBe(0)
+        ->and($aborted->getOutput())->toContain("merge of {$id} aborted: the merge lease is free, the card stays queued")
+        ->and($code->lease())->toBeNull()
+        ->and($code->mergeState())->toBeNull()
+        ->and(is_file($code->mergeClone().'/RED'))->toBeFalse()
+        ->and($code->sandbox->read($id))->toMatchArray(['stage' => 'review'])
+        ->and($code->sandbox->read($id)['work']['approved'])->not->toBeNull();
+});
+
+it('lets the lease go once the merger\'s result took the card out of the queue', function () {
+    $code = $this->code;
+    $id = $code->started('Breaks the suite');
+    $code->commit($id, 'RED', "red\n");
+    $code->approve($id);
+    $code->kanban(['finish', $id]);
+    file_put_contents($code->root().'/.git/laravel-house/merge.json', json_encode(['phase' => 'released'] + $code->mergeState()));
+
+    $run = $code->kanban(['finish']);
+
+    expect($run->getExitCode())->toBe(13)
+        ->and($run->getOutput())->toContain("{$id} left the merge queue: its merger's result is on the card")
+        ->and($code->lease())->toBeNull()
+        ->and($code->mergeState())->toBeNull();
+});
+
+it('serves the merge stack as `_merge`', function () {
+    $code = $this->code;
+    $id = $code->started('Breaks the suite');
+    $code->commit($id, 'RED', "red\n");
+    $code->approve($id);
+    $code->kanban(['finish', $id]);
+
+    expect($code->ok(['stack', '_merge', 'url']))->toMatch('#^http://\S+:\d+\n$#')
+        ->and($code->ok(['stack', 'list']))->toContain(mergeProject($code));
+});
+
+it('merges the approved head it pinned, not a commit the branch got after', function () {
+    $code = $this->code;
+    $id = $code->started('Add login page');
+    $wt = $code->worktree($id);
+    $approved = $code->commit($id, 'login.php', "<?php\n");
+    $code->approve($id);
+    // a gate that commits to the card's branch and syncs it into main while the merge runs
+    configureMerge($code, ['gates' => ['report' => ["git -C {$wt} commit -q --allow-empty -m late && {$code->root()}/vendor/bin/kanban context {$id} > /dev/null"]]]);
+
+    $run = $code->kanban(['finish', $id]);
+
+    $branch = $code->sandbox->read($id)['work']['branch'];
+    expect($run->getExitCode())->toBe(10)
+        ->and(trim($code->sandbox->git('rev-parse', 'main^2')))->toBe($approved)
+        ->and($code->sandbox->read($id)['stage'])->toBe('done')
+        ->and($run->getErrorOutput())->toContain("branch {$branch} kept: ")
+        ->and(trim($code->sandbox->git('log', '-1', '--format=%s', $branch)))->toBe('late');
+});
+
+it('records a card whose approved head is on main already as done, merging and checking nothing', function () {
+    $code = $this->code;
+    $id = $code->started('Add login page');
+    $head = $code->commit($id, 'login.php', "<?php\n");
+    $code->approve($id);
+    $branch = $code->sandbox->read($id)['work']['branch'];
+    $code->sandbox->git('fetch', '-q', $code->worktree($id), "{$branch}:{$branch}");
+    $code->sandbox->git('merge', '-q', '--no-ff', '-m', 'by hand', $branch);
+    $merge = trim($code->sandbox->git('rev-parse', 'HEAD'));
+    pushMain($code, 'other.txt', "other\n");
+
+    $run = $code->kanban(['finish', $id]);
+
+    expect($run->getExitCode())->toBe(0)
+        ->and($run->getOutput())->toContain("{$id} is on main already (".substr($merge, 0, 7).'): done')
+        ->not->toContain('gates and finish.check pass')
+        ->and($code->sandbox->read($id))->toMatchArray(['stage' => 'done'])
+        ->and($code->sandbox->read($id)['work']['merge'])->toBe($merge)
+        ->and(merges($code, $id))->sequence(fn ($e) => $e->toMatchArray(['result' => 'landed', 'merge' => $merge]))
+        ->and(is_dir($code->worktree($id)))->toBeFalse()
+        ->and($code->lease())->toBeNull()
+        ->and($head)->not->toBe($merge);
+});
+
+it('fast-forwards the main checkout on a board without a remote, and waits while it has uncommitted changes', function () {
+    $code = $this->code;
+    $code->sandbox->git('remote', 'remove', 'origin');
+    $id = $code->started('Add login page');
+    $code->commit($id, 'login.php', "<?php\n");
+    $code->approve($id);
+    file_put_contents($code->root().'/app.php', "<?php\n\nreturn 'local';\n");
+
+    $dirty = $code->kanban(['finish', $id]);
+    $code->sandbox->git('checkout', '-q', '--', 'app.php');
+    $merged = $code->kanban(['finish', $id]);
+
+    $sha = trim($code->sandbox->git('rev-parse', 'HEAD'));
+    expect($dirty->getExitCode())->toBe(11)
+        ->and($dirty->getErrorOutput())->toContain('main checkout not moved: it has uncommitted changes, which the merge would meet: commit or stash them')
+        ->and($dirty->getOutput())->not->toContain('gates and finish.check')
+        ->and($code->lease())->toBeNull()
+        ->and(array_values(array_filter($code->sandbox->boardLog(), fn (string $s) => str_contains($s, ' taken '))))->toBe(["merge lease {$id} taken [owner]"])
+        ->and($merged->getExitCode())->toBe(0)
+        ->and($merged->getOutput())->toContain("merged {$id} into main ".substr($sha, 0, 7))
+        ->and(trim($code->sandbox->git('log', '-1', '--format=%s', 'main')))->toBe("{$id}: Add login page")
+        ->and(is_file($code->root().'/login.php'))->toBeTrue();
+});
+
+it('runs the after-steps of a local fast-forward that a killed finish left undone, on a board without a remote', function (bool $during) {
+    $code = $this->code;
+    $code->sandbox->git('remote', 'remove', 'origin');
+    $kill = 'kill -9 $(cat "'.$code->root().'/.git/laravel-house/merge/finish.pid")';
+    $marker = $code->root().'/../killed';
+    configureMerge($code, ['finish' => ['after' => [...($during ? ["[ -f {$marker} ] || { touch {$marker}; {$kill}; }"] : []), 'echo migrated > after.txt']]]);
+    $id = $code->started('Add login page');
+    $code->commit($id, 'login.php', "<?php\n");
+    $code->approve($id);
+    $hooks = Sandbox::tmp();
+    file_put_contents("{$hooks}/post-merge", "#!/bin/sh\n".($during ? '' : $kill)."\n");
+    chmod("{$hooks}/post-merge", 0755);
+    $code->sandbox->git('config', 'core.hooksPath', $hooks);
+
+    try {
+        $code->kanban(['finish', $id]);
+    } catch (ProcessSignaledException) {
+    }
+    $code->sandbox->git('config', '--unset', 'core.hooksPath');
+    $state = $code->mergeState();
+    $after = is_file($code->root().'/after.txt');
+    $resumed = $code->kanban(['finish']);
+
+    expect($state['phase'])->toBe('pushing')
+        ->and($after)->toBeFalse()
+        ->and($resumed->getExitCode())->toBe(0, $resumed->getOutput().$resumed->getErrorOutput())
+        ->and($code->sandbox->read($id)['stage'])->toBe('done')
+        ->and(is_file($code->root().'/after.txt'))->toBeTrue();
+})->with(['at the fast-forward' => [false], 'during the after-steps' => [true]]);
+
+it('tears down a done card whose clone is still here, a retitled one too', function () {
+    $code = $this->code;
+    $id = $code->started('Add login page');
+    $code->commit($id, 'login.php', "<?php\n");
+    $branch = $code->sandbox->read($id)['work']['branch'];
+    $code->sandbox->git('fetch', '-q', $code->worktree($id), "{$branch}:{$branch}");
+    $code->sandbox->git('merge', '-q', '--no-ff', '-m', 'merged elsewhere', $branch);
+    $merge = pushMain($code, 'other.txt', "other\n");
+    $wt = $code->worktree($id);
+    $card = $code->sandbox->read($id);
+    $card['stage'] = 'done';
+    $card['title'] = 'Add the login page';
+    $card['claim'] = null;
+    $card['work'] = ['branch' => $branch, 'base' => $card['work']['base'], 'merge' => $merge, 'started' => $card['work']['started'], 'finished' => $card['updated']];
+    file_put_contents(glob($code->root().'/docs/kanban/*/'.$id.'.json')[0], json_encode($card));
+    $code->sandbox->boardGit('commit', '-q', '-am', 'done elsewhere');
+
+    $run = $code->kanban(['finish', $id]);
+
+    expect($run->getExitCode())->toBe(0)
+        ->and($run->getOutput())->toContain('removed worktree .claude/worktrees/'.basename($wt))->toContain("deleted branch {$branch}")
+        ->and(is_dir($wt))->toBeFalse()
+        ->and($code->ok(['finish', $id]))->toBe("{$id} is done; nothing of it is left here\n");
+});
+
+it('keeps a done card\'s clone that holds uncommitted changes to tracked files, untracked files beside them or not', function (bool $untracked) {
+    $code = $this->code;
+    $id = $code->started('Add login page');
+    $code->commit($id, 'login.php', "<?php\n");
+    $branch = $code->sandbox->read($id)['work']['branch'];
+    $code->sandbox->git('fetch', '-q', $code->worktree($id), "{$branch}:{$branch}");
+    $code->sandbox->git('merge', '-q', '--no-ff', '-m', 'merged elsewhere', $branch);
+    $merge = pushMain($code, 'other.txt', "other\n");
+    $wt = $code->worktree($id);
+    file_put_contents($wt.'/login.php', "<?php // not committed\n");
+    $untracked && file_put_contents($wt.'/screenshot.png', "png\n");
+    $card = $code->sandbox->read($id);
+    $card['stage'] = 'done';
+    $card['claim'] = null;
+    $card['work'] = ['branch' => $branch, 'base' => $card['work']['base'], 'merge' => $merge, 'started' => $card['work']['started'], 'finished' => $card['updated']];
+    file_put_contents(glob($code->root().'/docs/kanban/*/'.$id.'.json')[0], json_encode($card));
+    $code->sandbox->boardGit('commit', '-q', '-am', 'done elsewhere');
+
+    $run = $code->kanban(['finish', $id]);
+
+    expect($run->getExitCode())->toBe(10)
+        ->and($run->getErrorOutput())->toContain('has uncommitted changes')
+        ->and(file_get_contents($wt.'/login.php'))->toBe("<?php // not committed\n");
+})->with(['tracked changes only' => false, 'and untracked files' => true]);
+
+it('counts a merge that fails unexpectedly: the lease goes back each time, and the third failure blocks the card', function () {
+    $code = $this->code;
+    $id = $code->started('Breaks the suite');
+    $code->commit($id, 'RED', "red\n");
+    $code->approve($id);
+    $code->kanban(['finish', $id]);
+    $code->ok(['finish', $id, '--abort']);
+    touch($code->mergeClone().'/.git/index.lock');
+
+    $runs = array_map(fn () => $code->kanban(['finish', $id]), [1, 2, 3]);
+
+    expect(array_map(fn ($r) => $r->getExitCode(), $runs))->toBe([1, 1, 1])
+        ->and($runs[0]->getErrorOutput())->toContain("{$id}: merge failed: GitFailed: git reset -q --hard in the merge clone failed")
+        ->and($code->lease())->toBeNull()
+        ->and($code->mergeState())->toBeNull()
+        ->and($code->sandbox->read($id)['blocked'])->toStartWith('merge failed 3×: ');
+});
+
+it("merges again on the new main when origin's main moved during the merge, replaying the merger's fix", function () {
+    $code = $this->code;
+    $id = $code->started('Breaks the suite');
+    $code->commit($id, 'RED', "red\n");
+    $code->commit($id, 'feature.php', "<?php\n");
+    $code->approve($id);
+    expect($code->kanban(['finish', $id])->getExitCode())->toBe(12);
+    // the merger's fix, staged and applied
+    $code->gitIn($code->mergeClone(), 'rm', '-q', 'RED');
+    $code->gitIn($code->mergeClone(), 'commit', '-q', '-m', 'Drop the red marker');
+    $code->ok(['merged', $id, 'fixed', '--note=The marker was the card\'s own test file'], cwd: $code->mergeClone());
+    $code->ok(['apply', $id]);
+    expect($code->mergeState())->toMatchArray(['phase' => 'checks', 'merger_rounds' => 1]);
+    // what a cherry-pick of several commits leaves when it stops: no reset or checkout ends it
+    mkdir($code->mergeClone().'/.git/sequencer');
+    file_put_contents($code->mergeClone().'/.git/sequencer/todo', 'pick '.trim($code->gitIn($code->mergeClone(), 'rev-parse', 'HEAD'))." Drop the red marker\n");
+    $side = $this->origin->clone('side');
+    Origin::racingPush($code->sandbox, "git -C {$side->root} commit -q --allow-empty -m 'Side change' && git -C {$side->root} push -q origin HEAD:main", ref: 'refs/heads/main');
+
+    $run = $code->kanban(['finish', $id]);
+
+    expect($run->getExitCode())->toBe(0, $run->getErrorOutput())
+        ->and($run->getOutput())->toContain("{$id}: main moved on the remote; merging again on the new main (round 2)")
+        ->and($run->getOutput())->not->toContain('do not apply')
+        ->and(array_slice(explode("\n", $code->gitIn($this->origin->path, 'log', '--first-parent', '--format=%s', 'main')), 0, 3))
+        ->toBe(['Drop the red marker', "{$id}: Breaks the suite", 'Side change'])
+        ->and(is_file($code->root().'/RED'))->toBeFalse()
+        ->and(is_file($code->root().'/feature.php'))->toBeTrue()
         ->and($code->sandbox->read($id)['stage'])->toBe('done');
 });
 
-it('merges a change to a steering file the owner approved for the card, at planning or after reading the diff', function () {
+it("keeps its merger's fix and the lease when the remote fails as it merges again on the new main", function () {
     $code = $this->code;
-    $id = $code->started('Restore the gate');
-    $code->commit($id, '.githooks/pre-push', "#!/bin/sh\n", 'gate');
-    $code->commit($id, '.husky/pre-commit', "#!/bin/sh\n", 'hook');
+    $id = mergerFixed($code);
+    $side = $this->origin->clone('side');
+    Origin::racingPush($code->sandbox, "git -C {$side->root} commit -q --allow-empty -m 'Side change' && git -C {$side->root} push -q origin HEAD:main"
+        ." && git -C {$code->root()} remote set-url origin {$code->root()}/../no-such-origin", ref: 'refs/heads/main');
 
-    $notSteering = $code->sandbox->kanban(['allow-steering', $id, 'app/Models/User.php']);
-    expect($notSteering->getExitCode())->toBe(2)
-        ->and($notSteering->getErrorOutput())->toContain('app/Models/User.php: not a file that steers the agents or git');
+    $failed = $code->kanban(['finish', $id]);
+    $state = $code->mergeState();
+    $lease = $code->lease();
+    $attempts = json_decode((string) @file_get_contents($code->root().'/.git/laravel-house/merge-attempts.json'), true) ?? [];
+    $code->sandbox->git('remote', 'set-url', 'origin', $this->origin->path);
+    $run = $code->kanban(['finish', $id]);
 
-    expect($code->sandbox->ok(['allow-steering', $id, './.githooks/pre-push']))->toBe("{$id}: finish merges its changes to .githooks/pre-push as they are now (.githooks/pre-push); a later change to those asks again\n");
-    $code->approve($id);
-    $context = $code->ok(['context', $id], cwd: $code->worktree($id));
-    $held = $code->kanban(['finish', $id]);
-    $code->sandbox->ok(['allow-steering', $id, '.husky/']);
-
-    expect($context)->toContain("changes kanban's own files (finish needs the owner): .husky/pre-commit\n")
-        ->toContain("changes kanban's own files the owner approved: .githooks/pre-push\n")
-        ->and($held->getErrorOutput())->toContain("{$id} changes files that steer the agents or git: .husky/pre-commit;")
-        ->and($code->ok(['finish', $id]))->toContain("merged {$id} into main")
-        ->and($code->sandbox->read($id)['stage'])->toBe('done')
-        ->and(array_column(array_filter($code->sandbox->read($id)['log'], fn ($e) => $e['event'] === 'steering_approved'), 'files'))->toBe([['.githooks/pre-push'], ['.husky/']]);
+    expect($failed->getExitCode())->toBe(9, $failed->getOutput().$failed->getErrorOutput())
+        ->and($state)->toMatchArray(['phase' => 'merging', 'round' => 2])
+        ->and($state['replay'] ?? null)->toBeArray()
+        ->and($lease)->toMatchArray(['card' => $id])
+        ->and($attempts)->not->toHaveKey($id)
+        ->and($run->getExitCode())->toBe(0, $run->getOutput().$run->getErrorOutput())
+        ->and($run->getOutput())->not->toContain('do not apply')
+        ->and($this->origin->log('main')[0])->toBe('Drop the red marker')
+        ->and($code->sandbox->read($id)['stage'])->toBe('done');
 });
 
-it('asks the owner on the card instead, where the answer merges it or sends it back to its worker', function (string $option, string $stage) {
-    $code = $this->code;
-    $id = $code->started('Tune the agents');
-    $code->commit($id, '.claude/settings.json', "{}\n", 'settings');
-    $code->approve($id);
-
-    $asked = $code->kanban(['finish', $id, '--ask'], ['KANBAN_SESSION' => 's1']);
-
-    $card = $code->sandbox->read($id);
-    expect($asked->getExitCode())->toBe(3)
-        ->and($asked->getErrorOutput())->toContain("{$id} changes files that steer the agents or git: .claude/settings.json; asked the owner on the card (`kanban questions`)")
-        ->and($card)->toMatchArray(['stage' => 'review', 'blocked' => 'question: merge with changes to files that steer the agents or git?'])
-        ->and($code->sandbox->ok('questions'))->toContain("{$id}#1 open question: Tune the agents\n")
-        ->toContain('Steering: .claude/settings.json')->toContain('1. Approve — finish merges the card with these changes');
-
-    $commits = count($code->sandbox->boardLog());
-    $answer = $code->sandbox->ok(['answer', $id, $option]);
-    // the answer and what it decides are one write: a failure between two would lose the owner's choice
-    expect($code->sandbox->read($id))->toMatchArray(['stage' => $stage, 'blocked' => null])
-        ->and(count($code->sandbox->boardLog()))->toBe($commits + 1);
-    if ($option === '1') {
-        expect($answer)->toContain("{$id}: the owner approved .claude/settings.json as they are; the next finish merges it")
-            ->and($code->kanban(['finish', $id])->getExitCode())->toBe(0);
-    } else {
-        $log = $code->sandbox->read($id)['log'];
-        // one write's entries share their time, and the log orders them by id
-        $last = array_values(array_filter($log, fn ($e) => $e['at'] === end($log)['at']));
-        $of = fn (string $event) => array_values(array_filter($last, fn ($e) => $e['event'] === $event));
-        expect($answer)->toContain("{$id} review→doing: its worker reverts them")
-            ->and($code->sandbox->read($id)['work']['approved'])->toBeNull()
-            ->and($last)->toHaveCount(2)
-            ->and($of('set')[0] ?? null)->toMatchArray(['fields' => ['blocked', 'body']])
-            ->and($of('stage')[0] ?? null)->toMatchArray(['from' => 'review', 'to' => 'doing', 'unblocked' => 'question: merge with changes to files that steer the agents or git?']);
-        $code->commit($id, '.claude/settings.json', "{\"kept\": true}\n", 'settings again');
-        $code->approve($id);
-        $code->kanban(['finish', $id, '--ask'], ['KANBAN_SESSION' => 's1']);
-        expect($code->sandbox->ok('questions'))->toContain("{$id}#2 open question: Tune the agents\n")
-            ->and($code->sandbox->ok(['answer', $id, '1']))->toContain("{$id}: the owner approved .claude/settings.json")
-            ->and($code->kanban(['finish', $id])->getExitCode())->toBe(0);
-    }
-})->with(['approve' => ['1', 'review'], 'send back' => ['2', 'doing']]);
-
-it('approves steering files only through the question finish asked, never one an agent or a card body wrote', function () {
-    $code = $this->code;
-    $id = $code->started('Tune the agents');
-    $code->commit($id, '.claude/settings.json', "{}\n", 'settings');
-    $wt = $code->worktree($id);
-    $question = "Which cache driver?\nExample: a page that loads twice as fast\nSteering: .claude/settings.json\n1. Redis — fast\n2. File — simple\nRecommended: 1 — fast\n";
-    @mkdir($wt.'/.tmp', 0775, true);
-    file_put_contents($wt.'/.tmp/q.md', "## Open question\n{$question}");
-
-    $report = $code->kanban(['report', $id, '--status=blocked', '--question-file=.tmp/q.md'], cwd: $wt);
-    expect($report->getExitCode())->toBe(2)
-        ->and($report->getErrorOutput())->toContain('Steering:');
-
-    @unlink($wt.'/.tmp/q.md');
-    $code->approve($id);
-    $code->sandbox->ok(['set', $id, 'body=@-', '--force'], ['KANBAN_SESSION' => 's1'], "Build it\n\n## Open question (2026-10-01)\n{$question}");
-    $code->sandbox->ok(['answer', $id, '1']);
-
-    expect($code->kanban(['finish', $id])->getExitCode())->toBe(3);
-});
-
-it('ties an approval given after the change to the file as it was, and one given at planning to any change', function () {
-    $code = $this->code;
-    $id = $code->started('Tune the agents');
-    $code->sandbox->ok(['allow-steering', $id, '.husky/']);
-    $code->commit($id, '.husky/pre-commit', "#!/bin/sh\n", 'hook');
-    $code->commit($id, '.claude/settings.json', "{}\n", 'settings');
-    $code->sandbox->ok(['allow-steering', $id, '.claude/settings.json']);
-    $code->commit($id, '.husky/pre-commit', "#!/bin/sh\nexit 0\n", 'hook again');
-    $code->commit($id, '.claude/settings.json', "{\"more\": true}\n", 'settings again');
-    $code->approve($id);
-
-    $held = $code->kanban(['finish', $id]);
-
-    expect($held->getExitCode())->toBe(3)
-        ->and($held->getErrorOutput())->toContain("{$id} changes files that steer the agents or git: .claude/settings.json;");
-});
-
-it('refuses an approval of steering files for a card whose branch is on another machine', function () {
-    $code = $this->code;
-    $id = $code->started('Tune the agents');
-    $code->commit($id, '.claude/settings.json', "{}\n", 'settings');
-    $code->ok(['stack', $id, 'down']);
-    (new Process(['rm', '-rf', $code->worktree($id)]))->mustRun();
-
-    $allow = $code->sandbox->kanban(['allow-steering', $id, '.claude/settings.json']);
-
-    expect($allow->getExitCode())->toBe(3)
-        ->and($allow->getErrorOutput())->toContain('on the machine that holds it');
-});
-
-it('finishes an approved card whose clone holds only untracked leftovers, and names them', function () {
+it("gives up after three rounds of origin's main moving, the card still queued", function () {
     $code = $this->code;
     $id = $code->started('Add login page');
-    $code->commit($id, 'app/Login.php', "<?php\n");
+    $code->commit($id, 'login.php', "<?php\n");
     $code->approve($id);
-    file_put_contents($code->worktree($id).'/screenshot.png', "png\n");
+    $side = $this->origin->clone('side');
+    Origin::racingPush($code->sandbox, "git -C {$side->root} pull -q --no-rebase origin main && git -C {$side->root} commit -q --allow-empty -m side && git -C {$side->root} push -q origin HEAD:main", every: true, ref: 'refs/heads/main');
 
-    $out = $code->ok(['finish', $id]);
+    $run = $code->kanban(['finish', $id]);
 
-    expect($out)->toContain("merged {$id} into main")->toContain('screenshot.png');
+    expect($run->getExitCode())->toBe(9)
+        ->and($run->getErrorOutput())->toContain("{$id}: main moved on the remote, 3 rounds running; it stays queued")
+        ->and($code->lease())->toBeNull()
+        ->and($code->mergeState())->toBeNull()
+        ->and($code->sandbox->read($id)['stage'])->toBe('review')
+        ->and($this->origin->log('main')[0])->toBe('side');
 });
 
-it('asks again about every steering file when more changed before the owner answered, and one answer approves them all', function () {
+it("merges nothing once following origin's main brought a finish.check that names no suite", function () {
     $code = $this->code;
-    $id = $code->started('Tune the agents');
-    $code->commit($id, '.claude/settings.json', "{}\n", 'settings');
+    $id = $code->started('Add login page');
+    $code->commit($id, 'login.php', "<?php\n");
     $code->approve($id);
-    $code->kanban(['finish', $id, '--ask'], ['KANBAN_SESSION' => 's1']);
-    $code->commit($id, '.husky/pre-commit', "#!/bin/sh\n", 'hook');
-    $code->approve($id);
-    $code->kanban(['finish', $id, '--ask'], ['KANBAN_SESSION' => 's1']);
+    // another machine merged it: this checkout is still on the config before
+    configureMerge($code, ['finish' => ['check' => []]]);
+    $emptied = trim($code->sandbox->git('rev-parse', 'main'));
+    $code->sandbox->git('reset', '-q', '--hard', 'HEAD~1');
 
-    $questions = $code->sandbox->ok('questions');
-    expect($questions)->toContain('Steering: .claude/settings.json, .husky/pre-commit')->toEndWith("1 open: `kanban answer <ID>#<n> <option> [--note=…]`\n");
-    $code->sandbox->ok(['answer', $id, '1']);
+    $run = $code->kanban(['finish', $id]);
 
-    expect($code->kanban(['finish', $id])->getExitCode())->toBe(0);
+    expect($run->getExitCode())->toBe(3, $run->getOutput().$run->getErrorOutput())
+        ->and($run->getErrorOutput())->toContain('finish.check names no suite: no card merges until it does')
+        ->and(trim($code->gitIn($this->origin->path, 'rev-parse', 'main')))->toBe($emptied)
+        ->and($code->sandbox->read($id)['stage'])->toBe('review')
+        ->and($code->sandbox->read($id)['blocked'])->toBeNull()
+        ->and($code->lease())->toBeNull()
+        ->and($code->mergeState())->toBeNull();
 });
 
-it('holds an approval for a parked card to the files its parked branch changed', function () {
+it('takes a push that failed but reached origin as done', function () {
     $code = $this->code;
-    $id = $code->started('Tune the agents');
-    $code->commit($id, '.claude/settings.json', "{}\n", 'settings');
-    $code->ok(['stop', $id, '--to=backlog']);
+    $id = $code->started('Add login page');
+    $code->commit($id, 'login.php', "<?php\n");
+    $code->approve($id);
+    Origin::racingPush($code->sandbox, 'read lref lsha rest; git push -q origin "$lsha:refs/heads/main"; exit 1', ref: 'refs/heads/main');
 
-    expect($code->sandbox->ok(['allow-steering', $id, '.claude/settings.json']))->toContain('as they are now (.claude/settings.json)');
+    $run = $code->kanban(['finish', $id]);
+
+    expect($run->getExitCode())->toBe(0, $run->getErrorOutput())
+        ->and($code->sandbox->read($id)['stage'])->toBe('done')
+        ->and($this->origin->log('main')[0])->toBe("{$id}: Add login page");
 });
 
-it('answers a steering question in one board write', function () {
+it('gives the lease back when a push failed and origin does not hold it, and blocks the card after the third', function () {
     $code = $this->code;
-    $id = $code->started('Tune the agents');
-    $code->commit($id, '.claude/settings.json', "{}\n", 'settings');
+    $id = $code->started('Add login page');
+    $code->commit($id, 'login.php', "<?php\n");
     $code->approve($id);
-    $code->kanban(['finish', $id, '--ask'], ['KANBAN_SESSION' => 's1']);
-    $before = count($code->sandbox->boardLog());
+    $hooks = Origin::racingPush($code->sandbox, 'exit 1', every: true, ref: 'refs/heads/main');
 
-    $code->sandbox->ok(['answer', $id, '1']);
+    $failed = $code->kanban(['finish', $id]);
+    $lease = $code->lease();
+    $state = $code->mergeState();
+    $more = array_map(fn () => $code->kanban(['finish', $id]), [2, 3]);
 
-    expect(count($code->sandbox->boardLog()) - $before)->toBe(1)
-        ->and($code->sandbox->read($id)['blocked'])->toBeNull();
+    expect($failed->getExitCode())->toBe(9)
+        ->and($failed->getErrorOutput())->toContain("{$id}: main: push failed: ")->toContain('; the merge lease goes back, the card stays queued')
+        ->and($lease)->toBeNull()
+        ->and($state)->toBeNull()
+        ->and(array_map(fn ($r) => $r->getExitCode(), $more))->toBe([9, 9])
+        ->and($code->sandbox->read($id))->toMatchArray(['stage' => 'review'])
+        ->and($code->sandbox->read($id)['blocked'])->toStartWith('merge failed 3×: main: push failed: ')
+        ->and($this->origin->log('main')[0])->not->toContain($id);
+});
+
+it('keeps a push that failed while origin cannot tell whether it landed, with its lease, and settles it next time', function (bool $lands) {
+    $code = $this->code;
+    $id = $code->started('Add login page');
+    $code->commit($id, 'login.php', "<?php\n");
+    $code->approve($id);
+    Origin::racingPush($code->sandbox, ($lands ? 'read lref lsha rest; git push -q origin "$lsha:refs/heads/main"; ' : '')
+        .'git -C "'.$code->root().'" remote set-url origin "'.$code->root().'/../no-such-origin"; exit 1', ref: 'refs/heads/main');
+
+    $failed = $code->kanban(['finish', $id]);
+    $state = $code->mergeState();
+    $lease = $code->lease();
+    $attempts = json_decode((string) @file_get_contents($code->root().'/.git/laravel-house/merge-attempts.json'), true) ?? [];
+    $code->sandbox->git('remote', 'set-url', 'origin', $this->origin->path);
+    $run = $code->kanban(['finish', $id]);
+
+    expect($failed->getExitCode())->toBe(9, $failed->getOutput().$failed->getErrorOutput())
+        ->and($state)->toMatchArray(['phase' => 'pushing'])
+        ->and($state['merged'] ?? null)->toBeString()
+        ->and($lease)->toMatchArray(['card' => $id])
+        ->and($attempts)->not->toHaveKey($id)
+        ->and($run->getExitCode())->toBe(0, $run->getOutput().$run->getErrorOutput())
+        ->and(str_contains($run->getOutput(), "{$id}: its push did not land; merging again on the new main (round 2)"))->toBe(! $lands)
+        ->and(array_values(array_filter($this->origin->log('main'), fn (string $s) => $s === "{$id}: Add login page")))->toHaveCount(1)
+        ->and($code->sandbox->read($id)['stage'])->toBe('done')
+        ->and($code->sandbox->read($id)['blocked'] ?? null)->toBeNull()
+        ->and($code->lease())->toBeNull();
+})->with(['it landed' => [true], 'it did not land' => [false]]);
+
+it('finishes a merge killed after its push landed', function () {
+    $code = $this->code;
+    $id = $code->started('Add login page');
+    $code->commit($id, 'login.php', "<?php\n");
+    $code->approve($id);
+    // the push lands, then the finish dies before it records it
+    Origin::racingPush($code->sandbox, 'read lref lsha rest; git push -q origin "$lsha:refs/heads/main"; kill -9 $(cat "'.$code->root().'/.git/laravel-house/merge/finish.pid"); exit 1', ref: 'refs/heads/main');
+
+    try {
+        $code->kanban(['finish', $id]);
+        $killed = false;
+    } catch (ProcessSignaledException) {
+        $killed = true;
+    }
+    $landed = $code->gitIn($this->origin->path, 'log', '-1', '--format=%s', 'main');
+    $state = $code->mergeState();
+    $resumed = $code->kanban(['finish']);
+
+    expect($killed)->toBeTrue()
+        ->and(trim($landed))->toBe("{$id}: Add login page")
+        ->and($state['phase'])->toBe('pushing')
+        ->and($resumed->getExitCode())->toBe(0, $resumed->getErrorOutput())
+        ->and($resumed->getOutput())->toContain("merged {$id} into main")
+        ->and($code->sandbox->read($id)['stage'])->toBe('done')
+        ->and($code->lease())->toBeNull();
+});
+
+it('settles a push in flight while finish.check names no suite: done once it landed, else the merge let go', function (bool $lands) {
+    $code = $this->code;
+    $id = $code->started('Add login page');
+    $code->commit($id, 'login.php', "<?php\n");
+    $code->approve($id);
+    Origin::racingPush($code->sandbox, ($lands ? 'read lref lsha rest; git push -q origin "$lsha:refs/heads/main"; ' : '')
+        .'kill -9 $(cat "'.$code->root().'/.git/laravel-house/merge/finish.pid"); exit 1', ref: 'refs/heads/main');
+    try {
+        $code->kanban(['finish', $id]);
+    } catch (ProcessSignaledException) {
+    }
+    expect($code->mergeState()['phase'])->toBe('pushing');
+    $code->configure(['finish' => ['check' => []]]);
+
+    $settled = $code->kanban(['finish', $id]);
+    $abort = $code->kanban(['finish', $id, '--abort']);
+
+    expect($settled->getExitCode())->toBe($lands ? 0 : 3, $settled->getOutput().$settled->getErrorOutput())
+        ->and($code->sandbox->read($id)['stage'])->toBe($lands ? 'done' : 'review')
+        ->and($code->sandbox->read($id)['blocked'] ?? null)->toBeNull()
+        ->and($code->mergeState())->toBeNull()
+        ->and($code->lease())->toBeNull()
+        ->and($abort->getOutput())->toContain('no merge runs here');
+    $lands || expect($settled->getErrorOutput())->toContain('finish.check names no suite');
+})->with(['it landed' => [true], 'it did not land' => [false]]);
+
+it('records a push that landed after the card left review, and tears nothing of it down', function () {
+    $code = $this->code;
+    $id = $code->started('Add login page');
+    $code->commit($id, 'login.php', "<?php\n");
+    $code->approve($id);
+    $kanban = PHP_BINARY.' '.$code->root().'/vendor/bin/kanban';
+    Origin::racingPush($code->sandbox, "cd {$code->root()} && KANBAN_SYNC=off KANBAN_SESSION= XDEBUG_MODE=off {$kanban} move {$id} doing --reason='One more thing' >/dev/null 2>&1", ref: 'refs/heads/main');
+
+    $run = $code->kanban(['finish', $id]);
+
+    $sha = trim($code->gitIn($this->origin->path, 'rev-parse', 'main'));
+    expect($run->getExitCode())->toBe(10)
+        ->and($run->getErrorOutput())->toContain("{$id} reached main but left review: it is doing")
+        ->and($code->sandbox->read($id)['stage'])->toBe('doing')
+        ->and(merges($code, $id))->sequence(fn ($e) => $e->toMatchArray(['result' => 'landed', 'merge' => $sha]))
+        ->and(is_dir($code->worktree($id)))->toBeTrue()
+        ->and($code->lease())->toBeNull();
+});
+
+it('calls main red when the failing command fails on the base alone, files one card for it and holds the queue until main moves', function () {
+    $code = $this->code;
+    $first = $code->started('Tag notes');
+    $code->commit($first, 'tags.php', "<?php\n");
+    $code->approve($first, at: '2026-01-01T00:00:00.000+00:00');
+    $second = $code->started('Archive notes');
+    $code->commit($second, 'archive.php', "<?php\n");
+    $code->approve($second, at: '2026-01-02T00:00:00.000+00:00');
+    $base = pushMain($code, 'RED', "red\n");
+
+    $run = $code->kanban(['finish', $first]);
+    $red = merges($code, $first)[0]['red'] ?? null;
+    $pins = trim($code->sandbox->git('for-each-ref', "refs/merge-queue/{$first}/"));
+    $held = $code->kanban(['finish', $second]);
+
+    expect($run->getExitCode())->toBe(13)
+        ->and($run->getOutput())->toContain("{$first} waits for {$red}: `test ! -e RED` fails on main too")
+        ->and(merges($code, $first))->sequence(fn ($e) => $e->toMatchArray(['result' => 'main', 'red' => $red, 'command' => 'test ! -e RED', 'base' => $base]))
+        ->and($code->sandbox->read($red))->toMatchArray(['type' => 'bug', 'priority' => 'high', 'title' => 'main red: test ! -e RED'])
+        ->and($code->sandbox->read($red)['labels'])->toContain('main-red')
+        ->and($pins)->toBe('')
+        ->and($code->lease())->toBeNull()
+        ->and(trim($code->gitIn($this->origin->path, 'rev-parse', 'main')))->toBe($base)
+        ->and($held->getExitCode())->toBe(11)
+        ->and($held->getErrorOutput())->toContain("{$second} waits for {$red} (failing on main)")
+        ->and(merges($code, $second))->toBe([]);
+
+    $code->sandbox->git('rm', '-q', 'RED');
+    $code->sandbox->git('commit', '-q', '-m', 'Fix main by hand');
+    $code->sandbox->git('push', '-q', 'origin', 'main');
+    expect($code->kanban(['finish', $first])->getExitCode())->toBe(0)
+        ->and($code->kanban(['finish', $second])->getExitCode())->toBe(0);
+});
+
+it('merges the card filed for main red once its own command passes, and sends it back while it still fails', function (bool $fixes, int $exit) {
+    $code = $this->code;
+    pushMain($code, 'RED', "red\n");
+    $id = $code->sandbox->readyCard('Fix the red suite', ['--label=main-red', '--accept=`test ! -e RED` passes on main']);
+    $code->ok(['start', $id]);
+    $fixes ? $code->gitIn($code->worktree($id), 'rm', '-q', 'RED') : file_put_contents($code->worktree($id).'/note.md', "tried\n");
+    $code->gitIn($code->worktree($id), 'add', '-A');
+    $code->gitIn($code->worktree($id), 'commit', '-q', '-m', 'work');
+    $code->approve($id);
+
+    $run = $code->kanban(['finish', $id]);
+
+    expect($run->getExitCode())->toBe($exit, $run->getErrorOutput());
+    if ($fixes) {
+        expect($code->sandbox->read($id)['stage'])->toBe('done')
+            ->and(is_file($code->root().'/RED'))->toBeFalse();
+    } else {
+        expect($code->sandbox->read($id)['stage'])->toBe('doing')
+            ->and(merges($code, $id))->sequence(fn ($e) => $e->toMatchArray(['result' => 'back', 'command' => 'test ! -e RED']))
+            ->and(merges($code, $id)[0]['note'])->toStartWith('`test ! -e RED` still fails')
+            ->and($code->lease())->toBeNull();
+    }
+})->with(['its fix' => [true, 0], 'still red' => [false, 13]]);
+
+it('sends a card with leftover conflict markers back to its worker through the merge', function () {
+    $code = $this->code;
+    $id = $code->started('Notes');
+    $code->commit($id, 'notes.md', "<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> main\n");
+    $code->approve($id);
+
+    $run = $code->kanban(['finish', $id]);
+
+    $card = $code->sandbox->read($id);
+    expect($run->getExitCode())->toBe(13)
+        ->and($run->getOutput())->toContain("{$id} review→doing: leftover conflict markers: notes.md:1")
+        ->and($card['stage'])->toBe('doing')
+        ->and($card['work']['approved'])->toBeNull()
+        ->and(merges($code, $id))->sequence(fn ($e) => $e->toMatchArray(['result' => 'back', 'note' => 'leftover conflict markers: notes.md:1, notes.md:3, notes.md:5']))
+        ->and(array_values(array_filter($card['log'], fn ($e) => $e['event'] === 'stage' && ($e['via'] ?? null) === 'merge')))->toHaveCount(1)
+        ->and($code->lease())->toBeNull()
+        ->and($code->mergeState())->toBeNull();
+});
+
+it('sends a merge that stays red after three merger rounds back to the worker', function () {
+    $code = $this->code;
+    $id = $code->started('Breaks the suite');
+    $code->commit($id, 'RED', "red\n");
+    $code->approve($id);
+    $code->kanban(['finish', $id]);
+    file_put_contents($code->root().'/.git/laravel-house/merge.json', json_encode(['phase' => 'checks', 'merger_rounds' => 3] + $code->mergeState()));
+
+    $run = $code->kanban(['finish', $id]);
+
+    expect($run->getExitCode())->toBe(13)
+        ->and($run->getOutput())->toContain("{$id} review→doing: the merge stays red after 3 merger rounds: `test ! -e RED`")
+        ->and($code->sandbox->read($id)['stage'])->toBe('doing')
+        ->and(array_column(merges($code, $id), 'result'))->toBe(['red', 'red', 'back'])
+        ->and($code->lease())->toBeNull();
+});
+
+it('reuses the merge clone and its stack, installing only a lockfile that changed since its last install', function () {
+    $code = $this->code;
+    $log = $code->root().'/../installs.log';
+    configureMerge($code, ['finish' => ['install' => ['composer.lock' => "echo \"install \$FAKE_DOCKER_EXEC\" >> {$log}"]]]);
+    $first = $code->started('Bump deps');
+    $code->commit($first, 'composer.lock', "{}\n");
+    $code->approve($first);
+    $code->ok(['finish', $first]);
+    @mkdir($code->mergeClone().'/vendor', 0775, true);
+    file_put_contents($code->mergeClone().'/vendor/kept.txt', "kept\n");
+    $ups = fn () => count(array_filter($code->calls(), fn ($call) => str_contains($call, '-p '.mergeProject($code).' up ')));
+    $before = $ups();
+    $second = $code->started('Add login page');
+    $code->commit($second, 'login.php', "<?php\n");
+    $code->approve($second);
+
+    $code->ok(['finish', $second]);
+
+    // the merge stack's install, then the main checkout's after the push
+    expect(file($log, FILE_IGNORE_NEW_LINES))->toBe(['install 1', 'install '])
+        ->and(file_get_contents($code->mergeClone().'/vendor/kept.txt'))->toBe("kept\n")
+        ->and($ups())->toBe($before)
+        ->and($code->sandbox->read($second)['stage'])->toBe('done');
+});
+
+it('merges in a merge clone someone left on main', function () {
+    $code = $this->code;
+    $first = $code->started('Add login page');
+    $code->commit($first, 'login.php', "<?php\n");
+    $code->approve($first);
+    $code->ok(['finish', $first]);
+    $code->gitIn($code->mergeClone(), 'switch', '-q', 'main');
+    $second = $code->started('Archive notes');
+    $code->commit($second, 'archive.php', "<?php\n");
+    $code->approve($second);
+
+    $run = $code->kanban(['finish', $second]);
+
+    expect($run->getExitCode())->toBe(0, $run->getOutput().$run->getErrorOutput())
+        ->and($code->sandbox->read($second)['stage'])->toBe('done');
+});
+
+it('installs a lockfile again after an install of another content failed in the merge clone', function () {
+    $code = $this->code;
+    $log = $code->root().'/../installs.log';
+    $broken = $code->root().'/../registry-down';
+    configureMerge($code, ['finish' => ['install' => ['composer.lock' => "test ! -e {$broken} && echo \"install \$FAKE_DOCKER_EXEC\" >> {$log}"]]]);
+    $first = $code->started('Bump deps');
+    $code->commit($first, 'composer.lock', "{}\n");
+    $code->approve($first);
+    $code->ok(['finish', $first]);
+    // an install that fails part way leaves the merge clone's vendor/ as neither lockfile has it
+    touch($broken);
+    $failing = $code->started('Bump deps again');
+    $code->commit($failing, 'composer.lock', "{\"b\": 1}\n");
+    $code->approve($failing);
+    expect($code->kanban(['finish', $failing])->getExitCode())->toBe(12)
+        ->and($code->mergeState()['failure']['step'])->toBe('install');
+    $code->ok(['finish', $failing, '--abort']);
+    $code->sandbox->ok(['set', $failing, 'blocked=waits on the registry']);
+    unlink($broken);
+    $second = $code->started('Add login page');
+    $code->commit($second, 'login.php', "<?php\n");
+    $code->approve($second);
+
+    $code->ok(['finish', $second]);
+
+    expect(file($log, FILE_IGNORE_NEW_LINES))->toBe(['install 1', 'install ', 'install 1'])
+        ->and($code->sandbox->read($second)['stage'])->toBe('done');
+});
+
+it('runs nothing a merger could plant in the merge clone\'s git, and resets a merge a crash left in it', function () {
+    $code = $this->code;
+    $first = $code->started('Add login page');
+    $code->commit($first, 'login.php', "<?php\n");
+    $code->approve($first);
+    $code->ok(['finish', $first]);
+    $clone = $code->mergeClone();
+    $ran = $code->root().'/../ran';
+    $marker = "sh -c 'touch {$ran}-\${FAKE_DOCKER_EXEC:-host}'";
+    file_put_contents($clone.'/.git/info/attributes', "* merge=planted filter=planted\n");
+    foreach (['merge.planted.driver' => $marker, 'filter.planted.smudge' => $marker, 'filter.planted.clean' => $marker,
+        'core.fsmonitor' => $marker, 'gpg.program' => $marker, 'commit.gpgsign' => 'true'] as $key => $value) {
+        $code->gitIn($clone, 'config', $key, $value);
+    }
+    @mkdir($clone.'/.git/hooks', 0775, true);
+    file_put_contents($clone.'/.git/hooks/post-checkout', "#!/bin/sh\n{$marker}\n");
+    chmod($clone.'/.git/hooks/post-checkout', 0755);
+    file_put_contents($clone.'/app.php', "<?php\n\nreturn 'crash';\n");
+    $second = $code->started('Conflict');
+    $code->commit($second, 'app.php', "<?php\n\nreturn 'branch';\n");
+    $code->approve($second);
+    pushMain($code, 'app.php', "<?php\n\nreturn 'main';\n");
+
+    $run = $code->kanban(['finish', $second]);
+
+    expect($run->getExitCode())->toBe(12, $run->getErrorOutput())
+        ->and(glob($ran.'-*'))->toBe([])
+        ->and(is_file($clone.'/.git/info/attributes'))->toBeFalse()
+        ->and(is_dir($clone.'/.git/hooks'))->toBeFalse()
+        ->and($code->mergeState()['conflicts'])->toBe(['app.php'])
+        ->and(file_get_contents($clone.'/app.php'))->toContain("return 'branch';")->not->toContain('crash');
+});
+
+it('brings the merge stack up outside stack.max_stacks and the machine-load check', function () {
+    $code = $this->code;
+    $id = $code->started('Add login page');
+    $code->commit($id, 'login.php', "<?php\n");
+    $code->approve($id);
+    configureMerge($code, ['stack' => ['max_stacks' => 1, 'max_load_ratio' => 0.001]]);
+
+    $run = $code->kanban(['finish', $id]);
+
+    expect($run->getExitCode())->toBe(0, $run->getErrorOutput())
+        ->and($code->sandbox->read($id)['stage'])->toBe('done');
+});
+
+it('stops at the next step once its beater found the lease lost, pushing nothing', function () {
+    $code = $this->code;
+    $id = $code->started('Add login page');
+    $code->commit($id, 'login.php', "<?php\n");
+    $code->approve($id);
+    // what the beater writes when another machine took the lease
+    $state = $code->root().'/.git/laravel-house/merge.json';
+    configureMerge($code, ['gates' => ['report' => ['php -r '.escapeshellarg('$f = "'.$state.'"; file_put_contents($f, json_encode(["lost" => "merge lease lost: now held elsewhere"] + json_decode(file_get_contents($f), true)));')]]]);
+    $origin = trim($code->gitIn($this->origin->path, 'rev-parse', 'main'));
+    // a merger of the card still at work, as `kanban run` launched it
+    $session = 'a1b2c3d4-0000-4000-8000-000000000001';
+    $merger = new Process(['setsid', 'sh', '-c', 'sleep 300; :', 'sh', $session]);
+    $merger->start();
+    @mkdir($code->root().'/.git/laravel-house/runs', 0775, true);
+    file_put_contents($code->root()."/.git/laravel-house/runs/{$session}.pid", json_encode(['pid' => $merger->getPid(), 'card' => $id, 'type' => 'kanban-merger', 'stage' => 'review']));
+
+    try {
+        $run = $code->kanban(['finish', $id]);
+        $alive = $merger->isRunning();
+    } finally {
+        $merger->stop(0);
+    }
+
+    expect($run->getExitCode())->toBe(8, $run->getErrorOutput())
+        ->and($run->getErrorOutput())->toContain('merge lease lost: now held elsewhere')
+        ->and($alive)->toBeFalse()
+        ->and($code->mergeState())->toBeNull()
+        ->and(trim($code->gitIn($this->origin->path, 'rev-parse', 'main')))->toBe($origin)
+        ->and($code->sandbox->read($id)['stage'])->toBe('review');
+});
+
+it('exits 7 when a finish.check command is not found in the app container, the card still queued', function () {
+    $code = $this->code;
+    configureMerge($code, ['finish' => ['check' => ['no-such-suite --all']]]);
+    $id = $code->started('Add login page');
+    $code->commit($id, 'login.php', "<?php\n");
+    $code->approve($id);
+
+    $run = $code->kanban(['finish', $id]);
+
+    expect($run->getExitCode())->toBe(7)
+        ->and($run->getErrorOutput())->toContain('finish.check: `no-such-suite --all` is not found in the app container (exit 127)')
+        ->and($code->lease())->toBeNull()
+        ->and($code->mergeState())->toBeNull()
+        ->and($code->sandbox->read($id)['stage'])->toBe('review');
+});
+
+it('says a finish.check command is not found on this machine when the agents\' shell is the host', function () {
+    $code = $this->code;
+    configureMerge($code, ['gates' => ['report' => []], 'agents' => ['shell' => 'host'], 'finish' => ['check' => ['no-such-suite --all']]]);
+    $id = $code->started('Add login page');
+    $code->commit($id, 'login.php', "<?php\n");
+    $code->approve($id);
+
+    $run = $code->kanban(['finish', $id]);
+
+    expect($run->getExitCode())->toBe(7)
+        ->and($run->getErrorOutput())->toContain('finish.check: `no-such-suite --all` is not found on this machine (exit 127)')
+        ->and($run->getErrorOutput())->not->toContain('app container');
+});
+
+it('pushes only the head its checks ran on: a commit made in the merge clone meanwhile is merged again without it', function () {
+    $code = $this->code;
+    $marker = $code->root().'/../planted';
+    configureMerge($code, ['gates' => ['report' => ["[ -f {$marker} ] || { touch {$marker}; echo planted > planted.txt; git add planted.txt; git -c user.name=x -c user.email=x@example.com commit -q -m 'Planted by a gate'; }"]]]);
+    $id = $code->started('Add login page');
+    $code->commit($id, 'login.php', "<?php\n");
+    $code->approve($id);
+
+    $run = $code->kanban(['finish', $id]);
+
+    expect($run->getExitCode())->toBe(0, $run->getErrorOutput())
+        ->and($run->getOutput())->toContain("{$id}: the merge clone holds commits no check ran on; merging again on the new main (round 2)")
+        ->and($code->gitIn($this->origin->path, 'log', '--format=%s', 'main'))->not->toContain('Planted by a gate')
+        ->and(is_file($code->root().'/planted.txt'))->toBeFalse()
+        ->and($code->sandbox->read($id)['stage'])->toBe('done');
+});
+
+it("replays its merger's checked fix when a commit made in the merge clone during the checks merges it again", function () {
+    $code = $this->code;
+    $id = mergerFixed($code);
+    $marker = $code->root().'/../planted';
+    configureMerge($code, ['gates' => ['report' => ["[ -f {$marker} ] || { touch {$marker}; echo planted > planted.txt; git add planted.txt; git -c user.name=x -c user.email=x@example.com commit -q -m 'Planted by a gate'; }"]]]);
+
+    $run = $code->kanban(['finish', $id]);
+
+    expect($run->getExitCode())->toBe(0, $run->getOutput().$run->getErrorOutput())
+        ->and($run->getOutput())->toContain("{$id}: the merge clone holds commits no check ran on; merging again on the new main (round 2)")
+        ->and($this->origin->log('main')[0])->toBe('Drop the red marker')
+        ->and($code->gitIn($this->origin->path, 'log', '--format=%s', 'main'))->not->toContain('Planted by a gate')
+        ->and($code->sandbox->read($id)['stage'])->toBe('done');
+});
+
+it("checks a merger's result as committed: a file git does not track is refused, and one left after it is cleaned away", function () {
+    $code = $this->code;
+    configureMerge($code, ['finish' => ['check' => ['test ! -e RED || test -e WAIVED']]]);
+    $id = $code->started('Breaks the suite');
+    $code->commit($id, 'RED', "red\n");
+    $code->approve($id);
+    expect($code->kanban(['finish', $id])->getExitCode())->toBe(12);
+    $clone = $code->mergeClone();
+    $code->gitIn($clone, 'commit', '-q', '--allow-empty', '-m', 'Waive it');
+    file_put_contents($clone.'/WAIVED', "waived\n");
+
+    $untracked = $code->kanban(['merged', $id, 'fixed', '--note=Waived'], cwd: $clone);
+    unlink($clone.'/WAIVED');
+    $code->ok(['merged', $id, 'fixed', '--note=Waived'], cwd: $clone);
+    $code->ok(['apply', $id]);
+    // the merger, still at work, leaves it again
+    file_put_contents($clone.'/WAIVED', "waived\n");
+    $origin = trim($code->gitIn($this->origin->path, 'rev-parse', 'main'));
+    $run = $code->kanban(['finish', $id]);
+
+    expect($untracked->getExitCode())->toBe(3)
+        ->and($untracked->getErrorOutput())->toContain('?? WAIVED')
+        ->and($run->getExitCode())->toBe(12, $run->getOutput().$run->getErrorOutput())
+        ->and($run->getOutput())->toContain("{$id}: red: `test ! -e RED || test -e WAIVED`; the merger's turn")
+        ->and(is_file($clone.'/WAIVED'))->toBeFalse()
+        ->and(trim($code->gitIn($this->origin->path, 'rev-parse', 'main')))->toBe($origin);
+});
+
+it('merges a card filed for main red while another command fails on main too, and hands the merger one that passes there', function (bool $onMain, int $exit) {
+    $code = $this->code;
+    configureMerge($code, ['finish' => ['check' => ['test ! -e RED', 'test ! -e BLUE']]]);
+    pushMain($code, 'RED', "red\n");
+    $onMain && pushMain($code, 'BLUE', "blue\n");
+    $id = $code->sandbox->readyCard('Fix the red suite', ['--label=main-red', '--accept=`test ! -e RED` passes on main']);
+    $code->ok(['start', $id]);
+    $wt = $code->worktree($id);
+    $code->gitIn($wt, 'rm', '-q', 'RED');
+    $onMain || file_put_contents($wt.'/BLUE', "blue\n");
+    $code->gitIn($wt, 'add', '-A');
+    $code->gitIn($wt, 'commit', '-q', '-m', 'work');
+    $code->approve($id);
+
+    $run = $code->kanban(['finish', $id]);
+
+    expect($run->getExitCode())->toBe($exit, $run->getErrorOutput());
+    if ($onMain) {
+        expect($run->getOutput())->toContain("{$id}: `test ! -e BLUE` fails on main too; it merges once its own command passes")
+            ->and($code->sandbox->read($id)['stage'])->toBe('done');
+    } else {
+        expect($code->mergeState())->toMatchArray(['phase' => 'red', 'failure' => ['step' => 'suite', 'command' => 'test ! -e BLUE', 'exit' => 1, 'tail' => '', 'base_rerun' => 'passed']]);
+    }
+})->with(['fails on main too' => [true, 0], 'passes on main' => [false, 12]]);
+
+it('goes on with a card filed for main red once its merger finds another failing command failing on main too', function () {
+    $code = $this->code;
+    configureMerge($code, ['finish' => ['check' => ['test ! -e RED', 'test ! -e BLUE'], 'install' => ['composer.lock' => 'true']]]);
+    pushMain($code, 'RED', "red\n");
+    pushMain($code, 'BLUE', "blue\n");
+    $id = $code->sandbox->readyCard('Fix the red suite', ['--label=main-red', '--accept=`test ! -e RED` passes on main']);
+    $code->ok(['start', $id]);
+    $wt = $code->worktree($id);
+    $code->gitIn($wt, 'rm', '-q', 'RED');
+    file_put_contents($wt.'/composer.lock', "{}\n");
+    $code->gitIn($wt, 'add', '-A');
+    $code->gitIn($wt, 'commit', '-q', '-m', 'work');
+    $code->approve($id);
+    expect($code->kanban(['finish', $id])->getExitCode())->toBe(12)
+        ->and($code->mergeState()['failure'])->toMatchArray(['command' => 'test ! -e BLUE', 'base_rerun' => 'skipped']);
+
+    $code->ok(['merged', $id, 'main', '--note=`test ! -e BLUE` — fails at refs/merge/base too'], cwd: $code->mergeClone());
+    $code->ok(['apply', $id]);
+    $state = $code->mergeState();
+    $red = merges($code, $id)[1]['red'] ?? null;
+    $run = $code->kanban(['finish', $id]);
+
+    expect($state)->toMatchArray(['phase' => 'checks', 'on_main' => ['test ! -e BLUE']])
+        ->and(merges($code, $id)[1])->toMatchArray(['result' => 'main', 'command' => 'test ! -e BLUE'])
+        ->and($red)->not->toBe($id)
+        ->and($code->sandbox->read($red))->toMatchArray(['title' => 'main red: test ! -e BLUE'])
+        ->and($run->getExitCode())->toBe(0, $run->getOutput().$run->getErrorOutput())
+        ->and($run->getOutput())->toContain("{$id}: `test ! -e BLUE` fails on main too; it merges once its own command passes")
+        ->and($code->sandbox->read($id)['stage'])->toBe('done');
+});
+
+it('holds a card labelled main-red whose criteria name no command, as any other card', function () {
+    $code = $this->code;
+    pushMain($code, 'RED', "red\n");
+    $id = $code->sandbox->readyCard('Tidy the suite', ['--label=main-red', '--accept=The suite is tidy']);
+    $code->ok(['start', $id]);
+    $code->commit($id, 'tidy.php', "<?php\n");
+    $code->approve($id);
+
+    $run = $code->kanban(['finish', $id]);
+    $red = merges($code, $id)[0]['red'] ?? null;
+    $again = $code->kanban(['finish', $id]);
+
+    expect($run->getExitCode())->toBe(13, $run->getErrorOutput())
+        ->and($red)->not->toBeNull()->not->toBe($id)
+        ->and($again->getExitCode())->toBe(11)
+        ->and($again->getErrorOutput())->toContain("{$id} waits for {$red} (failing on main)")
+        ->and(merges($code, $id))->toHaveCount(1);
+});
+
+it('replays a conflict resolution the merger made (rerere) when main moved, and forgets one the merger gate refuses', function (bool $skips, int $exit) {
+    $code = $this->code;
+    $id = $code->started('Conflict');
+    $code->commit($id, 'app.php', "<?php\n\nreturn 'branch';\n");
+    $code->approve($id);
+    pushMain($code, 'app.php', "<?php\n\nreturn 'main';\n");
+    expect($code->kanban(['finish', $id])->getExitCode())->toBe(12);
+    $clone = $code->mergeClone();
+    // git records the resolution as committed; a merger that then amends it leaves that record behind
+    file_put_contents($clone.'/app.php', $skips ? "<?php\n\nreturn fn (\$t) => \$t->skip();\n" : "<?php\n\nreturn 'both';\n");
+    $code->gitIn($clone, 'add', 'app.php');
+    $code->gitIn($clone, 'commit', '-q', '--no-edit');
+    file_put_contents($clone.'/app.php', "<?php\n\nreturn 'both';\n");
+    $code->gitIn($clone, 'commit', '-q', '-a', '--amend', '--no-edit');
+    $code->ok(['merged', $id, 'resolved', '--note=Both sides'], cwd: $clone);
+    $code->ok(['apply', $id]);
+    $side = $this->origin->clone('side');
+    Origin::racingPush($code->sandbox, "git -C {$side->root} commit -q --allow-empty -m 'Side change' && git -C {$side->root} push -q origin HEAD:main", ref: 'refs/heads/main');
+
+    $run = $code->kanban(['finish', $id]);
+
+    expect($run->getExitCode())->toBe($exit, $run->getOutput().$run->getErrorOutput())
+        ->and($run->getOutput())->toContain("{$id}: main moved on the remote; merging again on the new main (round 2)");
+    if ($skips) {
+        expect($run->getOutput())->toContain("{$id}: the resolution git remembered for app.php would add a skipped test in app.php: forgotten, the merger resolves it")
+            ->and($code->mergeState())->toMatchArray(['phase' => 'conflict', 'round' => 2])
+            ->and($this->origin->log('main')[0])->toBe('Side change');
+    } else {
+        expect($run->getOutput())->toContain("{$id}: conflicts in app.php resolved as before (rerere)")
+            ->and(trim((string) $code->gitIn($this->origin->path, 'show', 'main:app.php')))->toBe("<?php\n\nreturn 'both';")
+            ->and($code->sandbox->read($id)['stage'])->toBe('done');
+    }
+})->with(['as resolved' => [false, 0], 'skipping a test' => [true, 12]]);
+
+it('replays the fixes of its merger after a conflict that rerere resolves on the new main', function () {
+    $code = $this->code;
+    $id = $code->started('Conflict');
+    $code->commit($id, 'app.php', "<?php\n\nreturn 'branch';\n");
+    $code->commit($id, 'RED', "red\n");
+    $code->approve($id);
+    pushMain($code, 'app.php', "<?php\n\nreturn 'main';\n");
+    expect($code->kanban(['finish', $id])->getExitCode())->toBe(12);
+    $clone = $code->mergeClone();
+    file_put_contents($clone.'/app.php', "<?php\n\nreturn 'both';\n");
+    $code->gitIn($clone, 'add', 'app.php');
+    $code->gitIn($clone, 'commit', '-q', '--no-edit');
+    $code->ok(['merged', $id, 'resolved', '--note=Both sides'], cwd: $clone);
+    $code->ok(['apply', $id]);
+    expect($code->kanban(['finish', $id])->getExitCode())->toBe(12);
+    $code->gitIn($clone, 'rm', '-q', 'RED');
+    $code->gitIn($clone, 'commit', '-q', '-m', 'Drop the red marker');
+    $code->ok(['merged', $id, 'fixed', '--note=The marker was the card\'s own test file'], cwd: $clone);
+    $code->ok(['apply', $id]);
+    $side = $this->origin->clone('side');
+    Origin::racingPush($code->sandbox, "git -C {$side->root} commit -q --allow-empty -m 'Side change' && git -C {$side->root} push -q origin HEAD:main", ref: 'refs/heads/main');
+
+    $run = $code->kanban(['finish', $id]);
+
+    expect($run->getExitCode())->toBe(0, $run->getOutput().$run->getErrorOutput())
+        ->and($run->getOutput())->toContain("{$id}: conflicts in app.php resolved as before (rerere)")
+        ->and($this->origin->log('main')[0])->toBe('Drop the red marker')
+        ->and(is_file($code->root().'/RED'))->toBeFalse()
+        ->and($code->sandbox->read($id)['stage'])->toBe('done');
+});
+
+it("replays its merger's fixes on the new main when one of them is on main already", function () {
+    $code = $this->code;
+    $id = $code->started('Breaks the suite');
+    $code->commit($id, 'RED', "red\n");
+    $code->approve($id);
+    expect($code->kanban(['finish', $id])->getExitCode())->toBe(12);
+    $clone = $code->mergeClone();
+    file_put_contents($clone.'/shared.txt', "shared\n");
+    $code->gitIn($clone, 'add', 'shared.txt');
+    $code->gitIn($clone, 'commit', '-q', '-m', 'Add the shared file');
+    $code->gitIn($clone, 'rm', '-q', 'RED');
+    $code->gitIn($clone, 'commit', '-q', '-m', 'Drop the red marker');
+    $code->ok(['merged', $id, 'fixed', '--note=The marker was the card\'s own test file'], cwd: $clone);
+    $code->ok(['apply', $id]);
+    $side = $this->origin->clone('side');
+    file_put_contents($side->root.'/shared.txt', "shared\n");
+    Origin::racingPush($code->sandbox, "git -C {$side->root} add shared.txt && git -C {$side->root} commit -q -m 'Side change' && git -C {$side->root} push -q origin HEAD:main", ref: 'refs/heads/main');
+
+    $run = $code->kanban(['finish', $id]);
+
+    expect($run->getExitCode())->toBe(0, $run->getOutput().$run->getErrorOutput())
+        ->and($run->getOutput())->not->toContain('do not apply')
+        ->and($this->origin->log('main')[0])->toBe('Drop the red marker')
+        ->and(is_file($code->root().'/RED'))->toBeFalse()
+        ->and($code->sandbox->read($id)['stage'])->toBe('done');
+});
+
+it('keeps the merge and its lease when the remote fails as it resumes, and goes on with it next time', function () {
+    $code = $this->code;
+    $code->defaults['KANBAN_SYNC'] = 'on';
+    $code->ok(['sync']);
+    $id = $code->started('Breaks the suite');
+    $code->commit($id, 'RED', "red\n");
+    $code->approve($id);
+    expect($code->kanban(['finish', $id])->getExitCode())->toBe(12);
+    $code->gitIn($code->mergeClone(), 'rm', '-q', 'RED');
+    $code->gitIn($code->mergeClone(), 'commit', '-q', '-m', 'Drop the red marker');
+    $code->ok(['merged', $id, 'fixed', '--note=The marker was the card\'s own test file'], cwd: $code->mergeClone());
+    $code->ok(['apply', $id]);
+    $code->sandbox->git('remote', 'set-url', 'origin', $code->root().'/../no-such-origin');
+
+    $failed = $code->kanban(['finish', $id]);
+    $state = $code->mergeState();
+    $code->sandbox->git('remote', 'set-url', 'origin', $this->origin->path);
+    $run = $code->kanban(['finish', $id]);
+
+    expect($failed->getExitCode())->toBe(9)
+        ->and($state)->toMatchArray(['phase' => 'checks', 'merger_rounds' => 1])
+        ->and($run->getExitCode())->toBe(0, $run->getOutput().$run->getErrorOutput())
+        ->and($this->origin->log('main')[0])->toBe('Drop the red marker')
+        ->and($code->sandbox->read($id)['stage'])->toBe('done');
+});
+
+it('records the approved head itself as the merge when main was fast-forwarded to it by hand', function () {
+    $code = $this->code;
+    $id = $code->started('Add login page');
+    $head = $code->commit($id, 'login.php', "<?php\n");
+    $code->approve($id);
+    $branch = $code->sandbox->read($id)['work']['branch'];
+    $code->sandbox->git('fetch', '-q', $code->worktree($id), "{$branch}:{$branch}");
+    $code->sandbox->git('merge', '-q', '--ff-only', $branch);
+    pushMain($code, 'other.txt', "other\n");
+
+    $run = $code->kanban(['finish', $id]);
+
+    expect($run->getExitCode())->toBe(0, $run->getErrorOutput())
+        ->and($run->getOutput())->toContain("{$id} is on main already (".substr($head, 0, 7).'): done')
+        ->and($code->sandbox->read($id)['work']['merge'])->toBe($head);
+});
+
+it('merges and pushes while the main checkout cannot follow, and exits 10', function () {
+    $code = $this->code;
+    $id = $code->started('Add login page');
+    $code->commit($id, 'login.php', "<?php\n");
+    $code->approve($id);
+    $code->sandbox->git('checkout', '-q', '-b', 'elsewhere');
+
+    $run = $code->kanban(['finish', $id]);
+
+    expect($run->getExitCode())->toBe(10)
+        ->and($run->getErrorOutput())->toContain('main checkout not moved')
+        ->and($this->origin->log('main')[0])->toBe("{$id}: Add login page")
+        ->and($code->sandbox->read($id)['stage'])->toBe('done');
+});
+
+it('starts its own beater once the beater of the merge before it is gone', function () {
+    $code = $this->code;
+    $runtime = $code->root().'/.git/laravel-house';
+    [$gone, $released] = [$code->root().'/../beater-gone', $code->root().'/../beater-released'];
+    // the merge before's beater, holding its lock as this merge takes the lease; it says when it let go
+    @mkdir($runtime, 0775, true);
+    $before = new Process(['sh', '-c', "flock {$runtime}/merge.beat.lock sh -c 'until [ -f {$gone} ]; do sleep 0.1; done'; touch {$released}"]);
+    $before->start();
+    for ($until = microtime(true) + 10; microtime(true) < $until && ! is_file($runtime.'/merge.beat.lock');) {
+        usleep(50_000);
+    }
+    // the gate ends the beaters this merge started meanwhile, as if each gave up waiting, then lets the one before go:
+    // only the checks' tick can start this merge's beater after it ([/] keeps pkill from matching the gate itself)
+    configureMerge($code, ['gates' => ['report' => [
+        "pkill -f -- '{$code->root()}[/]vendor/bin/kanban finish --beat='; touch {$gone}; until [ -f {$released} ]; do sleep 0.1; done",
+    ]]]);
+    $id = $code->started('Breaks the suite');
+    $code->commit($id, 'RED', "red\n");
+    $code->approve($id);
+
+    $run = $code->kanban(['finish', $id]);
+    $lease = (string) $code->mergeState()['lease'];
+    // its beater, beating: the lock it took names its lease
+    $beats = fn (): bool => @file_get_contents($runtime.'/merge.beat.lock') === $lease;
+    for ($until = microtime(true) + 10; microtime(true) < $until && ! $beats();) {
+        usleep(50_000);
+    }
+
+    expect($run->getExitCode())->toBe(12, $run->getErrorOutput())
+        ->and($before->isRunning())->toBeFalse()
+        ->and($beats())->toBeTrue();
+});
+
+it('starts its own beater on a merge that stops on a conflict while the beater of the merge before it still ends', function () {
+    $code = $this->code;
+    $runtime = $code->root().'/.git/laravel-house';
+    @mkdir($runtime, 0775, true);
+    // the merge before's beater, holding its lock until this merge is at its merger's turn
+    $before = new Process(['flock', $runtime.'/merge.beat.lock', 'sh', '-c', "until grep -q '\"phase\": *\"conflict\"' {$runtime}/merge.json 2>/dev/null; do sleep 0.1; done"]);
+    $before->start();
+    for ($until = microtime(true) + 10; microtime(true) < $until && ! is_file($runtime.'/merge.beat.lock');) {
+        usleep(50_000);
+    }
+    $id = $code->started('Conflict');
+    $code->commit($id, 'app.php', "<?php\n\nreturn 'branch';\n");
+    $code->approve($id);
+    pushMain($code, 'app.php', "<?php\n\nreturn 'main';\n");
+
+    $run = $code->kanban(['finish', $id]);
+    $lease = (string) $code->mergeState()['lease'];
+    for ($until = microtime(true) + 10; microtime(true) < $until && $before->isRunning();) {
+        usleep(50_000);
+    }
+    // its beater, beating: the lock it took names its lease
+    $beats = fn (): bool => @file_get_contents($runtime.'/merge.beat.lock') === $lease;
+    for ($until = microtime(true) + 10; microtime(true) < $until && ! $beats();) {
+        usleep(50_000);
+    }
+
+    expect($run->getExitCode())->toBe(12, $run->getErrorOutput())
+        ->and($before->isRunning())->toBeFalse()
+        ->and($beats())->toBeTrue();
+});
+
+/** The merge stack gone, as after a reboot: its server ended, docker knowing no project of it. */
+function mergeStackGone(CodeSandbox $code): void
+{
+    $file = $code->docker.'/state.json';
+    $state = json_decode((string) file_get_contents($file), true);
+    if (! empty($state['projects'][mergeProject($code)]['pid'])) {
+        posix_kill((int) $state['projects'][mergeProject($code)]['pid'], SIGTERM);
+    }
+    unset($state['projects'][mergeProject($code)]);
+    file_put_contents($file, json_encode($state));
+}
+
+/** A red merge whose merger's fix (the RED marker dropped) is applied: phase checks. */
+function mergerFixed(CodeSandbox $code): string
+{
+    $id = $code->started('Breaks the suite');
+    $code->commit($id, 'RED', "red\n");
+    $code->approve($id);
+    expect($code->kanban(['finish', $id])->getExitCode())->toBe(12);
+    $code->gitIn($code->mergeClone(), 'rm', '-q', 'RED');
+    $code->gitIn($code->mergeClone(), 'commit', '-q', '-m', 'Drop the red marker');
+    $code->ok(['merged', $id, 'fixed', '--note=The marker was the card\'s own test file'], cwd: $code->mergeClone());
+    $code->ok(['apply', $id]);
+
+    return $id;
+}
+
+it("keeps a merger's applied result and the lease when the merge stack fails as it resumes, and checks it once the stack is back", function () {
+    $code = $this->code;
+    $id = mergerFixed($code);
+    mergeStackGone($code);
+
+    $failed = $code->kanban(['finish', $id], ['FAKE_DOCKER_FAIL' => 'up']);
+    $state = $code->mergeState();
+    $lease = $code->lease();
+    $run = $code->kanban(['finish', $id]);
+
+    expect($failed->getExitCode())->toBe(7, $failed->getOutput().$failed->getErrorOutput())
+        ->and($failed->getOutput())->toContain("{$id}: the merge and its lease stay: the next `kanban finish {$id}` goes on with it")
+        ->and($state)->toMatchArray(['phase' => 'checks', 'merger_rounds' => 1])
+        ->and($lease)->toMatchArray(['card' => $id])
+        ->and($run->getExitCode())->toBe(0, $run->getOutput().$run->getErrorOutput())
+        ->and($this->origin->log('main')[0])->toBe('Drop the red marker')
+        ->and($code->sandbox->read($id)['stage'])->toBe('done');
+});
+
+it('lets a merge with its merger\'s work go, uncounted, when a finish.check command is not found on main either', function () {
+    $code = $this->code;
+    $id = mergerFixed($code);
+    configureMerge($code, ['finish' => ['check' => ['no-such-suite --all']]]);
+
+    $runs = array_map(fn () => $code->kanban(['finish', $id]), [1, 2, 3]);
+
+    expect(array_map(fn ($r) => $r->getExitCode(), $runs))->toBe([7, 7, 7], $runs[0]->getOutput().$runs[0]->getErrorOutput())
+        ->and($runs[0]->getErrorOutput())->toContain('finish.check: `no-such-suite --all` is not found in the app container (exit 127), on main either')
+        ->and($runs[0]->getOutput())->not->toContain('the merge and its lease stay')
+        ->and($code->lease())->toBeNull()
+        ->and($code->mergeState())->toBeNull()
+        ->and($code->sandbox->read($id)['stage'])->toBe('review')
+        ->and($code->sandbox->read($id)['blocked'] ?? null)->toBeNull();
+});
+
+it('counts a merged tree whose docker files the merge stack fails on, and blocks the card at the third', function () {
+    $code = $this->code;
+    $id = $code->started('Change the image');
+    $code->commit($id, 'Dockerfile.local', "FROM scratch\n");
+    $code->approve($id);
+
+    $runs = array_map(fn () => $code->kanban(['finish', $id], ['FAKE_DOCKER_BROKEN' => 'Dockerfile.local']), [1, 2, 3]);
+
+    expect(array_map(fn ($r) => $r->getExitCode(), $runs))->toBe([7, 7, 7], $runs[0]->getErrorOutput())
+        ->and($runs[0]->getErrorOutput())->toContain('failed to solve: Dockerfile.local')
+        ->and($code->lease())->toBeNull()
+        ->and($code->mergeState())->toBeNull()
+        ->and($code->sandbox->read($id)['stage'])->toBe('review')
+        ->and($code->sandbox->read($id)['blocked'])->toStartWith('merge failed 3×: ');
+});
+
+it('gives the merge up and blocks the card when its stack fails three times as it resumes', function () {
+    $code = $this->code;
+    $id = mergerFixed($code);
+    mergeStackGone($code);
+
+    $runs = array_map(fn () => $code->kanban(['finish', $id], ['FAKE_DOCKER_FAIL' => 'up']), [1, 2, 3]);
+
+    expect(array_map(fn ($r) => $r->getExitCode(), $runs))->toBe([7, 7, 7])
+        ->and($code->lease())->toBeNull()
+        ->and($code->mergeState())->toBeNull()
+        ->and($code->sandbox->read($id))->toMatchArray(['stage' => 'review'])
+        ->and($code->sandbox->read($id)['blocked'])->toStartWith('merge failed 3×: ')
+        ->and(trim($code->sandbox->git('for-each-ref', "refs/merge-queue/{$id}/")))->toBe('');
+});
+
+it("ends a merge its merger sent back, or one aborted, while the merge stack is gone: the right exit, the card's pins gone", function (bool $abort) {
+    $code = $this->code;
+    $id = $code->started('Breaks the suite');
+    $code->commit($id, 'RED', "red\n");
+    $code->approve($id);
+    expect($code->kanban(['finish', $id])->getExitCode())->toBe(12);
+    if (! $abort) {
+        $code->ok(['merged', $id, 'back', '--note=The RED marker is the card\'s own'], cwd: $code->mergeClone());
+        $code->ok(['apply', $id]);
+    }
+    mergeStackGone($code);
+
+    $run = $code->kanban($abort ? ['finish', $id, '--abort'] : ['finish', $id]);
+
+    expect($run->getExitCode())->toBe($abort ? 0 : 13, $run->getOutput().$run->getErrorOutput())
+        ->and($code->lease())->toBeNull()
+        ->and($code->mergeState())->toBeNull()
+        ->and(trim($code->sandbox->git('for-each-ref', "refs/merge-queue/{$id}/")))->toBe('')
+        ->and($code->sandbox->read($id)['stage'])->toBe($abort ? 'review' : 'doing');
+})->with(['sent back' => [false], 'aborted' => [true]]);
+
+it('brings a merge stack that went down back up before the merger works in it, leaving the conflict as it is', function () {
+    $code = $this->code;
+    $id = $code->started('Conflict');
+    $code->commit($id, 'app.php', "<?php\n\nreturn 'branch';\n");
+    $code->approve($id);
+    pushMain($code, 'app.php', "<?php\n\nreturn 'main';\n");
+    expect($code->kanban(['finish', $id])->getExitCode())->toBe(12);
+    $state = $code->mergeState();
+    mergeStackGone($code);
+
+    $run = $code->kanban(['finish', $id]);
+
+    $docker = json_decode((string) file_get_contents($code->docker.'/state.json'), true);
+    expect($run->getExitCode())->toBe(12, $run->getOutput().$run->getErrorOutput())
+        ->and($run->getOutput())->toContain("{$id}: conflicts in app.php; the merger's turn")
+        ->and($docker['projects'])->toHaveKey(mergeProject($code))
+        ->and(array_diff_key($code->mergeState(), ['beat_at' => 1]))->toBe(array_diff_key($state, ['beat_at' => 1]))
+        ->and(file_get_contents($code->mergeClone().'/app.php'))->toContain('<<<<<<<');
+});
+
+it('hands the merger a finish.check command the merged tree lost, which the base has, saying whether it passes there', function (bool $passes) {
+    $code = $this->code;
+    configureMerge($code, ['finish' => ['check' => ['./suite.sh']]]);
+    file_put_contents($code->root().'/suite.sh', $passes ? "#!/bin/sh\ntest ! -e RED\n" : "#!/bin/sh\nexit 1\n");
+    chmod($code->root().'/suite.sh', 0755);
+    $code->sandbox->git('add', 'suite.sh');
+    $code->sandbox->git('commit', '-q', '-m', 'The suite');
+    $code->sandbox->git('push', '-q', 'origin', 'main');
+    $id = $code->started('Drops the suite');
+    $code->gitIn($code->worktree($id), 'rm', '-q', 'suite.sh');
+    $code->gitIn($code->worktree($id), 'commit', '-q', '-m', 'Drop the suite');
+    $code->approve($id);
+
+    $run = $code->kanban(['finish', $id]);
+
+    expect($run->getExitCode())->toBe(12, $run->getOutput().$run->getErrorOutput())
+        ->and($code->mergeState())->toMatchArray(['phase' => 'red', 'failure' => ['step' => 'suite', 'command' => './suite.sh', 'exit' => 127,
+            'tail' => $code->mergeState()['failure']['tail'], 'base_rerun' => $passes ? 'passed' : 'failed']])
+        ->and($code->lease())->toMatchArray(['card' => $id]);
+})->with(['it passes on main' => [true], 'it fails on main' => [false]]);
+
+it('merges again a merge killed before its push landed, and pushes it', function () {
+    $code = $this->code;
+    $id = $code->started('Add login page');
+    $code->commit($id, 'login.php', "<?php\n");
+    $code->approve($id);
+    $origin = trim($code->gitIn($this->origin->path, 'rev-parse', 'main'));
+    // the finish dies before its push reaches origin
+    Origin::racingPush($code->sandbox, 'kill -9 $(cat "'.$code->root().'/.git/laravel-house/merge/finish.pid"); exit 1', ref: 'refs/heads/main');
+
+    try {
+        $code->kanban(['finish', $id]);
+        $killed = false;
+    } catch (ProcessSignaledException) {
+        $killed = true;
+    }
+    $state = $code->mergeState();
+    $before = trim($code->gitIn($this->origin->path, 'rev-parse', 'main'));
+    $resumed = $code->kanban(['finish']);
+
+    expect($killed)->toBeTrue()
+        ->and($state['phase'])->toBe('pushing')
+        ->and($before)->toBe($origin)
+        ->and($resumed->getExitCode())->toBe(0, $resumed->getOutput().$resumed->getErrorOutput())
+        ->and($resumed->getOutput())->toContain("{$id}: its push did not land; merging again on the new main (round 2)")
+        ->and($this->origin->log('main')[0])->toBe("{$id}: Add login page")
+        ->and($code->sandbox->read($id)['stage'])->toBe('done')
+        ->and($code->lease())->toBeNull();
+});
+
+it('installs every lockfile again in a merge clone made anew', function () {
+    $code = $this->code;
+    $log = $code->root().'/../installs.log';
+    configureMerge($code, ['finish' => ['install' => ['composer.lock' => "echo \"install \$FAKE_DOCKER_EXEC\" >> {$log}"]]]);
+    $first = $code->started('Bump deps');
+    $code->commit($first, 'composer.lock', "{}\n");
+    $code->approve($first);
+    $code->ok(['finish', $first]);
+    (new Process(['rm', '-rf', $code->mergeClone()]))->mustRun();
+    $second = $code->started('Add login page');
+    $code->commit($second, 'login.php', "<?php\n");
+    $code->approve($second);
+
+    $code->ok(['finish', $second]);
+
+    expect(file($log, FILE_IGNORE_NEW_LINES))->toBe(['install 1', 'install ', 'install 1'])
+        ->and($code->sandbox->read($second)['stage'])->toBe('done');
+});
+
+it('signals no process a stale run.json names when a stop meets a finish started by hand', function () {
+    $code = $this->code;
+    $id = $code->started('Breaks the suite');
+    $code->commit($id, 'RED', "red\n");
+    $code->approve($id);
+    expect($code->kanban(['finish', $id])->getExitCode())->toBe(12);
+    $runtime = $code->root().'/.git/laravel-house';
+    // the pid a detached finish once had, now another process's group
+    $stranger = new Process(['setsid', 'sleep', '300']);
+    $stranger->start();
+    file_put_contents($runtime.'/merge/run.json', json_encode(['pid' => $stranger->getPid(), 'card' => $id, 'started' => '2026-01-01T00:00:00.000+00:00']));
+    $hand = new Process(['flock', $runtime.'/merge.run.lock', 'sleep', '300']);
+    $hand->start();
+    $held = function () use ($runtime): bool {
+        $lock = fopen($runtime.'/merge.run.lock', 'c');
+        $free = flock($lock, LOCK_SH | LOCK_NB);
+        fclose($lock);
+
+        return ! $free;
+    };
+    for ($until = microtime(true) + 10; microtime(true) < $until && ! $held();) {
+        usleep(50_000);
+    }
+
+    try {
+        $stop = $code->kanban(['stop', $id, '--to=backlog']);
+        $alive = $stranger->isRunning();
+    } finally {
+        $stranger->stop(0);
+        $hand->stop(0);
+    }
+
+    expect($stop->getExitCode())->toBe(11, $stop->getOutput().$stop->getErrorOutput())
+        ->and($stop->getErrorOutput())->toContain('a merge runs here')
+        ->and($alive)->toBeTrue();
+});
+
+it('counts a detached finish as running until its wrapper wrote its exit', function () {
+    $code = $this->code;
+    $id = $code->started('Breaks the suite');
+    $code->commit($id, 'RED', "red\n");
+    $code->approve($id);
+    expect($code->kanban(['finish', $id])->getExitCode())->toBe(12);
+    $runtime = $code->root().'/.git/laravel-house';
+    file_put_contents($runtime.'/merge.json', json_encode(['phase' => 'checks'] + $code->mergeState()));
+    // the wrapper MergeRun started, its finish just ended and its exit not written yet
+    $wrapper = new Process(['setsid', 'sh', '-c', 'sleep 300; echo $? > '.escapeshellarg($runtime.'/merge/exit')]);
+    $wrapper->start();
+    $run = ['pid' => $wrapper->getPid(), 'card' => $id, 'started' => '2026-01-01T00:00:00.000+00:00'];
+    file_put_contents($runtime.'/merge/run.json', json_encode($run));
+    for ($until = microtime(true) + 10; microtime(true) < $until && ! str_contains((string) @file_get_contents('/proc/'.$wrapper->getPid().'/cmdline'), 'merge/exit');) {
+        usleep(50_000);
+    }
+
+    try {
+        $code->kanban(['run', '--once'], ['PATH' => Sandbox::package().'/tests/Support/FakeClaude:'.Sandbox::package().'/tests/Support/FakeDocker:'.getenv('PATH'), 'FAKE_CLAUDE_DIR' => Sandbox::tmp()]);
+        $after = json_decode((string) file_get_contents($runtime.'/merge/run.json'), true);
+    } finally {
+        $wrapper->stop(0);
+        @unlink($runtime.'/merge/run.json');
+        runSettled($code);
+    }
+
+    expect($after)->toBe($run);
+});
+
+it('ends only the merger of a merge it aborts: a worker of the card launched meanwhile goes on', function () {
+    $code = $this->code;
+    $id = $code->started('Breaks the suite');
+    $code->commit($id, 'RED', "red\n");
+    $code->approve($id);
+    expect($code->kanban(['finish', $id])->getExitCode())->toBe(12);
+    @mkdir($code->root().'/.git/laravel-house/runs', 0775, true);
+    $runs = [];
+    foreach (['kanban-merger' => 'a1b2c3d4-0000-4000-8000-000000000001', 'kanban-worker' => 'a1b2c3d4-0000-4000-8000-000000000002'] as $type => $session) {
+        $runs[$type] = new Process(['setsid', 'sh', '-c', 'sleep 300; :', 'sh', $session]);
+        $runs[$type]->start();
+        file_put_contents($code->root()."/.git/laravel-house/runs/{$session}.pid", json_encode(['pid' => $runs[$type]->getPid(), 'card' => $id, 'type' => $type, 'stage' => 'review']));
+    }
+
+    try {
+        $aborted = $code->kanban(['finish', $id, '--abort']);
+        $alive = array_map(fn (Process $p) => $p->isRunning(), $runs);
+    } finally {
+        array_map(fn (Process $p) => $p->stop(0), $runs);
+    }
+
+    expect($aborted->getExitCode())->toBe(0, $aborted->getErrorOutput())
+        ->and($aborted->getOutput())->toContain('stopped its merger a1b2c3d4')->not->toContain('stopped its worker')
+        ->and($alive)->toBe(['kanban-merger' => false, 'kanban-worker' => true]);
+});
+
+it('waits, before the lease, while the main checkout holds a file git does not track where the card adds one, on a board without a remote', function () {
+    $code = $this->code;
+    $code->sandbox->git('remote', 'remove', 'origin');
+    $id = $code->started('Add login page');
+    $code->commit($id, 'login.php', "<?php\n");
+    $code->approve($id);
+    file_put_contents($code->root().'/login.php', "<?php // left over\n");
+
+    $waits = $code->kanban(['finish', $id]);
+    unlink($code->root().'/login.php');
+    $merged = $code->kanban(['finish', $id]);
+
+    expect($waits->getExitCode())->toBe(11)
+        ->and($waits->getErrorOutput())->toContain("main checkout not moved: the merge of {$id} adds login.php, which git does not track here: remove or commit it, then `kanban finish {$id}`")
+        ->and($waits->getOutput())->not->toContain('gates and finish.check')
+        ->and(array_values(array_filter($code->sandbox->boardLog(), fn (string $s) => str_contains($s, ' taken '))))->toBe(["merge lease {$id} taken [owner]"])
+        ->and($merged->getExitCode())->toBe(0, $merged->getOutput().$merged->getErrorOutput())
+        ->and(trim($code->sandbox->git('log', '-1', '--format=%s', 'main')))->toBe("{$id}: Add login page");
+});
+
+it('counts a local fast-forward that a file in the main checkout keeps failing after the checks, and blocks the card at the third', function () {
+    $code = $this->code;
+    $code->sandbox->git('remote', 'remove', 'origin');
+    $left = $code->root().'/login.php';
+    // a file that turns up in the main checkout while the checks run
+    configureMerge($code, ['gates' => ['report' => ["echo left > {$left}"]]]);
+    $id = $code->started('Add login page');
+    $code->commit($id, 'login.php', "<?php\n");
+    $code->approve($id);
+
+    $runs = [];
+    foreach ([1, 2, 3] as $try) {
+        $runs[] = $code->kanban(['finish', $id]);
+        @unlink($left);
+    }
+
+    expect(array_map(fn ($r) => $r->getExitCode(), $runs))->toBe([11, 11, 11])
+        ->and($runs[0]->getErrorOutput())->toContain('main checkout not moved: ')->toContain("; remove, commit or stash the files in the way, then `kanban finish {$id}`")
+        ->and($runs[0]->getOutput())->toContain('gates and finish.check pass')
+        ->and($code->lease())->toBeNull()
+        ->and($code->sandbox->read($id)['blocked'])->toStartWith('merge failed 3×: main checkout not moved: ')
+        ->and(trim($code->sandbox->git('log', '-1', '--format=%s', 'main')))->not->toContain($id);
 });

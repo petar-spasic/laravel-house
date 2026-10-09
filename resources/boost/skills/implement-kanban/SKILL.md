@@ -60,7 +60,8 @@ Then the owner answers what only they know:
   this machine (then `KANBAN_SYNC=off` in `.env` before step 2).
 - `/kanban` has no login (laravel-deployment, Trap "Anyone who can reach the web port reads and edits the board at
   `/kanban`"). The owner chooses `KANBAN_UI_TOKEN`, `WEB_BIND=127.0.0.1`, or leaving it open.
-- Without a `docker-compose.local.yml`, cards get a clone of main and no stack. Ask whether that is intended.
+- Without a `docker-compose.local.yml`, cards get a clone of main and no stack, and nothing merges: the merge queue
+  checks each merge in a stack of its own. Ask whether that is intended.
 
 ## 2. Install
 
@@ -129,7 +130,14 @@ If `vendor/bin/kanban status` shows the pre-restart session holding the lease, r
 ## 6. Doctor
 
 Run `vendor/bin/kanban doctor` and `vendor/bin/kanban validate` on the host, never in the container (doctor sees host
-paths). No `fail` may remain. Read every `warn`:
+paths). No `fail` may remain. These clear only with the owner:
+- `finish.check names no suite`: the merge queue merges nothing until it does. With the owner, set `finish.check` in
+  `config/kanban.php` (publish it first: `php artisan vendor:publish --tag=kanban-config`) to the whole suite as
+  `tests/CLAUDE.md` names it, each command as it runs inside the app container (on the host with
+  `KANBAN_AGENT_SHELL=host`). A `warn` that it names docker, compose or `kanban-exec`: the same command without them.
+- `worktree stacks disabled`: nothing merges until the project has a local compose file (laravel-deployment).
+
+Read every `warn`:
 - `no deploy key …`: `vendor/bin/kanban doctor --fix` makes it and prints the public key on a line of its own.
   The owner registers it (step 2), then restart (step 4). `ok deploy key` only means the file exists, not that the
   repository knows it.
@@ -148,6 +156,8 @@ prints `sync: up to date`, `pulled` or `pushed`. Anything else: laravel-deployme
 ## 7. Commit main
 
 Ask first: one commit or a few by concern. Board writes are already commits on `kanban`; main's `git status` ends clean.
+Then `vendor/bin/kanban publish`: the merge queue merges onto `origin`'s main, and a commit left only here makes the
+main checkout diverge from it.
 
 ## 8. First card through the loop
 
@@ -159,9 +169,9 @@ board" says, until the card is done.
 
 ## 9. Publish and report
 
-`vendor/bin/kanban publish` syncs the board, then pushes `main`, merging `origin/main` when it moved.
-- It pushes the board even under `KANBAN_SYNC=off`, so a local board pushes `main` with `git push origin main` instead.
-- A shared board shows a `finish` to everyone at once, but its code only after `publish`. The owner decides when.
+`vendor/bin/kanban publish` syncs the board, then pushes `main` only when it holds commits made outside the merge
+queue; it never merges. Each merge already pushed `main`.
+- It pushes the board even under `KANBAN_SYNC=off`.
 
 Report to the owner:
 - the archive and the rules it added, the cards with open questions, the doctor output, `vendor/bin/kanban status`
@@ -182,8 +192,9 @@ Both cases first:
    `sync off but this board is published` warning appears only once the board is on `origin`.
 2. **The board page** has no login. Ask whether the stack is visible beyond this machine (step 1, "The board page").
 
-**(c) On an older house version:** update the house as the README's "Updating" says (a `^0.x` caret never crosses a
-minor), then "Consolidating" when `status` says `an older board format`, step 6, the commit (step 7) and a restart (step 4).
+**(c) On an older house version:** update the house as the README's "Updating" says, its warnings for each version
+crossed first (a `^0.x` caret never crosses a minor), then "Consolidating" when `status` says `an older board format`,
+step 6, the commit and `publish` (step 7) and a restart (step 4).
 
 **(d) On the separate package.** Every clone does this. Upgrade every project on a machine before starting new
 worktree stacks there: the port registry is machine-wide.
@@ -212,7 +223,7 @@ worktree stacks there: the port registry is machine-wide.
    Then rebuild and recreate with `docker compose -f docker-compose.local.yml up -d --build --wait`. Without
    `--build` the container has no ssh.
 5. **Consolidate:** "Consolidating" below (the board is in the older format until then, so `doctor` fails).
-6. **Finish:** step 6's container check, the commit (step 7), restart (step 4).
+6. **Finish:** step 6's container check, the commit and `publish` (step 7), restart (step 4).
 
 **(e) The separate package, no board.** Swap the packages, with no `doctor`, then adopt the board by path (a) or (b):
 
@@ -226,7 +237,8 @@ A board from before version 3 (`an older board format: the owner runs /implement
 epic directories, and maybe a decisions board. Every command but `sync`, `doctor`, `attach` and `kanban:install` refuses
 until it is consolidated.
 
-1. **Drain:** no card in doing or review (`finish` or `stop` them with the owner).
+1. **Drain:** no card in doing or review, on the house version the board runs now (`finish` or `stop` them with the
+   owner).
 2. **Every clone runs the new house** before anyone writes: the merge driver must write the same bytes everywhere.
 3. `vendor/bin/kanban fold-boards --dry-run`, and show the owner every line: the moves, the archived decisions, each
    epic and its card count, each open question and the cards it lands on, the cards with no area, and the startable
@@ -249,4 +261,5 @@ entry by entry, and only then:
   superseded, or a one-off choice that shaped one piece of work.
 - **Otherwise** write one imperative line in the `CLAUDE.md` of the directory it governs, without the history.
 - Aim for at most one line per three entries; every line is read by every agent on every card.
-- Show the owner the diff and the skipped entries with a reason each; commit on main with the owner's OK.
+- Show the owner the diff and the skipped entries with a reason each; commit on main with the owner's OK, then
+  `vendor/bin/kanban publish`.

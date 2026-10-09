@@ -4,27 +4,8 @@ use PetarSpasic\LaravelHouse\Tests\Support\Origin;
 use PetarSpasic\LaravelHouse\Tests\Support\Sandbox;
 use PetarSpasic\LaravelHouse\Tests\Support\UiSandbox;
 
-/** An origin with an installed, published board, plus two attached clones. */
-function published(): array
-{
-    $origin = Origin::create();
-    $seed = Sandbox::create('seed')->addRemote($origin);
-    $seed->install('ACME');
-    $seed->git('commit', '-q', '-am', 'Ignore the board worktree');
-    $seed->git('push', '-q', 'origin', 'main');
-    expect($seed->ok('sync'))->toBe("sync: pushed 1 commit(s)\n");
-
-    $a = $origin->clone('a');
-    $b = $origin->clone('b');
-    foreach ([$a, $b] as $clone) {
-        expect($clone->ok('attach'))->toContain('attached origin/kanban at docs/kanban');
-    }
-
-    return [$origin, $a, $b, $seed];
-}
-
 it('attaches the board on a fresh clone', function () {
-    [$origin, $a] = published();
+    [$origin, $a] = Origin::published();
 
     expect(trim($a->boardGit('rev-parse', '--abbrev-ref', '@{upstream}')))->toBe('origin/kanban')
         ->and(trim($a->git('config', 'merge.kanban.driver')))->toBe("php '{$a->root}/vendor/bin/kanban' merge-driver %O %A %B %P")
@@ -46,7 +27,7 @@ it('attaches the board on a fresh clone', function () {
 });
 
 it('attaches from the clone\'s own copy of origin/kanban when origin cannot be reached, and never tells a teammate to start a second board', function () {
-    [$origin] = published();
+    [$origin] = Origin::published();
     $c = $origin->clone('c');
     rename($origin->path, $origin->path.'.away');
 
@@ -63,7 +44,7 @@ it('attaches from the clone\'s own copy of origin/kanban when origin cannot be r
 });
 
 it('gives a third clone the same bytes, displaced text included', function () {
-    [$origin, $a, $b] = published();
+    [$origin, $a, $b] = Origin::published();
     $id = $a->card('Shared card');
     $a->ok('sync');
     $b->ok('sync');
@@ -85,7 +66,7 @@ it('gives a third clone the same bytes, displaced text included', function () {
 });
 
 it('shows a teammate\'s name on what they did, and stays valid on a clone that only knows the roles', function () {
-    [$origin, $a, $b] = published();
+    [$origin, $a, $b] = Origin::published();
     $id = $a->card('Ana starts this');
     $a->ok(['set', $id, 'note=From Ana'], ['KANBAN_USER' => 'Ana']);
     $a->ok('sync');
@@ -96,7 +77,7 @@ it('shows a teammate\'s name on what they did, and stays valid on a clone that o
 });
 
 it('merges with the running package when the configured merge driver cannot run on this machine', function () {
-    [$origin, $a, $b] = published();
+    [$origin, $a, $b] = Origin::published();
     $id = $a->card('Shared card', ['--accept=One']);
     $a->ok('sync');
     $b->ok('sync');
@@ -117,7 +98,7 @@ it('merges with the running package when the configured merge driver cannot run 
 });
 
 it('converges two clones: field edits merge, logs union, a true conflict takes the newest', function () {
-    [$origin, $a, $b] = published();
+    [$origin, $a, $b] = Origin::published();
     $id = $a->card('Shared card', ['--accept=One']);
     $a->ok('sync');
     expect($b->ok('sync'))->toBe("sync: pulled 1 commit(s)\n");
@@ -145,7 +126,7 @@ it('converges two clones: field edits merge, logs union, a true conflict takes t
 });
 
 it('re-ids a card whose id was taken on origin before rebasing', function () {
-    [$origin, $a, $b] = published();
+    [$origin, $a, $b] = Origin::published();
     $env = ['KANBAN_ID_SEQUENCE' => 'AAAAAA'];
     $fromA = $a->card('From A', env: $env);
     $fromB = $b->card('From B', env: $env);
@@ -167,7 +148,7 @@ it('re-ids a card whose id was taken on origin before rebasing', function () {
 });
 
 it('claims with push-or-abort when sync is on: the loser exits 8', function () {
-    [$origin, $a, $b] = published();
+    [$origin, $a, $b] = Origin::published();
     $id = $a->readyCard('Contended card');
     $a->ok('sync');
     $b->ok('sync');
@@ -184,7 +165,7 @@ it('claims with push-or-abort when sync is on: the loser exits 8', function () {
 });
 
 it('loses a claim whose push is rejected because the card changed on origin', function () {
-    [$origin, $a, $b] = published();
+    [$origin, $a, $b] = Origin::published();
     $id = $a->readyCard('Raced card');
     $a->ok('sync');
     $b->ok('sync');
@@ -212,27 +193,15 @@ it('loses a claim whose push is rejected because the card changed on origin', fu
         ->and(trim($b->boardGit('rev-parse', 'HEAD')))->toBe(trim($b->boardGit('rev-parse', 'origin/kanban')));
 });
 
-/** A pre-push hook for $clone that runs $script (a shell snippet) once, before the first push goes out. */
-function racingPush(Sandbox $clone, string $script, bool $every = false): string
-{
-    $hooks = Sandbox::tmp();
-    $once = $every ? '' : "[ -f \"{$hooks}/done\" ] && exit 0\ntouch \"{$hooks}/done\"\n";
-    file_put_contents("{$hooks}/pre-push", "#!/bin/sh\n{$once}{$script}\nexit 0\n");
-    chmod("{$hooks}/pre-push", 0755);
-    $clone->git('config', 'core.hooksPath', $hooks);
-
-    return $hooks;
-}
-
 it('keeps a claim whose push is rejected only because somebody pushed something else', function () {
-    [$origin, $a, $b] = published();
+    [$origin, $a, $b] = Origin::published();
     $id = $a->readyCard('Raced card');
     $a->ok('sync');
     $b->ok('sync');
     $b->ok(['set', $id, 'body=Edited on B, not pushed yet']);
     $php = PHP_BINARY;
     $bin = Sandbox::package().'/bin/kanban';
-    racingPush($b, "cd \"{$a->root}\" && export KANBAN_SYNC=off XDEBUG_MODE=off && \"{$php}\" \"{$bin}\" new work 'Pushed meanwhile' >/dev/null 2>&1 && \"{$php}\" \"{$bin}\" sync >/dev/null 2>&1");
+    Origin::racingPush($b, "cd \"{$a->root}\" && export KANBAN_SYNC=off XDEBUG_MODE=off && \"{$php}\" \"{$bin}\" new work 'Pushed meanwhile' >/dev/null 2>&1 && \"{$php}\" \"{$bin}\" sync >/dev/null 2>&1");
 
     $claim = $b->kanban(['claim', $id], ['KANBAN_SYNC' => 'on', 'KANBAN_SESSION' => 'session-b']);
 
@@ -242,12 +211,12 @@ it('keeps a claim whose push is rejected only because somebody pushed something 
 });
 
 it('never lets another push of the clone carry a claim before the claim\'s own push lands', function () {
-    [$origin, $a, $b] = published();
+    [$origin, $a, $b] = Origin::published();
     $id = $a->readyCard('Raced card');
     $a->ok('sync');
     $b->ok('sync');
     // what a background sync does: push the branch as it is at that moment
-    racingPush($b, 'git -C "'.$b->root.'/docs/kanban" push -q origin refs/heads/kanban:refs/heads/kanban');
+    Origin::racingPush($b, 'git -C "'.$b->root.'/docs/kanban" push -q origin refs/heads/kanban:refs/heads/kanban');
 
     $claim = $b->kanban(['claim', $id], ['KANBAN_SYNC' => 'on', 'KANBAN_SESSION' => 'session-b']);
 
@@ -259,12 +228,12 @@ it('never lets another push of the clone carry a claim before the claim\'s own p
 });
 
 it('wins a claim whose push failed with an error after it reached origin', function () {
-    [$origin, $a, $b] = published();
+    [$origin, $a, $b] = Origin::published();
     $id = $a->readyCard('Lost answer');
     $a->ok('sync');
     $b->ok('sync');
     // the claim commit reaches origin, then the push fails before it can say so
-    racingPush($b, 'read ref sha rest; git -C "'.$b->root.'/docs/kanban" push -q origin "$sha:refs/heads/kanban"; exit 1');
+    Origin::racingPush($b, 'read ref sha rest; git -C "'.$b->root.'/docs/kanban" push -q origin "$sha:refs/heads/kanban"; exit 1');
 
     $claim = $b->kanban(['claim', $id], ['KANBAN_SYNC' => 'on', 'KANBAN_SESSION' => 'session-b']);
 
@@ -276,7 +245,7 @@ it('wins a claim whose push failed with an error after it reached origin', funct
 });
 
 it('checks the area again after a lost push race, so two schedulers cannot both fill it', function () {
-    [$origin, $a, $b] = published();
+    [$origin, $a, $b] = Origin::published();
     $second = $a->readyCard('Second in the area', ['--label=area:billing']);
     $a->ok('sync');
     $b->ok('sync');
@@ -284,7 +253,7 @@ it('checks the area again after a lost push race, so two schedulers cannot both 
     $first = $a->readyCard('First in the area', ['--label=area:billing', '--priority=high']);
     $php = PHP_BINARY;
     $bin = Sandbox::package().'/bin/kanban';
-    racingPush($b, "cd \"{$a->root}\" && KANBAN_SYNC=on KANBAN_SESSION=session-a XDEBUG_MODE=off \"{$php}\" \"{$bin}\" claim {$first} >/dev/null 2>&1");
+    Origin::racingPush($b, "cd \"{$a->root}\" && KANBAN_SYNC=on KANBAN_SESSION=session-a XDEBUG_MODE=off \"{$php}\" \"{$bin}\" claim {$first} >/dev/null 2>&1");
 
     $lost = $b->kanban(['claim', $second], ['KANBAN_SYNC' => 'on', 'KANBAN_SESSION' => 'session-b']);
 
@@ -297,13 +266,13 @@ it('checks the area again after a lost push race, so two schedulers cannot both 
 });
 
 it('gives up a claim after three rejected pushes and leaves no claim commit behind', function () {
-    [$origin, $a, $b] = published();
+    [$origin, $a, $b] = Origin::published();
     $id = $a->readyCard('Never wins');
     $a->ok('sync');
     $b->ok('sync');
     $php = PHP_BINARY;
     $bin = Sandbox::package().'/bin/kanban';
-    racingPush($b, "cd \"{$a->root}\" && export KANBAN_SYNC=off XDEBUG_MODE=off && \"{$php}\" \"{$bin}\" new work \"Pushed meanwhile \$(date +%s%N)\" >/dev/null 2>&1 && \"{$php}\" \"{$bin}\" sync >/dev/null 2>&1", every: true);
+    Origin::racingPush($b, "cd \"{$a->root}\" && export KANBAN_SYNC=off XDEBUG_MODE=off && \"{$php}\" \"{$bin}\" new work \"Pushed meanwhile \$(date +%s%N)\" >/dev/null 2>&1 && \"{$php}\" \"{$bin}\" sync >/dev/null 2>&1", every: true);
 
     $gave = $b->kanban(['claim', $id], ['KANBAN_SYNC' => 'on', 'KANBAN_SESSION' => 'session-b']);
 
@@ -315,7 +284,7 @@ it('gives up a claim after three rejected pushes and leaves no claim commit behi
 });
 
 it('keeps claims local when sync is off', function () {
-    [$origin, $a] = published();
+    [$origin, $a] = Origin::published();
     $id = $a->readyCard('Local claim');
 
     $a->ok(['claim', $id], ['KANBAN_SESSION' => 's']);
@@ -325,7 +294,7 @@ it('keeps claims local when sync is off', function () {
 });
 
 it('pushes in the background after each write when sync is on', function () {
-    [$origin, $a] = published();
+    [$origin, $a] = Origin::published();
 
     $id = $a->card('Pushed by itself', env: ['KANBAN_SYNC' => 'on']);
 
@@ -340,7 +309,7 @@ it('pushes in the background after each write when sync is on', function () {
 });
 
 it('keeps a write that is already committed when the host cannot start the background runner', function () {
-    [$origin, $a] = published();
+    [$origin, $a] = Origin::published();
     $dir = sys_get_temp_dir().'/kanban-ini-'.bin2hex(random_bytes(4));
     mkdir($dir);
     file_put_contents("{$dir}/no-exec.ini", "disable_functions=exec\n");
@@ -351,24 +320,31 @@ it('keeps a write that is already committed when the host cannot start the backg
         ->and($a->boardLog()[0])->toContain('created');
 });
 
-it('publishes the board and main, merging a moved origin/main', function () {
-    [$origin, $a, $b] = published();
+it('publishes the board, and main only as a fast-forward of origin/main', function () {
+    [$origin, $a, $b] = Origin::published();
     $a->card('Published card');
-    file_put_contents($a->root.'/app.txt', "a\n");
-    $a->git('add', 'app.txt');
-    $a->git('commit', '-q', '-m', 'Work from A');
-    file_put_contents($b->root.'/other.txt', "b\n");
-    $b->git('add', 'other.txt');
-    $b->git('commit', '-q', '-m', 'Work from B');
-    $b->ok('publish');
+    $commit = function (Sandbox $clone, string $file): void {
+        file_put_contents($clone->root.'/'.$file, "{$file}\n");
+        $clone->git('add', $file);
+        $clone->git('commit', '-q', '-m', "Add {$file}");
+    };
 
+    $current = $b->ok('publish');
+    $commit($a, 'app.txt');
+    $commit($a, 'more.txt');
     $published = $a->ok('publish');
+    $behind = $b->ok('publish');
+    $commit($b, 'other.txt');
+    $diverged = $b->kanban('publish');
 
-    expect($published)->toContain('sync: pushed 1 commit(s)')
-        ->toContain('main: merged origin/main')
-        ->toContain('main: pushed to origin')
-        ->and($origin->log('main'))->toContain('Work from A')->toContain('Work from B')
-        ->and($origin->log('kanban')[0])->toEndWith('created [owner]');
+    expect($current)->toContain("main: up to date\n")
+        ->and($published)->toContain('sync: pushed 1 commit(s)')->toContain("main: pushed 2 commit(s) made outside the queue\n")
+        ->and($origin->log('main'))->toContain('Add app.txt')->toContain('Add more.txt')
+        ->and($origin->log('kanban')[0])->toEndWith('created [owner]')
+        ->and($behind)->toContain("main: behind origin/main, nothing to push\n")
+        ->and($diverged->getExitCode())->toBe(3)
+        ->and($diverged->getErrorOutput())->toContain('main and origin/main diverged: merge or rebase by hand; the queue never merges origin/main for you')
+        ->and($origin->log('main'))->not->toContain('Add other.txt');
 });
 
 it('reports sync without a remote', function () {
@@ -379,7 +355,7 @@ it('reports sync without a remote', function () {
 });
 
 it('treats 1, true and yes like on for KANBAN_SYNC and reports it as on', function (string $value) {
-    [$origin, $a] = published();
+    [$origin, $a] = Origin::published();
     $id = $a->readyCard('Synced with '.$value);
     $a->ok('sync');
     $env = ['KANBAN_SYNC' => $value, 'KANBAN_SESSION' => 'session-a'];
@@ -393,7 +369,7 @@ it('treats 1, true and yes like on for KANBAN_SYNC and reports it as on', functi
 /** A synced card on work and an empty second board, on two clones. */
 function movable(): array
 {
-    [$origin, $a, $b] = published();
+    [$origin, $a, $b] = Origin::published();
     $a->ok(['board', 'tooling', 'Tooling']);
     $id = $a->card('Movable card', ['--accept=One']);
     $a->ok('sync');
@@ -463,7 +439,7 @@ it('lets origin win when both machines moved the same card, and keeps both machi
 });
 
 it('checks blocked, area and capacity against origin\'s board when sync is on, not against a stale view', function () {
-    [$origin, $a, $b] = published();
+    [$origin, $a, $b] = Origin::published();
     $blocked = $a->readyCard('Blocked upstream');
     $first = $a->readyCard('First in the area', ['--label=area:billing']);
     $second = $a->readyCard('Second in the area', ['--label=area:billing']);
@@ -487,7 +463,7 @@ it('checks blocked, area and capacity against origin\'s board when sync is on, n
 });
 
 it('does not report a remote outage when syncs overlap on one clone', function () {
-    [$origin, $a, $b] = published();
+    [$origin, $a, $b] = Origin::published();
     foreach (range(1, 3) as $round) {
         $a->card("News {$round}");
         $a->ok('sync');
@@ -503,7 +479,7 @@ it('does not report a remote outage when syncs overlap on one clone', function (
 });
 
 it('drops its claim commit when the fetch after a rejected claim push fails', function () {
-    [$origin, $a, $b] = published();
+    [$origin, $a, $b] = Origin::published();
     $id = $a->readyCard('Phantom claim');
     $a->ok('sync');
     $b->ok('sync');
@@ -533,7 +509,7 @@ it('drops its claim commit when the fetch after a rejected claim push fails', fu
 });
 
 it('starts a card origin has since unblocked, even though this clone has not synced', function () {
-    [$origin, $a, $b] = published();
+    [$origin, $a, $b] = Origin::published();
     $id = $a->readyCard('Unblocked upstream');
     $a->ok(['set', $id, 'blocked=waiting']);
     $a->ok('sync');
@@ -642,7 +618,7 @@ function drainSync(Sandbox $s): void
 }
 
 it('shows a sync that keeps failing as a notice, and clears it when the push lands', function () {
-    [$origin, $a] = published();
+    [$origin, $a] = Origin::published();
     UiSandbox::boot($a->root);
     $a->card('Waiting to be pushed');
     $quiet = $this->getJson('/kanban/_api/boards')->assertOk();
@@ -670,7 +646,7 @@ it('shows a sync that keeps failing as a notice, and clears it when the push lan
 });
 
 it('stops and says so when two clones together make a dependency cycle', function () {
-    [$origin, $a, $b] = published();
+    [$origin, $a, $b] = Origin::published();
     $one = $a->card('One');
     $two = $a->card('Two');
     $a->ok('sync');
@@ -692,7 +668,7 @@ it('stops and says so when two clones together make a dependency cycle', functio
 });
 
 it('keeps saying a pulled board is invalid, on a clone that has nothing of its own to push', function () {
-    [$origin, $a, $b] = published();
+    [$origin, $a, $b] = Origin::published();
     $one = $a->card('One');
     $two = $a->card('Two');
     $a->ok('sync');
@@ -716,7 +692,7 @@ it('keeps saying a pulled board is invalid, on a clone that has nothing of its o
 });
 
 it('tries a background sync again before it gives up, and shows what it could not push', function () {
-    [$origin, $a] = published();
+    [$origin, $a] = Origin::published();
     rename($origin->path, $origin->path.'.away');
 
     $a->card('Cannot leave yet', env: ['KANBAN_SYNC' => 'on']);
@@ -738,7 +714,7 @@ it('tries a background sync again before it gives up, and shows what it could no
 });
 
 it('recovers by itself from a short outage', function () {
-    [$origin, $a] = published();
+    [$origin, $a] = Origin::published();
     rename($origin->path, $origin->path.'.away');
 
     $id = $a->card('Leaves after the outage', env: ['KANBAN_SYNC' => 'on']);
@@ -757,7 +733,7 @@ it('recovers by itself from a short outage', function () {
 });
 
 it('keeps the previous sync record when the board lock is busy', function () {
-    [$origin, $a] = published();
+    [$origin, $a] = Origin::published();
     $a->card('Ahead of origin');
     rename($origin->path, $origin->path.'.away');
     $a->kanban('sync');
@@ -798,7 +774,7 @@ function within(callable $done): bool
 }
 
 it('pulls what a teammate pushed while the board stays open, without a write of its own', function () {
-    [$origin, $a, $b] = published();
+    [$origin, $a, $b] = Origin::published();
     $id = $a->card('Shared');
     $a->ok('sync');
     $b->ok('sync');
@@ -818,7 +794,7 @@ it('pulls what a teammate pushed while the board stays open, without a write of 
 });
 
 it('asks for a sync at most once per interval, however often the board is polled', function () {
-    [$origin, $a] = published();
+    [$origin, $a] = Origin::published();
     teamUi($a);
     $runtime = $a->root.'/.git/laravel-house';
 
@@ -836,7 +812,7 @@ it('asks for a sync at most once per interval, however often the board is polled
 });
 
 it('treats a stamp from the future as due', function () {
-    [$origin, $a] = published();
+    [$origin, $a] = Origin::published();
     teamUi($a);
     $runtime = $a->root.'/.git/laravel-house';
     $this->getJson('/kanban/_api/boards')->assertOk();
@@ -864,12 +840,12 @@ it('never starts a sync for a clone that has no remote, and stamps the interval 
 });
 
 it('still pulls on a clone whose own push keeps failing', function () {
-    [$origin, $a, $b] = published();
+    [$origin, $a, $b] = Origin::published();
     $id = $a->card('Shared');
     $a->ok('sync');
     $b->ok('sync');
     $a->card('Only here');
-    racingPush($a, 'exit 1', every: true);
+    Origin::racingPush($a, 'exit 1', every: true);
     $b->ok(['set', $id, 'title=Renamed by B']);
     $b->ok('sync');
     teamUi($a);
@@ -883,7 +859,7 @@ it('still pulls on a clone whose own push keeps failing', function () {
 });
 
 it('converges a headless clone through status and next, with no UI open', function () {
-    [$origin, $a, $b] = published();
+    [$origin, $a, $b] = Origin::published();
     $id = $a->card('Shared');
     $a->ok('sync');
     $b->ok('sync');
@@ -906,7 +882,7 @@ it('converges a headless clone through status and next, with no UI open', functi
 });
 
 it('does not wait for the write lock when there is nothing to pull or push', function () {
-    [$origin, $a] = published();
+    [$origin, $a] = Origin::published();
     $held = fopen($a->root.'/.git/laravel-house/lock', 'c');
     flock($held, LOCK_EX);
     $started = microtime(true);
@@ -944,7 +920,7 @@ it('keeps an installed board local when there is no origin, and says nothing abo
 });
 
 it('pushes each write by itself with the default setting when an origin exists', function () {
-    [$origin, $a] = published();
+    [$origin, $a] = Origin::published();
 
     $id = $a->card('Pushed by itself', env: ['KANBAN_SYNC' => 'auto']);
 
@@ -953,7 +929,7 @@ it('pushes each write by itself with the default setting when an origin exists',
 });
 
 it('keeps writes local with sync off, or with a value it does not know, and warns when the board is published', function () {
-    [$origin, $a] = published();
+    [$origin, $a] = Origin::published();
 
     $a->card('Stays here', env: ['KANBAN_SYNC' => 'off']);
     $a->card('Nor does this one', env: ['KANBAN_SYNC' => 'maybe']);
@@ -963,7 +939,7 @@ it('keeps writes local with sync off, or with a value it does not know, and warn
 });
 
 it('refuses a claim while the remote cannot be reached, naming the way to claim locally', function () {
-    [$origin, $a] = published();
+    [$origin, $a] = Origin::published();
     $id = $a->readyCard('Offline');
     $a->ok('sync');
     rename($origin->path, $origin->path.'.away');
@@ -980,7 +956,7 @@ it('refuses a claim while the remote cannot be reached, naming the way to claim 
 });
 
 it('converges three clones that write to the same cards at once: identical boards, no note lost, every displaced title kept', function () {
-    [$origin, $a, $b] = published();
+    [$origin, $a, $b] = Origin::published();
     $c = $origin->clone('c');
     $c->ok('attach');
     $clones = [$a, $b, $c];
@@ -1023,7 +999,7 @@ it('converges three clones that write to the same cards at once: identical board
 });
 
 it('lets doctor say what sync is doing here, and warn about a published board that is not synced', function () {
-    [$origin, $a] = published();
+    [$origin, $a] = Origin::published();
 
     $on = $a->kanban('doctor', ['KANBAN_SYNC' => 'auto']);
     expect($on->getOutput())->toContain("ok sync auto (on)\n");
@@ -1038,7 +1014,7 @@ it('lets doctor say what sync is doing here, and warn about a published board th
 });
 
 it('keeps local edits of a card deleted on origin aside, so the sync goes on and doctor names the file', function () {
-    [$origin, $a, $b] = published();
+    [$origin, $a, $b] = Origin::published();
     $gone = $a->card('Deleted elsewhere');
     $kept = $a->card('Still here');
     $a->ok('sync');
@@ -1068,7 +1044,7 @@ it('keeps local edits of a card deleted on origin aside, so the sync goes on and
 });
 
 it('refuses a pulled kanban.json that cannot be read, rather than taking it for an older board', function () {
-    [$origin, $a, $b] = published();
+    [$origin, $a, $b] = Origin::published();
     file_put_contents($a->root.'/docs/kanban/kanban.json', "{not json\n");
     $a->boardGit('commit', '-q', '-am', 'a broken settings file');
     $a->boardGit('push', '-q', 'origin', 'kanban');
@@ -1082,8 +1058,39 @@ it('refuses a pulled kanban.json that cannot be read, rather than taking it for 
         ->and($validate->getOutput().$validate->getErrorOutput())->toContain('kanban.json: invalid JSON')->not->toContain('board version 1');
 });
 
+it('pulls a merge lease and writes it in canonical order with the settings untouched, and refuses a malformed one', function () {
+    [$origin, $a, $b] = Origin::published();
+    $file = $a->root.'/docs/kanban/kanban.json';
+    $settings = json_decode(file_get_contents($file), true);
+    $lease = ['pushing' => str_repeat('b', 40), 'beat' => '2026-10-09T08:04:00.000+00:00', 'card' => 'ACME-7K2QF9',
+        'by' => 'ana@host-a', 'who' => 'Ana', 'since' => '2026-10-09T08:00:00.000+00:00', 'id' => '9f2c41d07a8b3e65'];
+    file_put_contents($file, json_encode(['merge' => $lease] + $settings, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n");
+    $a->boardGit('commit', '-q', '-am', 'a merge lease');
+    $a->boardGit('push', '-q', 'origin', 'kanban');
+
+    $b->ok('sync');
+    $validated = $b->ok('validate');
+    $fixed = $b->ok(['validate', '--fix']);
+    $pulled = json_decode(file_get_contents($b->root.'/docs/kanban/kanban.json'), true);
+
+    expect($validated)->toContain('ok: 0 cards')
+        ->and($fixed)->toContain('fixed canonical kanban.json')
+        ->and(array_slice(array_keys($pulled), -2))->toBe(['merge', 'updated'])
+        ->and(array_keys($pulled['merge']))->toBe(['id', 'card', 'by', 'who', 'since', 'beat', 'pushing'])
+        ->and($pulled['merge'])->toEqual($lease)
+        ->and($pulled['updated'])->toBe($settings['updated']);
+
+    file_put_contents($file, json_encode(['merge' => ['id' => 'not-a-lease-id'] + $lease] + $settings, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n");
+    $a->boardGit('commit', '-q', '-am', 'a malformed merge lease');
+    $a->boardGit('push', '-q', 'origin', 'kanban');
+    $refused = $b->kanban('sync');
+
+    expect($refused->getExitCode())->toBe(2, $refused->getErrorOutput())
+        ->and($refused->getErrorOutput())->toContain('invalid after the pull')->toContain('merge');
+});
+
 it('syncs an epic and the epic of a card set on one machine while the other edits the card', function () {
-    [$origin, $a, $b] = published();
+    [$origin, $a, $b] = Origin::published();
     $id = $a->card('Register a passkey');
     $a->ok('sync');
     $b->ok('sync');

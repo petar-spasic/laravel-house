@@ -52,7 +52,7 @@ final class Prerequisites
 
         $stack = (array) ($this->config['stack'] ?? []);
         if (! Stack::enabled($stack, $main)) {
-            $results[] = ['warn', 'no '.($stack['compose_file'] ?? 'compose file').': cards get a clone of main and no stack'];
+            $results[] = ['warn', 'no '.($stack['compose_file'] ?? 'compose file').': cards get a clone of main and no stack, and the merge queue merges nothing'];
 
             return $results;
         }

@@ -36,7 +36,8 @@ Behaviour-named (`it('…')`), `uses(RefreshDatabase::class)`.
 - Machine addresses come from the environment (e.g. the host of `LOCAL_APP_URL`), never a literal; stand-ins are RFC
   5737 (`192.0.2.x`, `198.51.100.x`, `203.0.113.x`).
 - While you work, run only the E2E test you wrote or touched: `php artisan test --compact tests/E2E/…`. The full run
-  belongs to whoever hands the work in, once, after the last commit, and to the owner before a push.
+  belongs to whoever hands the work in, once, after the last commit; on the board, the merge queue runs it again on the
+  merged tree before main moves.
 
 ## Auth proofs
 

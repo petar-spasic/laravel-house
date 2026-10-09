@@ -21,13 +21,15 @@ return [
 
     'agents' => [
         // Passed as --model and --effort to the agents `kanban run` starts (read again for each), and written into the
-        // frontmatter of .claude/agents/kanban-{planner,worker,evaluator}.md by kanban:install / doctor --fix. The planner
-        // writes each card's plan before it is ready; the worker follows it; the evaluator checks the work.
+        // frontmatter of .claude/agents/kanban-{planner,worker,evaluator,merger}.md by kanban:install / doctor --fix. The
+        // planner writes each card's plan before it is ready; the worker follows it; the evaluator checks the work; the
+        // merger resolves a conflict or judges a red suite when the merge queue merges main into approved work.
         'planner' => ['model' => 'opus', 'effort' => 'high'],
         'worker' => ['model' => 'sonnet', 'effort' => 'high'],
         'evaluator' => ['model' => 'opus', 'effort' => 'medium'],
-        // container: a worker's or evaluator's Bash and Monitor commands run in its card stack's `stack.service`
-        // container (vendor/bin/kanban-exec), except `git` and `vendor/bin/kanban`. host: they run on this machine.
+        'merger' => ['model' => 'opus', 'effort' => 'medium'],
+        // container: a card agent's Bash and Monitor commands, git included, run in its stack's `stack.service` container
+        // (vendor/bin/kanban-exec), except a plain `vendor/bin/kanban` command. host: they run on this machine.
         'shell' => env('KANBAN_AGENT_SHELL', 'container'),
         // What a headless card agent (`kanban run`) may use besides edits in its card and its routed shell: nobody is there
         // to approve anything else. [] keeps the agents off the web.
@@ -87,7 +89,7 @@ return [
         'wait_timeout' => 110,
         'down' => ['-v', '--remove-orphans', '--rmi', 'local', '-t', '5'],
         // Machine-wide caps and preconditions checked before `up`. Cards in review keep their stacks, so the cap covers
-        // doing and review together (6 + 6 by default).
+        // doing and review together (6 + 6 by default). The merge stack, one per checkout, is outside them.
         'max_stacks' => env('KANBAN_MAX_STACKS', 12),
         'min_mem_available_gib' => 8,
         'min_disk_free_gib' => 20,
@@ -97,36 +99,32 @@ return [
         'max_load_ratio' => 0.75,
     ],
 
-    // The one migrate command: `finish` runs it on main, and `kanban context` prints it for the card's agents.
+    // The one migrate command: `finish` runs it in main's stack whenever the main checkout moves (a merge, or following the
+    // remote's main), and `kanban context` prints it for the card's agents.
     'migrate' => 'php artisan migrate --force',
 
-    // What `finish` runs in the main checkout after the merge, read from the merged config/kanban.php. Each key a project's
-    // `finish` leaves out keeps the default below.
+    // What the merge queue (`finish`) runs, read from main's config/kanban.php. Each key a project's `finish` leaves out
+    // keeps the default below.
     'finish' => [
-        // Files main may change since the approval, alongside the branch, and keep the approval (fnmatch globs; `*` spans
-        // directories). The merge must still be clean.
-        'overlap_ignore' => ['*.md', 'docs/*'],
-        // A changed lockfile (by name, at any depth) => the command run in its directory first; a failure skips the rest.
+        // A changed lockfile (by name, at any depth) => the command run in its directory: in the merge stack before the
+        // checks, and in the main checkout after the push, where a failure skips the rest.
         'install' => [
             'composer.lock' => 'composer install --no-interaction',
             'package-lock.json' => 'npm ci',
         ],
-        // After `migrate`, when the project has a stack; a `--class=X` seeder is skipped while database/seeders/X.php does not exist.
+        // In main's stack after `migrate`, once main moved; a `--class=X` seeder is skipped while database/seeders/X.php does not exist.
         'after' => [
             'php artisan db:seed --class=ReferenceDataSeeder --force',
         ],
-        // The suite on main after the merge. A failure marks main red and files one bug card; the next `finish` runs it
-        // again first and merges only once it passes (or the card it filed, or --force).
+        // Required: the whole suite, as it runs where the gates run: inside the app container (no docker or compose), or on
+        // this machine with agents.shell host. The merge queue runs the gates, then these, on every merged tree in the
+        // merge stack before main moves; no card merges until it is set.
         'check' => [],
     ],
 
-    // `finish` pushes main once this many merges are not on the remote (0: only `kanban publish` pushes it).
-    'publish' => [
-        'every' => 5,
-    ],
-
     // Commands a worker's branch must pass before its report is applied ({main_branch} is replaced). `kanban report`
-    // runs them in the worker's worktree and `kanban gates` runs them for the evaluator, so they must not write files.
+    // runs them in the worker's worktree, `kanban gates` for the evaluator, and the merge queue on each merged tree in
+    // the merge stack, so they must not write files.
     // An entry is a command or ['run' => '…', 'timeout' => seconds, 'when' => 'a path']; `timeout` is the default
     // for the others, and a gate with `when` runs only where that path exists.
     'gates' => [

@@ -5,6 +5,7 @@ namespace PetarSpasic\LaravelHouse\Tests;
 use Orchestra\Testbench\TestCase as Orchestra;
 use PetarSpasic\LaravelHouse\Kanban\KanbanServiceProvider;
 use PetarSpasic\LaravelHouse\LaravelHouseServiceProvider;
+use PetarSpasic\LaravelHouse\Tests\Support\CodeSandbox;
 
 abstract class TestCase extends Orchestra
 {
@@ -17,5 +18,11 @@ abstract class TestCase extends Orchestra
     protected function defineEnvironment($app): void
     {
         $app['config']->set('kanban.sync', 'off');
+    }
+
+    protected function tearDown(): void
+    {
+        CodeSandbox::endTest();
+        parent::tearDown();
     }
 }

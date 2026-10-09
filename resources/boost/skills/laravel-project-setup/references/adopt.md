@@ -113,7 +113,7 @@ each batch.
    override of that topic, `.ai/guidelines/petar-spasic/laravel-house/<topic>.blade.php`.
 4. Run `php artisan house:update --check`. It rewrites each `.ai/` file it names whole, so diff each against
    `<dir>`'s copy first. A project addition moves to a file of the project's own, which the update never touches
-   (`.ai/guidelines/<app>.blade.php`), or its path goes under `overrides`.
+   (`.ai/guidelines/{{app}}.blade.php`), or its path goes under `overrides`.
 5. Run `php artisan house:update`, then `php artisan boost:update`. Then `php artisan house:update --check` prints
    nothing, and `php "${CLAUDE_SKILL_DIR}/scripts/verify.php" .` prints nothing.
 6. Read `git diff` with the owner: the project's own rules are all still there. Commit only after the owner agrees.

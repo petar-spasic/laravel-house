@@ -142,3 +142,29 @@ it('refuses ready for a planning card before its plan, and keeps its stack', fun
         ->and($code->ok(['stop', $id, '--to=backlog']))->toEndWith("{$id} planning→backlog\n")
         ->and($code->stacks())->toBe([]);
 });
+
+it('aborts the merge of a card it stops: the lease free, the merge clone at the base; never while it is pushed', function () {
+    $code = $this->code;
+    $code->configure(['gates' => ['report' => []]]);
+    $code->sandbox->git('commit', '-q', '-am', 'no gates');
+    $id = $code->started('Breaks the suite');
+    $code->commit($id, 'RED', "red\n");
+    $code->approve($id);
+    expect($code->kanban(['finish', $id])->getExitCode())->toBe(12);
+    $state = $code->mergeState();
+    $file = $code->root().'/.git/laravel-house/merge.json';
+    file_put_contents($file, json_encode(['phase' => 'pushing', 'merged' => str_repeat('b', 40)] + $state));
+
+    $pushed = $code->kanban(['stop', $id, '--to=backlog']);
+    file_put_contents($file, json_encode($state));
+    $stopped = $code->kanban(['stop', $id, '--to=backlog']);
+
+    expect($pushed->getExitCode())->toBe(11)
+        ->and($pushed->getErrorOutput())->toContain("{$id} is being pushed to main: wait for it")
+        ->and($stopped->getExitCode())->toBe(0, $stopped->getErrorOutput())
+        ->and($stopped->getOutput())->toContain("merge of {$id} aborted")->toContain("{$id} review→backlog")
+        ->and($code->lease())->toBeNull()
+        ->and($code->mergeState())->toBeNull()
+        ->and(is_file($code->mergeClone().'/RED'))->toBeFalse()
+        ->and($code->sandbox->read($id)['stage'])->toBe('backlog');
+});

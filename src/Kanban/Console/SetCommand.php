@@ -69,10 +69,10 @@ class SetCommand extends Command
             .($updated->stage() === 'planning' ? ': its plan does not cover the change' : '')));
         $areas = array_values(array_diff($updated->areas(), $card->areas()));
         $depends = array_values(array_diff($updated->dependsOn(), $card->dependsOn()));
-        if ($areas !== [] || $depends !== []) {
-            foreach (Shape::hints($store->snapshot(), $updated, $areas, $depends) as $hint) {
-                $this->say($hint);
-            }
+        $body = (string) ($updated->data['body'] ?? '');
+        $criteria = array_values(array_diff(array_column($updated->acceptance(), 'text'), array_column($card->acceptance(), 'text')));
+        foreach (Shape::hints($store->snapshot(), $updated, $areas, $depends, $body === ($card->data['body'] ?? '') ? null : $body, $criteria) as $hint) {
+            $this->say($hint);
         }
         $this->reportPending();
 

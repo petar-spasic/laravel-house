@@ -58,10 +58,10 @@ export default async (t) => {
 
     // lanes
     t.ok('a lane that cards cannot be dropped into says how they get there', (await page.locator('.col[data-stage=doing] .cli').getAttribute('aria-label')).includes('kanban start'));
-    t.ok('a lane with a work-in-progress limit shows it next to its count', (await page.locator('.col[data-stage=review] .n').innerText()) === '1' && (await page.locator('.col[data-stage=review] .wip').innerText()) === '/6');
+    t.ok('a lane with a work-in-progress limit shows it next to its count', (await page.locator('.col[data-stage=review] .n').innerText()) === '4' && (await page.locator('.col[data-stage=review] .wip').innerText()) === '/6');
     t.ok('each lane has the mark of its stage', (await page.locator('.col .col-h .stage-i').count()) === (await page.locator('.col').count()));
     t.ok('a lane names its cards to a screen reader', (await page.locator('.col[data-stage=doing]').getAttribute('aria-label')) === 'Doing, 2 cards');
-    t.ok('the limit sits against the count, like 1/6', Math.abs(await page.evaluate(() => document.querySelector('.col[data-stage=review] .wip').getBoundingClientRect().left - document.querySelector('.col[data-stage=review] .n').getBoundingClientRect().right)) <= 1);
+    t.ok('the limit sits against the count, like 4/6', Math.abs(await page.evaluate(() => document.querySelector('.col[data-stage=review] .wip').getBoundingClientRect().left - document.querySelector('.col[data-stage=review] .n').getBoundingClientRect().right)) <= 1);
 
     // criteria can be removed until work starts; after that a lock says why there is no X
     await card(w1).locator('.c-title').click();

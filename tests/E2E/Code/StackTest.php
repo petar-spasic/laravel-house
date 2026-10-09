@@ -112,6 +112,17 @@ it('creates a named worktree with a slot and no containers', function () {
         ->and(collect($code->calls())->contains(fn ($c) => str_contains($c, ' up ')))->toBeFalse();
 });
 
+it('leaves the merge clone to the merge queue: create makes no worktree in its place', function (string $target) {
+    $code = $this->code;
+
+    $refused = $code->kanban(['stack', $target, 'create']);
+
+    expect($refused->getExitCode())->toBe(3)
+        ->and($refused->getErrorOutput())->toContain('the merge queue makes the merge clone')
+        ->and(file_exists($code->mergeClone()))->toBeFalse()
+        ->and($code->sandbox->git('branch', '--list', 'worktree-_merge'))->toBe('');
+})->with(['by name' => '_merge', 'by path' => '.claude/worktrees/_merge']);
+
 it('garbage-collects stacks whose worktree vanished and reports unregistered ones', function () {
     $code = $this->code;
     $id = $code->started('Vanish');
@@ -133,8 +144,8 @@ it('garbage-collects stacks whose worktree vanished and reports unregistered one
         ->and(trim($code->sandbox->git('worktree', 'list')))->toContain('docs/kanban')
         ->and($code->sandbox->boardGit('rev-parse', 'HEAD'))->toBe($board);
 
-    expect($code->ok(['stack', 'gc', '--force'], ['FAKE_DOCKER_PROJECTS' => 'acme-wt-stray,other-wt-x']))
-        ->toContain('removed acme-wt-stray')->not->toContain('other-wt-x');
+    expect($code->ok(['stack', 'gc', '--force'], ['FAKE_DOCKER_PROJECTS' => 'acme-wt-stray,acme-merge-1a2b3c4d,other-wt-x,other-merge-1a2b3c4d']))
+        ->toContain('removed acme-wt-stray')->toContain('removed acme-merge-1a2b3c4d')->not->toContain('other-');
 });
 
 it("leaves another repository's stacks to that repository's gc", function () {

@@ -3,7 +3,9 @@
 namespace PetarSpasic\LaravelHouse\Kanban\Protocol;
 
 use PetarSpasic\LaravelHouse\Kanban\Code\AgentRun;
-use PetarSpasic\LaravelHouse\Kanban\Code\MainCheck;
+use PetarSpasic\LaravelHouse\Kanban\Code\CloneFile;
+use PetarSpasic\LaravelHouse\Kanban\Code\MainPush;
+use PetarSpasic\LaravelHouse\Kanban\Policy\MergeQueue;
 use PetarSpasic\LaravelHouse\Kanban\Policy\Plan;
 use PetarSpasic\LaravelHouse\Kanban\Policy\PullPolicy;
 use PetarSpasic\LaravelHouse\Kanban\Policy\Questions;
@@ -64,13 +66,13 @@ final class Brief
         if (($agents = $this->agents($runtime)) !== null) {
             $lines[] = $agents;
         }
-        if (($red = (new MainCheck($this->paths))->red()) !== null) {
-            $lines[] = 'main red since '.substr((string) $red['sha'], 0, 7)." ({$red['after']} merged): `{$red['command']}` fails; finish waits for it ("
-                .($red['card'] ?? 'no card').')';
+        $lease = $snapshot->mergeLease();
+        if ($lease !== null) {
+            $lines[] = 'merge: '.MergeLease::describe($lease).', last beat '.$lease['beat'];
         }
-        // what the agents filed as already on main has no area, so no promote takes it
+        // what the agents and the merge queue filed as already on main has no area, so no promote takes it
         $filed = $snapshot->cards(fn (Card $c) => $c->stage() === 'backlog' && in_array(Applier::MAIN_RED, $c->labels(), true)
-            && $c->areas() === [] && $c->id() !== ($red['card'] ?? null));
+            && $c->areas() === []);
         if ($filed !== []) {
             $lines[] = 'failing on main, in backlog with no area (give it an area and promote it first): '
                 .implode(', ', array_map(fn (Card $c) => $c->id().' '.mb_strimwidth($c->title(), 0, 80, '…'), $filed));
@@ -82,15 +84,18 @@ final class Brief
         foreach ($work('doing') as $card) {
             $lines[] = 'doing  '.$this->short($card).': '.implode(', ', [...$this->flight($card, $runtime, 'kanban-worker'), ...$this->trouble($card, $runtime)]);
         }
-        // Approved cards first, oldest approval first: the order main finishes them in.
-        $review = $work('review');
-        $approved = array_values(array_filter($review, fn (Card $c) => is_string($c->work()['approved']['at'] ?? null)));
-        usort($approved, fn (Card $a, Card $b) => strcmp($a->work()['approved']['at'], $b->work()['approved']['at']));
-        foreach ([...$approved, ...array_filter($review, fn (Card $c) => ! in_array($c, $approved, true))] as $card) {
-            $approved = $card->work()['approved']['head'] ?? null;
-            $parts = [$approved ? 'approved '.substr($approved, 0, 7).', not merged' : 'awaiting verdict'];
-            $parts = array_merge($parts, array_slice($this->flight($card, $runtime, 'kanban-evaluator'), 0, 1), $this->trouble($card, $runtime));
-            $lines[] = 'review '.$this->short($card).': '.implode(', ', array_filter($parts, fn ($p) => $p !== 'no agent'));
+        // the merge queue first, in the order it merges them: the card being merged, then by approval
+        $queue = MergeQueue::cards($snapshot);
+        usort($queue, fn (Card $a, Card $b) => ($b->id() === ($lease['card'] ?? null)) <=> ($a->id() === ($lease['card'] ?? null)));
+        $ids = array_map(fn (Card $c) => $c->id(), $queue);
+        $origin = MainPush::of($this->paths, $this->config)->known();
+        $states = MergeQueue::states($snapshot, $origin);
+        foreach ([...$queue, ...array_filter($work('review'), fn (Card $c) => ! in_array($c->id(), $ids, true))] as $card) {
+            $parts = in_array($card->id(), $ids, true)
+                ? [self::place($card, $snapshot, $this->paths, $origin, $states), ...($card->id() === ($lease['card'] ?? null) ? array_slice($this->flight($card, $runtime, 'kanban-merger'), 0, 1) : [])]
+                : [is_string($card->work()['approved']['head'] ?? null) ? 'approved '.substr($card->work()['approved']['head'], 0, 7).', not merged' : 'awaiting verdict',
+                    ...array_slice($this->flight($card, $runtime, 'kanban-evaluator'), 0, 1)];
+            $lines[] = 'review '.$this->short($card).': '.implode(', ', array_filter([...$parts, ...$this->trouble($card, $runtime)], fn ($p) => $p !== 'no agent'));
         }
         foreach (array_slice($blocked, 0, 10) as $card) {
             $lines[] = "blocked {$card->id()} {$card->title()}: \"".mb_strimwidth((string) $card->blocked(), 0, 160, '…').'"';
@@ -130,6 +135,33 @@ final class Brief
     }
 
     /**
+     * Where $card stands in the merge queue: `merging on host-a (Ana) since 08:00: conflicts in app.php` (the phase only when
+     * this checkout merges it), `waits for ACME-Y (failing on main)`, or `queued 2nd`; null when it is not in the queue.
+     * $origin is main's tip as MainPush::known() gives it; $states what MergeQueue::states() gives for it, when the caller has it.
+     *
+     * @param  array<string, array{state: string, position?: int, waits?: string}>|null  $states
+     */
+    public static function place(Card $card, Snapshot $snapshot, Paths $paths, ?string $origin, ?array $states = null): ?string
+    {
+        $lease = $snapshot->mergeLease();
+        if (($lease['card'] ?? null) === $card->id()) {
+            $state = (new MergeState($paths))->read();
+            $phase = ($state['lease'] ?? null) === $lease['id'] ? MergeState::turn($state) ?? $state['phase'] : null;
+
+            return 'merging on '.preg_replace('/^.*@/', '', (string) $lease['by']).(isset($lease['who']) ? " ({$lease['who']})" : '')
+                .' since '.substr((string) $lease['since'], 11, 5).($phase === null ? '' : ": {$phase}");
+        }
+        $state = ($states ?? MergeQueue::states($snapshot, $origin))[$card->id()] ?? [];
+        $at = $state['position'] ?? 0;
+
+        return match ($state['state'] ?? null) {
+            'held' => $state['waits'],
+            'queued' => 'queued '.$at.(in_array($at % 100, [11, 12, 13], true) ? 'th' : ([1 => 'st', 2 => 'nd', 3 => 'rd'][$at % 10] ?? 'th')),
+            default => null,
+        };
+    }
+
+    /**
      * Tracked `CLAUDE.md` files over 40 KB, biggest first: every agent that works there reads them whole, and Claude Code
      * warns about a `CLAUDE.md` past 40,000 characters.
      *
@@ -148,10 +180,10 @@ final class Brief
         return array_map(fn (string $file, int $size) => $file.' '.intdiv($size, 1024).' KB', array_keys($sizes), $sizes);
     }
 
-    /** `agents: 1 planner, 2 workers, 1 evaluator live; last 24h: 9 runs, 4.1M tokens, $3.20`, or null when there is neither. */
+    /** `agents: 1 planner, 2 workers, 1 evaluator, 1 merger live; last 24h: 9 runs, 4.1M tokens, $3.20`, or null when there is neither. */
     private function agents(Runtime $runtime): ?string
     {
-        $live = ['kanban-planner' => 0, 'kanban-worker' => 0, 'kanban-evaluator' => 0];
+        $live = ['kanban-planner' => 0, 'kanban-worker' => 0, 'kanban-evaluator' => 0, 'kanban-merger' => 0];
         foreach ($runtime->agents() as $agent) {
             if (isset($live[$agent['agent_type'] ?? '']) && $runtime->state($agent) === 'live') {
                 $live[$agent['agent_type']]++;
@@ -164,7 +196,8 @@ final class Brief
         $plural = fn (int $n, string $word) => "{$n} {$word}".($n === 1 ? '' : 's');
 
         return 'agents: '.($live['kanban-planner'] > 0 ? $plural($live['kanban-planner'], 'planner').', ' : '')
-            .$plural($live['kanban-worker'], 'worker').', '.$plural($live['kanban-evaluator'], 'evaluator').' live'
+            .$plural($live['kanban-worker'], 'worker').', '.$plural($live['kanban-evaluator'], 'evaluator')
+            .($live['kanban-merger'] > 0 ? ', '.$plural($live['kanban-merger'], 'merger') : '').' live'
             .($runs === [] ? '' : '; last 24h: '.$plural(count($runs), 'run').', '.self::tokens(array_sum(array_column($runs, 'tokens'))).' tokens, $'
                 .number_format(array_sum(array_column($runs, 'cost_usd')), 2));
     }
@@ -255,7 +288,7 @@ final class Brief
         if (is_dir($worktree.'/.git')) {
             return is_file($worktree.'/.git/MERGE_HEAD');
         }
-        $link = @file_get_contents($worktree.'/.git');
+        $link = CloneFile::read($worktree, '.git');
         if (! is_string($link) || preg_match('/^gitdir: (.+)$/m', $link, $m) !== 1) {
             return false;
         }

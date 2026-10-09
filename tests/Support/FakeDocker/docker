@@ -11,6 +11,7 @@
  * FAKE_DOCKER_ALLOCATED=p,q    `up` fails with "port is already allocated" when WEB_PORT is one of these
  * FAKE_DOCKER_CONFIG_NAME=x    `compose config` reports this project name instead of -p
  * FAKE_DOCKER_FAIL=up|down|ps|build that subcommand exits 1
+ * FAKE_DOCKER_BROKEN=file      `up` fails to build where the project directory holds this file
  * FAKE_DOCKER_DELAY=n          every compose subcommand sleeps n seconds first
  * FAKE_DOCKER_CONTAINERS=json  {"name": ["bind source", …]}: running containers besides `<project>-app-1` of each
  *                              project that is up (which binds its directory)
@@ -18,7 +19,7 @@
  *
  * `exec [-i] [-u u:g] [-w dir] [-e NAME[=value]] <container> <cmd…>` and `compose exec -T <service> <cmd…>` run the command here, in
  * dir or the project's directory, with this process's stdio, in a session of its own: like a process in a container,
- * it outlives a killed client and sees only its stdin close.
+ * it outlives a killed client and sees only its stdin close. It gets FAKE_DOCKER_EXEC=1, so it can tell it runs "inside".
  *
  * Each call also appends {"args": …, "env": {…}} to $FAKE_DOCKER_DIR/env.log: the process environment it was started
  * with, limited to WEB_PORT, DB_PORT, DB_HOST_PORT, REDIS_HOST_PORT and COMPOSE_*.
@@ -60,7 +61,7 @@ $containers = function () use ($state): array {
     return array_merge($all, (array) json_decode((string) getenv('FAKE_DOCKER_CONTAINERS'), true));
 };
 $run = function (array $command, string $dir): never {
-    $process = proc_open(['setsid', '-w', ...$command], [STDIN, STDOUT, STDERR], $pipes, $dir);
+    $process = proc_open(['setsid', '-w', ...$command], [STDIN, STDOUT, STDERR], $pipes, $dir, ['FAKE_DOCKER_EXEC' => '1'] + getenv());
     exit($process === false ? 127 : proc_close($process));
 };
 if (($args[0] ?? null) === 'container' && ($args[1] ?? null) === 'inspect') {
@@ -137,6 +138,10 @@ switch ($sub) {
         $port = (int) ($env['WEB_PORT'] ?? 0);
         if ($fail('up') || in_array((string) $port, $list('FAKE_DOCKER_ALLOCATED'), true)) {
             fwrite(STDERR, "Error response from daemon: Bind for 0.0.0.0:{$port} failed: port is already allocated\n");
+            exit(1);
+        }
+        if (($broken = getenv('FAKE_DOCKER_BROKEN')) && is_file($directory.'/'.$broken)) {
+            fwrite(STDERR, "failed to solve: {$broken}\n");
             exit(1);
         }
         $pid = $state['projects'][$project]['pid'] ?? null;

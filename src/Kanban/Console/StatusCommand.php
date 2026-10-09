@@ -2,6 +2,8 @@
 
 namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
+use PetarSpasic\LaravelHouse\Kanban\Code\MainPush;
+use PetarSpasic\LaravelHouse\Kanban\Policy\MergeQueue;
 use PetarSpasic\LaravelHouse\Kanban\Policy\PullPolicy;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Brief;
 use PetarSpasic\LaravelHouse\Kanban\Store\Card;
@@ -37,6 +39,8 @@ class StatusCommand extends Command
         $blocked = $snapshot->cards(fn (Card $c) => $c->blocked() !== null && ! in_array($c->stage(), ['done', 'dropped'], true));
         $unpushed = $repo !== null && $repo->hasRemoteRef() ? $repo->ahead() : null;
         $driver = $repo?->mergeDriver();
+        $origin = MainPush::of($this->paths(), $this->config())->known();
+        $held = MergeQueue::heldCards($snapshot, $origin);
 
         return $this->json([
             'key' => $snapshot->key(),
@@ -54,6 +58,12 @@ class StatusCommand extends Command
             'next_reason' => $next['reason'],
             'skipped' => $pull->skipped($snapshot),
             'merge_driver' => $driver !== null,
+            // the merge queue: the lease, the cards in the order they merge, and why the held ones wait
+            'merge' => [
+                'lease' => $snapshot->mergeLease(),
+                'queue' => array_map(fn (Card $c) => $c->id(), MergeQueue::cards($snapshot)),
+                'held' => (object) $held,
+            ],
         ]);
     }
 }

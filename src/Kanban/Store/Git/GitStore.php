@@ -315,11 +315,7 @@ final class GitStore implements Store
         $online = $this->syncOn() && $this->repo->hasRemote();
         for ($round = 1; ; $round++) {
             if ($online) {
-                try {
-                    $this->repo->fetch();
-                } catch (RemoteFailed $e) {
-                    throw new RemoteFailed($e->getMessage().' (while sync is on a claim needs the remote; to work on this machine only, run the same command with KANBAN_SYNC=off in front, and only when the owner agrees)');
-                }
+                $this->fetchForRound();
             }
             $claimed = $this->write(fn () => $this->claimRound($id, $claim, $by, $online, $verify, $work, $mutate), self::CLAIM_TIMEOUT);
             if ($claimed !== null) {
@@ -369,25 +365,134 @@ final class GitStore implements Store
         }
         // never null: the claim changes
         [$claimed, $message] = $this->changed($snapshot, $card, $change, $by);
-        $commit = $this->repo->commitAside([$card->path => Json::encode($claimed->data, Json::kindOf($card->path))], $message);
+        try {
+            $pushed = $this->pushAside([$card->path => Json::encode($claimed->data, Json::kindOf($card->path))], $message, self::CLAIM_PUSH_TIMEOUT);
+        } catch (RemoteFailed $e) {
+            throw new RemoteFailed("claim of {$card->id()} dropped: ".$e->getMessage());
+        }
+
+        return match ($pushed) {
+            'rejected' => null,
+            'landed' => $this->current()->resolve($card->id()),
+            default => $claimed,
+        };
+    }
+
+    public function lease(Closure $decide, Actor $by, bool $try = false, float $pushTimeout = self::CLAIM_PUSH_TIMEOUT): ?array
+    {
+        $online = $this->syncOn() && $this->repo->hasRemote();
+        for ($round = 1; ; $round++) {
+            if ($online) {
+                $this->fetchForRound();
+            }
+            $run = fn () => $this->leaseRound($decide, $by, $online, $pushTimeout);
+            if ($try && ! $this->locked) {
+                $lock = Lock::try($this->paths->ensureRuntime().'/lock');
+                if ($lock === null) {
+                    return null;
+                }
+                $leased = $this->holding($lock, $run);
+            } else {
+                $leased = $this->write($run, self::CLAIM_TIMEOUT);
+            }
+            if ($leased !== null) {
+                return $leased[0];
+            }
+            if ($round >= 3) {
+                throw new RemoteFailed('merge lease: push kept being rejected');
+            }
+            usleep(random_int(50000, 300000));
+        }
+    }
+
+    /**
+     * One round of lease(), under the write lock: [the lease after it], or null when the push was rejected.
+     *
+     * @return array{0: array<string, mixed>|null}|null
+     */
+    private function leaseRound(Closure $decide, Actor $by, bool $online, float $pushTimeout): ?array
+    {
+        if ($online) {
+            $this->repo->rebase();
+        }
+        $snapshot = $this->current();
+        $old = $snapshot->mergeLease();
+        [$new, $mutations, $message] = $decide($old, $snapshot);
+        if ($new === $old && $mutations === []) {
+            return [$old];
+        }
+        if ($new !== null && ! isset($new['who']) && ($who = $this->person()) !== null) {
+            $new['who'] = $who;
+        }
+        $kanban = $snapshot->kanban;
+        unset($kanban['merge']);
+        $kanban = Json::canonical($new === null ? $kanban : $kanban + ['merge' => $new], 'kanban');
+        $after = new Snapshot($kanban, $snapshot->epics, $snapshot->boards, $snapshot->cards, $snapshot->problems);
+        $files = ['kanban.json' => $kanban];
+        $checked = ['kanban.json' => ['kanban', $kanban]];
+        foreach ($mutations as $id => $mutate) {
+            $card = $snapshot->resolve($id);
+            [$data, $summary] = $this->finalize($card->data, $mutate($card->data), $by);
+            if ($summary !== null) {
+                $updated = $this->cardFrom($data, $card->board, $card->path);
+                $after = $after->withCard($updated);
+                $files[$card->path] = $updated->data;
+                $checked[$card->path] = ['card', $updated->data];
+            }
+        }
+        $this->validate($snapshot, $after, $checked);
+        $message .= " [{$by->role}]";
+        if (! $online) {
+            $this->persist($files, [], $message, $by);
+
+            return [$new];
+        }
+        $bytes = [];
+        foreach ($files as $path => $data) {
+            $bytes[$path] = Json::encode($data, Json::kindOf($path));
+        }
+
+        return $this->pushAside($bytes, $message, $pushTimeout) === 'rejected' ? null : [$new];
+    }
+
+    /** Fetches origin's board for a claim or a lease round; an unreachable remote says what the owner may do instead. */
+    private function fetchForRound(): void
+    {
+        try {
+            $this->repo->fetch();
+        } catch (RemoteFailed $e) {
+            throw new RemoteFailed($e->getMessage().' (while sync is on a claim needs the remote; to work on this machine only, run the same command with KANBAN_SYNC=off in front, and only when the owner agrees)');
+        }
+    }
+
+    /**
+     * Pushes a commit of $files (board path => bytes) that is built aside on HEAD: 'ok' once it landed and the branch moved
+     * to it; 'landed' when the push failed with an error but origin holds the commit all the same (pulled here);
+     * 'rejected' when origin moved meanwhile (the branch never moved, so nothing is left behind). Any other failure throws.
+     *
+     * @param  array<string, string>  $files
+     */
+    private function pushAside(array $files, string $message, float $timeout): string
+    {
+        $commit = $this->repo->commitAside($files, $message);
         try {
             // a stalled remote must not hold the board lock for the default two minutes
-            $pushed = $this->repo->push(self::CLAIM_PUSH_TIMEOUT, $commit);
+            $pushed = $this->repo->push($timeout, $commit);
         } catch (Throwable $e) {
-            // the remote may have taken the commit before the error (a timeout, a dropped connection): then the claim is won
+            // the remote may have taken the commit before the error (a timeout, a dropped connection)
             if ($this->landed($commit)) {
-                return $this->current()->resolve($card->id());
+                return 'landed';
             }
 
-            throw $e instanceof RemoteFailed ? new RemoteFailed("claim of {$card->id()} dropped: ".$e->getMessage()) : $e;
+            throw $e;
         }
         if ($pushed === 'rejected') {
-            return null;
+            return 'rejected';
         }
         $this->repo->resetKeep($commit);
         $this->status->recordOk();
 
-        return $claimed;
+        return 'ok';
     }
 
     /** After a push of $commit that failed with an error: whether origin holds it all the same, pulled here when it does. */
@@ -801,7 +906,13 @@ final class GitStore implements Store
         if ($this->locked) {
             return $fn();
         }
-        $lock = Lock::exclusive($this->paths->ensureRuntime().'/lock', $timeout);
+
+        return $this->holding(Lock::exclusive($this->paths->ensureRuntime().'/lock', $timeout), $fn);
+    }
+
+    /** Runs $fn holding $lock, the board's write lock just taken, after flushing the journal; releases it. */
+    private function holding(Lock $lock, Closure $fn): mixed
+    {
         $this->locked = true;
         $this->wrote = false;
         try {
@@ -1169,7 +1280,7 @@ final class GitStore implements Store
         if ($new === [] && $changed === []) {
             return [$before, null];
         }
-        $explained = array_filter($new, fn (array $e) => in_array($e['event'], ['set', 'stage', 'moved', 'renamed', 'claimed', 'planned'], true)) !== [];
+        $explained = array_filter($new, fn (array $e) => in_array($e['event'], ['set', 'stage', 'moved', 'renamed', 'claimed', 'planned', 'merge'], true)) !== [];
         if (! $explained && $changed !== []) {
             sort($changed);
             $entry = $this->entry($by, $now) + ['event' => 'set', 'fields' => $changed];

@@ -1,6 +1,7 @@
 <?php
 
 use PetarSpasic\LaravelHouse\Kanban\Console\StartCommand;
+use PetarSpasic\LaravelHouse\Kanban\Support\Json;
 use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
 use PetarSpasic\LaravelHouse\Tests\Support\CodeSandbox;
 use PetarSpasic\LaravelHouse\Tests\Support\Sandbox;
@@ -308,7 +309,7 @@ it('runs the main checkout\'s vendor/bin/kanban when called from a code worktree
         ->and($run->getExitCode())->toBe(3);
 });
 
-it('prints the spawn line again in show and refresh: the worker in doing, an evaluator in review', function () {
+it('prints the spawn line again in show: the worker in doing, an evaluator in review until the card is approved', function () {
     $code = $this->code;
     $id = $code->sandbox->readyCard('Spawn me again');
     $started = $code->ok(['start', $id]);
@@ -319,9 +320,14 @@ it('prints the spawn line again in show and refresh: the worker in doing, an eva
         ->and($code->ok(['show', $id]))->toContain("spawn: {$line[1]}\n");
 
     $code->approve($id);
+    $queued = $code->ok(['show', $id]);
+    $card = $code->sandbox->read($id);
+    $card['work']['approved'] = null;
+    Json::write(glob($code->root().'/docs/kanban/*/'.$id.'.json')[0], Json::encode($card, 'card'));
+    $code->sandbox->boardGit('commit', '-q', '-am', "{$id} reported (test)");
     $evaluator = "spawn: Agent(subagent_type=\"kanban-evaluator\", description=\"{$id} review Spawn me again\", prompt=\"Card {$id}. Worktree {$path}\")\n";
     expect($code->ok(['show', $id]))->toContain($evaluator)
-        ->and($code->ok(['refresh', $id]))->toBe("up to date {$id}\n{$evaluator}");
+        ->and($queued)->toContain("merge: queued 1st\n")->not->toContain('spawn:');
 });
 
 it('resumes a start whose worktree went missing, and the brief points at it', function () {
@@ -423,6 +429,35 @@ it("never runs what a card clone's config or attributes name, from a kanban comm
     expect(glob($marker.'-*') ?: [])->toBe([]);
 });
 
+it('never runs what a repository nested in a card clone names, from a kanban command on this machine', function () {
+    $code = $this->code;
+    $id = $code->started('Nested repository');
+    $wt = $code->worktree($id);
+    $sub = $wt.'/sub';
+    $marker = $code->root().'/../pwned';
+    mkdir($sub);
+    $code->gitIn($sub, 'init', '-q');
+    file_put_contents($sub.'/f', "a\n");
+    $code->gitIn($sub, 'add', 'f');
+    $code->gitIn($sub, '-c', 'user.name=x', '-c', 'user.email=x@example.com', 'commit', '-q', '-m', 'sub');
+    $code->gitIn($sub, 'remote', 'add', 'origin', $code->root());
+    $code->gitIn($sub, 'config', 'remote.origin.uploadpack', "sh -c 'touch {$marker}-uploadpack; exec git-upload-pack \"\$@\"' --");
+    $code->gitIn($sub, 'config', 'filter.x.clean', "touch {$marker}-filter; cat");
+    file_put_contents($sub.'/.git/info/attributes', "* filter=x\n");
+    // a .gitmodules setting outranks any -c of git's own config
+    file_put_contents($wt.'/.gitmodules', "[submodule \"sub\"]\n\tpath = sub\n\turl = ./sub\n\tignore = none\n\tfetchRecurseSubmodules = true\n");
+    $code->gitIn($wt, 'update-index', '--add', '--cacheinfo', '160000,'.trim($code->gitIn($sub, 'rev-parse', 'HEAD')).',sub');
+    $code->gitIn($wt, 'add', '.gitmodules');
+    $code->gitIn($wt, 'commit', '-q', '-m', 'work');
+    file_put_contents($sub.'/f', "b\n");
+    touch($sub.'/f', time() + 5);
+
+    $code->kanban(['context'], cwd: $wt);
+    $code->kanban(['refresh', $id]);
+
+    expect(glob($marker.'-*') ?: [])->toBe([]);
+});
+
 it("tells an agent to run vendor/bin/kanban as the whole command, with no cd, when its card's container runs it", function () {
     // a card clone as its container sees it: kanban.main names a main checkout that is not mounted there
     $clone = Sandbox::tmp().'/card';
@@ -442,4 +477,33 @@ it('runs a command as if from the directory --in names', function () {
     $id = $code->started('From the card');
 
     expect($code->ok(['--in='.$code->worktree($id), 'context']))->toStartWith("{$id} doing ");
+});
+
+it("runs a card's gates in its container when its clone's own config no longer names main", function () {
+    $code = $this->code;
+    $code->configure(['gates' => ['report' => ['test "$FAKE_DOCKER_EXEC" = 1']]]);
+    $code->mountWorktree();
+    $code->defaults = ['FAKE_DOCKER_SERVE' => '1'];
+    $id = $code->started('Unset main');
+    $wt = $code->worktree($id);
+    $code->commit($id, 'feature.txt', "done\n");
+    $code->gitIn($wt, 'config', '--unset', 'kanban.main');
+
+    $report = $code->kanban(['--in='.$wt, 'report', $id, '--status=review', '--summary=x']);
+
+    expect($report->getOutput())->toContain("staged report for {$id}: review")
+        ->and($report->getOutput().$report->getErrorOutput())->not->toContain('warning:');
+});
+
+it("runs as main for a card clone whose own config no longer names main, never running the clone's config", function () {
+    $code = $this->code;
+    $id = $code->started('From the card');
+    $wt = $code->worktree($id);
+    $code->gitIn($wt, 'config', '--unset', 'kanban.main');
+    @mkdir($wt.'/config');
+    $marker = $wt.'/ran-on-host';
+    file_put_contents($wt.'/config/kanban.php', '<?php touch('.var_export($marker, true).'); return [];');
+
+    expect($code->ok(['--in='.$wt, 'context']))->toStartWith("{$id} doing ")
+        ->and($marker)->not->toBeFile();
 });

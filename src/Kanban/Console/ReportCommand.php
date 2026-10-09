@@ -2,13 +2,13 @@
 
 namespace PetarSpasic\LaravelHouse\Kanban\Console;
 
+use PetarSpasic\LaravelHouse\Kanban\Code\CloneFile;
 use PetarSpasic\LaravelHouse\Kanban\Policy\Questions;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Applier;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Context;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Gates;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Runtime;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Staged;
-use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\NotFound;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
 use PetarSpasic\LaravelHouse\Kanban\Support\Git;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -38,9 +38,9 @@ class ReportCommand extends Command
             throw new PolicyRefused("{$card->id()} is {$card->stage()}: only a card in doing or review takes a report");
         }
         $worktree = (new Context($this->paths(), $this->config()))->requireInside($card, $this->paths()->cwd, 'report');
-        $summary = $this->option('summary-file') !== null ? $this->readFile((string) $this->option('summary-file')) : $this->option('summary');
+        $summary = $this->option('summary-file') !== null ? CloneFile::given($this->paths()->cwd, (string) $this->option('summary-file')) : $this->option('summary');
         $questions = $this->option('question-file') !== null
-            ? Questions::file($this->readFile($this->inside($worktree, (string) $this->option('question-file'))), (string) $this->option('status')) : [];
+            ? Questions::file(CloneFile::given($worktree, (string) $this->option('question-file')), (string) $this->option('status')) : [];
         $git = Git::untrusted($worktree);
         $report = Staged::report($card, (string) $this->option('status'), $this->option('tick'), $summary, $this->option('verified'),
             $this->option('discovered'), $this->option('reason') ?? Questions::block($questions), $this->option('note'), [
@@ -88,9 +88,10 @@ class ReportCommand extends Command
         foreach ($gates->freshen($git->cwd) as $line) {
             $this->say($line);
         }
-        $status = $git->attempt(['status', '--porcelain', '--untracked-files=all'])->out;
+        $status = fn () => $git->attempt(['status', '--porcelain', '--untracked-files=all', '--ignore-submodules=all'])->out;
+        $before = $status();
         $failure = $gates->failure($git->cwd);
-        if ($git->line(['rev-parse', 'HEAD']) !== $head || $git->attempt(['status', '--porcelain', '--untracked-files=all'])->out !== $status) {
+        if ($git->line(['rev-parse', 'HEAD']) !== $head || $status() !== $before) {
             $failure ??= 'a gate changed the worktree: gates must not write files (fix the gate in config/kanban.php or ask main)';
         }
         if ($failure !== null) {
@@ -102,18 +103,5 @@ class ReportCommand extends Command
         $this->say('gates passed ('.count($gates->commands()).')');
 
         return $gates->passed($head);
-    }
-
-    /** A relative question file is the worktree's: the CLI may run from main's checkout with --in. */
-    private function inside(string $worktree, string $file): string
-    {
-        return $file === '-' || str_starts_with($file, '/') ? $file : $worktree.'/'.$file;
-    }
-
-    private function readFile(string $file): string
-    {
-        $content = $file === '-' ? stream_get_contents(STDIN) : @file_get_contents($file);
-
-        return $content === false ? throw new NotFound("cannot read {$file}") : $content;
     }
 }

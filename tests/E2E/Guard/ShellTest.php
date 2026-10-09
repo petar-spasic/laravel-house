@@ -169,12 +169,19 @@ it('hands the container the command byte for byte', function () {
         ->and($routed->getOutput())->toBe("it's|\$HOME|`echo tick`|{$wt}|a && b\nX2\n");
 });
 
-it('rewrites within 50 ms at p95', function () {
+it('rewrites within 50 ms at p95', function (string $type) {
     $sandbox = new GuardSandbox;
-    $sandbox->bind('a4d2c0ffee', 'kanban-worker', GuardSandbox::DOING);
-    $sandbox->stack(GuardSandbox::DOING);
+    if ($type === 'kanban-merger') {
+        $sandbox->bind('a4d2c0ffee', $type, GuardSandbox::REVIEW, worktree: $cwd = $sandbox->merge());
+        $sandbox->mergeStack();
+    } else {
+        $sandbox->bind('a4d2c0ffee', $type, GuardSandbox::DOING);
+        $sandbox->stack(GuardSandbox::DOING);
+        $cwd = $sandbox->wt(GuardSandbox::DOING);
+    }
     $payload = json_decode(file_get_contents(dirname(__DIR__, 2).'/Support/payloads/worker-commit.json'), true);
-    $payload['cwd'] = $sandbox->wt(GuardSandbox::DOING);
+    $payload['agent_type'] = $type;
+    $payload['cwd'] = $cwd;
     $payload['tool_input']['command'] = 'php artisan test; '.$payload['tool_input']['command'];
     $payload = json_encode($payload);
     expect($sandbox->raw($payload)['input']['command'])->toStartWith($sandbox->main.'/vendor/bin/kanban-exec ');
@@ -186,10 +193,10 @@ it('rewrites within 50 ms at p95', function () {
     sort($times);
     $p95 = $times[(int) floor(count($times) * 0.95) - 1];
 
-    fwrite(STDERR, sprintf("\n  kanban-guard rewrite latency: p50 %.1f ms, p95 %.1f ms\n", $times[99], $p95));
+    fwrite(STDERR, sprintf("\n  kanban-guard rewrite latency ({$type}): p50 %.1f ms, p95 %.1f ms\n", $times[99], $p95));
 
     expect($p95)->toBeLessThan(50.0);
-});
+})->with(['kanban-worker', 'kanban-merger']);
 
 it('binds a headless card session by its session id: routing and the fence, as for a subagent', function () {
     $sandbox = new GuardSandbox;
@@ -208,4 +215,45 @@ it('binds a headless card session by its session id: routing and the fence, as f
     expect($shell['input']['command'])->toBe("{$sandbox->main}/vendor/bin/kanban-exec {$container} '{$sandbox->wt(GuardSandbox::DOING)}' 'git status'")
         ->and($read['decision'])->toBe('deny')
         ->and($main['out'])->toBe('');
+});
+
+it('routes a headless merger into the merge stack, keeps its kanban commands in the merge clone, and fences its files there', function () {
+    $sandbox = new GuardSandbox;
+    $merge = $sandbox->merge();
+    $session = '5f0c9a2e-0000-4000-8000-000000000002';
+    $sandbox->bind($session, 'kanban-merger', GuardSandbox::REVIEW, worktree: $merge);
+    $container = $sandbox->mergeStack();
+    $payload = fn (string $tool, array $input) => json_encode([
+        'session_id' => $session, 'cwd' => $sandbox->main, 'hook_event_name' => 'PreToolUse',
+        'agent_type' => 'kanban-merger', 'tool_name' => $tool, 'tool_input' => $input,
+    ]);
+
+    $shell = $sandbox->raw($payload('Bash', ['command' => 'git commit --no-edit']));
+    $kanban = $sandbox->raw($payload('Bash', ['command' => 'vendor/bin/kanban merged ACME-A1B2C3 resolved --note="kept both"']));
+    $edit = $sandbox->raw($payload('Edit', ['file_path' => 'app/A.php']));
+    $card = $sandbox->raw($payload('Read', ['file_path' => $sandbox->wt(GuardSandbox::REVIEW).'/app/A.php']));
+    $git = $sandbox->raw($payload('Write', ['file_path' => $merge.'/.git/config']));
+
+    expect($shell['input']['command'])->toBe("{$sandbox->main}/vendor/bin/kanban-exec {$container} '{$merge}' 'git commit --no-edit'")
+        ->and($kanban['input']['command'])->toBe("{$sandbox->main}/vendor/bin/kanban --in={$merge} merged ACME-A1B2C3 resolved --note=\"kept both\"")
+        ->and($edit['decision'])->toBeNull()
+        ->and($edit['input']['file_path'])->toBe($merge.'/app/A.php')
+        ->and($card['decision'])->toBe('deny')
+        ->and($git['decision'])->toBe('deny');
+});
+
+it("finds main from a clone's path, not its config, which the clone's container can write", function () {
+    $sandbox = new GuardSandbox;
+    $merge = $sandbox->merge();
+    $session = '5f0c9a2e-0000-4000-8000-000000000003';
+    $sandbox->bind($session, 'kanban-merger', GuardSandbox::REVIEW, worktree: $merge);
+    $container = $sandbox->mergeStack();
+    (new Process(['git', 'config', '--unset', 'kanban.main'], $merge))->mustRun();
+
+    $result = $sandbox->raw(json_encode([
+        'session_id' => $session, 'cwd' => $merge, 'hook_event_name' => 'PreToolUse',
+        'agent_type' => 'kanban-merger', 'tool_name' => 'Bash', 'tool_input' => ['command' => 'git status'],
+    ]));
+
+    expect($result['input']['command'] ?? null)->toBe("{$sandbox->main}/vendor/bin/kanban-exec {$container} '{$merge}' 'git status'");
 });

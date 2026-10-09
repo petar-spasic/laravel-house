@@ -104,7 +104,8 @@ final class MergeDriver
                 $result[$key] = $this->set($o[$key] ?? [], $a[$key] ?? [], $b[$key] ?? []);
             } else {
                 $wrap = fn (array $side) => array_key_exists($key, $side) ? [$side[$key]] : [];
-                $value = $this->threeWay($wrap($o), $wrap($a), $wrap($b), $wrap($newer));
+                // the merge lease moves only by a push that lands: when both sides changed it, the upstream side (%A in a rebase) won
+                $value = $this->threeWay($wrap($o), $wrap($a), $wrap($b), $wrap($kind === 'kanban' && $key === 'merge' ? $a : $newer));
                 if ($value !== []) {
                     $result[$key] = $value[0];
                 }

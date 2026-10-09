@@ -30,6 +30,16 @@ it('creates the board on an orphan kanban branch at docs/kanban', function () {
     expect($sandbox->ok('validate'))->toContain('ok: 0 cards on 1 boards');
 });
 
+it('says no card merges until finish.check names the suite, and nothing once it does', function () {
+    $without = Sandbox::create()->install('ACME');
+    config(['kanban.finish.check' => ['php artisan test']]);
+    $with = Sandbox::create()->install('ACME');
+
+    $line = "next: set finish.check in config/kanban.php to your whole suite as it runs in the app container: no card merges until it names it\n";
+    expect($without)->toContain($line)
+        ->and($with)->not->toContain('finish.check');
+});
+
 it('is idempotent', function () {
     $sandbox = Sandbox::create();
     $sandbox->install('ACME');

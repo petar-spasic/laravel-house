@@ -1,8 +1,9 @@
 # Cutting cards
 
 A card buys a planner and a worker, each with its bootstrap (instructions, `CLAUDE.md` files, skill), a clone and a
-Docker stack, a review by a third agent, a `refresh` and a `finish` with their merges. That cost is the same for a
-five-minute card and a two-hour one, so a card is sized to what one worker finishes in one session, and no smaller.
+Docker stack, a review by a third agent, and its merge in the queue, where the whole suite runs again on the merged
+code. That cost is the same for a five-minute card and a two-hour one, so a card is sized to what one worker finishes
+in one session, and no smaller.
 
 ## The rules
 
@@ -16,7 +17,38 @@ five-minute card and a two-hour one, so a card is sized to what one worker finis
 - **A shared contract** that several areas use (a type, a validation rule, an enum, an event) is one small card on its
   own area, done first; the cards that use it depend on it.
 - **An open question on part of a card** moves that part to its own narrow card, so the rest can start.
-- **Criteria are grouped per surface**: one criterion can name several pages or endpoints when one test shows them all.
+- **Criteria are grouped per surface**: one criterion can name several pages or endpoints when one test proves the same
+  fact on each ("The body and the criteria").
+
+## The body and the criteria
+
+The body is for a person, and the plan is for the agents. Agents read the body, but they follow the plan. Write the
+body and the criteria close to ASD-STE100 Simplified Technical English:
+
+- Use at most 20 words in an instruction and at most 25 words in a description.
+- Put one instruction or one outcome in each sentence or criterion.
+- Use the active voice and the present tense.
+- Use common words, each with one meaning. Explain a term that the owner may not know.
+- Put technical names in backticks (`ImportTest.php`, `/import`). Keep them exact. They do not count as words.
+
+The body says what changes and why: the outcome that the owner sees. Files, steps, traps and commands go in the plan.
+
+A criterion is one fact that the evaluator can check. It names the page, endpoint or command where the fact shows. It
+names the test or browser spec that proves it. It never says how to build the change.
+
+Before:
+
+> The import should be refactored so that the CSV parser handles UTF-8 BOM and Windows line endings properly and
+> errors are shown to the user in a toast instead of a 500 page.
+
+After, as two criteria:
+
+> An uploaded CSV with a byte-order mark and Windows line endings imports all rows (`tests/E2E/ImportTest.php`).
+>
+> A CSV with a bad row shows an error message on `/import`; the page does not fail (`frontend/e2e/import.spec.ts`).
+
+`new` and `set` print a `hint:` for a body sentence or a criterion over 25 words. The hint skips code, tables and the
+sections that the board writes (`## Folded from`, `## Owner answer`, the questions). It refuses nothing.
 
 ## Signs a board is split too small
 
