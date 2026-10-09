@@ -98,17 +98,17 @@ agent a headless `claude -p` session. It runs under your session's lease. The qu
 3. Act on each `attention:` line, then start it again:
    - `<ID> blocked: …` (its agent, the stop gate, three runs without progress, or a failed command, `kanban run: …`):
      `show <ID>`, `context <ID>` and the run's log in `.git/laravel-house/runs/`. Fix the cause, then `set <ID>
-     blocked=` (its agent resumes, a worker with main merged in), or `stop` it. A cause on main is a card of its own. A
-     planner blocks on a criterion that cannot be done as written, or a card too big for one worker: reword the
-     criterion (`set`) or split the card, then unblock it.
+     blocked=` (its agent resumes, a worker with main merged in), or `stop` it. A cause on main is fixed on main:
+     commit, `publish`, then `set <ID> blocked=`. A planner blocks on a criterion that cannot be done as written, or a
+     card too big for one worker: reword the criterion (`set`) or split the card, then unblock it.
    - `<ID> parked in backlog: question: …` or `<ID> waits on the owner: question: …`: it waits for the owner's batch
      ("Morning").
-   - `<ID> main red: …: a failure already on main`: the agents or the merge queue filed it; give it an area
-     (`set <ID> labels=+area:…`) and `promote` it. When the queue found it, approved cards wait (`waits for <ID>
-     (failing on main)`) until main moves.
+   - ``main is red: `<command>` fails on main … at <sha7>``: fix it on main (run the command at that commit, fix,
+     commit, `vendor/bin/kanban publish`). When the queue found it, every approved card waits (`waits for main to be
+     fixed (…)`) until origin's main moves; the card that found it keeps its approval. Never cut a card for it.
    - `<ID> merged, then: …`: the card is done; following main on this machine (an install, the rebuild, `migrate`,
-     `finish.after`) failed. Fix it on main, or cut a card for it. A line about its stack, clone or branch here
-     (`stack down failed`, `branch … kept`, `has uncommitted changes`): as for `done; its leftovers here` below.
+     `finish.after`) failed. Fix it on main. A line about its stack, clone or branch here (`stack down failed`,
+     `branch … kept`, `has uncommitted changes`): as for `done; its leftovers here` below.
      `… reached main but left review`: its code is on main, but the card was moved during the push; tell the owner.
    - `<ID> done; its leftovers here: …`: the card's clone, stack or branch on this machine could not go. `has uncommitted
      changes`: tell the owner, who decides what of them to keep; once the clone is clean or gone, the next run tidies it.
@@ -119,8 +119,8 @@ agent a headless `claude -p` session. It runs under your session's lease. The qu
    - `<ID> merge failed: …`, or another line that starts with `<ID>:`: the queue retries in 5 min. `finish.check: …
      not found in the app container`: the command is written for the host; make it the plain command as the container
      runs it.
-   - `<ID> sent back by the merge: …`, `<ID> waits for <RED> (failing on main)`, `merge lease held by … no beat for N
-     min`: for your summary; the board carries on (a lease whose beat stood still 15 min is taken over).
+   - `<ID> sent back by the merge: …`, `merge lease held by … no beat for N min`: for your summary; the board carries
+     on (a lease whose beat stood still 15 min is taken over).
    - `promote --auto: skipped <ID>: …`: that card could not be written (an invalid card file); `validate` names the
      fault. Fix it; the other cards were promoted.
    - `upstream: N … pending`: "Package findings".

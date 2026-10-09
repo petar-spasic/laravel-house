@@ -5,6 +5,7 @@ namespace PetarSpasic\LaravelHouse\Kanban\Protocol;
 use PetarSpasic\LaravelHouse\Kanban\Code\AgentRun;
 use PetarSpasic\LaravelHouse\Kanban\Code\CloneFile;
 use PetarSpasic\LaravelHouse\Kanban\Code\MainPush;
+use PetarSpasic\LaravelHouse\Kanban\Policy\MainRed;
 use PetarSpasic\LaravelHouse\Kanban\Policy\MergeQueue;
 use PetarSpasic\LaravelHouse\Kanban\Policy\Plan;
 use PetarSpasic\LaravelHouse\Kanban\Policy\PullPolicy;
@@ -70,12 +71,9 @@ final class Brief
         if ($lease !== null) {
             $lines[] = 'merge: '.MergeLease::describe($lease).', last beat '.$lease['beat'];
         }
-        // what the agents and the merge queue filed as already on main has no area, so no promote takes it
-        $filed = $snapshot->cards(fn (Card $c) => $c->stage() === 'backlog' && in_array(Applier::MAIN_RED, $c->labels(), true)
-            && $c->areas() === []);
-        if ($filed !== []) {
-            $lines[] = 'failing on main, in backlog with no area (give it an area and promote it first): '
-                .implode(', ', array_map(fn (Card $c) => $c->id().' '.mb_strimwidth($c->title(), 0, 80, '…'), $filed));
+        $origin = MainPush::of($this->paths, $this->config)->known();
+        foreach (MainRed::open($snapshot, $origin) as $row) {
+            $lines[] = MainRed::line($row);
         }
         foreach (array_filter($work('planning'), fn (Card $c) => $c->atWork()) as $card) {
             $lines[] = 'planning '.$this->short($card).': '.implode(', ', [...(Plan::madeUnderClaim($card) ? [Plan::current($card) ? 'planned, not yet moved to ready' : 'planned, then the card changed: its planner revises it'] : []),
@@ -88,7 +86,6 @@ final class Brief
         $queue = MergeQueue::cards($snapshot);
         usort($queue, fn (Card $a, Card $b) => ($b->id() === ($lease['card'] ?? null)) <=> ($a->id() === ($lease['card'] ?? null)));
         $ids = array_map(fn (Card $c) => $c->id(), $queue);
-        $origin = MainPush::of($this->paths, $this->config)->known();
         $states = MergeQueue::states($snapshot, $origin);
         foreach ([...$queue, ...array_filter($work('review'), fn (Card $c) => ! in_array($c->id(), $ids, true))] as $card) {
             $parts = in_array($card->id(), $ids, true)
@@ -136,7 +133,7 @@ final class Brief
 
     /**
      * Where $card stands in the merge queue: `merging on host-a (Ana) since 08:00: conflicts in app.php` (the phase only when
-     * this checkout merges it), `waits for ACME-Y (failing on main)`, or `queued 2nd`; null when it is not in the queue.
+     * this checkout merges it), `waits for main to be fixed (…)`, or `queued 2nd`; null when it is not in the queue.
      * $origin is main's tip as MainPush::known() gives it; $states what MergeQueue::states() gives for it, when the caller has it.
      *
      * @param  array<string, array{state: string, position?: int, waits?: string}>|null  $states

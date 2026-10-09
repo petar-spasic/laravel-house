@@ -783,10 +783,10 @@ its clone yourself, and unblock it. Its worker concludes the merge. A merge that
 rounds goes back to the worker.
 
 When a test command fails on the merged code, the queue first runs it on `main` alone, in the same stack, when the card
-changed no lockfile, docker file or compose file. If it fails there too, `main` is red. The queue files one
-high-priority `main red: <command>` card, or adds a note to the open one, and merges nothing more until `main` moves.
-The card that found it keeps its approval and waits. The card filed for the red `main` merges once its own command
-passes.
+changed no lockfile, docker file or compose file. If it fails there too, `main` is red. The queue merges nothing more
+until `main` moves, and `kanban run` tells your Claude session which command fails on `main`, at which commit, and which
+card found it. Claude fixes it on `main` and runs `vendor/bin/kanban publish`. The card that found it keeps its
+approval and waits, as do the other approved cards. No card is made for it.
 
 A card merges only on the machine that built it, because card branches never leave their machine. When another
 machine's card heads the queue, your machine waits. Once that card has headed the queue for 15 minutes, as your machine
@@ -1067,9 +1067,8 @@ Do the morning.
 Claude shows what merged, what is blocked and what the agents spent, then asks every open question as a multiple
 choice, with a recommended answer and what each option means. Your answers go onto the cards, and the waiting cards
 move on. The cards the agents discovered wait for criteria, which you and Claude write. A failure the agents find
-already on `main` becomes one high-priority card, however many agents meet it. The morning lists it until you give it
-an area, so `promote` can take it. Tell Claude about new work, and
-the board carries on.
+already on `main` is never a card: the board tells your Claude session, once for each command, and Claude fixes it on
+`main`. Tell Claude about new work, and the board carries on.
 
 <a name="cutting-cards"></a>
 ### Cutting Cards
@@ -1342,7 +1341,7 @@ The [protocol reference](resources/boost/skills/kanban/references/protocol.md) l
 | `show ID [--plan]` | One card with its criteria, dependencies and history; `--plan` prints only its plan. |
 | `next` | The card that would be started next, or with `--planning` planned next. `-v` says why the others wait. |
 | `upstream` | Package findings waiting to be filed. |
-| `morning` | What merged, what is blocked, the questions, the discovered cards waiting for criteria, the failures on `main` waiting for an area and what the agents spent, since yesterday. |
+| `morning` | What merged, what is blocked, the questions, the discovered cards waiting for criteria and what the agents spent, since yesterday. |
 | `questions` | Every question waiting for you, with its options: open questions on unfinished cards, and provisional decisions until you answer them. |
 | `doctor` | Checks the installation. `--fix` repairs it. |
 | `validate` | Checks every board file. `--fix` rewrites them. |

@@ -146,7 +146,8 @@ Class names below are relative to `PetarSpasic\LaravelHouse\Kanban` (`src/Kanban
 - **Stage transitions go only through `Policy\Transitions`.** start, apply, sendBack, finish, stop and plan are unreachable from `move`.
 - **A planning card holds a claim only while a planner works on it** (`Card::atWork()`; `Stage::isActive` stays doing and review). A ready card starts only with a current plan (`Policy\Plan::current`: the `planned` entry's hash is the card's criteria and body without what `Questions::strip` takes out, the question sections and an answer confirming a Provisional decision's choice). The planner's clone and stack come down in `stop --to=ready`, never in a hook.
 - **Reports, verdicts, plans and merge results are staged by the CLI** (`report`, `verdict`, `plan`, `merged`) and applied at SubagentStop: the hook payload's last message is not the subagent's report.
-- **One merge at a time:** the merge lease on `kanban.json` is won by the push that lands, and expires only on the observer's monotonic clock (`merge-seen.json`), never by comparing clocks. Origin's main moves only by a plain push of a merge commit of the pinned base and approved head (`refs/merge-queue/<id>/*`, plus the merger's gated commits), whose tree passed the gates and `finish.check` in the merge stack (a `main-red` card's run skips the commands that fail on main too); a rejected push merges again on the new main. The one other push of main is `publish`'s: a fast-forward to commits made outside the queue. The queue never writes a card branch; it computes the merge in main and runs git in the merge clone's working tree in its container. Checks come from main's `config/kanban.php`, never the merged tree's. Like the clone, the queue guards against an agent's accidents, not a hostile agent.
+- **One merge at a time:** the merge lease on `kanban.json` is won by the push that lands, and expires only on the observer's monotonic clock (`merge-seen.json`), never by comparing clocks. Origin's main moves only by a plain push of a merge commit of the pinned base and approved head (`refs/merge-queue/<id>/*`, plus the merger's gated commits), whose tree passed the gates and `finish.check` in the merge stack; a rejected push merges again on the new main. A command failing on main alone (the base rerun, or the merger's `main`) makes no card: a `merge` entry `result: main` holds the queue while its base is origin's main, and `kanban run` raises it to the main session once per command and base (`Policy\MainRed`). The one other push of main is `publish`'s: a fast-forward to commits made outside the queue. The queue never writes a card branch; it computes the merge in main and runs git in the merge clone's working tree in its container. Checks come from main's `config/kanban.php`, never the merged tree's. Like the clone, the queue guards against an agent's accidents, not a hostile agent.
+- **A failure already on main is never a card.** Kanban is driven from an agent session: the main session is told and fixes main; no pull-order, capacity or stack rule knows about it.
 - **Stack commands strip the host env.** `Code\Stack` removes main's `.env` keys and every `COMPOSE_*` from docker's environment, passes `-p`, and asserts `config .name`. Otherwise a worktree stack takes over the main one.
 - **Branches:** the board branch is `kanban`, code branches are `card/<id>-<slug>`. `kanban/…` is impossible next to `kanban`.
 
@@ -170,6 +171,8 @@ Class names below are relative to `PetarSpasic\LaravelHouse\Kanban` (`src/Kanban
   - A test that reads the last entries of one write passes and fails at random → `Json::canonical` sorts the log by
     `at`, then `id`, and one write's entries share `at` while ids are random → select a write's entries by `at` and
     event, never by position.
+  - A notice counted in `kanban run --until-attention` output comes out twice → the run prints each notice as a log
+    line and again in the `attention:` block → count it in `run.log`.
   - A test that runs `finish` goes red at its gate step → the package's default `gates.report` runs in the sandbox's
     merge clone, where it fails → each such test overrides `gates.report` (FinishTest's `configureMerge`).
   - A `finish` that `kanban run` starts detached exits 6 → `run` makes up its session (`run:<host>`) without
@@ -219,6 +222,7 @@ grep -rn 'viewPrefix' resources/boost/skills/laravel-project-setup/templates/sni
 grep -rnE '\{\{(web_port|domain)\}\}' resources/boost/skills/laravel-project-setup/templates   # deployment's placeholders
 grep -rnE 'clsx|tailwind-merge' resources README.md --exclude=packages.md   # dropped from the prescribed set
 grep -rnE 'overlap_ignore|publish\.every|allow-steering|main-check\.json|MainCheck\b|askOwner|finish --ask' src resources stubs config README.md | grep -vE '^src/Kanban/Protocol/Runtime\.php:[0-9]+:.*main-check\.json'   # stale names of the steering gate and the main check; Runtime prunes a stray main-check.json
+grep -rnE 'main-red|MAIN_RED|failingOnMain|MergeQueue::fixes|on_main|blockForMain' src resources stubs config docker tests README.md   # a failure on main is never a card
 
 # Scripts
 bash -n bin/kanban-exec || echo "✗ bin/kanban-exec"

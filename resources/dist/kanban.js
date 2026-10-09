@@ -2141,11 +2141,12 @@
         if (entry.event === 'claimed') return 'took it to plan';
         if (entry.event === 'plan') return 'could not plan it' + (entry.reason ? ': ' + entry.reason : '');
         if (entry.event === 'conflict') return 'kept the other version of ' + (entry.field === 'flow' ? 'the stage' : entry.field) + ' in a merge';
+        if (entry.event === 'main_red') return 'found ' + entry.command + ' failing on main';
         if (entry.event === 'set') return 'changed ' + (entry.fields || []).join(', ') + (entry.acceptance_removed ? ' (removed criteria ' + entry.acceptance_removed.join(', ') + ')' : '');
         if (entry.event === 'merge') {
             return {
                 conflict: 'met conflicts merging into main: ' + (entry.files || []).join(', '), red: 'went red merging into main: ' + entry.command,
-                main: 'found ' + entry.command + ' failing on main too (' + entry.red + ')', resolved: 'resolved the conflicts of its merge', fixed: 'fixed what its merge turned red',
+                main: 'found ' + entry.command + ' failing on main too', resolved: 'resolved the conflicts of its merge', fixed: 'fixed what its merge turned red',
                 back: 'sent it back from the merge queue', stale: 'took it out of the merge queue: its branch moved past the approval', landed: 'found it on main already',
             }[entry.result] || 'merge ' + entry.result;
         }

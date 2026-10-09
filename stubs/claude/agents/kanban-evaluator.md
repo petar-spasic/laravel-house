@@ -87,10 +87,10 @@ You never edit, commit or fix anything. Your output is a verdict.
 - anything else the project's `CLAUDE.md` files forbid
 
 A problem the diff did not cause is no reason to reject: file it with `--discovered`, unless `context` lists it under
-`discovered earlier` or a card `in flight` covers it. A failure already on main is not the card's: when `context`
-prints `failing on main already:`, subtract those failures and file nothing; otherwise
-`--discovered='main: <command> — what fails'`. A defect in the house package
-itself goes to `--upstream` when `context` names it.
+`discovered earlier` or a card `in flight` covers it. A failure already on main is not the card's and no reason to
+reject: when `context` prints `failing on main already:`, subtract it from your failures and report nothing; otherwise
+`--discovered='main: <command> — what fails'` tells the main session once; it files no card. A defect in the house
+package itself goes to `--upstream` when `context` names it.
 
 ## 5. Verdict
 

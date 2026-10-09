@@ -1,19 +1,20 @@
-// The merge queue on the board: an approved card shows its place in the queue, the one being merged says so, and one
-// that waits for a red main says what it waits for; a card's details carry the same, and the review lane and the move
-// key say that the merge queue moves approved work to done.
+// The merge queue on the board: the card being merged says so, and while main is red every other approved card says it
+// waits for main to be fixed, and for what; a card's details carry the same, its activity says what was found failing on
+// main, and the review lane and the move key say that the merge queue moves approved work to done.
 export const seed = 'rich';
 
 export default async (t) => {
-    const { m_merging: merging, m_queued: queued, m_held: held } = t.seed.ids;
+    const { m_merging: merging, m_queued: queued, m_held: held, w1: doing } = t.seed.ids;
     const page = await t.open({ w: 1600, h: 900 });
     await page.goto(t.url + '/work', { waitUntil: 'networkidle' });
     const tag = (id, text) => page.locator(`.card[data-id="${id}"] .tag`, { hasText: text });
 
     t.ok('the card being merged says so', (await tag(merging, 'Merging').count()) === 1
         && /Ana/.test(await tag(merging, 'Merging').getAttribute('title')));
-    t.ok('an approved card shows its place in the queue', (await tag(queued, 'Queued 1').count()) === 1);
-    t.ok('one held while main is red says it waits on main, and for which card', (await tag(held, 'Waits on main').count()) === 1
-        && (await tag(held, 'Waits on main').getAttribute('title')).includes(`waits for ${queued} (failing on main)`));
+    const waits = async (id) => (await tag(id, 'Waits on main').count()) === 1
+        && /fails on main at [0-9a-f]{7}\)$/.test(await tag(id, 'Waits on main').getAttribute('title'))
+        && !/[A-Z]+-[0-9A-Z]{4,}/.test(await tag(id, 'Waits on main').getAttribute('title'));
+    t.ok('while main is red, every other approved card says it waits on main, and for what, naming no card', await waits(queued) && await waits(held));
     t.ok('the merging tag is green, the waiting one amber', await tag(merging, 'Merging').evaluate((el) => el.classList.contains('green'))
         && await tag(held, 'Waits on main').evaluate((el) => el.classList.contains('amber')));
     await t.shot(page, 'merge-board');
@@ -27,12 +28,17 @@ export default async (t) => {
     await t.shot(page, 'merge-details');
     await page.keyboard.press('Escape');
 
-    await page.locator(`.card[data-id="${held}"] .c-title`).click();
-    await page.waitForSelector('.panel.is-top .d-title');
-    const found = page.locator('.panel.is-top .log li', { hasText: `found php artisan test failing on main too (${queued})` });
-    await found.first().waitFor({ timeout: 5000 }).catch(() => {});
-    t.ok('its activity says, in words, that the merge found the failure on main too', (await found.count()) === 1);
-    await page.keyboard.press('Escape');
+    const activity = async (id, text) => {
+        await page.locator(`.card[data-id="${id}"] .c-title`).click();
+        await page.waitForSelector('.panel.is-top .d-title');
+        const found = page.locator('.panel.is-top .log li .log-h > span:not(.who)', { hasText: text });
+        await found.first().waitFor({ timeout: 5000 }).catch(() => {});
+        const count = await found.count();
+        await page.keyboard.press('Escape');
+        return count;
+    };
+    t.ok('its activity says, in words, that the merge found the failure on main too', (await activity(queued, /^\s*found php artisan test failing on main too$/)) === 1);
+    t.ok('an agent\'s find on main is in its card\'s activity, in words', (await activity(doing, /^\s*found npm run lint failing on main$/)) === 1);
 
     await page.locator(`.card[data-id="${queued}"] .c-title`).click();
     await page.waitForSelector('.panel.is-top .d-title');

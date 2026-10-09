@@ -224,7 +224,7 @@ final class MergeStep
             if ($state['phase'] === MergeState::RELEASED) {
                 $this->lease->release();
                 $this->reset($id);
-                ($this->say)("{$id} left the merge queue: its merger's result is on the card");
+                ($this->say)("{$id}: its merger's result is on the card; merge lease given back");
 
                 return self::RETURNED;
             }
@@ -485,16 +485,15 @@ final class MergeStep
 
     /**
      * `finish.check`, each command; one that fails is run again on the base alone when that is a fair test (the same
-     * dependencies and docker files): red there too, main is red, and the queue waits for its fix. A card filed for main
-     * red merges once its own command passes, whatever else fails on the base too. A command not found (exit 126, 127)
-     * on the base too is the project's to fix (StackFailed, the merge let go); on the merged tree alone, the merger's.
+     * dependencies and docker files): red there too, main is red; the queue holds until main moves and the main session
+     * is told (MainRed). A command not found (exit 126, 127) on the base too is the project's to fix (StackFailed, the
+     * merge let go); on the merged tree alone, the merger's.
      *
      * @return array{step: string, command: string, exit: ?int, tail: string, base_rerun: string}|int|null the failure for the merger, an exit, or null
      */
     private function suite(Card $card, Closure $tick): array|int|null
     {
         $suite = new Suite($this->mainConfig());
-        $own = MergeQueue::fixes($card);
         $state = (array) $this->state->read();
         $checked = (string) $state['checked'];
         foreach ($suite->commands() as $command) {
@@ -502,9 +501,6 @@ final class MergeStep
                 continue;
             }
             $missing = in_array($failed['exit'], [126, 127], true);
-            if ($own === $command && ! $missing) {
-                return $this->back($card, "`{$command}` still fails:\n".mb_substr($failed['tail'], -1500), ['command' => $command]);
-            }
             $fair = $this->fairRerun((string) $state['base'], $checked);
             $onBase = null;
             if ($fair) {
@@ -526,13 +522,8 @@ final class MergeStep
                     default => 'failed',
                 }];
             }
-            if ($own !== null && ($onBase !== null || in_array($command, (array) ($state['on_main'] ?? []), true))) {
-                ($this->say)("{$card->id()}: `{$command}` fails on {$this->main} too; it merges once its own command passes");
-
-                continue;
-            }
             if ($onBase !== null) {
-                return $this->mainRed($card, $failed, (string) $state['base']);
+                return $this->mainRed($card, $failed, $onBase, (string) $state['base']);
             }
 
             return ['step' => 'suite', ...$failed, 'base_rerun' => $fair ? 'passed' : 'skipped'];
@@ -552,18 +543,18 @@ final class MergeStep
     }
 
     /**
-     * Main is red: the failing command fails on the base alone. The card filed for it is noted or filed, the merge ends
-     * and the queue waits until main moves (MergeQueue::held).
+     * Main is red: the failing command fails on the base alone. The merge ends, the queue holds until main moves
+     * (MergeQueue::hold), and `kanban run` tells the main session.
      *
      * @param  array{command: string, exit: ?int, tail: string}  $failed
+     * @param  array{command: string, exit: ?int, tail: string}  $onBase  the base rerun's failure, kept as the entry's note
      */
-    private function mainRed(Card $card, array $failed, string $base): int
+    private function mainRed(Card $card, array $failed, array $onBase, string $base): int
     {
-        $red = $this->applier()->failingOnMain($card, $failed['command'], $failed['tail'], $this->actor);
-        $this->log($card->id(), MergeState::entry('main', ['red' => $red, 'command' => $failed['command'], 'base' => $base]));
+        $this->log($card->id(), MergeState::entry('main', ['command' => $failed['command'], 'base' => $base] + (trim($onBase['tail']) === '' ? [] : ['note' => mb_substr($onBase['tail'], -1500)])));
         $this->attempt($card->id(), null);
         $this->leave($card->id());
-        ($this->say)("{$card->id()} waits for {$red}: `{$failed['command']}` fails on {$this->main} too (".substr($base, 0, 7).')');
+        ($this->say)("{$card->id()}: `{$failed['command']}` fails on {$this->main} alone too (".substr($base, 0, 7)."); the merge queue holds until {$this->main} moves");
 
         return self::RETURNED;
     }
@@ -924,7 +915,7 @@ final class MergeStep
         if (($busy = $this->busy($card)) !== null) {
             throw new Waiting("{$id}: {$busy}; `vendor/bin/kanban wait {$id}`");
         }
-        if (($held = MergeQueue::held($card, $snapshot, $this->originMain())) !== null) {
+        if (($held = MergeQueue::hold($snapshot, $this->originMain())) !== null) {
             throw new Waiting("{$id} {$held}");
         }
         $next = $this->next($snapshot);
@@ -1022,7 +1013,7 @@ final class MergeStep
         $fixes = isset($state['checked'], $state['merge_commit']) && $state['checked'] !== $state['merge_commit']
             ? ['from' => $state['merge_commit'], 'to' => $state['checked']] : ($state['replay'] ?? null);
         $this->state->set(['phase' => MergeState::MERGING, 'round' => $round, 'merged' => null, 'checked' => null, 'failure' => null,
-            'conflicts' => null, 'on_main' => null, 'replay' => $fixes]);
+            'conflicts' => null, 'replay' => $fixes]);
         ($this->say)("{$card->id()}: {$why}; merging again on the new {$this->main} (round {$round})");
     }
 

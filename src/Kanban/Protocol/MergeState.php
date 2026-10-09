@@ -27,7 +27,6 @@ use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
  * - `merged`: what is pushed to main: `merge_commit` plus the merger's fixes. Set from the phase `pushing` on.
  * - `checked`: the merge clone's HEAD the checks ran on: only it is pushed.
  * - `replay`: {from, to}, the merger's fixes of an earlier round, cherry-picked onto the next round's merge before its checks.
- * - `on_main`: the commands that a merger found failing on main too, for a card filed for main red: they no longer stop it.
  * - `conflicts`: the conflicted paths (phase `conflict`).
  * - `failure`: {step, command, exit, tail, base_rerun} of the failed check (phase `red`); `step` is install, gate or
  *   suite, `base_rerun` passed, failed (a command the merged tree lost, red on the base) or skipped.
@@ -38,9 +37,8 @@ use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
  * result's fields), written `by: main` from `finish` and `by: merger` from an applied merger result:
  * - `conflict`: the merge stopped on conflicts, the merger is launched.
  * - `red`: a gate, an install or the suite failed on the merged tree and code could not call it main's.
- * - `main`: main is red: the base rerun failed too (main), or the merger judged so (merger). `red` names the main-red
- *   card (never the card merged), and MergeQueue holds the queue while origin's main is `base`. A card filed for main
- *   red goes on with its checks (`on_main`); any other leaves the queue.
+ * - `main`: main is red: the base rerun failed too (by main), or the merger judged so (by merger). MergeQueue holds the
+ *   queue while origin's main is `base`; `kanban run` raises it to the main session (MainRed). No card is filed.
  * - `resolved`, `fixed`: the merger's result applied.
  * - `back`: the merger, the round cap or leftover conflict markers sent the card back, in the same write as its `stage`
  *   entry via `merge`.
@@ -69,7 +67,7 @@ final class MergeState
     /** `merged` is fenced on the lease (`pushing`) and pushed: never aborted, settled by asking origin. */
     public const PUSHING = 'pushing';
 
-    /** The merger's `back`, or `main` for a card not filed for main red, was applied: the next `finish` releases the lease and exits 13. */
+    /** The merger's `back` or `main` was applied: the next `finish` gives the lease back and exits 13. */
     public const RELEASED = 'released';
 
     /** The lease is being given back; kept until a release lands, retried by every `finish` and `kanban run` pass. */
@@ -84,7 +82,7 @@ final class MergeState
     public const RESULTS = [
         'conflict' => [['files', 'base', 'round'], []],
         'red' => [['step', 'command', 'exit', 'base', 'round', 'base_rerun'], []],
-        'main' => [['red', 'command', 'base'], ['hash', 'note']],
+        'main' => [['command', 'base'], ['hash', 'note']],
         'resolved' => [['head', 'hash', 'note'], []],
         'fixed' => [['head', 'hash', 'note'], []],
         'back' => [['note'], ['hash', 'files', 'command']],
@@ -93,7 +91,7 @@ final class MergeState
     ];
 
     private const FIELDS = ['card', 'lease', 'phase', 'round', 'merger_rounds', 'merger_runs', 'base', 'head', 'merge_commit',
-        'merged', 'checked', 'replay', 'conflicts', 'failure', 'on_main', 'lost', 'started', 'beat_at'];
+        'merged', 'checked', 'replay', 'conflicts', 'failure', 'lost', 'started', 'beat_at'];
 
     public function __construct(private readonly Paths $paths) {}
 

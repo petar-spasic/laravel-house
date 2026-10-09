@@ -15,7 +15,7 @@ class MergedCommand extends Command
 {
     protected $signature = 'kanban:merged
         {id : The card being merged}
-        {result : resolved (a conflict), fixed (a failed check), back (to its worker) or main (failing on main already)}
+        {result : resolved (a conflict), fixed (a failed check), back (to its worker) or main (it fails on main alone; the queue holds until main moves)}
         {--note= : What you did or found, at most 2000 characters}
         {--note-file= : The note from a file, - for stdin}';
 

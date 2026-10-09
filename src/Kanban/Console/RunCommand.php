@@ -13,10 +13,10 @@ use PetarSpasic\LaravelHouse\Kanban\Code\MergeStep;
 use PetarSpasic\LaravelHouse\Kanban\Code\PortRegistry;
 use PetarSpasic\LaravelHouse\Kanban\Code\Stack;
 use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
+use PetarSpasic\LaravelHouse\Kanban\Policy\MainRed;
 use PetarSpasic\LaravelHouse\Kanban\Policy\MergeQueue;
 use PetarSpasic\LaravelHouse\Kanban\Policy\Plan;
 use PetarSpasic\LaravelHouse\Kanban\Policy\PullPolicy;
-use PetarSpasic\LaravelHouse\Kanban\Protocol\Applier;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Lease;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\MergeLease;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\MergeState;
@@ -780,8 +780,8 @@ class RunCommand extends Command
 
     /**
      * Notices for what changed on the board since the last report: a card blocked without a question (by its agent, the
-     * stop gate or this run), a failure filed as already on main, a card the merge sent back or holds, a merge lease
-     * another machine stopped beating, more package findings. Each is reported once, kept in run.json.
+     * stop gate or this run), main red (MainRed), a card the merge sent back, a merge lease another machine stopped
+     * beating, more package findings. Each is reported once, kept in run.json.
      *
      * @param  array<string, mixed>  $state
      */
@@ -800,13 +800,12 @@ class RunCommand extends Command
             }
         }
         $state['seen'] = $now;
-        // what the agents and the merge queue filed as already on main has no area, so no promote takes it
-        $filed = array_map(fn (Card $c) => $c->id(), $snapshot->cards(fn (Card $c) => $c->stage() === 'backlog'
-            && in_array(Applier::MAIN_RED, $c->labels(), true) && $c->areas() === []));
-        foreach (array_diff($filed, (array) ($state['main_red'] ?? [])) as $id) {
-            $this->notice("{$id} ".$snapshot->card($id)?->title().': a failure already on main, in backlog: give it an area and promote it first');
+        // main red: raised once for each command and base; a fix that moves main ends it, a red at the new tip raises again
+        $open = MainRed::open($snapshot, $this->step()->originMain());
+        foreach ($open as $row) {
+            in_array($row['key'], (array) ($state['main_red'] ?? []), true) || $this->notice(MainRed::line($row));
         }
-        $state['main_red'] = $filed;
+        $state['main_red'] = array_column($open, 'key');
         // the send-back reported last of each card at work, wherever it has been since
         $back = array_intersect_key((array) ($state['merge_back'] ?? []), array_flip(array_map(fn (Card $c) => $c->id(), $snapshot->cards(fn (Card $c) => $c->atWork()))));
         foreach ($this->local($snapshot, fn (Card $c) => $c->stage() === 'doing') as $card) {
@@ -818,11 +817,6 @@ class RunCommand extends Command
             }
         }
         $state['merge_back'] = $back;
-        $held = array_intersect_key(MergeQueue::heldCards($snapshot, $this->step()->originMain()), array_flip(array_map(fn (Card $c) => $c->id(), $this->queued($snapshot))));
-        foreach ($held as $id => $why) {
-            ($state['merge_held'][$id] ?? null) === $why || $this->notice("{$id} {$why}");
-        }
-        $state['merge_held'] = $held;
         $lease = $snapshot->mergeLease();
         $stood = $this->queue['stood'] ?? null;
         if ($lease !== null && $stood !== null && $stood >= MergeLease::EXPIRE_SECONDS / 2 && ! $this->mergeLease()->mine($snapshot)

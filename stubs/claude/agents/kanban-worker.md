@@ -81,8 +81,9 @@ and wrote its plan.
   `discovered earlier`, nor one a card `in flight` covers (say it in your summary instead). Its body and any criterion
   you propose follow the kanban skill's `references/planning.md`, "The body and the criteria".
 - A failure already on main (in code and tests this card never touched) is not yours. When `context` prints
-  `failing on main already:`, that line names it and its card: subtract its failures from yours and file nothing.
-  Otherwise `--discovered='main: <command> — what fails'` files it once, for every agent.
+  `failing on main already:`, subtract it from your failures and report nothing. Otherwise
+  `--discovered='main: <command> — what fails'` tells the main session once; it files no card. Never fix it in this
+  card.
 - Delete tracked files with `git rm`; never move them out of the clone.
 - After a page change, its browser spec runs in your container and passes before you report. Run each browser spec
   you add or change three times (`--repeat-each=3`): one failure is a flaky spec to fix.

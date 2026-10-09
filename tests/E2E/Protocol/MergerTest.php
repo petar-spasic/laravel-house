@@ -1,7 +1,6 @@
 <?php
 
 use PetarSpasic\LaravelHouse\Tests\Support\ProtocolSandbox;
-use PetarSpasic\LaravelHouse\Tests\Support\Sandbox;
 
 /** An approved card whose branch and main both changed app.php: [protocol sandbox, id, card clone]. */
 function mergeConflicting(): array
@@ -263,19 +262,18 @@ it('sends the card back to its worker with the merger\'s note, which the worker\
         ->and($p->in($wt, ['context'])->getOutput())->toContain('review→doing: app.php: main returns a header the card drops');
 });
 
-it('files a failure the merger finds already on main, and releases the merge', function () {
+it('records a failure the merger finds already on main, files no card, and releases the merge', function () {
     [$p, $id] = mergeClean();
     $clone = $p->merging($id, 'red', ['base_rerun' => 'skipped', 'command' => 'php artisan test --filter=Billing']);
+    $base = $p->mergeState()['base'];
+    $cards = count(glob($p->main.'/docs/kanban/*/*.json'));
     mergerBound($p, $clone);
 
     $p->in($clone, ['merged', $id, 'main', '--note=php artisan test --filter=Billing — the invoice total is off by one on main too'])->mustRun();
     mergerStop($p, $clone);
 
-    $entry = mergeEntries($p, $id)[0];
-    $red = $p->card($entry['red']);
-    expect($entry)->toMatchArray(['result' => 'main', 'by' => 'merger', 'command' => 'php artisan test --filter=Billing', 'base' => $p->mergeState()['base'] ?? $entry['base']])
-        ->and($red['labels'])->toContain('main-red')
-        ->and($red['title'])->toBe('main red: php artisan test --filter=Billing')
+    expect(mergeEntries($p, $id)[0])->toMatchArray(['result' => 'main', 'by' => 'merger', 'command' => 'php artisan test --filter=Billing', 'base' => $base])->not->toHaveKey('red')
+        ->and(count(glob($p->main.'/docs/kanban/*/*.json')))->toBe($cards)
         ->and($p->mergeState()['phase'])->toBe('released')
         ->and($p->card($id)['stage'])->toBe('review');
 });
@@ -289,23 +287,6 @@ it('refuses main after the failing command passed on main alone', function () {
     expect($run->getExitCode())->toBe(3)
         ->and($run->getErrorOutput())->toContain('`php artisan test` passed on main alone');
 });
-
-it('refuses main for a failed gate or install on a card filed for main red, and offers it no such answer', function (string $step) {
-    $p = ProtocolSandbox::create();
-    $id = $p->sandbox->card('Fix the red suite', Sandbox::withArea(['--body=Build it', '--stage=planning', '--label=main-red', '--accept=`php artisan test` passes on main']));
-    $p->sandbox->plan($id);
-    preg_match('/^worktree (.+)$/m', $p->sandbox->ok(['start', $id]), $m);
-    $wt = realpath($m[1]);
-    $p->commit($wt, 'notes.php', "<?php\n", "{$id}: fix");
-    $p->approve($id, $wt);
-    $clone = $p->merging($id, 'red', ['step' => $step, 'command' => 'composer lint', 'base_rerun' => 'skipped']);
-
-    $run = $p->in($clone, ['merged', $id, 'main', '--note=x']);
-
-    expect($run->getExitCode())->toBe(3)
-        ->and($run->getErrorOutput())->toContain("{$id} is filed for main red: a failed {$step} that fails on main too is fixed in the merge (fixed) or the card's (back)")
-        ->and($p->in($clone, ['context', $id])->getOutput())->not->toContain("vendor/bin/kanban merged {$id} main");
-})->with(['a gate' => ['gate'], 'an install' => ['install']]);
 
 it('logs a staged result as moot once its merge is over, and leaves the card alone', function (array $state) {
     [$p, $id] = mergeConflicting();

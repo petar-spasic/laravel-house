@@ -194,9 +194,10 @@ final class Staged
     }
 
     /**
-     * `bug: Title — body` → {type, title, body}. The type is optional (feature). `main: <command> — body`, a failure
-     * already on main, → a bug whose title is the command, marked `main`: the command ends at the first em or en dash,
-     * since ` -- ` is shell syntax; one quoted in backticks ends at its closing backtick, and any separator starts the body.
+     * `bug: Title — body` → {type, title, body}. The type is optional (feature). `main: <command> — body` is a failure
+     * already on main: it files no card; the applier records it as a `main_red` entry for the main session. Its title is
+     * the command, marked `main`: the command ends at the first em or en dash, since ` -- ` is shell syntax; one quoted in
+     * backticks ends at its closing backtick, and any separator starts the body.
      *
      * @return array{type: string, title: string, body: string, main?: true}
      */

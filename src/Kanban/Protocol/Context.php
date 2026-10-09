@@ -3,9 +3,11 @@
 namespace PetarSpasic\LaravelHouse\Kanban\Protocol;
 
 use PetarSpasic\LaravelHouse\Kanban\Code\DatabaseSteps;
+use PetarSpasic\LaravelHouse\Kanban\Code\MainPush;
 use PetarSpasic\LaravelHouse\Kanban\Code\MergeStep;
 use PetarSpasic\LaravelHouse\Kanban\Code\Suite;
 use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
+use PetarSpasic\LaravelHouse\Kanban\Policy\MainRed;
 use PetarSpasic\LaravelHouse\Kanban\Policy\Plan;
 use PetarSpasic\LaravelHouse\Kanban\Store\Card;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
@@ -113,9 +115,8 @@ final class Context
         if ($card->blocked() !== null) {
             $lines[] = 'blocked: '.$card->blocked();
         }
-        if ($card->stage() !== 'planning' && ($known = $snapshot->cards(fn (Card $c) => $c->id() !== $card->id()
-            && in_array(Applier::MAIN_RED, $c->labels(), true) && ! in_array($c->stage(), ['done', 'dropped'], true))) !== []) {
-            $lines[] = 'failing on main already (not yours to file; subtract them from yours): '.implode(', ', array_map(fn (Card $c) => $c->id().' '.mb_strimwidth($c->title(), 0, 80, '…'), $known));
+        if ($card->stage() !== 'planning' && ($red = $this->mainRed($snapshot)) !== null) {
+            $lines[] = 'failing on main already (not yours to report; subtract it from yours): '.$red;
         }
         if ($worktree !== null) {
             $lines[] = "worktree {$worktree}".(isset($work['branch']) ? " branch {$work['branch']}" : '').($base !== null ? ' base '.substr($base, 0, 7) : '');
@@ -326,9 +327,8 @@ final class Context
         if (($verdict = $this->last($card, 'verdict')) !== null && $verdict['decision'] === 'approve') {
             $lines[] = 'approved @'.substr((string) ($verdict['head'] ?? ''), 0, 7).(isset($verdict['note']) ? ": {$verdict['note']}" : '');
         }
-        $known = $snapshot->cards(fn (Card $c) => $c->id() !== $id && in_array(Applier::MAIN_RED, $c->labels(), true) && ! in_array($c->stage(), ['done', 'dropped'], true));
-        if ($known !== []) {
-            $lines[] = 'failing on main already: '.implode(', ', array_map(fn (Card $c) => $c->id().' '.mb_strimwidth($c->title(), 0, 80, '…'), $known));
+        if (($red = $this->mainRed($snapshot)) !== null) {
+            $lines[] = 'failing on main already: '.$red;
         }
         $record = (new Worktrees($this->paths, $this->config))->stackRecord($clone);
         $lines[] = ($record['shell'] ?? null) === 'container'
@@ -352,7 +352,7 @@ final class Context
         $lines[] = $failure === null
             ? "protocol: resolve each file, `git add` it, `git commit --no-edit`, run the gates (a fix they need goes into that commit: `git commit --amend --no-edit`); then `{$merged} resolved --note=\"…\"`; the card's intent unclear: `{$merged} back --note=\"<files, hunks, what to decide>\"`"
             : "protocol: a failure the merge caused: fix and commit it, then `{$merged} fixed --note=\"…\"`; the card's own: `{$merged} back --note=\"<failing tests, why>\"`"
-                .(Applier::notOnMain($card, $failure) !== null ? '' : "; one on main already: `{$merged} main --note=\"<command> — what fails\"`");
+                .(Applier::mainRefusal($failure) !== null ? '' : "; one on main already: `{$merged} main --note=\"<command> — what fails\"` (the queue then holds until main moves; the card keeps its approval)");
 
         return $lines;
     }
@@ -586,6 +586,14 @@ final class Context
         $merges = array_values(array_filter(explode("\n", $git->attempt(['log', '--merges', '--format=%h %s', '-n', '10', $from.'..HEAD'])->out)));
 
         return array_values(array_filter($merges, fn (string $merge) => trim($git->attempt(['show', '--no-ext-diff', '--no-textconv', '--format=', '--cc', explode(' ', $merge, 2)[0]])->out) !== ''));
+    }
+
+    /** What fails on main now (MainRed), as "`<command>` at <sha7>" joined with '; ', or null. */
+    private function mainRed(Snapshot $snapshot): ?string
+    {
+        $open = MainRed::open($snapshot, MainPush::of($this->paths, $this->config)->known());
+
+        return $open === [] ? null : implode('; ', array_map(fn (array $row) => "`{$row['command']}` at ".substr($row['base'], 0, 7), $open));
     }
 
     /**

@@ -4,9 +4,10 @@ namespace PetarSpasic\LaravelHouse\Kanban\Protocol;
 
 use Closure;
 use PetarSpasic\LaravelHouse\Kanban\Code\CloneGit;
+use PetarSpasic\LaravelHouse\Kanban\Code\MainPush;
 use PetarSpasic\LaravelHouse\Kanban\Code\MergeCheck;
 use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
-use PetarSpasic\LaravelHouse\Kanban\Policy\MergeQueue;
+use PetarSpasic\LaravelHouse\Kanban\Policy\MainRed;
 use PetarSpasic\LaravelHouse\Kanban\Policy\Plan;
 use PetarSpasic\LaravelHouse\Kanban\Policy\Questions;
 use PetarSpasic\LaravelHouse\Kanban\Policy\Transitions;
@@ -16,7 +17,6 @@ use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\KanbanException;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\StaleReport;
 use PetarSpasic\LaravelHouse\Kanban\Store\Git\GitStore;
-use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
 use PetarSpasic\LaravelHouse\Kanban\Store\Store;
 use PetarSpasic\LaravelHouse\Kanban\Support\Clock;
 use PetarSpasic\LaravelHouse\Kanban\Support\Git;
@@ -27,9 +27,6 @@ use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
  */
 final class Applier
 {
-    /** The label of a card that holds a failure on main. */
-    public const MAIN_RED = 'main-red';
-
     /** @param  array<string, mixed>  $config  the `kanban` config */
     public function __construct(
         private readonly Store $store,
@@ -214,9 +211,10 @@ final class Applier
             $worktree = $this->worktree($card);
             $head = ($worktree !== null && is_dir($worktree) ? Git::untrusted($worktree)->line(['rev-parse', 'HEAD']) : null) ?? $report['head'] ?? null;
             $created = $this->discover($card, $report['discovered'] ?? [], $by, 'working on', $known);
+            $aside = $this->aside($card, $report);
 
             $status = (string) $report['status'];
-            $this->store->update($id, function (array $data) use ($report, $status, $head, $created, $known) {
+            $this->store->update($id, function (array $data) use ($report, $status, $head, $created, $known, $aside) {
                 $data['acceptance'] = self::tick($data['acceptance'] ?? [], $report['ticks'] ?? [], true);
                 if (is_array($data['work'] ?? null)) {
                     $data['work']['head'] = $head;
@@ -235,7 +233,7 @@ final class Applier
                     'verified' => $report['verified'] ?? [], 'discovered' => $created, 'known' => $known,
                     'reason' => $report['reason'] ?? null, 'note' => self::cut($report['note'] ?? null, 500),
                 ], fn ($v) => $v !== null && $v !== []);
-                $data['log'] = [...$data['log'], ...self::upstream($report)];
+                $data['log'] = [...$data['log'], ...$aside];
 
                 return $status === 'review' && $data['stage'] === 'doing' ? Transitions::stage($data, 'review', 'apply') : $data;
             }, $by);
@@ -279,7 +277,8 @@ final class Applier
                 throw new PolicyRefused("{$id} changed since the plan was staged (its criteria or body): run `vendor/bin/kanban context`, revise the plan to cover the card as it is, and stage it again");
             }
             $created = $this->discover($card, $staged['discovered'] ?? [], $by, 'planning', $known);
-            $this->store->update($id, function (array $data) use ($staged, $status, $created, $known, $hash) {
+            $aside = $this->aside($card, $staged);
+            $this->store->update($id, function (array $data) use ($staged, $status, $created, $known, $hash, $aside) {
                 if (($staged['questions'] ?? []) !== []) {
                     $data['body'] = Questions::append((string) ($data['body'] ?? ''), $staged['questions']);
                 }
@@ -292,7 +291,7 @@ final class Applier
                         'discovered' => $created, 'known' => $known, 'note' => self::cut($staged['note'] ?? null, 500)]
                     : ['event' => 'plan', 'status' => 'blocked', 'staged' => $hash, 'reason' => $staged['reason'] ?? null, 'discovered' => $created, 'known' => $known,
                         'note' => self::cut($staged['note'] ?? null, 500)], fn ($v) => $v !== null && $v !== []);
-                $data['log'] = [...$data['log'], ...self::upstream($staged)];
+                $data['log'] = [...$data['log'], ...$aside];
 
                 return $data;
             }, $by);
@@ -328,11 +327,12 @@ final class Applier
             $superseded = null;
             if ($moot !== null || ($superseded = $this->superseded($card, $verdict, $approve && $answerable)) !== null) {
                 $created = $this->discover($card, $verdict['discovered'] ?? [], $by, 'evaluating', $known);
-                $this->store->update($id, function (array $data) use ($verdict, $hash, $moot, $superseded, $created, $known) {
+                $aside = $this->aside($card, $verdict);
+                $this->store->update($id, function (array $data) use ($verdict, $hash, $moot, $superseded, $created, $known, $aside) {
                     $data['log'] = [...$data['log'], array_filter([
                         'event' => $moot !== null ? 'verdict_moot' : 'verdict_superseded', 'decision' => $verdict['decision'], 'hash' => $hash,
                         'head' => $verdict['head'] ?? null, 'reason' => $moot ?? $superseded, 'discovered' => $created, 'known' => $known,
-                    ], fn ($v) => $v !== null && $v !== []), ...self::upstream($verdict)];
+                    ], fn ($v) => $v !== null && $v !== []), ...$aside];
 
                     return $data;
                 }, $by);
@@ -351,6 +351,7 @@ final class Applier
                 }
             }
             $created = $this->discover($card, $verdict['discovered'] ?? [], $by, 'evaluating', $known);
+            $aside = $this->aside($card, $verdict);
             $checks = (array) ($verdict['checks'] ?? []);
             $failed = array_map('intval', array_keys(array_filter($checks, fn (array $c) => $c['result'] === 'fail')));
             $entry = array_filter([
@@ -362,10 +363,10 @@ final class Applier
             ], fn ($v) => $v !== null && $v !== []);
 
             if ($approve) {
-                $this->store->update($id, function (array $data) use ($verdict, $entry) {
+                $this->store->update($id, function (array $data) use ($verdict, $entry, $aside) {
                     $data['acceptance'] = self::tick($data['acceptance'] ?? [], array_column($data['acceptance'] ?? [], 'id'), true);
                     $data['work']['approved'] = ['head' => $verdict['head'], 'at' => Clock::now()];
-                    $data['log'] = [...$data['log'], $entry, ...self::upstream($verdict)];
+                    $data['log'] = [...$data['log'], $entry, ...$aside];
 
                     return $data;
                 }, $by);
@@ -377,10 +378,10 @@ final class Applier
             // the verdict and the send-back: one write, so a failure leaves neither and the verdict is applied again whole
             $note = 'rejected'.($failed === [] ? '' : ': criteria '.implode(', ', $failed).' fail')
                 .(($verdict['issues'] ?? []) === [] ? '' : '; '.count($verdict['issues']).' issue(s)');
-            $card = $this->store->update($id, function (array $data) use ($failed, $entry, $verdict, $note) {
+            $card = $this->store->update($id, function (array $data) use ($failed, $entry, $note, $aside) {
                 $before = $data;
                 $data['acceptance'] = self::tick($data['acceptance'] ?? [], $failed, false);
-                $data['log'] = [...$data['log'], $entry, ...self::upstream($verdict)];
+                $data['log'] = [...$data['log'], $entry, ...$aside];
 
                 return $data['stage'] === 'review' ? Transitions::sentBack(Transitions::noted($before, $data), 'reject', $note) : $data;
             }, $by);
@@ -393,7 +394,8 @@ final class Applier
     /**
      * Applies a merger's staged result to the merge it answers (Staged::merge): resolved and fixed are checked again on
      * the merge clone as it is now (mergerHead()), logged, and the merge goes back to its checks; back sends the card to
-     * its worker in the same write as its log entry; main files or notes the main-red card. back and main leave the merge
+     * its worker in the same write as its log entry; main records that main is red, which holds the queue (MainRed). back
+     * and main leave the merge
      * `released`, for `finish` to give the lease back. A result for a merge that is over is logged as moot. The board
      * write comes first: applied again after a failure, it settles the merge state alone.
      *
@@ -412,7 +414,7 @@ final class Applier
             $ours = $state !== null && ($state['card'] ?? null) === $id && ($state['lease'] ?? null) === $item['lease'] && ($state['round'] ?? null) === $item['round']
                 && in_array($state['phase'] ?? null, [MergeState::CONFLICT, MergeState::RED], true);
             if (is_file($this->runtime->appliedFile($id, 'merge', $hash)) || self::landed($card, ['merge', 'merge_moot'], 'hash', $hash)) {
-                $ours && $this->settled($states, $card, $item, $state);
+                $ours && $this->settled($states, $item, $state);
                 $this->runtime->markApplied($id, 'merge', $hash);
 
                 return "{$id}: merge result {$hash} already applied";
@@ -456,15 +458,13 @@ final class Applier
                 }, $by);
             } else {
                 $this->mergerHead($card, $state, $outcome);
-                $command = (string) ($state['failure']['command'] ?? '');
-                $red = $this->failingOnMain($card, $command, $note, $by);
-                $this->store->update($id, function (array $data) use ($red, $command, $state, $hash, $note) {
-                    $data['log'][] = MergeState::entry('main', ['red' => $red, 'command' => $command, 'base' => (string) $state['base'], 'hash' => $hash, 'note' => $note]);
+                $this->store->update($id, function (array $data) use ($state, $hash, $note) {
+                    $data['log'][] = MergeState::entry('main', ['command' => (string) ($state['failure']['command'] ?? ''), 'base' => (string) $state['base'], 'hash' => $hash, 'note' => $note]);
 
                     return $data;
                 }, $by);
             }
-            $this->settled($states, $card, $item, $state);
+            $this->settled($states, $item, $state);
             $this->runtime->markApplied($id, 'merge', $hash);
 
             return "{$id}: merge result {$outcome} applied";
@@ -489,7 +489,7 @@ final class Applier
      * The merge clone's HEAD that the merger's resolved or fixed stands on, fetched into main as
      * `refs/merge-queue/<id>/staged`; null for back and main. PolicyRefused when the merge in flight ($state) does not take
      * $outcome now: resolved needs a conflict concluded in one merge commit of the round's two pins, fixed commits on
-     * top of the tree the check failed on, main a failure notOnMain() allows; and what the merger changed must pass the
+     * top of the tree the check failed on, main a failure mainRefusal() allows; and what the merger changed must pass the
      * merger gate.
      *
      * @param  array<string, mixed>  $state
@@ -506,7 +506,7 @@ final class Applier
         if ($phase !== $wants) {
             throw new PolicyRefused("{$outcome} answers ".($wants === MergeState::CONFLICT ? 'a conflict' : 'a failed check')."; the merge of {$id} is {$phase}");
         }
-        if ($outcome === 'main' && ($why = self::notOnMain($card, $failure)) !== null) {
+        if ($outcome === 'main' && ($why = self::mainRefusal($failure)) !== null) {
             throw new PolicyRefused($why);
         }
         if (! in_array($outcome, ['resolved', 'fixed'], true)) {
@@ -545,22 +545,15 @@ final class Applier
     }
 
     /**
-     * Why the merger may not answer `main` to the failed check $failure of $card's merge, or null: it passed on main
-     * alone; or the card is filed for main red, and it is the card's own command, or no finish.check command.
+     * Why the merger may not answer `main` to the failed check $failure, or null: it passed on main alone.
      *
      * @param  array<string, mixed>  $failure
      */
-    public static function notOnMain(Card $card, array $failure): ?string
+    public static function mainRefusal(array $failure): ?string
     {
-        $own = MergeQueue::fixes($card);
-
-        return match (true) {
-            ($failure['base_rerun'] ?? null) === 'passed' => "`{$failure['command']}` passed on main alone: its failure is the merge's (fixed) or the card's (back), not main's",
-            $own === null => null,
-            $own === ($failure['command'] ?? null) => "{$card->id()} holds `{$own}` failing on main, and it still fails with the card's change: back",
-            ($failure['step'] ?? null) !== 'suite' => "{$card->id()} is filed for main red: a failed {$failure['step']} that fails on main too is fixed in the merge (fixed) or the card's (back)",
-            default => null,
-        };
+        return ($failure['base_rerun'] ?? null) === 'passed'
+            ? "`{$failure['command']}` passed on main alone: its failure is the merge's (fixed) or the card's (back), not main's"
+            : null;
     }
 
     /** How many commits $from..$head holds when they are fixes on top of $from, one parent each (what a push of main takes); else null. */
@@ -614,21 +607,17 @@ final class Applier
     }
 
     /**
-     * The merge state after the merger's result $item: back to its checks (resolved, fixed, and main for a card filed for
-     * main red, whose checks no longer stop at that command), or released (back, main); the merger's launches counted
-     * afresh.
+     * The merge state after the merger's result $item: back to its checks (resolved, fixed), or released (back, main);
+     * the merger's launches counted afresh.
      *
      * @param  array<string, mixed>  $item
      * @param  array<string, mixed>  $state
      */
-    private function settled(MergeState $states, Card $card, array $item, array $state): void
+    private function settled(MergeState $states, array $item, array $state): void
     {
-        $goesOn = $item['outcome'] === 'main' && MergeQueue::fixes($card) !== null;
-        $fields = match (true) {
-            $item['outcome'] === 'resolved' => ['phase' => MergeState::CHECKS, 'merge_commit' => $item['head'], 'conflicts' => null],
-            $item['outcome'] === 'fixed' => ['phase' => MergeState::CHECKS, 'failure' => null],
-            $goesOn => ['phase' => MergeState::CHECKS, 'failure' => null,
-                'on_main' => array_values(array_unique([...(array) ($state['on_main'] ?? []), (string) ($state['failure']['command'] ?? '')]))],
+        $fields = match ($item['outcome']) {
+            'resolved' => ['phase' => MergeState::CHECKS, 'merge_commit' => $item['head'], 'conflicts' => null],
+            'fixed' => ['phase' => MergeState::CHECKS, 'failure' => null],
             default => ['phase' => MergeState::RELEASED],
         };
         $rounds = $fields['phase'] === MergeState::CHECKS ? ['merger_rounds' => (int) ($state['merger_rounds'] ?? 0) + 1] : [];
@@ -742,11 +731,9 @@ final class Applier
             }
         }
         $created = [];
-        $mainRed = $this->mainRed($snapshot);
         foreach ($items as $found) {
+            // a failure on main is no card: it goes beside the card's own entry (aside())
             if (! empty($found['main'])) {
-                $mainRed = $this->onMain($card, $found, $by, $while, $mainRed, $created, $known);
-
                 continue;
             }
             $title = self::normal($found['title']);
@@ -766,62 +753,6 @@ final class Applier
         $known = array_values(array_unique($known));
 
         return $created;
-    }
-
-    /** An open card labelled `main-red`, other than $except. */
-    private function mainRed(Snapshot $snapshot, ?string $except = null): ?string
-    {
-        foreach ($snapshot->cards(fn (Card $c) => $c->id() !== $except && ! in_array($c->stage(), ['done', 'dropped'], true) && in_array(self::MAIN_RED, $c->labels(), true)) as $red) {
-            return $red->id();
-        }
-
-        return null;
-    }
-
-    /**
-     * $command fails on main, as the merge of $card found: noted on an open main-red card other than $card, or filed as
-     * one (onMain()). Returns that card's id.
-     */
-    public function failingOnMain(Card $card, string $command, string $body, Actor $by): string
-    {
-        $created = [];
-        $known = [];
-
-        return $this->onMain($card, ['type' => 'bug', 'title' => $command, 'body' => $body], $by, 'merging', $this->mainRed($this->store->snapshot(), $card->id()), $created, $known);
-    }
-
-    /**
-     * A failure already on main: noted on the open main-red card, or filed as one, high priority, on no area, with the
-     * command passing on main as its criterion.
-     *
-     * @param  array{type: string, title: string, body: string}  $found
-     * @param  list<string>  $created
-     * @param  list<string>  $known
-     */
-    private function onMain(Card $card, array $found, Actor $by, string $while, ?string $mainRed, array &$created, array &$known): string
-    {
-        $what = "`{$found['title']}`".($found['body'] === '' ? '' : " — {$found['body']}");
-        if ($mainRed !== null) {
-            $this->store->update($mainRed, function (array $data) use ($card, $what) {
-                $text = mb_strimwidth("{$card->id()} found it too: {$what}", 0, 1000, '…');
-                // a report applied again after its own write failed notes nothing twice
-                if (! in_array($text, array_column(array_filter($data['log'], fn (array $e) => ($e['event'] ?? null) === 'note'), 'text'), true)) {
-                    $data['log'][] = ['event' => 'note', 'text' => $text];
-                }
-
-                return $data;
-            }, $by);
-            in_array($mainRed, [...$created, ...$known], true) || $known[] = $mainRed;
-
-            return $mainRed;
-        }
-
-        return $created[] = $this->store->create($card->board, [
-            'type' => 'bug', 'priority' => 'high', 'title' => mb_strimwidth("main red: {$found['title']}", 0, 120, '…'),
-            'labels' => ['discovered', self::MAIN_RED],
-            'acceptance' => [mb_strimwidth("`{$found['title']}` passes on main", 0, Card::MAX_CRITERION, '…')],
-            'body' => trim("Discovered by {$card->id()} ({$card->title()}) while {$while} it: `{$found['title']}` fails on main.\n\n{$found['body']}"),
-        ], $by)->id();
     }
 
     /**
@@ -852,9 +783,10 @@ final class Applier
     private static function found(array $created, array $staged, array $known = []): string
     {
         $upstream = count($staged['upstream'] ?? []);
+        $main = count(array_filter($staged['discovered'] ?? [], fn (array $f) => ! empty($f['main'])));
 
         return ($created === [] ? '' : ', discovered '.implode(', ', $created)).($known === [] ? '' : ', already on the board: '.implode(', ', $known))
-            .($upstream === 0 ? '' : ", {$upstream} upstream finding(s) for main");
+            .($upstream === 0 ? '' : ", {$upstream} upstream finding(s) for main").($main === 0 ? '' : ", {$main} failure(s) on main for the main session");
     }
 
     /**
@@ -867,6 +799,38 @@ final class Applier
     {
         return array_map(fn (array $f) => array_filter(['event' => 'upstream', 'title' => (string) $f['title'], 'body' => (string) ($f['body'] ?? '')],
             fn (string $v) => $v !== ''), $staged['upstream'] ?? []);
+    }
+
+    /**
+     * The staged findings that go beside the card's own entry: `upstream` (kanban upstream) and `main_red`, a failure on
+     * main for the main session (MainRed), once for each command and main's tip as this machine knows it. A clone that
+     * does not hold that tip tested an older main, which may be fixed since: its failures on main are dropped.
+     *
+     * @param  array<string, mixed>  $staged
+     * @return list<array<string, string>>
+     */
+    private function aside(Card $card, array $staged): array
+    {
+        $entries = self::upstream($staged);
+        $main = array_filter($staged['discovered'] ?? [], fn (array $f) => ! empty($f['main']));
+        if ($main === [] || ($base = MainPush::of($this->paths, $this->config)->known()) === null) {
+            return $entries;
+        }
+        $worktree = $this->worktree($card);
+        if ($worktree !== null && is_dir($worktree) && ! Git::untrusted($worktree)->attempt(['merge-base', '--is-ancestor', $base, 'HEAD'])->ok()) {
+            return $entries;
+        }
+        $open = array_column(MainRed::open($this->store->snapshot(), $base), 'key');
+        foreach ($main as $found) {
+            if (in_array($key = "{$base}:{$found['title']}", $open, true)) {
+                continue;
+            }
+            $open[] = $key;
+            $entries[] = array_filter(['event' => 'main_red', 'command' => (string) $found['title'], 'base' => $base,
+                'body' => mb_strimwidth((string) ($found['body'] ?? ''), 0, 500, '…')], fn (string $v) => $v !== '');
+        }
+
+        return $entries;
     }
 
     /** The branch's head where the work happens: the card's worktree while it exists, else main. */

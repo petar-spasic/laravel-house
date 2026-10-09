@@ -1050,29 +1050,33 @@ it('blocks a card on a reject loop in a later pass when the block could not be w
     expect($this->code->sandbox->read($id)['blocked'])->toBe('kanban run: rejected 2× on criterion 1: feature.txt lacks the index');
 });
 
-it('raises a failure the merge queue filed as already on main once, while it has no area', function () {
-    $bug = $this->code->sandbox->card('main red: vendor/bin/pest', ['--type=bug', '--label=main-red']);
-    $log = fn () => (string) @file_get_contents($this->code->root().'/.git/laravel-house/run.log');
-
-    $out = runPass($this->code, $this->claude, ['--until-attention', '--timeout=0']);
-    runPass($this->code, $this->claude, ['--until-attention', '--timeout=0']);
-
-    expect($out)->toContain("attention:\n")->toContain("  {$bug} main red: vendor/bin/pest: a failure already on main, in backlog: give it an area and promote it first\n")
-        ->and(substr_count($log(), 'a failure already on main'))->toBe(1);
-});
-it('hands back a failure the agents filed as already on main', function () {
+it('tells the main session about a failure an agent found on main, once for each command, and holds nothing', function () {
     runAgent($this->claude, 'worker', <<<'SH'
         cd "$WORKTREE" && echo x > feature.txt && git add -A && git commit -qm "$CARD: feature" && cd - > /dev/null
         vendor/bin/kanban --in="$WORKTREE" report "$CARD" --status=review --tick=1 --summary=Done --discovered="main: php artisan test — NotesTest fatals"
         SH);
-    $this->code->sandbox->readyCard('Add login page');
-    runPass($this->code, $this->claude);
+    runAgent($this->claude, 'evaluator', <<<'SH'
+        vendor/bin/kanban --in="$WORKTREE" verdict "$CARD" approve --check=1:pass:"feature.txt holds it" --discovered="main: php artisan test — the same fatal" --discovered="main: npm run lint — eslint fails"
+        SH);
+    $id = $this->code->sandbox->readyCard('Add login page');
+    $sha = substr(trim($this->code->sandbox->git('rev-parse', 'main')), 0, 7);
+    $cards = count(glob($this->code->root().'/docs/kanban/work/*.json'));
 
-    $out = runPass($this->code, $this->claude, ['--until-attention', '--timeout=0']);
+    $out = '';
+    for ($pass = 0; $pass < 6 && $this->code->sandbox->read($id)['stage'] !== 'done'; $pass++) {
+        $out .= runPass($this->code, $this->claude, ['--until-attention', '--timeout=0']);
+    }
+    $out .= runPass($this->code, $this->claude, ['--until-attention', '--timeout=0']);
 
-    $red = collect(glob($this->code->root().'/docs/kanban/work/*.json'))->map(fn ($f) => json_decode(file_get_contents($f), true))
-        ->first(fn (array $c) => in_array('main-red', $c['labels'], true));
-    expect($out)->toContain("attention:\n")->toContain("  {$red['id']} main red: php artisan test: a failure already on main, in backlog: give it an area and promote it first\n");
+    $test = "  main is red: `php artisan test` fails on main at {$sha}, reported by the worker of {$id}: NotesTest fatals; fix it on main and `vendor/bin/kanban publish`\n";
+    $lint = "  main is red: `npm run lint` fails on main at {$sha}, reported by the evaluator of {$id}: eslint fails; fix it on main and `vendor/bin/kanban publish`\n";
+    expect($this->code->sandbox->read($id)['stage'])->toBe('done')
+        ->and(count(glob($this->code->root().'/docs/kanban/work/*.json')))->toBe($cards)
+        ->and($out)->toContain("attention:\n{$test}")
+        ->and(substr_count($out, $test))->toBe(1)
+        ->and(substr_count($out, $lint))->toBe(1)
+        ->and(substr_count((string) file_get_contents($this->code->root().'/.git/laravel-house/run.log'), 'main is red'))->toBe(2)
+        ->and(array_column(array_filter($this->code->sandbox->read($id)['log'], fn (array $e) => $e['event'] === 'main_red'), 'command'))->toBe(['php artisan test', 'npm run lint']);
 });
 
 it('raises a card promote --auto cannot write once, and promotes the others', function () {

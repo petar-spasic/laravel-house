@@ -432,39 +432,56 @@ it('gives a card whose board file is missing a board to show it under', function
     expect($card['board'])->toMatchArray(['ref' => 'work', 'title' => 'work'])->and($card['targets'])->toBeArray();
 });
 
-it('says where each approved card stands in the merge queue: being merged, waiting for a red main, or at its place', function () {
-    $s = $this->sandbox;
+/** An approved review card titled $title, approved at $at. */
+function approvedCard(Sandbox $s, string $title, string $at): string
+{
     $store = app(Store::class);
     $main = new Actor('main', 's1');
-    $approved = function (string $title, array $options, string $at) use ($s, $store, $main): string {
-        $id = $s->readyCard($title, $options);
-        (new Transitions($store))->start($id, $main, null, ['branch' => 'card/'.strtolower($id), 'stack' => null]);
-        (new Transitions($store))->apply($id, $main);
-        $store->update($id, function (array $data) use ($at) {
-            $data['work']['approved'] = ['head' => str_repeat('a', 40), 'at' => $at];
-
-            return $data;
-        }, $main);
-
-        return $id;
-    };
-    $merging = $approved('Tag notes', [], '2026-10-09T07:00:00.000+00:00');
-    $fix = $approved('Fix the export test', ['--label=main-red', '--accept=`php artisan test` passes on main'], '2026-10-09T07:10:00.000+00:00');
-    $held = $approved('Archive notes', [], '2026-10-09T07:20:00.000+00:00');
-    $store->update($held, function (array $data) use ($fix, $s) {
-        $data['log'][] = MergeState::entry('main', ['red' => $fix, 'command' => 'php artisan test', 'base' => trim($s->git('rev-parse', 'refs/heads/main'))]);
+    $id = $s->readyCard($title);
+    (new Transitions($store))->start($id, $main, null, ['branch' => 'card/'.strtolower($id), 'stack' => null]);
+    (new Transitions($store))->apply($id, $main);
+    $store->update($id, function (array $data) use ($at) {
+        $data['work']['approved'] = ['head' => str_repeat('a', 40), 'at' => $at];
 
         return $data;
     }, $main);
-    $store->lease(fn (?array $old) => [['id' => '9f2c41d07a8b3e65', 'card' => $merging, 'by' => 'ana@host-a', 'who' => 'Ana',
-        'since' => '2026-10-09T08:00:00.000+00:00', 'beat' => '2026-10-09T08:04:00.000+00:00'], [], "merge lease {$merging} taken"], $main);
+
+    return $id;
+}
+
+it('says where each approved card stands in the merge queue: being merged, or at its place, the merging one first', function () {
+    $s = $this->sandbox;
+    $merging = approvedCard($s, 'Tag notes', '2026-10-09T07:00:00.000+00:00');
+    $first = approvedCard($s, 'Fix the export test', '2026-10-09T07:10:00.000+00:00');
+    $second = approvedCard($s, 'Archive notes', '2026-10-09T07:20:00.000+00:00');
+    app(Store::class)->lease(fn (?array $old) => [['id' => '9f2c41d07a8b3e65', 'card' => $merging, 'by' => 'ana@host-a', 'who' => 'Ana',
+        'since' => '2026-10-09T08:00:00.000+00:00', 'beat' => '2026-10-09T08:04:00.000+00:00'], [], "merge lease {$merging} taken"], new Actor('main', 's1'));
 
     $cards = collect($this->getJson('/kanban/_api/work')->assertOk()->json('stages'))->pluck('cards')->flatten(1)->keyBy('id');
     $facts = $this->getJson("/kanban/_api/cards/{$merging}")->json('card.facts');
 
     expect($cards[$merging]['merge'])->toBe(['state' => 'merging', 'by' => 'Ana', 'since' => strtotime('2026-10-09T08:00:00Z')])
-        ->and($cards[$fix]['merge'])->toBe(['state' => 'queued', 'position' => 1])
-        ->and($cards[$held]['merge'])->toBe(['state' => 'held', 'waits' => "waits for {$fix} (failing on main)"])
+        ->and($cards[$first]['merge'])->toBe(['state' => 'queued', 'position' => 2])
+        ->and($cards[$second]['merge'])->toBe(['state' => 'queued', 'position' => 3])
         ->and($facts['queue'])->toBe('merging on host-a (Ana) since 08:00')
-        ->and($this->getJson("/kanban/_api/cards/{$fix}")->json('card.facts.queue'))->toBe('queued 1st');
+        ->and($this->getJson("/kanban/_api/cards/{$first}")->json('card.facts.queue'))->toBe('queued 2nd');
+});
+
+it('says every approved card waits for main to be fixed while a merge found main red', function () {
+    $s = $this->sandbox;
+    $found = approvedCard($s, 'Tag notes', '2026-10-09T07:00:00.000+00:00');
+    $other = approvedCard($s, 'Archive notes', '2026-10-09T07:10:00.000+00:00');
+    $base = trim($s->git('rev-parse', 'refs/heads/main'));
+    app(Store::class)->update($found, function (array $data) use ($base) {
+        $data['log'][] = MergeState::entry('main', ['command' => 'php artisan test', 'base' => $base]);
+
+        return $data;
+    }, new Actor('main', 's1'));
+
+    $cards = collect($this->getJson('/kanban/_api/work')->assertOk()->json('stages'))->pluck('cards')->flatten(1)->keyBy('id');
+
+    $waits = 'waits for main to be fixed (`php artisan test` fails on main at '.substr($base, 0, 7).')';
+    expect($cards[$found]['merge'])->toBe(['state' => 'held', 'waits' => $waits])
+        ->and($cards[$other]['merge'])->toBe(['state' => 'held', 'waits' => $waits])
+        ->and($this->getJson("/kanban/_api/cards/{$other}")->json('card.facts.queue'))->toBe($waits);
 });

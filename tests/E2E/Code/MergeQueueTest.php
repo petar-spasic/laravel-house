@@ -215,13 +215,17 @@ it('lets the merger fix what the merge turned red, and merges the fix', function
         ->and($this->code->sandbox->git('log', '-1', '--format=%s', 'main'))->toBe("Drop RED\n");
 });
 
-it('holds the queue on a main the merger finds red, and raises the hold once', function () {
+it('holds the queue on a main the merger finds red, tells the main session once, and merges again once main is fixed and published', function () {
     $this->code->configure(['gates' => ['report' => []], 'finish' => ['install' => ['composer.lock' => 'true']]]);
     $this->code->sandbox->git('commit', '-q', '-am', 'install');
+    $this->code->sandbox->addRemote(Origin::create());
     $id = queued($this->code, 'Tag notes', 'composer.lock', "{}\n", '2026-01-01T00:00:00.000+00:00');
     $later = queued($this->code, 'Archive notes', 'archive.php', "<?php\n", '2026-01-02T00:00:00.000+00:00');
-    $this->code->commitMain('RED', "main fails\n");
+    $red = substr($this->code->commitMain('RED', "main fails\n"), 0, 7);
+    $this->code->sandbox->git('push', '-q', 'origin', 'main');
     merger($this->claude, 'main', 'test ! -e RED — RED is on main');
+    $log = fn () => (string) @file_get_contents($this->code->root().'/.git/laravel-house/run.log');
+    $line = "main is red: `test ! -e RED` fails on main alone at {$red}, found merging {$id}: fix it on main and `vendor/bin/kanban publish`; the merge queue holds until main moves (`vendor/bin/kanban show {$id} --log=5` has its output)";
 
     runPass($this->code, $this->claude);
     expect($this->code->mergeState()['failure'])->toMatchArray(['command' => 'test ! -e RED', 'base_rerun' => 'skipped']);
@@ -229,15 +233,28 @@ it('holds the queue on a main the merger finds red, and raises the hold once', f
     $held = runPass($this->code, $this->claude, ['--until-attention', '--timeout=0']);
     $again = runPass($this->code, $this->claude, ['--until-attention', '--timeout=0']);
 
-    $red = collect(glob($this->code->root().'/docs/kanban/work/*.json'))->map(fn ($f) => json_decode(file_get_contents($f), true))
-        ->first(fn (array $c) => in_array('main-red', $c['labels'], true));
-    expect($red['title'])->toBe('main red: test ! -e RED')
+    $cards = collect(glob($this->code->root().'/docs/kanban/work/*.json'))->map(fn ($f) => json_decode(file_get_contents($f), true))->filter(fn (array $c) => isset($c['stage']));
+    expect($cards->pluck('id')->sort()->values()->all())->toBe(collect([$id, $later])->sort()->values()->all())
         ->and(mergeResults($this->code, $id))->toBe(['red', 'main'])
-        ->and($held)->toContain("attention:\n")->toContain("  {$later} waits for {$red['id']} (failing on main)\n")
-        ->and($again)->toContain('idle: 2 approved cards wait for the merge queue')->not->toContain('idle: no agent runs')
-        ->not->toContain("{$later} waits for")->not->toContain('merging')
+        ->and(collect($this->code->sandbox->read($id)['log'])->last(fn (array $e) => $e['event'] === 'merge'))->not->toHaveKey('red')
+        ->and($held)->toContain("attention:\n  {$line}\n")
+        ->and(substr_count($log(), 'main is red'))->toBe(1)
+        ->and($again)->toContain('idle: 2 approved cards wait for the merge queue')->not->toContain('main is red')
+        ->not->toContain('waits for')->not->toContain('merging')
+        ->and($this->code->sandbox->read($id)['stage'])->toBe('review')
         ->and($this->code->sandbox->read($later)['stage'])->toBe('review')
         ->and($this->code->lease())->toBeNull();
+
+    $this->code->sandbox->git('rm', '-q', 'RED');
+    $this->code->sandbox->git('commit', '-q', '-m', 'Fix main');
+    $this->code->ok(['publish']);
+    for ($pass = 0; $pass < 8 && $this->code->sandbox->read($later)['stage'] !== 'done'; $pass++) {
+        runPass($this->code, $this->claude);
+    }
+
+    expect($this->code->sandbox->read($id)['stage'])->toBe('done')
+        ->and($this->code->sandbox->read($later)['stage'])->toBe('done')
+        ->and(substr_count($log(), 'main is red'))->toBe(1);
 });
 
 it('sends a card back after three merger rounds that leave it red', function () {
@@ -781,10 +798,10 @@ it('raises a merge lease that another machine stopped beating once, before it ex
 
 it('drains only once the doing cards are done, while a red main holds the merge queue', function () {
     file_put_contents("{$this->claude}/kanban-worker.error", json_encode(['api_error_status' => 429, 'result' => "You've hit your limit"]));
-    $red = $this->code->sandbox->card('main red: test ! -e RED', ['--type=bug', '--label=main-red']);
-    $file = glob($this->code->root()."/docs/kanban/*/{$red}.json")[0];
+    $found = queued($this->code, 'Archive notes', 'archive.php', "<?php\n");
+    $file = glob($this->code->root()."/docs/kanban/*/{$found}.json")[0];
     $card = json_decode((string) file_get_contents($file), true);
-    $card['log'][] = ['id' => 'MR000001', 'at' => $card['updated'], 'by' => 'main', 'event' => 'merge', 'result' => 'main', 'red' => $red,
+    $card['log'][] = ['id' => 'MR000001', 'at' => $card['updated'], 'by' => 'main', 'event' => 'merge', 'result' => 'main',
         'command' => 'test ! -e RED', 'base' => trim($this->code->sandbox->git('rev-parse', 'refs/heads/main'))];
     Json::write($file, Json::encode($card, 'card'));
     $this->code->sandbox->boardGit('commit', '-q', '-am', 'main red (test)');

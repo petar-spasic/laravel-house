@@ -3,7 +3,6 @@
 namespace PetarSpasic\LaravelHouse\Kanban\Policy;
 
 use Closure;
-use PetarSpasic\LaravelHouse\Kanban\Protocol\Applier;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\MergeLease;
 use PetarSpasic\LaravelHouse\Kanban\Store\Card;
 use PetarSpasic\LaravelHouse\Kanban\Store\Snapshot;
@@ -25,56 +24,22 @@ final class MergeQueue
     }
 
     /**
-     * The command a card labelled main-red was filed for (its criterion "`<command>` passes on main"), or null: only such a
-     * card is the fix for main red.
-     */
-    public static function fixes(Card $card): ?string
-    {
-        if (! in_array(Applier::MAIN_RED, $card->labels(), true)) {
-            return null;
-        }
-        foreach ($card->acceptance() as $criterion) {
-            if (preg_match('/^`(.+)` passes on main$/', (string) ($criterion['text'] ?? ''), $m) === 1) {
-                return $m[1];
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * Why the queue waits for main to turn green, or null: a merge found main red (a `merge` entry `result: main`) on the
-     * base that is still origin's main, and the card it filed is open. Any move of main lifts the hold, so the next merge
-     * checks again.
+     * Why the queue waits for main to be fixed, or null: a merge found main red (a `merge` entry `result: main`) on the
+     * base that is still origin's main. Only a move of main lifts it, so the next merge checks again.
      */
     public static function hold(Snapshot $snapshot, ?string $originMain): ?string
     {
-        if ($originMain === null) {
-            return null;
-        }
-        foreach ($snapshot->cards() as $found) {
-            foreach ($found->log() as $entry) {
-                if (($entry['event'] ?? null) !== 'merge' || ($entry['result'] ?? null) !== 'main' || ($entry['base'] ?? null) !== $originMain) {
-                    continue;
-                }
-                $red = $snapshot->card((string) ($entry['red'] ?? ''));
-                if ($red !== null && ! in_array($red->stage(), ['done', 'dropped'], true)) {
-                    return "waits for {$red->id()} (failing on main)";
-                }
+        foreach (MainRed::open($snapshot, $originMain) as $row) {
+            if ($row['holds']) {
+                return "waits for main to be fixed (`{$row['command']}` fails on main at ".substr($row['base'], 0, 7).')';
             }
         }
 
         return null;
     }
 
-    /** Why $card waits for main to turn green (hold()), or null; a card that fixes main red (fixes()) never waits. */
-    public static function held(Card $card, Snapshot $snapshot, ?string $originMain): ?string
-    {
-        return self::fixes($card) === null ? self::hold($snapshot, $originMain) : null;
-    }
-
     /**
-     * The queued cards that wait for main to turn green, with why (held()), in queue order.
+     * The queued cards that wait for main to be fixed, with why (hold()), in queue order: all of them, or none.
      *
      * @return array<string, string>
      */
@@ -85,7 +50,7 @@ final class MergeQueue
         }
         $held = [];
         foreach (self::cards($snapshot) as $card) {
-            self::fixes($card) === null && $held[$card->id()] = $hold;
+            $held[$card->id()] = $hold;
         }
 
         return $held;
@@ -93,7 +58,7 @@ final class MergeQueue
 
     /**
      * Where each queued card stands, in queue order: `merging` (it holds the merge lease), `held` with what it waits for
-     * (held()), or `queued` with its place among the cards not held, from 1, the merging one first.
+     * (hold()), or `queued` with its place among the cards not held, from 1, the merging one first.
      *
      * @return array<string, array{state: string, position?: int, waits?: string}>
      */
@@ -102,13 +67,12 @@ final class MergeQueue
         $hold = self::hold($snapshot, $originMain);
         $leased = $snapshot->mergeLease()['card'] ?? null;
         $cards = self::cards($snapshot);
-        $held = fn (Card $card) => $hold !== null && self::fixes($card) === null;
-        $place = array_filter($cards, fn (Card $c) => $c->id() === $leased && ! $held($c)) === [] ? 0 : 1;
+        $place = $hold === null && array_filter($cards, fn (Card $c) => $c->id() === $leased) !== [] ? 1 : 0;
         $states = [];
         foreach ($cards as $card) {
             $states[$card->id()] = match (true) {
                 $card->id() === $leased => ['state' => 'merging'],
-                $held($card) => ['state' => 'held', 'waits' => $hold],
+                $hold !== null => ['state' => 'held', 'waits' => $hold],
                 default => ['state' => 'queued', 'position' => ++$place],
             };
         }
@@ -117,9 +81,9 @@ final class MergeQueue
     }
 
     /**
-     * The card this machine merges next, and why no other: the cards not held, in order. A card of this machine ($local)
-     * that may merge here now ($ready gives null) is it; one that may not is passed over and named. A card of another
-     * machine stops the walk, unless $pass says to pass it over (MergeLease::observe).
+     * The card this machine merges next, and why no other: none while main is red (hold()), else the cards in order. A
+     * card of this machine ($local) that may merge here now ($ready gives null) is it; one that may not is passed over
+     * and named. A card of another machine stops the walk, unless $pass says to pass it over (MergeLease::observe).
      *
      * @param  Closure(Card): bool  $local
      * @param  Closure(Card): ?string  $ready  why the card cannot merge here now, null when it can
@@ -128,13 +92,13 @@ final class MergeQueue
      */
     public static function next(Snapshot $snapshot, ?string $originMain, Closure $local, Closure $ready, Closure $pass): array
     {
-        $hold = self::hold($snapshot, $originMain);
+        $cards = self::cards($snapshot);
+        if (($hold = self::hold($snapshot, $originMain)) !== null) {
+            return ['card' => null, 'why' => implode('; ', array_map(fn (Card $c) => "{$c->id()} {$hold}", $cards)) ?: 'no approved card waits'];
+        }
         $passed = [];
-        $holds = [];
-        foreach (self::cards($snapshot) as $card) {
-            if ($hold !== null && self::fixes($card) === null) {
-                $holds[] = "{$card->id()} {$hold}";
-            } elseif (! $local($card)) {
+        foreach ($cards as $card) {
+            if (! $local($card)) {
                 if (! $pass($card)) {
                     return ['card' => null, 'why' => implode('; ', [...$passed, "{$card->id()} on ".($card->host() ?? 'another machine').' goes first'])];
                 }
@@ -146,6 +110,6 @@ final class MergeQueue
             }
         }
 
-        return ['card' => null, 'why' => implode('; ', [...$passed, ...$holds]) ?: 'no approved card waits'];
+        return ['card' => null, 'why' => implode('; ', $passed) ?: 'no approved card waits'];
     }
 }

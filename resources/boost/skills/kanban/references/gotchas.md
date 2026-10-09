@@ -173,12 +173,9 @@ adds. Then unblock it: its worker concludes the merge and reports again.
 track here".** → Without a remote the merge fast-forwards the main checkout, and git never overwrites a file it does
 not track (an agent's leftover). → Remove the file, or commit it on main; `git stash` leaves untracked files.
 
-**Every approved card waits: "waits for ACME-X (failing on main)".** → A merge found a `finish.check` command failing
-on main alone, filed or noted the `main-red` card ACME-X, and the queue merges nothing until origin's main moves. →
-Give ACME-X an area and `promote` it: it merges as soon as its own command passes. Keep its criterion "`<command>`
-passes on main" as filed: a `main-red` card without one waits like any other. A fix pushed to main by hand lifts the
-hold too.
-
-**Agents keep filing the same failure that is already on main.** → Each one met it in its own run and filed it from its
-own card. → Workers and evaluators file it with `--discovered='main: <command> — what fails'`, which keeps one card for
-it (protocol.md, SubagentStop).
+**Every approved card waits: "waits for main to be fixed (`<command>` fails on main at <sha7>)".** → A merge found that
+`finish.check` command failing on main alone (or the merger answered `main`). The queue merges nothing until origin's
+main moves, and no card is made. → Fix it on main, commit, `vendor/bin/kanban publish`; any move of main lifts the hold
+and the next merge checks again. The failing output is on the card that found it (`show <ID> --log=5`). A test that
+fails only sometimes is fixed by making it reliable: it failed on the merged tree and on main alone. When nothing fails
+on main any more, an empty commit and `publish` move main, and the next merge checks again.

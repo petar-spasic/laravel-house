@@ -327,7 +327,7 @@ it('lets the lease go once the merger\'s result took the card out of the queue',
     $run = $code->kanban(['finish']);
 
     expect($run->getExitCode())->toBe(13)
-        ->and($run->getOutput())->toContain("{$id} left the merge queue: its merger's result is on the card")
+        ->and($run->getOutput())->toContain("{$id}: its merger's result is on the card; merge lease given back")
         ->and($code->lease())->toBeNull()
         ->and($code->mergeState())->toBeNull();
 });
@@ -739,7 +739,22 @@ it('records a push that landed after the card left review, and tears nothing of 
         ->and($code->lease())->toBeNull();
 });
 
-it('calls main red when the failing command fails on the base alone, files one card for it and holds the queue until main moves', function () {
+it('keeps what the command printed on main alone with the main red it records', function () {
+    $code = $this->code;
+    $check = 'if [ -e RED ]; then echo "RED is on main"; exit 1; fi';
+    configureMerge($code, ['finish' => ['after' => [], 'check' => [$check]]]);
+    $id = $code->started('Tag notes');
+    $code->commit($id, 'tags.php', "<?php\n");
+    $code->approve($id);
+    pushMain($code, 'RED', "red\n");
+
+    expect($code->kanban(['finish', $id])->getExitCode())->toBe(13)
+        ->and(merges($code, $id)[0])->toMatchArray(['result' => 'main', 'command' => $check])
+        ->and(merges($code, $id)[0]['note'])->toContain('RED is on main')
+        ->and($code->ok(['status']))->toContain("(`vendor/bin/kanban show {$id} --log=5` has its output)");
+});
+
+it('calls main red when the failing command fails on the base alone, holds the queue until main moves and files no card', function () {
     $code = $this->code;
     $first = $code->started('Tag notes');
     $code->commit($first, 'tags.php', "<?php\n");
@@ -748,54 +763,29 @@ it('calls main red when the failing command fails on the base alone, files one c
     $code->commit($second, 'archive.php', "<?php\n");
     $code->approve($second, at: '2026-01-02T00:00:00.000+00:00');
     $base = pushMain($code, 'RED', "red\n");
+    $cards = count(glob($code->root().'/docs/kanban/work/*.json'));
 
     $run = $code->kanban(['finish', $first]);
-    $red = merges($code, $first)[0]['red'] ?? null;
     $pins = trim($code->sandbox->git('for-each-ref', "refs/merge-queue/{$first}/"));
     $held = $code->kanban(['finish', $second]);
 
     expect($run->getExitCode())->toBe(13)
-        ->and($run->getOutput())->toContain("{$first} waits for {$red}: `test ! -e RED` fails on main too")
-        ->and(merges($code, $first))->sequence(fn ($e) => $e->toMatchArray(['result' => 'main', 'red' => $red, 'command' => 'test ! -e RED', 'base' => $base]))
-        ->and($code->sandbox->read($red))->toMatchArray(['type' => 'bug', 'priority' => 'high', 'title' => 'main red: test ! -e RED'])
-        ->and($code->sandbox->read($red)['labels'])->toContain('main-red')
+        ->and($run->getOutput())->toContain("{$first}: `test ! -e RED` fails on main alone too (".substr($base, 0, 7).')')
+        ->and(merges($code, $first))->sequence(fn ($e) => $e->toMatchArray(['result' => 'main', 'command' => 'test ! -e RED', 'base' => $base])->not->toHaveKey('red'))
+        ->and(count(glob($code->root().'/docs/kanban/work/*.json')))->toBe($cards)
         ->and($pins)->toBe('')
         ->and($code->lease())->toBeNull()
         ->and(trim($code->gitIn($this->origin->path, 'rev-parse', 'main')))->toBe($base)
         ->and($held->getExitCode())->toBe(11)
-        ->and($held->getErrorOutput())->toContain("{$second} waits for {$red} (failing on main)")
+        ->and($held->getErrorOutput())->toContain("{$second} waits for main to be fixed (`test ! -e RED` fails on main at ".substr($base, 0, 7).')')
         ->and(merges($code, $second))->toBe([]);
 
     $code->sandbox->git('rm', '-q', 'RED');
     $code->sandbox->git('commit', '-q', '-m', 'Fix main by hand');
-    $code->sandbox->git('push', '-q', 'origin', 'main');
+    $code->ok(['publish']);
     expect($code->kanban(['finish', $first])->getExitCode())->toBe(0)
         ->and($code->kanban(['finish', $second])->getExitCode())->toBe(0);
 });
-
-it('merges the card filed for main red once its own command passes, and sends it back while it still fails', function (bool $fixes, int $exit) {
-    $code = $this->code;
-    pushMain($code, 'RED', "red\n");
-    $id = $code->sandbox->readyCard('Fix the red suite', ['--label=main-red', '--accept=`test ! -e RED` passes on main']);
-    $code->ok(['start', $id]);
-    $fixes ? $code->gitIn($code->worktree($id), 'rm', '-q', 'RED') : file_put_contents($code->worktree($id).'/note.md', "tried\n");
-    $code->gitIn($code->worktree($id), 'add', '-A');
-    $code->gitIn($code->worktree($id), 'commit', '-q', '-m', 'work');
-    $code->approve($id);
-
-    $run = $code->kanban(['finish', $id]);
-
-    expect($run->getExitCode())->toBe($exit, $run->getErrorOutput());
-    if ($fixes) {
-        expect($code->sandbox->read($id)['stage'])->toBe('done')
-            ->and(is_file($code->root().'/RED'))->toBeFalse();
-    } else {
-        expect($code->sandbox->read($id)['stage'])->toBe('doing')
-            ->and(merges($code, $id))->sequence(fn ($e) => $e->toMatchArray(['result' => 'back', 'command' => 'test ! -e RED']))
-            ->and(merges($code, $id)[0]['note'])->toStartWith('`test ! -e RED` still fails')
-            ->and($code->lease())->toBeNull();
-    }
-})->with(['its fix' => [true, 0], 'still red' => [false, 13]]);
 
 it('sends a card with leftover conflict markers back to its worker through the merge', function () {
     $code = $this->code;
@@ -1069,81 +1059,6 @@ it("checks a merger's result as committed: a file git does not track is refused,
         ->and($run->getOutput())->toContain("{$id}: red: `test ! -e RED || test -e WAIVED`; the merger's turn")
         ->and(is_file($clone.'/WAIVED'))->toBeFalse()
         ->and(trim($code->gitIn($this->origin->path, 'rev-parse', 'main')))->toBe($origin);
-});
-
-it('merges a card filed for main red while another command fails on main too, and hands the merger one that passes there', function (bool $onMain, int $exit) {
-    $code = $this->code;
-    configureMerge($code, ['finish' => ['check' => ['test ! -e RED', 'test ! -e BLUE']]]);
-    pushMain($code, 'RED', "red\n");
-    $onMain && pushMain($code, 'BLUE', "blue\n");
-    $id = $code->sandbox->readyCard('Fix the red suite', ['--label=main-red', '--accept=`test ! -e RED` passes on main']);
-    $code->ok(['start', $id]);
-    $wt = $code->worktree($id);
-    $code->gitIn($wt, 'rm', '-q', 'RED');
-    $onMain || file_put_contents($wt.'/BLUE', "blue\n");
-    $code->gitIn($wt, 'add', '-A');
-    $code->gitIn($wt, 'commit', '-q', '-m', 'work');
-    $code->approve($id);
-
-    $run = $code->kanban(['finish', $id]);
-
-    expect($run->getExitCode())->toBe($exit, $run->getErrorOutput());
-    if ($onMain) {
-        expect($run->getOutput())->toContain("{$id}: `test ! -e BLUE` fails on main too; it merges once its own command passes")
-            ->and($code->sandbox->read($id)['stage'])->toBe('done');
-    } else {
-        expect($code->mergeState())->toMatchArray(['phase' => 'red', 'failure' => ['step' => 'suite', 'command' => 'test ! -e BLUE', 'exit' => 1, 'tail' => '', 'base_rerun' => 'passed']]);
-    }
-})->with(['fails on main too' => [true, 0], 'passes on main' => [false, 12]]);
-
-it('goes on with a card filed for main red once its merger finds another failing command failing on main too', function () {
-    $code = $this->code;
-    configureMerge($code, ['finish' => ['check' => ['test ! -e RED', 'test ! -e BLUE'], 'install' => ['composer.lock' => 'true']]]);
-    pushMain($code, 'RED', "red\n");
-    pushMain($code, 'BLUE', "blue\n");
-    $id = $code->sandbox->readyCard('Fix the red suite', ['--label=main-red', '--accept=`test ! -e RED` passes on main']);
-    $code->ok(['start', $id]);
-    $wt = $code->worktree($id);
-    $code->gitIn($wt, 'rm', '-q', 'RED');
-    file_put_contents($wt.'/composer.lock', "{}\n");
-    $code->gitIn($wt, 'add', '-A');
-    $code->gitIn($wt, 'commit', '-q', '-m', 'work');
-    $code->approve($id);
-    expect($code->kanban(['finish', $id])->getExitCode())->toBe(12)
-        ->and($code->mergeState()['failure'])->toMatchArray(['command' => 'test ! -e BLUE', 'base_rerun' => 'skipped']);
-
-    $code->ok(['merged', $id, 'main', '--note=`test ! -e BLUE` — fails at refs/merge/base too'], cwd: $code->mergeClone());
-    $code->ok(['apply', $id]);
-    $state = $code->mergeState();
-    $red = merges($code, $id)[1]['red'] ?? null;
-    $run = $code->kanban(['finish', $id]);
-
-    expect($state)->toMatchArray(['phase' => 'checks', 'on_main' => ['test ! -e BLUE']])
-        ->and(merges($code, $id)[1])->toMatchArray(['result' => 'main', 'command' => 'test ! -e BLUE'])
-        ->and($red)->not->toBe($id)
-        ->and($code->sandbox->read($red))->toMatchArray(['title' => 'main red: test ! -e BLUE'])
-        ->and($run->getExitCode())->toBe(0, $run->getOutput().$run->getErrorOutput())
-        ->and($run->getOutput())->toContain("{$id}: `test ! -e BLUE` fails on main too; it merges once its own command passes")
-        ->and($code->sandbox->read($id)['stage'])->toBe('done');
-});
-
-it('holds a card labelled main-red whose criteria name no command, as any other card', function () {
-    $code = $this->code;
-    pushMain($code, 'RED', "red\n");
-    $id = $code->sandbox->readyCard('Tidy the suite', ['--label=main-red', '--accept=The suite is tidy']);
-    $code->ok(['start', $id]);
-    $code->commit($id, 'tidy.php', "<?php\n");
-    $code->approve($id);
-
-    $run = $code->kanban(['finish', $id]);
-    $red = merges($code, $id)[0]['red'] ?? null;
-    $again = $code->kanban(['finish', $id]);
-
-    expect($run->getExitCode())->toBe(13, $run->getErrorOutput())
-        ->and($red)->not->toBeNull()->not->toBe($id)
-        ->and($again->getExitCode())->toBe(11)
-        ->and($again->getErrorOutput())->toContain("{$id} waits for {$red} (failing on main)")
-        ->and(merges($code, $id))->toHaveCount(1);
 });
 
 it('replays a conflict resolution the merger made (rerere) when main moved, and forgets one the merger gate refuses', function (bool $skips, int $exit) {
