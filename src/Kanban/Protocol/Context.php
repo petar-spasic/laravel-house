@@ -303,10 +303,11 @@ final class Context
             $lines[] = 'conflicted: '.implode(', ', (array) $state['conflicts']);
         }
         if ($failure !== null) {
-            $lines[] = "failed: {$failure['step']} `{$failure['command']}` (exit {$failure['exit']}) at ".substr((string) ($state['checked'] ?? ''), 0, 7)
+            $lines[] = "failed: {$failure['step']} `{$failure['command']}` (".(($failure['exit'] ?? null) === null ? 'timed out' : "exit {$failure['exit']}").') at '.substr((string) ($state['checked'] ?? ''), 0, 7)
                 .'; on main alone: '.match (true) {
                     ($failure['base_rerun'] ?? null) === 'passed' => 'it passes',
                     ($failure['base_rerun'] ?? null) === 'failed' => 'it fails too',
+                    ($failure['base_rerun'] ?? null) === 'timeout' => 'not rerun (it ran past its timeout there)',
                     $failure['step'] === 'suite' => 'not rerun (its dependencies differ)',
                     default => 'not rerun (only finish.check commands are)',
                 };
@@ -339,7 +340,7 @@ final class Context
             $lines[] = '  '.$gate['run'];
         }
         foreach ((new Suite($this->config))->commands() as $check) {
-            $lines[] = '  '.$check;
+            $lines[] = '  '.$check['run'].($check['timeout'] === Suite::TIMEOUT ? '' : " (up to {$check['timeout']} s)");
         }
         $refused = (new Runtime($this->paths))->refusal($id, 'merge');
         if ($refused !== null) {

@@ -2148,6 +2148,7 @@
                 conflict: 'met conflicts merging into main: ' + (entry.files || []).join(', '), red: 'went red merging into main: ' + entry.command,
                 main: 'found ' + entry.command + ' failing on main too', resolved: 'resolved the conflicts of its merge', fixed: 'fixed what its merge turned red',
                 back: 'sent it back from the merge queue', stale: 'took it out of the merge queue: its branch moved past the approval', landed: 'found it on main already',
+                timeout: 'ran past ' + entry.seconds + ' s merging into main: ' + entry.command,
             }[entry.result] || 'merge ' + entry.result;
         }
 

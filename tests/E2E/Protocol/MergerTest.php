@@ -324,7 +324,7 @@ it('applies a staged merge result whose merger is gone with apply', function () 
 
 it('gives the merger its merge in context and runs the gates in the merge clone, with or without the id', function (bool $withId) {
     [$p, $id] = mergeConflicting();
-    $p->config(['gates' => ['report' => ['test -f app.php']], 'finish' => ['check' => ['php artisan test']]]);
+    $p->config(['gates' => ['report' => ['test -f app.php']], 'finish' => ['check' => ['php artisan test', ['run' => 'npm test', 'timeout' => 3600]]]]);
     $clone = $p->merging($id);
     $base = $p->mergeState()['base'];
 
@@ -339,7 +339,7 @@ it('gives the merger its merge in context and runs the gates in the merge clone,
         ->toContain("main's commits since the card's base:\n  ")
         ->toContain('main: app')
         ->toContain("  test -f app.php\n")
-        ->toContain("  php artisan test\n")
+        ->toContain("  php artisan test\n  npm test (up to 3600 s)\n")
         ->toContain("vendor/bin/kanban merged {$id} resolved --note=")
         ->not->toContain('protocol: work and commit only in this worktree')
         ->and($gates->getOutput())->toBe("pass test -f app.php (exit 0)\n");
@@ -353,6 +353,7 @@ it('tells the merger whether a failed check passed on main alone, and why it was
 })->with([
     'a suite command that passes there' => [['base_rerun' => 'passed'], "; on main alone: it passes\n"],
     'a suite command whose dependencies differ' => [['base_rerun' => 'skipped'], "; on main alone: not rerun (its dependencies differ)\n"],
+    'a suite command whose rerun there timed out' => [['base_rerun' => 'timeout'], "; on main alone: not rerun (it ran past its timeout there)\n"],
     'a suite command the merged tree lost, failing there' => [['exit' => 127, 'base_rerun' => 'failed'], "; on main alone: it fails too\n"],
     'a gate' => [['step' => 'gate', 'base_rerun' => 'skipped'], "; on main alone: not rerun (only finish.check commands are)\n"],
     'an install' => [['step' => 'install', 'command' => 'composer install', 'base_rerun' => 'skipped'], "; on main alone: not rerun (only finish.check commands are)\n"],

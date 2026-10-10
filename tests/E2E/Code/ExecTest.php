@@ -23,19 +23,6 @@ function kanbanExec(CodeSandbox $code, array $args, array $env = []): Process
     return $process;
 }
 
-/** @return list<int> pids of `sleep $marker` */
-function processesWith(string $marker): array
-{
-    $pids = [];
-    foreach (glob('/proc/[0-9]*/cmdline') ?: [] as $file) {
-        if (@file_get_contents($file) === "sleep\0{$marker}\0") {
-            $pids[] = (int) basename(dirname($file));
-        }
-    }
-
-    return $pids;
-}
-
 it('runs the command in the card container at the directory, as you, with its output and exit code', function () {
     $run = kanbanExec($this->code, [$this->container, $this->wt, 'pwd; echo oops >&2; exit 6']);
 

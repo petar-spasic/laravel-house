@@ -134,7 +134,8 @@ paths). No `fail` may remain. These clear only with the owner:
 - `finish.check names no suite`: the merge queue merges nothing until it does. With the owner, set `finish.check` in
   `config/kanban.php` (publish it first: `php artisan vendor:publish --tag=kanban-config`) to the whole suite as
   `tests/CLAUDE.md` names it, each command as it runs inside the app container (on the host with
-  `KANBAN_AGENT_SHELL=host`). A `warn` that it names docker, compose or `kanban-exec`: the same command without them.
+  `KANBAN_AGENT_SHELL=host`). A suite that runs longer than 30 min gets an entry with its own timeout (house README,
+  "The Merge Queue"). A `warn` that it names docker, compose or `kanban-exec`: the same command without them.
 - `worktree stacks disabled`: nothing merges until the project has a local compose file (laravel-deployment).
 
 Read every `warn`:

@@ -30,7 +30,8 @@ use Throwable;
  * local main) pinned, merged in main, checked in the merge clone's stack (installs, gates, `finish.check`), pushed to the
  * remote's main as a fast-forward, the card done, its clone torn down and this machine's main checkout following. A
  * conflict or a red check is the merger's (exit 12); the lease is held meanwhile, and the next `finish` goes on from
- * merge.json. Main never moves on red: a push that origin rejects merges again on the new main.
+ * merge.json. A check that runs past its timeout is no red: the merge ends and the queue holds (MergeTimeout, exit 13).
+ * Main never moves on red: a push that origin rejects merges again on the new main.
  */
 final class MergeStep
 {
@@ -45,7 +46,10 @@ final class MergeStep
     /** The merger's turn: a conflict, or a red check. The lease stays held. */
     public const MERGER = 12;
 
-    /** The card left the queue: sent back, held on main red, its approval stale, or the merger's `back` or `main` applied. */
+    /**
+     * The merge ended without the card: sent back, held on main red or a check that timed out, its approval stale, or the
+     * merger's `back` or `main` applied.
+     */
     public const RETURNED = 13;
 
     /** Rounds of one merge (a push origin rejected, a clone whose history was rewritten) before it gives up. */
@@ -53,6 +57,9 @@ final class MergeStep
 
     /** Merger results before a merge that stays red goes back to the worker. */
     public const MERGER_ROUNDS = 3;
+
+    /** Seconds a `finish.install` command may run. */
+    private const INSTALL_TIMEOUT = 600;
 
     /** Unexpected failures in one phase before the card is blocked. */
     private const ATTEMPTS = 3;
@@ -435,14 +442,17 @@ final class MergeStep
         }
         $failure = $this->installs($tick);
         if ($failure === null && ($gate = (new Gates($this->mainConfig()))->failed($this->clone->path, $tick)) !== null) {
-            $failure = ['step' => 'gate', 'command' => $gate['run'], 'exit' => $gate['code'], 'tail' => $gate['tail']];
+            $failure = ['step' => 'gate', 'command' => $gate['run'], 'exit' => $gate['code'], 'tail' => $gate['tail'], 'seconds' => $gate['timeout']];
         }
         $failure ??= $this->suite($card, $tick);
         if (is_int($failure)) {
             return $failure;
         }
+        if ($failure !== null && $failure['exit'] === null) {
+            return $this->timedOut($card, $failure);
+        }
         if ($failure !== null) {
-            return $this->red($card, $failure);
+            return $this->red($card, array_diff_key($failure, ['seconds' => true]));
         }
         $tick();
         ($this->say)("{$id}: gates and finish.check pass on the merged tree");
@@ -454,7 +464,7 @@ final class MergeStep
      * Each `finish.install` lockfile of the merged tree whose content was not installed in the merge clone yet: its
      * command in its directory, in the merge stack. The first failure, or null.
      *
-     * @return array{step: string, command: string, exit: ?int, tail: string}|null
+     * @return array{step: string, command: string, exit: ?int, tail: string, seconds: int}|null
      */
     private function installs(Closure $tick): ?array
     {
@@ -473,8 +483,8 @@ final class MergeStep
             // an install that fails or is killed part way leaves what neither content installs
             unset($installed[$lockfile]);
             Runtime::writeJson($file, $installed);
-            if (($failed = (new Suite($this->mainConfig()))->run($this->clone->path, $command, $tick, $dir, 600)) !== null) {
-                return ['step' => 'install', ...$failed];
+            if (($failed = (new Suite($this->mainConfig()))->run($this->clone->path, $command, $tick, $dir, self::INSTALL_TIMEOUT)) !== null) {
+                return ['step' => 'install', ...$failed, 'seconds' => self::INSTALL_TIMEOUT];
             }
             $installed[$lockfile] = $hash;
             Runtime::writeJson($file, $installed);
@@ -484,29 +494,37 @@ final class MergeStep
     }
 
     /**
-     * `finish.check`, each command; one that fails is run again on the base alone when that is a fair test (the same
-     * dependencies and docker files): red there too, main is red; the queue holds until main moves and the main session
-     * is told (MainRed). A command not found (exit 126, 127) on the base too is the project's to fix (StackFailed, the
-     * merge let go); on the merged tree alone, the merger's.
+     * `finish.check`, each command under its timeout; one that fails is run again on the base alone when that is a fair
+     * test (the same dependencies and docker files): red there too, main is red; the queue holds until main moves and the
+     * main session is told (MainRed). One that timed out is never run again (timedOut()); a rerun that times out tells
+     * nothing of main (`base_rerun: timeout`, the merger's). A command not found (exit 126, 127) on the base too is the
+     * project's to fix (StackFailed, the merge let go); on the merged tree alone, the merger's.
      *
-     * @return array{step: string, command: string, exit: ?int, tail: string, base_rerun: string}|int|null the failure for the merger, an exit, or null
+     * @return array{step: string, command: string, exit: ?int, tail: string, seconds?: int, base_rerun?: string}|int|null the failure, an exit, or null
      */
     private function suite(Card $card, Closure $tick): array|int|null
     {
         $suite = new Suite($this->mainConfig());
         $state = (array) $this->state->read();
         $checked = (string) $state['checked'];
-        foreach ($suite->commands() as $command) {
-            if (($failed = $suite->run($this->clone->path, $command, $tick)) === null) {
+        foreach ($suite->commands() as ['run' => $command, 'timeout' => $timeout]) {
+            if (($failed = $suite->run($this->clone->path, $command, $tick, timeout: $timeout)) === null) {
                 continue;
+            }
+            if ($failed['exit'] === null) {
+                return ['step' => 'suite', ...$failed, 'seconds' => $timeout];
             }
             $missing = in_array($failed['exit'], [126, 127], true);
             $fair = $this->fairRerun((string) $state['base'], $checked);
             $onBase = null;
             if ($fair) {
                 $this->clone->checkout('refs/merge/base');
-                $onBase = $suite->run($this->clone->path, $command, $tick);
+                $onBase = $suite->run($this->clone->path, $command, $tick, timeout: $timeout);
                 $this->clone->checkout($checked);
+            }
+            if ($onBase !== null && $onBase['exit'] === null) {
+                // a rerun past its timeout says nothing of main: the merged tree's failure is the merger's to judge
+                return ['step' => 'suite', ...$failed, 'base_rerun' => 'timeout'];
             }
             if ($missing && in_array($onBase['exit'] ?? null, [126, 127], true)) {
                 // no card or merger fixes it: the merge goes, uncounted, its merger's work with it
@@ -555,6 +573,25 @@ final class MergeStep
         $this->attempt($card->id(), null);
         $this->leave($card->id());
         ($this->say)("{$card->id()}: `{$failed['command']}` fails on {$this->main} alone too (".substr($base, 0, 7)."); the merge queue holds until {$this->main} moves");
+
+        return self::RETURNED;
+    }
+
+    /**
+     * A check ran past its timeout: no merger, no rerun on the base. The merge ends uncounted, the card stays queued and
+     * the queue holds while its base is origin's main and the card is queued at the same head (MergeTimeout); `kanban
+     * run` tells the main session.
+     *
+     * @param  array{step: string, command: string, exit: ?int, tail: string, seconds: int}  $failure
+     */
+    private function timedOut(Card $card, array $failure): int
+    {
+        $state = (array) $this->state->read();
+        $this->log($card->id(), MergeState::entry('timeout', ['step' => $failure['step'], 'command' => $failure['command'], 'seconds' => $failure['seconds'],
+            'base' => (string) $state['base'], 'head' => (string) $state['head']] + (trim($failure['tail']) === '' ? [] : ['note' => mb_substr($failure['tail'], -1500)])));
+        $this->attempt($card->id(), null);
+        $this->leave($card->id());
+        ($this->say)("{$card->id()}: `{$failure['command']}` timed out after {$failure['seconds']} s; the merge queue holds until {$this->main} moves or {$card->id()} is blocked");
 
         return self::RETURNED;
     }

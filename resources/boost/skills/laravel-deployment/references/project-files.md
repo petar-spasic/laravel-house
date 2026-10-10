@@ -8,7 +8,7 @@ they do.
 | `vite.config.js` | `vite.config.js`: keep its imports and `plugins`; drop `proxy`, `hmr` and `host: '0.0.0.0'` | htmx |
 | `phpunit.xml` | `phpunit.xml`: `bootstrap=` and the forced `<env>` list | all |
 | `env.dotenv` | `.env`, and `.env.example` with `COMPOSE_PROJECT_NAME` commented | all |
-| `config-database.php`, `TestCase-artisan.php` | `config/database.php`, `tests/TestCase.php` (`references/tenancy.md`) | tenancy |
+| `config-database.php`, `TestCase.php` | `config/database.php`, `tests/TestCase.php` (`references/tenancy.md`) | tenancy |
 | `hosting-section.md` | `{{hosting}}` in the root `CLAUDE.md` | all |
 
 ## vite.config.js: the dev server behind Caddy

@@ -263,6 +263,8 @@ it('fails without a suite in finish.check and warns about one written as a host 
 })->with([
     'none' => [[], "fail finish.check names no suite: no card merges until it does (config/kanban.php)\n"],
     'a host command' => [['docker compose exec -T app php artisan test'], "warn finish.check runs in the app container: `docker compose exec -T app php artisan test` names docker, compose or kanban-exec; write it as it runs in there\n"],
+    'entries with a timeout' => [[['run' => 'php artisan test --compact --parallel', 'timeout' => 3600], 'npm test'], "ok finish.check: php artisan test --compact --parallel · npm test\n"],
+    'a host command with a timeout' => [[['run' => 'docker compose exec -T app php artisan test', 'timeout' => 3600]], 'warn finish.check runs in the app container: `docker compose exec -T app php artisan test` names docker, compose or kanban-exec'],
 ]);
 
 it('takes a finish.check written as a host command when the agents\' shell is the host', function () {

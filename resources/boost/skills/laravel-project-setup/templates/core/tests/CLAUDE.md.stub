@@ -35,9 +35,9 @@ Behaviour-named (`it('…')`), `uses(RefreshDatabase::class)`.
 - Queues run inline (`QUEUE_CONNECTION=sync` in `phpunit.xml`), so a chain or queued job runs for real in the flow.
 - Machine addresses come from the environment (e.g. the host of `LOCAL_APP_URL`), never a literal; stand-ins are RFC
   5737 (`192.0.2.x`, `198.51.100.x`, `203.0.113.x`).
-- While you work, run only the E2E test you wrote or touched: `php artisan test --compact tests/E2E/…`. The full run
-  belongs to whoever hands the work in, once, after the last commit; on the board, the merge queue runs it again on the
-  merged tree before main moves.
+- While you work, run only the E2E test you wrote or touched: `php artisan test --compact tests/E2E/…`. The full run,
+  `php artisan test --compact --parallel`, belongs to whoever hands the work in, once, after the last commit; on the
+  board, the merge queue runs it again on the merged tree before main moves.
 
 ## Auth proofs
 
@@ -145,14 +145,10 @@ input through the page and through Playwright's `request` fixture, and sees the 
 - The e2e site's Laravel is another process: phpunit's forced env, `Http::fake()` or `Socialite::fake()` never reach
   it (Hosting sets its env).
 <!-- endif -->
-<!-- unless:tenancy -->
-- `php artisan test --parallel` gives each worker its own database, `{{app}}_test_test_<n>`, which Laravel creates and
-  migrates. The run's parent takes the test-database lock for its workers, so two runs still wait for each other.
-<!-- endif -->
-<!-- if:tenancy -->
-- Never `--parallel`: Laravel would create each worker's database on the default connection, the app role, which
-  cannot create one, and moves only that connection, so `pgsql_owner` would migrate `{{app}}_test` under the workers.
-<!-- endif -->
+- `--parallel` runs each worker on its own database, `{{app}}_test_test_<n>`, created and migrated on its first test.
+  The run's parent holds the test-database lock for its workers, so two runs still wait for each other.
+- Each worker already has its own cache prefix, compiled views and `Storage::fake()` root, and `phpunit.xml` forces the
+  array and sync drivers. A test that uses Redis or a fixed path under `storage/` keys it by `ParallelTesting::token()`.
 - Tests run one request per process; production runs Octane. A passing test says nothing about state leaking across
   requests.
 <!-- if:tenancy -->
@@ -167,8 +163,12 @@ input through the page and through Playwright's `request` fixture, and sees the 
   `migrate:fresh` included. Never a `migrateFreshUsing()` override: a test's own `uses(RefreshDatabase::class)` brings
   back the trait's version. The test transaction runs as the app role, its rollback also undoing `app.tenant_id`;
   `#[Seeder]` seeders run as the owner, outside it.
-- `pgsql_owner` has no `url`, so phpunit's forced `DB_DATABASE` reaches it (Hosting).
-- Never `DatabaseTruncation`: the app role has no TRUNCATE, and TRUNCATE ignores RLS.
+- `pgsql_owner` has no `url`, so phpunit's forced `DB_DATABASE` reaches it (Hosting). Under `--parallel`,
+  `TestCase::refreshApplication()` creates each worker's database as the owner, with the app role's grants, and points
+  `pgsql_owner` at it (laravel-deployment's `TestCase.php` snippet).
+- Never `DatabaseTruncation`: the app role has no TRUNCATE, and TRUNCATE ignores RLS. Never `DatabaseTransactions`,
+  even beside `RefreshDatabase`: under `--parallel`, Laravel migrates the worker's database for such a test through
+  `Artisan::call`, as the app role.
 - `SeedingTest` gains a case: two `db:seed` runs leave exactly two tenants and the expected memberships.
 <!-- if:spa -->
 - The Playwright run resets `{{app}}_test` as the owner: `docker/e2e.sh` runs

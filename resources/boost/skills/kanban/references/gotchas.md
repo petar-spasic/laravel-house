@@ -179,3 +179,12 @@ main moves, and no card is made. → Fix it on main, commit, `vendor/bin/kanban 
 and the next merge checks again. The failing output is on the card that found it (`show <ID> --log=5`). A test that
 fails only sometimes is fixed by making it reliable: it failed on the merged tree and on main alone. When nothing fails
 on main any more, an empty commit and `publish` move main, and the next merge checks again.
+
+**Every approved card waits: "waits for a timed-out check (`<command>` ran past <N> s merging ACME-X)".** → That
+command ran past its timeout on the merge of ACME-X. The queue ended it, ran it nowhere again and holds until origin's
+main moves or ACME-X leaves the queue. → A check that is just slow: give its entry more time (`['run' => …,
+'timeout' => …]` in `finish.check`, 30 min by default, or in `gates.report`) or make it faster (an install can only be
+made faster), commit on main, `vendor/bin/kanban publish`. A timeout that will not repeat (a loaded machine): any move
+of main retries it, such as an empty commit and `vendor/bin/kanban publish`.
+ACME-X's own tests hang (`show ACME-X --log=5` has the output): `set ACME-X blocked="…"` lifts the hold; then
+`move ACME-X doing --reason="…"` and unblock it, and its worker fixes them.

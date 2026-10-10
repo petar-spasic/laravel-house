@@ -7,7 +7,7 @@ use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
 use PetarSpasic\LaravelHouse\Kanban\Guard\Guard;
 use PetarSpasic\LaravelHouse\Kanban\Support\Clock;
 use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
-use Symfony\Component\Process\Exception\ProcessTimedOutException;
+use PetarSpasic\LaravelHouse\Kanban\Support\Processes;
 use Symfony\Component\Process\Process;
 use Throwable;
 
@@ -100,14 +100,14 @@ final class Gates
      * The first failing gate, or null when all pass. $tick runs every TICK_SECONDS while a gate runs; what it throws
      * stops the gate and is thrown on.
      *
-     * @return array{run: string, ok: bool, code: ?int, why: string, tail: string}|null
+     * @return array{run: string, timeout: int, ok: bool, code: ?int, why: string, tail: string}|null
      */
     public function failed(string $worktree, ?Closure $tick = null): ?array
     {
         foreach ($this->commands() as $gate) {
             $result = $this->run($gate, $worktree, $tick);
             if (! $result['ok']) {
-                return ['run' => $gate['run'], ...$result];
+                return ['run' => $gate['run'], 'timeout' => $gate['timeout'], ...$result];
             }
         }
 
@@ -134,32 +134,46 @@ final class Gates
     }
 
     /**
-     * Runs $process to its end: its exit code, or null when it timed out. $tick runs before it starts and every
-     * TICK_SECONDS while it runs; what it throws stops the process and is thrown on.
+     * Runs $process to its end: its exit code, or null when it ran past $timeout seconds. $tick runs before it starts and
+     * every TICK_SECONDS while it runs; what it throws is thrown on. A timeout or a throw ends the process and everything
+     * it started (Processes::end): Symfony's own timeout would signal only its direct child, a shell whose children live on.
+     * $process carries no timeout of its own.
      */
-    public static function wait(Process $process, ?Closure $tick = null): ?int
+    public static function wait(Process $process, ?Closure $tick = null, ?int $timeout = null): ?int
     {
         $tick === null || $tick();
         $process->start();
+        $deadline = $timeout === null ? null : microtime(true) + $timeout;
         $next = microtime(true) + self::TICK_SECONDS;
         try {
             while ($process->isRunning()) {
-                $process->checkTimeout();
+                if ($deadline !== null && microtime(true) >= $deadline) {
+                    self::end($process);
+
+                    return null;
+                }
                 if ($tick !== null && microtime(true) >= $next) {
                     $tick();
                     $next = microtime(true) + self::TICK_SECONDS;
                 }
                 usleep(50_000);
             }
-        } catch (ProcessTimedOutException) {
-            return null;
         } catch (Throwable $e) {
-            $process->stop(5);
+            self::end($process);
 
             throw $e;
         }
 
         return $process->getExitCode();
+    }
+
+    /** Ends $process and every process under it. */
+    private static function end(Process $process): void
+    {
+        if (($pid = $process->getPid()) !== null) {
+            Processes::end($pid, fn () => $process->isRunning());
+        }
+        $process->stop(0);
     }
 
     /** The last TAIL_LINES lines of a process's output, cut to TAIL_CHARS. */
@@ -208,8 +222,8 @@ final class Gates
         if ($gate['when'] !== null && ! file_exists($worktree.'/'.$gate['when'])) {
             return ['ok' => true, 'code' => 0, 'why' => "skipped: no {$gate['when']}", 'tail' => ''];
         }
-        $process = Process::fromShellCommandline($this->where($gate['run'], $worktree), $worktree, ['XDEBUG_MODE' => 'off'], null, $gate['timeout']);
-        $code = self::wait($process, $tick);
+        $process = Process::fromShellCommandline($this->where($gate['run'], $worktree), $worktree, ['XDEBUG_MODE' => 'off'], null, null);
+        $code = self::wait($process, $tick, $gate['timeout']);
         if ($code === 0) {
             return ['ok' => true, 'code' => 0, 'why' => 'exit 0', 'tail' => ''];
         }

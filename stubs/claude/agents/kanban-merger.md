@@ -47,7 +47,8 @@ hunks, what main changed there, what the worker must decide>"`.
   `vendor/bin/kanban merged <ID> fixed --note="what broke and the fix"`.
 - The card's own failure: `vendor/bin/kanban merged <ID> back --note="<failing tests, why>"`.
 - Already failing on main, only when the context offers `main`: when it says the check was not rerun there, check it
-  at `refs/merge/base` yourself (`git checkout -q refs/merge/base`, the command, then `git checkout -q merge`); then
+  at `refs/merge/base` yourself (`git checkout -q refs/merge/base`, the command, or only its failing tests when it ran
+  past its timeout there, then `git checkout -q merge`); then
   `vendor/bin/kanban merged <ID> main --note="<command> — what fails"`. The merge then ends, the queue holds until main
   moves, and the main session fixes main; the card keeps its approval.
 

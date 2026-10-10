@@ -12,6 +12,7 @@ use PetarSpasic\LaravelHouse\Kanban\Store\Card;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
 use PetarSpasic\LaravelHouse\Kanban\Support\Clock;
 use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
+use PetarSpasic\LaravelHouse\Kanban\Support\Processes;
 use Symfony\Component\Process\ExecutableFinder;
 use Symfony\Component\Process\Process;
 use Throwable;
@@ -262,7 +263,7 @@ final class AgentRun
      */
     private static function groups(array $pids): array
     {
-        $table = self::processes();
+        $table = Processes::table();
         $children = [];
         foreach ($table as $pid => [$parent]) {
             $children[$parent][] = $pid;
@@ -291,23 +292,7 @@ final class AgentRun
      */
     private static function members(array $groups): array
     {
-        return array_keys(array_filter(self::processes(), fn (array $p) => in_array($p[1], $groups, true)));
-    }
-
-    /** @return array<int, array{0: int, 1: int}> pid → [parent pid, process group], from /proc */
-    private static function processes(): array
-    {
-        $table = [];
-        foreach (glob('/proc/[0-9]*/stat') ?: [] as $file) {
-            $stat = @file_get_contents($file);
-            // the command name may hold spaces and parentheses: the fields follow its last `)`
-            if (is_string($stat) && ($at = strrpos($stat, ')')) !== false) {
-                $fields = explode(' ', substr($stat, $at + 2));
-                $table[(int) basename(dirname($file))] = [(int) ($fields[1] ?? 0), (int) ($fields[2] ?? 0)];
-            }
-        }
-
-        return $table;
+        return array_keys(array_filter(Processes::table(), fn (array $p) => in_array($p[1], $groups, true)));
     }
 
     /**

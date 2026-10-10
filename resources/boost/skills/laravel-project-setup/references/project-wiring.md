@@ -12,7 +12,8 @@ Snippets are the rendered copies under `<dir>/snippets/` (SKILL.md step 4).
 - `tests/Pest.php` holds `pest()->extend(TestCase::class)->in('E2E');` and nothing else.
 - `tests/TestCase.php` carries `#[Seeder(ReferenceDataSeeder::class)]`. With htmx, its `setUp()` also calls
   `$this->withoutVite()`.
-- With tenancy, `TestCase` also migrates through the owner connection: laravel-deployment `references/tenancy.md`.
+- With tenancy, `TestCase` also migrates through the owner connection and makes each parallel worker's database:
+  laravel-deployment `references/tenancy.md`.
 
 ## Postgres and Redis everywhere
 

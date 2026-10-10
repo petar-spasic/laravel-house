@@ -813,3 +813,38 @@ it('drains only once the doing cards are done, while a red main holds the merge 
     expect($this->code->sandbox->read($id)['stage'])->toBe('doing')
         ->and($out)->toContain('paused until')->not->toContain('drained');
 });
+
+it('holds the queue on a check that timed out, tells the main session once, and merges the next card once that card is blocked', function () {
+    $check = 'if [ -e SLOW ]; then sleep 313.'.random_int(100000, 999999).'; fi';
+    $this->code->configure(['gates' => ['report' => []], 'finish' => ['check' => [['run' => $check, 'timeout' => 1]]]]);
+    $this->code->sandbox->git('commit', '-q', '-am', 'slow check');
+    $this->code->sandbox->addRemote(Origin::create());
+    $id = queued($this->code, 'Tag notes', 'SLOW', "slow\n", '2026-01-01T00:00:00.000+00:00');
+    $later = queued($this->code, 'Archive notes', 'archive.php', "<?php\n", '2026-01-02T00:00:00.000+00:00');
+    $base = substr(trim($this->code->sandbox->git('rev-parse', 'main')), 0, 7);
+    $log = fn () => (string) @file_get_contents($this->code->root().'/.git/laravel-house/run.log');
+    $line = "a check timed out: `{$check}` timed out after 1 s at {$base}, merging {$id}; the merge queue holds until main moves or {$id} is blocked. "
+        ."Give it more time or make it faster: its `finish.check` entry `['run' => …, 'timeout' => …]` in config/kanban.php on main, then `vendor/bin/kanban publish`; "
+        ."or, if {$id}'s own tests hang, block it (`vendor/bin/kanban set {$id} blocked=\"…\"`)";
+
+    runPass($this->code, $this->claude);
+    $held = runPass($this->code, $this->claude, ['--until-attention', '--timeout=0']);
+    $again = runPass($this->code, $this->claude, ['--until-attention', '--timeout=0']);
+
+    expect(mergeResults($this->code, $id))->toBe(['timeout'])
+        ->and(agentsLaunched($this->claude))->not->toContain('kanban-merger')
+        ->and($held)->toContain("attention:\n  {$line}\n")
+        ->and(substr_count($log(), 'a check timed out'))->toBe(1)
+        ->and($again)->not->toContain('a check timed out')
+        ->and($this->code->sandbox->read($later)['stage'])->toBe('review')
+        ->and($this->code->lease())->toBeNull();
+
+    $this->code->ok(['set', $id, 'blocked=its tests hang']);
+    for ($pass = 0; $pass < 4 && $this->code->sandbox->read($later)['stage'] !== 'done'; $pass++) {
+        runPass($this->code, $this->claude);
+    }
+
+    expect($this->code->sandbox->read($later)['stage'])->toBe('done')
+        ->and($this->code->sandbox->read($id)['stage'])->toBe('review')
+        ->and(substr_count($log(), 'a check timed out'))->toBe(1);
+});

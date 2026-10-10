@@ -178,6 +178,9 @@ Class names below are relative to `PetarSpasic\LaravelHouse\Kanban` (`src/Kanban
   - A `finish` that `kanban run` starts detached exits 6 → `run` makes up its session (`run:<host>`) without
     exporting it, so the child meets the orchestrator lease as a stranger → pass `['KANBAN_SESSION' => …]` to
     `MergeRun::start` and `MergeBeat::ensure`.
+  - A Process that timed out left its command running (in the card's container) → Symfony's `stop()` signals only the
+    shell of `fromShellCommandline`, and dash does not exec a lone command, so the shell's children (`kanban-exec` and
+    its `docker exec`) live on → run it through `Gates::wait` with a timeout, which ends the whole tree.
 - **UI changes:** the script has no unit tests, so `./dev ui` drives it in a real Chromium (CSP `default-src 'self'`) against a seeded board: `docker/browser/checks/*.mjs`, one file per area, screenshots in `build/ui`. A new interaction gets a check there (`t.ok`), written first and seen failing on the old code, because a check that passes before the fix proves nothing; the accessibility sweep (`a11y.mjs`) holds contrast (4.5:1), target size (24 px), names, tab order and, on a touch device, 16 px text boxes and 40 px controls; `forced.mjs` emulates Windows high contrast; `./dev ui serve` serves the seeded board at http://localhost:8099/kanban for looking at by hand. A check that needs another person opts into the `team` seed (`export const seed = 'team'`): an origin, the page's server running as Ana with sync on, and a second clone "peer" (Ben) that `t.cli(cmd, { root: t.seed.peer, env })` acts in.
 - **`validation:export` relies on Laravel internals:** protected `Validator` methods such as `getMessage()` and
   `makeReplacements()`. After a Laravel minor upgrade, re-run the parity proof on a scratch spa app that requires this

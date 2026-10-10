@@ -292,6 +292,22 @@ it('runs finish.check in the merge container, on the merged tree and on the base
         ->and(file($log, FILE_IGNORE_NEW_LINES))->toBe(['suite 1', 'suite 1']);
 });
 
+it('gives a red suite to the merger, never main red, when its rerun on the base runs past its timeout', function () {
+    $code = $this->code;
+    $check = 'if [ -e RED ]; then exit 1; fi; sleep 30';
+    configureMerge($code, ['finish' => ['after' => [], 'check' => [['run' => $check, 'timeout' => 2]]]]);
+    $id = $code->started('Breaks the suite');
+    $code->commit($id, 'RED', "red\n");
+    $code->approve($id);
+
+    $run = $code->kanban(['finish', $id]);
+
+    expect($run->getExitCode())->toBe(12, $run->getOutput().$run->getErrorOutput())
+        ->and($code->mergeState()['failure'])->toMatchArray(['step' => 'suite', 'exit' => 1, 'base_rerun' => 'timeout'])
+        ->and(array_column(merges($code, $id), 'result'))->toBe(['red'])
+        ->and($code->ok(['status']))->not->toContain('main is red');
+});
+
 it('aborts a merge: the lease free, the merge clone at the base, the card still queued; never mid-push', function () {
     $code = $this->code;
     $id = $code->started('Breaks the suite');
@@ -785,6 +801,81 @@ it('calls main red when the failing command fails on the base alone, holds the q
     $code->ok(['publish']);
     expect($code->kanban(['finish', $first])->getExitCode())->toBe(0)
         ->and($code->kanban(['finish', $second])->getExitCode())->toBe(0);
+});
+
+it('holds the queue on a finish.check command that timed out, ends it, reruns nothing on main, and lifts the hold once its card is blocked', function () {
+    $code = $this->code;
+    $marker = '310.'.random_int(100000, 999999);
+    $log = $code->root().'/../suite-runs';
+    $check = "echo run >> {$log}; if [ -e SLOW ]; then sleep {$marker}; fi";
+    configureMerge($code, ['finish' => ['after' => [], 'check' => [['run' => $check, 'timeout' => 2]]]]);
+    $first = $code->started('Tag notes');
+    $head = $code->commit($first, 'SLOW', "slow\n");
+    $code->approve($first, at: '2026-01-01T00:00:00.000+00:00');
+    $second = $code->started('Archive notes');
+    $code->commit($second, 'archive.php', "<?php\n");
+    $code->approve($second, at: '2026-01-02T00:00:00.000+00:00');
+    $base = trim($code->gitIn($this->origin->path, 'rev-parse', 'main'));
+    $cards = count(glob($code->root().'/docs/kanban/work/*.json'));
+
+    $run = $code->kanban(['finish', $first]);
+    $left = survivors($marker);
+    $held = $code->kanban(['finish', $second]);
+    $hold = "waits for a timed-out check (`{$check}` ran past 2 s merging {$first})";
+
+    expect($run->getExitCode())->toBe(13, $run->getErrorOutput())
+        ->and($run->getOutput())->toContain("{$first}: `{$check}` timed out after 2 s; the merge queue holds until main moves or {$first} is blocked")
+        ->and($left)->toBe([])
+        ->and(file($log, FILE_IGNORE_NEW_LINES))->toBe(['run'])
+        ->and(merges($code, $first))->toHaveCount(1)
+        ->and(merges($code, $first)[0])->toMatchArray(['result' => 'timeout', 'step' => 'suite', 'command' => $check, 'seconds' => 2, 'base' => $base, 'head' => $head])
+        ->and(count(glob($code->root().'/docs/kanban/work/*.json')))->toBe($cards)
+        ->and($code->lease())->toBeNull()
+        ->and($code->mergeState())->toBeNull()
+        ->and($code->sandbox->read($first)['stage'])->toBe('review')
+        ->and($code->sandbox->read($first)['work']['approved']['head'])->toBe($head)
+        ->and($held->getExitCode())->toBe(11)
+        ->and($held->getErrorOutput())->toContain("{$second} {$hold}")
+        ->and($code->ok(['status']))->toContain($hold)
+        ->and($code->ok(['morning']))->toContain("`{$check}` timed out after 2 s at ".substr($base, 0, 7).", merging {$first}");
+
+    $code->ok(['set', $first, 'blocked=its tests hang']);
+    expect($code->kanban(['finish', $second])->getExitCode())->toBe(0)
+        ->and($code->ok(['status']))->not->toContain('timed-out')->not->toContain('a check timed out');
+});
+
+it('lifts the hold of a timed-out check once main moves', function () {
+    $code = $this->code;
+    $check = 'if [ -e SLOW ]; then sleep 311.'.random_int(100000, 999999).'; fi';
+    configureMerge($code, ['finish' => ['after' => [], 'check' => [['run' => $check, 'timeout' => 1]]]]);
+    $id = $code->started('Tag notes');
+    $code->commit($id, 'SLOW', "slow\n");
+    $code->approve($id);
+
+    expect($code->kanban(['finish', $id])->getExitCode())->toBe(13)
+        ->and($code->ok(['status']))->toContain('waits for a timed-out check');
+
+    pushMain($code, 'faster.txt', "faster\n");
+    expect($code->ok(['status']))->not->toContain('timed-out')->not->toContain('a check timed out');
+});
+
+it('holds the queue on a gate that timed out in the merge stack, as on a finish.check command', function () {
+    $code = $this->code;
+    $marker = '312.'.random_int(100000, 999999);
+    $gate = "test \"\$FAKE_DOCKER_EXEC\" = 1 && sleep {$marker}";
+    configureMerge($code, ['gates' => ['report' => [['run' => $gate, 'timeout' => 1]]]]);
+    $id = $code->started('Tag notes');
+    $code->commit($id, 'tags.php', "<?php\n");
+    $code->approve($id);
+
+    $run = $code->kanban(['finish', $id]);
+
+    expect($run->getExitCode())->toBe(13, $run->getErrorOutput())
+        ->and(survivors($marker))->toBe([])
+        ->and(array_column(merges($code, $id), 'result'))->toBe(['timeout'])
+        ->and(merges($code, $id)[0])->toMatchArray(['step' => 'gate', 'command' => $gate, 'seconds' => 1])
+        ->and($code->lease())->toBeNull()
+        ->and($code->sandbox->read($id)['stage'])->toBe('review');
 });
 
 it('sends a card with leftover conflict markers back to its worker through the merge', function () {

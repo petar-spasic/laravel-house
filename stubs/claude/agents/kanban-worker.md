@@ -112,8 +112,8 @@ and wrote its plan.
 - everything is committed (`git status` clean), with at least one commit beyond the base. The commit hook puts the
   card id in front of each message;
 - the whole suite, as `tests/CLAUDE.md` says, ran once after your last commit and passed. Cite it in `--verified` with
-  the commit it ran at (`php artisan test --compact @<sha> → 212 passed`): the evaluator trusts a green run at the head
-  it reviews and does not repeat it. Commit again after it, and it runs again. The merge queue runs it once more on
+  the commit it ran at (`php artisan test --compact --parallel @<sha> → 212 passed`): the evaluator trusts a green run
+  at the head it reviews and does not repeat it. Commit again after it, and it runs again. The merge queue runs it once more on
   the merged tree before main moves.
 
 ## 4. Report

@@ -106,6 +106,11 @@ agent a headless `claude -p` session. It runs under your session's lease. The qu
    - ``main is red: `<command>` fails on main … at <sha7>``: fix it on main (run the command at that commit, fix,
      commit, `vendor/bin/kanban publish`). When the queue found it, every approved card waits (`waits for main to be
      fixed (…)`) until origin's main moves; the card that found it keeps its approval. Never cut a card for it.
+   - ``a check timed out: `<command>` timed out after N s at <sha7>, merging <ID>``: the merge ended and nothing ran it
+     again; every approved card waits (`waits for a timed-out check (…)`) until main moves or `<ID>` is blocked. A slow
+     suite: with the owner, give its entry more time (`['run' => …, 'timeout' => …]` in `config/kanban.php`) or make it
+     faster, commit on main, `publish`. `<ID>`'s own tests hang (`show <ID> --log=5` has the output): `set <ID>
+     blocked="…"` lifts the hold; then `move <ID> doing --reason="…"` and `set <ID> blocked=` hand it to its worker.
    - `<ID> merged, then: …`: the card is done; following main on this machine (an install, the rebuild, `migrate`,
      `finish.after`) failed. Fix it on main. A line about its stack, clone or branch here (`stack down failed`,
      `branch … kept`, `has uncommitted changes`): as for `done; its leftovers here` below.
@@ -199,7 +204,7 @@ owner hands you for a card in planning: `plan <ID> --plan-file=…`, in the plan
   conflict for the worker to conclude first; a drain never restarts it). A card a planner holds: `stop <ID> --to=backlog|dropped`.
 - **A merge that stays stuck** (`status`'s `merge:` line): `stack _merge logs`; once no `finish` runs, `finish <ID>
   --abort` gives the lease back and leaves the card queued (exit 11 `a merge runs here` while one does: each check ends
-  within 30 min, or `stop <ID> --to=…` ends one `kanban run` started; refused while main is pushed: `finish <ID>` settles that push first).
+  within its timeout, 30 min by default, or `stop <ID> --to=…` ends one `kanban run` started; refused while main is pushed: `finish <ID>` settles that push first).
 - **Leftovers:** `stack gc`, `doctor`, `sweep`, `apply --all`.
 
 ## Package findings

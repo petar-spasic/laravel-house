@@ -95,3 +95,28 @@ function runLaunches(string $claude): array
 
     return is_file($log) ? array_map(fn ($l) => json_decode($l, true), array_values(array_filter(explode("\n", (string) file_get_contents($log))))) : [];
 }
+
+/** @return list<int> pids of `sleep $marker` */
+function processesWith(string $marker): array
+{
+    $pids = [];
+    foreach (glob('/proc/[0-9]*/cmdline') ?: [] as $file) {
+        if (@file_get_contents($file) === "sleep\0{$marker}\0") {
+            $pids[] = (int) basename(dirname($file));
+        }
+    }
+
+    return $pids;
+}
+
+/** The `sleep $marker` processes still alive after $seconds, each then killed so none outlives the test. */
+function survivors(string $marker, float $seconds = 3): array
+{
+    for ($deadline = microtime(true) + $seconds; processesWith($marker) !== [] && microtime(true) < $deadline;) {
+        usleep(100_000);
+    }
+    $left = processesWith($marker);
+    array_map(fn (int $pid) => posix_kill($pid, SIGKILL), $left);
+
+    return $left;
+}

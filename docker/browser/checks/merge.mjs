@@ -38,6 +38,7 @@ export default async (t) => {
         return count;
     };
     t.ok('its activity says, in words, that the merge found the failure on main too', (await activity(queued, /^\s*found php artisan test failing on main too$/)) === 1);
+    t.ok('a check that ran past its timeout is in its card\'s activity, in words', (await activity(held, /^\s*ran past 1800 s merging into main: php artisan test --parallel$/)) === 1);
     t.ok('an agent\'s find on main is in its card\'s activity, in words', (await activity(doing, /^\s*found npm run lint failing on main$/)) === 1);
 
     await page.locator(`.card[data-id="${queued}"] .c-title`).click();

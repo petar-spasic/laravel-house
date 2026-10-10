@@ -125,6 +125,24 @@ it('runs each gate under its own timeout, else gates.timeout', function () {
         ->and($this->p->in($this->wt, ['context'])->getOutput())->toContain("and `report` before it stages, up to 10 s):\n  sleep 3\n");
 });
 
+it('ends a gate that timed out with everything it started', function () {
+    $marker = '309.'.random_int(100000, 999999);
+    $this->p->config(['gates' => ['report' => [['run' => "sleep {$marker} & sleep {$marker}; wait", 'timeout' => 1]]]]);
+
+    $gates = $this->p->in($this->wt, ['gates']);
+
+    expect($gates->getOutput())->toBe("fail sleep {$marker} & sleep {$marker}; wait (timed out after 1 s)\n")
+        ->and(survivors($marker))->toBe([]);
+});
+
+it('kills what a gate that ignores the end of its timeout starts meanwhile', function () {
+    $marker = '314.'.random_int(100000, 999999);
+    $this->p->config(['gates' => ['report' => [['run' => "trap 'sleep {$marker} &' TERM; while :; do sleep 0.1; done", 'timeout' => 1]]]]);
+
+    expect($this->p->in($this->wt, ['gates'])->getExitCode())->toBe(1)
+        ->and(survivors($marker))->toBe([]);
+});
+
 it('runs the gates when the report is staged, never again in the stop hook for the same head and gates', function () {
     $counter = $this->p->sandbox->root.'/../gate-runs-'.$this->id;
     $this->p->commit($this->wt, 'app.php', "<?php\n", "{$this->id}: clauses");

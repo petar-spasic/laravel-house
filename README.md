@@ -481,10 +481,10 @@ docker compose -f docker-compose.local.yml exec app healthcheck.sh
 Open the app at `http://localhost:<web port>`. Claude picks the web port at setup, and the Hosting section of your
 `CLAUDE.md` names it.
 
-To run the tests inside the stack:
+To run the whole suite inside the stack, in parallel:
 
 ```shell
-docker compose -f docker-compose.local.yml exec app php artisan test
+docker compose -f docker-compose.local.yml exec app php artisan test --compact --parallel
 ```
 
 One test run uses the test database at a time. A second run waits until the first one ends.
@@ -754,15 +754,20 @@ stops it.
 
 The queue merges nothing until `finish.check` names your whole test suite. It runs where the gates run: in the merge
 stack's app container, or on your machine with `KANBAN_AGENT_SHELL=host`. List each command as you would type it
-there, without `docker compose exec`. Each command may run for 30 minutes:
+there, without `docker compose exec`. Each command may run for 30 minutes, unless its `timeout` says otherwise:
 
 ```php
 'finish' => [
     'check' => [
-        'php artisan test --compact',
+        ['run' => 'php artisan test --compact --parallel', 'timeout' => 3600],
     ],
 ],
 ```
+
+When a gate or test command runs past its timeout, the queue ends it and everything it started. It runs the command
+nowhere again and calls no merger. It merges nothing more until `main` moves or that card leaves the queue, and
+`kanban run` tells your Claude session the command, its limit and the card. If the suite is just slow, give it more
+time or make it faster on `main`, then run `vendor/bin/kanban publish`. If the card's own tests hang, block the card.
 
 The queue reads the gates and `finish.check` from `config/kanban.php` on `main`, never from the card. A card that
 changes them takes effect from the next merge on.
@@ -827,7 +832,7 @@ up a merge that waits for its merger, or one a failure stopped, abort it. The ca
 vendor/bin/kanban finish ACME-7K2QF9 --abort
 ```
 
-Abort refuses while a `finish` still runs. Each test command ends after 30 minutes at most. To end a `finish` that
+Abort refuses while a `finish` still runs. Each test command ends at its timeout. To end a `finish` that
 `kanban run` started at once, `stop` the card: it gives the merge up the same way and takes the card out of review.
 Neither runs while `main` is being pushed.
 
@@ -1393,6 +1398,8 @@ cause and its fix. The most common ones are:
 - **A ready card went back to `planning`.** Its criteria or description changed after it was planned, and its
   planner plans it again.
 - **Approved cards never merge.** `finish.check` names no test suite. See [The Merge Queue](#the-merge-queue).
+- **Approved cards wait for a timed-out check.** A test command ran past its timeout. See
+  [The Merge Queue](#the-merge-queue).
 - **Every command says "an older board format".** The board predates version 3: boards inside epic directories.
   Run `/implement-kanban`.
 - **Compose fails after about six stacks.** Widen the [Docker address pools](#docker-address-pools).
@@ -1450,6 +1457,11 @@ Code. Releases are semver tags.
 > [!WARNING]
 > Every clone that shares a board must run the same version of the package. Commit `composer.lock`. Each other clone
 > then runs `composer install` and `vendor/bin/kanban doctor --fix`.
+
+> [!WARNING]
+> Version 0.14's house test rules name `php artisan test --compact --parallel` as the whole suite. On Laravel 13,
+> `--parallel` needs `laravel/framework` 13.35 or later. A project with tenancy merges the laravel-deployment snippet
+> `TestCase.php` into its `tests/TestCase.php` again: it gains `refreshApplication()`, which `--parallel` needs.
 
 > [!WARNING]
 > Version 0.12 merges approved cards through the merge queue, which pushes `main` on every merge. A machine on an

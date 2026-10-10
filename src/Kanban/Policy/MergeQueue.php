@@ -24,8 +24,9 @@ final class MergeQueue
     }
 
     /**
-     * Why the queue waits for main to be fixed, or null: a merge found main red (a `merge` entry `result: main`) on the
-     * base that is still origin's main. Only a move of main lifts it, so the next merge checks again.
+     * Why the queue waits, or null: a merge found main red (a `merge` entry `result: main`) on the base that is still
+     * origin's main, which only a move of main lifts, so the next merge checks again; or a check of a queued card ran past
+     * its timeout there (MergeTimeout).
      */
     public static function hold(Snapshot $snapshot, ?string $originMain): ?string
     {
@@ -34,12 +35,13 @@ final class MergeQueue
                 return "waits for main to be fixed (`{$row['command']}` fails on main at ".substr($row['base'], 0, 7).')';
             }
         }
+        $timeouts = MergeTimeout::open($snapshot, $originMain);
 
-        return null;
+        return $timeouts === [] ? null : MergeTimeout::hold($timeouts[0]);
     }
 
     /**
-     * The queued cards that wait for main to be fixed, with why (hold()), in queue order: all of them, or none.
+     * The queued cards that wait (hold()), with why, in queue order: all of them, or none.
      *
      * @return array<string, string>
      */
@@ -81,7 +83,7 @@ final class MergeQueue
     }
 
     /**
-     * The card this machine merges next, and why no other: none while main is red (hold()), else the cards in order. A
+     * The card this machine merges next, and why no other: none while the queue holds (hold()), else the cards in order. A
      * card of this machine ($local) that may merge here now ($ready gives null) is it; one that may not is passed over
      * and named. A card of another machine stops the walk, unless $pass says to pass it over (MergeLease::observe).
      *

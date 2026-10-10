@@ -12,16 +12,28 @@ use Symfony\Component\Process\Process;
  */
 final class Suite
 {
-    /** A whole suite, so far longer than a gate's limit. */
+    /** Seconds a command may run unless its entry says otherwise: a whole suite, so far longer than a gate's limit. */
     public const TIMEOUT = 1800;
 
     /** @param  array<string, mixed>  $config  main's `kanban` config */
     public function __construct(private readonly array $config) {}
 
-    /** @return list<string> */
+    /**
+     * Each entry is a command, or ['run' => command, 'timeout' => seconds].
+     *
+     * @return list<array{run: string, timeout: int}>
+     */
     public function commands(): array
     {
-        return array_values(array_filter(array_map(fn ($c) => trim((string) $c), (array) ($this->config['finish']['check'] ?? [])), fn (string $c) => $c !== ''));
+        $commands = [];
+        foreach ((array) ($this->config['finish']['check'] ?? []) as $check) {
+            $run = trim(is_array($check) ? (string) ($check['run'] ?? '') : (string) $check);
+            if ($run !== '') {
+                $commands[] = ['run' => $run, 'timeout' => is_array($check) && isset($check['timeout']) ? max(1, (int) $check['timeout']) : self::TIMEOUT];
+            }
+        }
+
+        return $commands;
     }
 
     /**
@@ -32,8 +44,8 @@ final class Suite
      */
     public function run(string $clone, string $command, ?Closure $tick = null, ?string $dir = null, int $timeout = self::TIMEOUT): ?array
     {
-        $process = Process::fromShellCommandline((new Gates($this->config))->where($command, $clone, $dir), $dir ?? $clone, ['XDEBUG_MODE' => 'off'], null, $timeout);
-        $code = Gates::wait($process, $tick);
+        $process = Process::fromShellCommandline((new Gates($this->config))->where($command, $clone, $dir), $dir ?? $clone, ['XDEBUG_MODE' => 'off'], null, null);
+        $code = Gates::wait($process, $tick, $timeout);
 
         return $code === 0 ? null : ['command' => $command, 'exit' => $code, 'tail' => Gates::tail($process)];
     }

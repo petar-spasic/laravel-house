@@ -157,10 +157,10 @@ cp .env.prod.example .env.prod && docker compose --env-file .env.prod up -d --bu
     nothing. So row-level security binds the web, Horizon, the scheduler, `db:seed` and the tests. `{{app}}`
     (`POSTGRES_USER`, a superuser) owns the databases and tables, and only migrates.
   - **Migrations** run through the `pgsql_owner` connection: `pgsql`'s keys and `DB_*` variables with no `url`, plus
-    the owner's name and `DB_OWNER_PASSWORD`. With no `url`, phpunit's forced `DB_DATABASE` reaches it too; an owner
-    connection to any other database would let the tests' `migrate:fresh` wipe the dev database. Every `migrate*` takes
-    `--database=pgsql_owner`: the entrypoints, `TestCase::artisan()` for the tests, `docker/e2e.sh` with spa. App code
-    never uses it.
+    the owner's name and `DB_OWNER_PASSWORD`. With no `url`, phpunit's forced `DB_DATABASE` reaches it too, and, under
+    `--parallel`, `TestCase` moves it to each worker's own test database; an owner connection to any other database
+    would let the tests' `migrate:fresh` wipe the dev database. Every `migrate*` takes `--database=pgsql_owner`: the
+    entrypoints, `TestCase::artisan()` for the tests, `docker/e2e.sh` with spa. App code never uses it.
   - **Passwords** are hardcoded in the local compose. In prod, `.env.prod` holds `DB_PASSWORD` (the app role) and
     `DB_OWNER_PASSWORD`. `DB_OWNER_PASSWORD` stays the password the volume was created with: Postgres reads it only at
     first init, so changing it takes an `ALTER ROLE {{app}}` first.

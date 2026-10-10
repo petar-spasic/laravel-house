@@ -16,7 +16,8 @@ Who is who: the root `CLAUDE.md`, Hosting (its tenancy part).
   `public` and on extensions. A cross-tenant data migration sees every row.
 - FORCE is still set on each tenant-owned table. It does nothing for a superuser, and it holds if the tables ever move
   to a non-superuser owner.
-- Default privileges are per database: `roles.sql` covers `{{app}}` and, where it exists, `{{app}}_test`.
+- Default privileges are per database: `roles.sql` covers `{{app}}` and, where it exists, `{{app}}_test`; `TestCase`
+  covers each parallel worker's `{{app}}_test_test_<n>`.
 - No role but the owner skips RLS. A platform admin is the owner's decision, a rule in `app/Http/Middleware/CLAUDE.md`.
 
 ## In the templates
@@ -32,8 +33,14 @@ Who is who: the root `CLAUDE.md`, Hosting (its tenancy part).
   `'migrate' => 'php artisan migrate --force --database=pgsql_owner'` (the merge queue and the card agents run it).
 - Snippets to merge: `env.dotenv` (the host `.env` and `.env.example`; a worktree's generated `.env` needs the same
   three `DB_*` lines for host-side `artisan` and tests), `config-database.php` (`pgsql_owner`, no `url`: the Hosting
-  text says why) and `TestCase-artisan.php`. Without the last, `RefreshDatabase` migrates as the app role, which cannot
-  drop or create tables, and the shipped tests fail.
+  text says why) and `TestCase.php`, in two parts:
+  - `artisan()` adds `--database=pgsql_owner` to every `migrate*`. Without it, `RefreshDatabase` migrates as the app
+    role, which cannot drop or create tables, and the shipped tests fail.
+  - `refreshApplication()`, under `--parallel` only. Laravel would create a worker's database as the app role, which
+    is `NOCREATEDB`, and moves only the default connection. So, before Laravel's parallel hooks run, the owner creates
+    the worker's database, gives it `roles.sql`'s grants and default privileges (again on each run, so an older one is
+    repaired), and points `pgsql_owner` at it. The name is `pgsql_owner`'s own database plus `_test_<token>`, as
+    Laravel names it. Laravel then finds the database and moves the default connection to it.
 - Both Dockerfiles copy the entrypoint into the image: on a running stack, apply the change with `up -d --build`,
   never a bare `up -d`.
 
@@ -66,7 +73,8 @@ After a `DB_PASSWORD` change, repeat steps 2 to 4: a `restart` keeps the contain
    prints `{{app}}_app`, and the stack is healthy (the boot migrated as the owner).
 4. `php artisan test` in the container passes and leaves the dev rows untouched. Once the tenancy card is built, the
    proofs pass too, and EXPLAIN of a tenant query as the app role shows an Index Cond on `tenant_id`.
-5. Restart the app container twice: healthy both times. Prod shape on a fresh volume: the same role check, and
+5. `php artisan test --compact --parallel` in the container passes twice in a row.
+6. Restart the app container twice: healthy both times. Prod shape on a fresh volume: the same role check, and
    `roles.sql` skips the absent test database.
 
 ## Traps
@@ -85,6 +93,8 @@ After a `DB_PASSWORD` change, repeat steps 2 to 4: a `restart` keeps the contain
   `ALTER ROLE {{app}} PASSWORD …` first.
 - **`permission denied for table`** → a role other than `{{app}}` created the table, or it was created before
   `roles.sql` ran on that database. Run `roles.sql` again.
+- **`permission denied to create database` on every test under `--parallel`** → `tests/TestCase.php` lacks
+  `refreshApplication()` from the `TestCase.php` snippet.
 - **`permission denied for schema public` or `must be owner of table`** → a `migrate*` ran as the app role: every one
   takes `--database=pgsql_owner`, the tests' through `TestCase::artisan()`.
 - **`new row violates row-level security policy`** → the write ran with no tenant or another tenant set, a seeder

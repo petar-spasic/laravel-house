@@ -7,6 +7,7 @@ use PetarSpasic\LaravelHouse\Kanban\Code\CloneFile;
 use PetarSpasic\LaravelHouse\Kanban\Code\MainPush;
 use PetarSpasic\LaravelHouse\Kanban\Policy\MainRed;
 use PetarSpasic\LaravelHouse\Kanban\Policy\MergeQueue;
+use PetarSpasic\LaravelHouse\Kanban\Policy\MergeTimeout;
 use PetarSpasic\LaravelHouse\Kanban\Policy\Plan;
 use PetarSpasic\LaravelHouse\Kanban\Policy\PullPolicy;
 use PetarSpasic\LaravelHouse\Kanban\Policy\Questions;
@@ -74,6 +75,9 @@ final class Brief
         $origin = MainPush::of($this->paths, $this->config)->known();
         foreach (MainRed::open($snapshot, $origin) as $row) {
             $lines[] = MainRed::line($row);
+        }
+        foreach (MergeTimeout::open($snapshot, $origin) as $row) {
+            $lines[] = MergeTimeout::line($row);
         }
         foreach (array_filter($work('planning'), fn (Card $c) => $c->atWork()) as $card) {
             $lines[] = 'planning '.$this->short($card).': '.implode(', ', [...(Plan::madeUnderClaim($card) ? [Plan::current($card) ? 'planned, not yet moved to ready' : 'planned, then the card changed: its planner revises it'] : []),

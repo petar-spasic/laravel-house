@@ -7,7 +7,7 @@
  *
  * With --rich the board also holds every state the UI draws (agents working, stale and stopped, review and done cards,
  * blocked and waiting cards, an open question, a card three others wait on, long titles, many labels, a stack link, a
- * merge queue with a card being merged and two waiting for a red main, a failure on main an agent reported, two epics
+ * merge queue with a card being merged and two waiting for a red main, one with a check that timed out, a failure on main an agent reported, two epics
  * and a second board) and
  * realistic ages; the default seed stays small so the checks' counts do not move.
  *
@@ -136,6 +136,11 @@ if ($rich) {
     }
     $store->update($ids['m_queued'], function (array $data) use ($base) {
         $data['log'][] = MergeState::entry('main', ['command' => 'php artisan test', 'base' => $base]);
+
+        return $data;
+    }, $main);
+    $store->update($ids['m_held'], function (array $data) use ($base) {
+        $data['log'][] = MergeState::entry('timeout', ['step' => 'suite', 'command' => 'php artisan test --parallel', 'seconds' => 1800, 'base' => $base, 'head' => str_repeat('a', 40)]);
 
         return $data;
     }, $main);

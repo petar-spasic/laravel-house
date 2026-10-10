@@ -15,7 +15,7 @@ Checked 2026-10-02.
 
 | Package | Prescribed by | Latest | Committers | Supports | Status |
 |---|---|---|---|---|---|
-| `pestphp/pest` | setup, step 3 | 5.3.0 (2026-10-01) | 14 | PHP ^8.4 | pass |
+| `pestphp/pest` | setup, step 3 | 5.3.0 (2026-10-01) | 14 | PHP ^8.4 | pass. It runs PHPUnit 13, so `--parallel` needs `laravel/framework` 13.35.0 (2026-10-06) or later; an older 13.x fails with `Too few arguments to function …PhpHandler::__construct()` |
 | `pestphp/pest-plugin-laravel` | setup, step 3 | 5.0.1 (2026-07-29) | 3 | Laravel ^13.23 | pass. A Laravel 12 app keeps the skeleton's Pest major |
 
 ## npm: spa (`frontend/CLAUDE.md`, step 2)

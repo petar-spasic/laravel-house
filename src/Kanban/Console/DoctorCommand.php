@@ -294,7 +294,7 @@ class DoctorCommand extends Command
     private function checkMerge(?Snapshot $snapshot): void
     {
         $paths = $this->paths();
-        $commands = (new Suite($this->config()))->commands();
+        $commands = array_column((new Suite($this->config()))->commands(), 'run');
         $this->add(...($commands === [] ? ['fail', MergeStep::NO_SUITE] : ['ok', 'finish.check: '.implode(' · ', $commands)]));
         foreach ($commands as $command) {
             if (preg_match('/\b(docker|compose|kanban-exec)\b/', $command) === 1 && ($this->config()['agents']['shell'] ?? null) !== 'host') {

@@ -119,6 +119,8 @@ return [
         // Required: the whole suite, as it runs where the gates run: inside the app container (no docker or compose), or on
         // this machine with agents.shell host. The merge queue runs the gates, then these, on every merged tree in the
         // merge stack before main moves; no card merges until it is set.
+        // An entry is a command or ['run' => '…', 'timeout' => seconds], 1800 by default. A command that runs past its
+        // timeout is ended and holds the queue until main moves or its card is blocked.
         'check' => [],
     ],
 

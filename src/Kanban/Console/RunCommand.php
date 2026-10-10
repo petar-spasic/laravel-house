@@ -15,6 +15,7 @@ use PetarSpasic\LaravelHouse\Kanban\Code\Stack;
 use PetarSpasic\LaravelHouse\Kanban\Code\Worktrees;
 use PetarSpasic\LaravelHouse\Kanban\Policy\MainRed;
 use PetarSpasic\LaravelHouse\Kanban\Policy\MergeQueue;
+use PetarSpasic\LaravelHouse\Kanban\Policy\MergeTimeout;
 use PetarSpasic\LaravelHouse\Kanban\Policy\Plan;
 use PetarSpasic\LaravelHouse\Kanban\Policy\PullPolicy;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Lease;
@@ -780,8 +781,8 @@ class RunCommand extends Command
 
     /**
      * Notices for what changed on the board since the last report: a card blocked without a question (by its agent, the
-     * stop gate or this run), main red (MainRed), a card the merge sent back, a merge lease another machine stopped
-     * beating, more package findings. Each is reported once, kept in run.json.
+     * stop gate or this run), main red (MainRed), a check that timed out (MergeTimeout), a card the merge sent back, a
+     * merge lease another machine stopped beating, more package findings. Each is reported once, kept in run.json.
      *
      * @param  array<string, mixed>  $state
      */
@@ -806,6 +807,12 @@ class RunCommand extends Command
             in_array($row['key'], (array) ($state['main_red'] ?? []), true) || $this->notice(MainRed::line($row));
         }
         $state['main_red'] = array_column($open, 'key');
+        // a check that timed out: raised once for each base, card and command
+        $timeouts = MergeTimeout::open($snapshot, $this->step()->originMain());
+        foreach ($timeouts as $row) {
+            in_array($row['key'], (array) ($state['merge_timeout'] ?? []), true) || $this->notice(MergeTimeout::line($row));
+        }
+        $state['merge_timeout'] = array_column($timeouts, 'key');
         // the send-back reported last of each card at work, wherever it has been since
         $back = array_intersect_key((array) ($state['merge_back'] ?? []), array_flip(array_map(fn (Card $c) => $c->id(), $snapshot->cards(fn (Card $c) => $c->atWork()))));
         foreach ($this->local($snapshot, fn (Card $c) => $c->stage() === 'doing') as $card) {

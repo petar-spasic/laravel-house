@@ -29,7 +29,8 @@ use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
  * - `replay`: {from, to}, the merger's fixes of an earlier round, cherry-picked onto the next round's merge before its checks.
  * - `conflicts`: the conflicted paths (phase `conflict`).
  * - `failure`: {step, command, exit, tail, base_rerun} of the failed check (phase `red`); `step` is install, gate or
- *   suite, `base_rerun` passed, failed (a command the merged tree lost, red on the base) or skipped.
+ *   suite, `base_rerun` passed, failed (a command the merged tree lost, red on the base), skipped or timeout (the base
+ *   rerun ran past its timeout).
  * - `lost`: why the lease was lost, written by the beater; `finish` stops at once and exits 8.
  * - `started`: when the merge began; `beat_at`: when the last beat landed (Clock::now, for people).
  *
@@ -39,6 +40,9 @@ use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
  * - `red`: a gate, an install or the suite failed on the merged tree and code could not call it main's.
  * - `main`: main is red: the base rerun failed too (by main), or the merger judged so (by merger). MergeQueue holds the
  *   queue while origin's main is `base`; `kanban run` raises it to the main session (MainRed). No card is filed.
+ * - `timeout`: a gate, an install or a `finish.check` command ran past its `seconds`, at `base` with the card at `head`;
+ *   it ran nowhere again. MergeQueue holds the queue while origin's main is `base` and the card is queued at `head`;
+ *   `kanban run` raises it to the main session (MergeTimeout).
  * - `resolved`, `fixed`: the merger's result applied.
  * - `back`: the merger, the round cap or leftover conflict markers sent the card back, in the same write as its `stage`
  *   entry via `merge`.
@@ -83,6 +87,7 @@ final class MergeState
         'conflict' => [['files', 'base', 'round'], []],
         'red' => [['step', 'command', 'exit', 'base', 'round', 'base_rerun'], []],
         'main' => [['command', 'base'], ['hash', 'note']],
+        'timeout' => [['step', 'command', 'seconds', 'base', 'head'], ['note']],
         'resolved' => [['head', 'hash', 'note'], []],
         'fixed' => [['head', 'hash', 'note'], []],
         'back' => [['note'], ['hash', 'files', 'command']],
