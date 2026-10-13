@@ -27,6 +27,7 @@
     - [Rules Per Layer](#rules-per-layer)
 - [Deployment](#deployment)
     - [The Local Stack](#the-local-stack)
+    - [The Agent Image](#the-agent-image)
     - [The Production Image](#the-production-image)
     - [Running the Stack](#running-the-stack)
 - [Exporting Validation Rules](#exporting-validation-rules)
@@ -392,6 +393,9 @@ to refuse passkey sign-in for users with two-factor on, or to send them to the c
 <a name="end-to-end-tests"></a>
 ### End-to-End Tests
 
+- A test is written only where a failure hurts: security, data validity, critical flows such as sign-in, and
+  tenancy isolation. Claude checks any other change on the running app and cites that check. The root `CLAUDE.md`
+  holds the rule.
 - Every test drives a whole flow through its real entry point. Pest HTTP tests live in `tests/E2E`. The SvelteKit app
   adds Playwright browser tests.
 - Only paid or outside services are faked.
@@ -429,8 +433,8 @@ To remove the package from a house project, first take the `house:update` line o
 The deployment skill copies Docker templates into your project: Dockerfiles, compose files, web server configs and
 entrypoint scripts. It also fills the Hosting section of your root `CLAUDE.md`.
 
-There are two tiers: a local stack for development and a production image. A stack is the set of containers that runs
-the app. In each tier:
+There are three images: a local stack for development, an agent image for the kanban board's card stacks, and a
+production image. A stack is the set of containers that runs the app. In each one:
 
 - One app container runs the web server, the scheduler and Horizon.
 - Postgres and Redis run in their own containers beside it.
@@ -456,6 +460,21 @@ The local stack is your dev environment. You do not run `php artisan serve` or `
 > card's agent, which works inside its own container, from editing cards through your main stack's board page. The
 > page cannot approve or finish a card. Your main stack's database and Redis listen on `127.0.0.1` only, out of the
 > containers' reach.
+
+<a name="the-agent-image"></a>
+### The Agent Image
+
+Card stacks and the merge queue's stack run the agent image, `Dockerfile.agent`. It is the local stack on the
+production runtime:
+
+- FrankenPHP runs Octane in place of php-fpm. So the agents' tests and browser checks meet warm workers, as production
+  does, and state that leaks from one request to the next shows up before release.
+- Octane restarts its workers when a file it watches changes. `config/octane.php` lists those paths; `vendor/` and
+  `node_modules/` are not among them.
+- It has no Xdebug. Everything else is the local stack: the mounted source, the dev server, `APP_ENV=local`, and the
+  Postgres and Redis containers.
+
+Your own stack keeps `Dockerfile.local`. [Worktree Stacks](#worktree-stacks) says how a card's stack picks its image.
 
 <a name="the-production-image"></a>
 ### The Production Image
@@ -911,9 +930,9 @@ A card may leave the `backlog` only when it is complete enough for an agent to w
 - every card it depends on exists;
 - it is not blocked, and has no open question.
 
-Write each acceptance criterion as something the evaluator can check, and name the test that proves it, such as
-"`GET /invoices.csv` lists the month's invoices (`tests/E2E/InvoiceExportTest.php`)". `kanban promote` tells you which
-rule a card misses.
+Write each acceptance criterion as something the evaluator can check, such as "`GET /invoices.csv` totals the month's
+issued invoices (`tests/E2E/InvoiceExportTest.php`)". Name the test only where your project's test rules ask for one;
+the evaluator checks any other criterion on the running app. `kanban promote` tells you which rule a card misses.
 
 Write the description for a person, in short, plain sentences: what changes and why. Each criterion holds one outcome.
 `kanban new` and `kanban set` print a hint for a sentence or a criterion over 25 words. The kanban skill's
@@ -1041,7 +1060,8 @@ keeps going in the background:
 Each agent is a headless Claude Code session of its own. This needs Linux and card containers (see
 [Where Agents Run](#where-agents-run)). The main session steps in only when something needs judgment:
 a blocked card, a failing merge, a red `main`, a package finding, or nothing left to start. When it hits your usage
-limit, the board pauses and resumes later. When you tell Claude to wrap up, `vendor/bin/kanban drain` makes the run
+limit, the board pauses and resumes later. After your machine restarts, the next run brings the cards' stacks back
+up and resumes the agents that died. When you tell Claude to wrap up, `vendor/bin/kanban drain` makes the run
 finish the cards in flight and start no new ones, without stopping it.
 
 To see what is happening at any time, ask Claude:
@@ -1183,6 +1203,23 @@ services:
 
 `vendor/bin/kanban doctor --fix` adds these lines to a compose file written before them. Set `KANBAN_AGENT_SHELL=host` to
 run agents' commands on your machine instead.
+
+Card stacks and the merge stack build the app from `Dockerfile.agent` when your project has the agent image's files.
+The deployment skill ships them. The package writes `KANBAN_DOCKERFILE=Dockerfile.agent` into their `.env`, and the
+local compose file reads it:
+
+```yaml
+services:
+  app:
+    build:
+      dockerfile: ${KANBAN_DOCKERFILE:-Dockerfile.local}
+```
+
+Your main `.env` never sets it, so your own stack keeps `Dockerfile.local`. Until `vendor/bin/kanban doctor` reports
+the agent image's files complete, card stacks use `Dockerfile.local` too. Doctor names each file that is missing or
+old. Once your project has `Dockerfile.agent`, `vendor/bin/kanban doctor --fix` makes this change in a compose file
+written before it; commit it, because card stacks read the compose file from main. A change to `Dockerfile.agent`
+rebuilds the card stacks and the merge stack. It never rebuilds your own stack.
 
 <a name="preparing-your-compose-file"></a>
 ### Preparing Your Compose File
@@ -1435,9 +1472,11 @@ vendor/bin/kanban doctor --fix
 php artisan boost:update
 ```
 
-Skip the `doctor` line in a project without the board. On the board, commit the changes to `main` and run
-`vendor/bin/kanban publish`, so your `main` does not diverge from the remote's at the next merge. Then restart Claude
-Code. Releases are semver tags.
+Skip the `doctor` line in a project without the board. When you take the deployment skill's template changes, merge
+`Dockerfile.agent`, `docker/Caddyfile.agent`, `docker/Caddyfile.fpm`, `docker/Caddyfile.local` and
+`docker/docker-entrypoint-local.sh` together. Card stacks switch to the agent image only once `vendor/bin/kanban doctor`
+reports that set complete. On the board, commit the changes to `main` and run `vendor/bin/kanban publish`, so your
+`main` does not diverge from the remote's at the next merge. Then restart Claude Code. Releases are semver tags.
 
 > [!WARNING]
 > While the package is at 0.x, `^0.N` stays on `0.N.x`, so `composer update` alone never reaches a new minor

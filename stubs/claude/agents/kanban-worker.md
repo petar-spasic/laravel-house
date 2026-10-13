@@ -85,8 +85,12 @@ and wrote its plan.
   `--discovered='main: <command> — what fails'` tells the main session once; it files no card. Never fix it in this
   card.
 - Delete tracked files with `git rm`; never move them out of the clone.
-- After a page change, its browser spec runs in your container and passes before you report. Run each browser spec
-  you add or change three times (`--repeat-each=3`): one failure is a flaky spec to fix.
+- Where the root `CLAUDE.md` names test groups, write a test only inside them; prove every other criterion at its
+  entry point (curl the page, read it in the browser, run the artisan command) and cite that check. A test outside the
+  groups that your change breaks: `git rm` it instead of fixing it, and name it in the report summary. Where it names
+  none, the project's own test rules decide.
+- Run each browser spec you add or change three times (`--repeat-each=3`) in your container: one failure is a flaky
+  spec to fix.
 - One test run at a time in your stack: a second one waits for the test database. A run that ends within 10 minutes
   runs in the foreground. A longer one (a whole browser suite) runs with `run_in_background` and writes into the
   worktree: `rm -f <worktree>/.tmp/run.exit; <command> > <worktree>/.tmp/run.log 2>&1; echo $? > <worktree>/.tmp/run.exit`.
@@ -100,7 +104,8 @@ and wrote its plan.
 
 ## 3. Done means
 
-- every criterion is proven as the project's `tests/CLAUDE.md` requires, and the proof passes in this stack;
+- every criterion is proven in this stack, by a passing test or a check at its entry point as the project's test
+  rules say;
 - `vendor/bin/kanban gates` passes (`report` runs them too, and refuses to stage on a failure). They are main's
   gates: one this branch adds to `config/kanban.php` runs only after the merge, so run its command yourself and cite
   it in `--verified`;

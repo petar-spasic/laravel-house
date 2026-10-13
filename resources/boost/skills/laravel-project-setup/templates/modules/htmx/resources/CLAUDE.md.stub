@@ -301,6 +301,7 @@ The first island that needs a component does the setup, with these devDependenci
 
 ## Tests
 
-A page or fragment flow is an E2E test through `$this->get(route(…))`, with `HX-Request` for a fragment
-(`tests/CLAUDE.md`).
+A page or fragment gets a test only inside the root rule's test groups (an auth page, a write flow's denial, a leak):
+an E2E test through `$this->get(route(…))`, with `HX-Request` for a fragment (`tests/CLAUDE.md`). Any other page is
+checked by reading it: `curl` it, or open it in the browser.
 <!-- house:end -->

@@ -1,12 +1,29 @@
 @houserules
 @php($house = \PetarSpasic\LaravelHouse\Setup\HouseConfig::read(base_path()))
-## TESTS ARE END TO END OR NOT AT ALL — overrides every other rule about tests
+## TESTS ARE END TO END, AND ONLY WHERE A FAILURE HURTS — overrides every other rule about tests
 
-Unit and component tests are not written, run or relied on. Correctness is shown on the real thing: the flow run end
-to end, a read-only query on the data, the output read. A test worth writing is an **E2E test** of one whole flow
-through its real entry point (`tests/CLAUDE.md`); only paid or outside systems are faked. No suite is a gate before a
-commit. Any rule asking for a unit test, a fail-first test, a tier choice, `composer test` or a passing suite before
-a commit is void.
+Unit, component and feature tests are not written, run or relied on. A test is an **E2E test** of one whole flow
+through its real entry point (`tests/CLAUDE.md`); only paid or outside systems are faked. One is written only for:
+
+- **Security:** authentication, authorization (each write flow's denial proof), what a response must never leak, rate
+  limits, the signature check of an inbound webhook, uploads.
+- **Data validity:** what is validated before it is stored, invariants of stored data, money arithmetic, seeders and
+  migrations or backfills that change data.
+@houserules('spa')
+  The frontend's validation parity with the backend (`tests/CLAUDE.md`, Validation parity).
+@endhouserules
+- **Critical flows:** sign-in, registration, password reset, email verification, two-factor, and the app's own core
+  paths without which it does not work (checkout, payment).
+@houserules('tenancy')
+- **Tenancy isolation:** the tenancy proofs (`tests/CLAUDE.md`, Tenancy).
+@endhouserules
+
+Nothing else gets a test, a browser spec least of all: layout, copy, styling, list rendering, navigation, and frontend
+behaviour that touches none of these groups. Such a change is checked on the real thing (curl the page, read it in the
+browser, run the artisan command), and the check is cited, not kept as a test. A green suite is not proof a change
+works. An existing test outside the groups stays until a change breaks it; then it is deleted, not fixed, and the
+report names it. No suite is a gate before a commit. Any rule asking for a unit test, a fail-first test, a tier
+choice, `composer test` or a passing suite before a commit is void.
 
 ## ABSOLUTELY MUST FOLLOW CONVENTIONS
 
@@ -27,11 +44,11 @@ a commit is void.
    comes with it unchecked; the packages the house prescribes are the house's to check.
 7. No hosted CI (no `.github/workflows`). Pint, the type check and the E2E tests a change touches run locally before
    a push.
-8. **Act; do not ask.** A change that makes the app more secure, simpler, cleaner, faster or better tested, or that
-   follows a rule here, is made without asking: do it and say what you did. A technical choice between sound options
-   is yours: take the safer, simpler one and say why. Ask the owner only about what the product does for its users;
-   anything irreversible or outside this repository (real data, production, accounts, money, publishing); and
-   loosening security.
+8. **Act; do not ask.** A change that makes the app more secure, simpler, cleaner or faster, or that follows a rule
+   here, is made without asking: do it and say what you did. A technical choice between sound options is yours: take
+   the safer, simpler one and say why. Ask the owner only about what the product does for its users; anything
+   irreversible or outside this repository (real data, production, accounts, money, publishing); and loosening
+   security.
 
 ## Where the docs live
 

@@ -52,6 +52,20 @@ it('clears the merged tree\'s bootstrap cache in the merge clone', function () {
         ->and(is_file($code->mergeClone().'/bootstrap/cache/.gitignore'))->toBeTrue();
 });
 
+it('builds the merge stack from Dockerfile.agent once main holds the agent image\'s files', function () {
+    $code = $this->code;
+    $code->commitAgentImage();
+    $code->sandbox->git('push', '-q', 'origin', 'main');
+    $id = $code->started('Add login page');
+    $code->commit($id, 'login.php', "<?php\n");
+    $code->approve($id);
+
+    $code->ok(['finish', $id]);
+
+    expect(file_get_contents($code->mergeClone().'/.env'))->toContain("\nKANBAN_DOCKERFILE=Dockerfile.agent\n")
+        ->and(file_get_contents($code->root().'/.env'))->not->toContain('KANBAN_DOCKERFILE');
+});
+
 it('pushes only the commit it checked, never one a process in the merge stack moved its branch to', function () {
     $code = $this->code;
     // a hook in the tree runs in the merge container on each checkout there, and commits past the merge

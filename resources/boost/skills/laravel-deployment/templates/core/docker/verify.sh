@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # The probes of laravel-deployment's Verify that a script can make, run on the host from the project root:
-#   docker/verify.sh        the local stack (docker-compose.local.yml, .env)
+#   docker/verify.sh        the local stack (docker-compose.local.yml, .env); in a card's clone, whose .env names
+#                           KANBAN_DOCKERFILE=Dockerfile.agent, the agent image
 #   docker/verify.sh prod   the prod shape (docker-compose.yml, .env.prod), next to the local stack
 # It brings the stack up, then prints one ✗ line per failed probe and exits 1 on any. What needs a browser or a
 # judgement (HMR, the outer proxy's client IP, the test database's rows) stays in Verify.
@@ -73,7 +74,14 @@ else
         # A token answers 303 back to /kanban with its cookie: follow it with a jar.
         expect "/kanban${token:+?token=$token}" 200 -L -c /dev/null
     fi
-    want=(app:php-fpm app:caddy app:scheduler app:horizon)
+    if [ "${KANBAN_DOCKERFILE:-$(value KANBAN_DOCKERFILE .env)}" = Dockerfile.agent ]; then
+        want=(app:web app:scheduler app:horizon)
+    else
+        want=(app:php-fpm app:caddy app:scheduler app:horizon)
+        # if:spa
+        want+=(app:php-fpm-e2e)
+        # endif
+    fi
     # if:htmx
     want+=(app:vite)
     # endif

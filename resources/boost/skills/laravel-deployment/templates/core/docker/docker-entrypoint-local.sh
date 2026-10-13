@@ -1,9 +1,11 @@
 #!/bin/bash
-# {{app}} local entrypoint: deps on start (sha256-sentinel-guarded), never cache config,
-# database wait, migrate, reference data and gated account seed, then php-fpm + caddy + vite + scheduler + horizon.
+# {{app}} local entrypoint, of the local image (Dockerfile.local) and the agent image (Dockerfile.agent, which passes
+# `octane`): deps on start (sha256-sentinel-guarded), never cache config, database wait, migrate, reference data and
+# gated account seed, then the web server (php-fpm + caddy, or Octane) + vite + scheduler + horizon.
 set -e
 cd /app
-echo "=== {{app}} (local) ==="
+web=${1:-fpm}
+echo "=== {{app}} (local, $web) ==="
 [ -f .env ] || cp .env.example .env
 # if:spa
 # Sanctum's stateful origins are compose's localhost and 127.0.0.1 at WEB_PORT plus APP_URL's host (LOCAL_APP_URL),
@@ -39,6 +41,11 @@ php artisan config:clear && php artisan route:clear && php artisan event:clear &
 php_app() {
     php -r 'require "vendor/autoload.php"; $app = require "bootstrap/app.php"; $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap(); '"$1"
 }
+if [ "$web" = octane ]; then
+    [ -f vendor/laravel/octane/composer.json ] || { echo "the agent image runs Octane: composer require laravel/octane"; exit 1; }
+    # An empty list makes FrankenPHP watch every PHP file, vendor/ included.
+    php_app 'exit(config("octane.watch") ? 0 : 1);' || { echo "config/octane.php has no watch list: php artisan vendor:publish --tag=octane-config"; exit 1; }
+fi
 echo "waiting for database..."
 for i in $(seq 1 60); do
     php_app 'try { Illuminate\Support\Facades\DB::connection()->getPdo(); exit(0); } catch (Throwable $e) { fwrite(STDERR, $e->getMessage()); exit(1); }' 2>/tmp/db-wait.err && break
@@ -83,8 +90,19 @@ CONF
 
 # conf.d survives `docker compose restart`: start from the programs this boot configures.
 rm -f /etc/supervisor/conf.d/*.conf
-program php-fpm "php-fpm -F"
-program caddy "caddy run --config /app/docker/Caddyfile.local --adapter caddyfile"
+if [ "$web" = octane ]; then
+    # FrankenPHP's own Caddy, in worker mode; --watch restarts the workers on an edit under config/octane.php's watch
+    # list. Two workers each: many card stacks share one machine. 0.0.0.0 skips Octane's own port probe, which a
+    # restart racing the old process would fail; Caddy binds what docker/Caddyfile.local names.
+    program web "php artisan octane:frankenphp --host=0.0.0.0 --port=8080 --workers=2 --max-requests=250 --watch --caddyfile=/app/docker/Caddyfile.agent" 30
+else
+    program php-fpm "php-fpm -F"
+    # if:spa
+    # The e2e sites' own master, without Xdebug (docker/php-fpm-e2e.conf).
+    program php-fpm-e2e "env XDEBUG_MODE=off php-fpm -F -y /app/docker/php-fpm-e2e.conf"
+    # endif
+    program caddy "caddy run --config /app/docker/Caddyfile.fpm --adapter caddyfile"
+fi
 # unless:spa
 # laravel-vite-plugin deletes public/hot only on a clean exit; after a SIGKILL or OOM kill Laravel would point at a dead dev server.
 rm -f public/hot

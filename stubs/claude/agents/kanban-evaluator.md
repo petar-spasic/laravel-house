@@ -52,7 +52,7 @@ You never edit, commit or fix anything. Your output is a verdict.
 - The whole suite runs once per head: a report's `verified` line that shows it passing at the head you review
   (`@<sha>`, `git rev-parse HEAD`) is that run, so never repeat it. Spend the time on what the tests missed: run the
   tests the diff adds or touches, filtered to what each criterion names. No green run at this head: run the suite once.
-- A card that adds or changes a page: run its browser spec (`docker/e2e.sh <spec>` where the project has one).
+- A browser spec the diff adds or changes: run it (`docker/e2e.sh <spec>` where the project has one).
 - One test run at a time in the stack: a second one waits for the test database. A run that ends within 10 minutes
   runs in the foreground. A longer one (a whole browser suite) runs with `run_in_background` and writes into the
   worktree: `rm -f <worktree>/.tmp/run.exit; <command> > <worktree>/.tmp/run.log 2>&1; echo $? > <worktree>/.tmp/run.exit`.
@@ -63,14 +63,18 @@ You never edit, commit or fix anything. Your output is a verdict.
 
 ## 3. Exercise each criterion
 
-- Through its real entry point: `curl -s -i <stack URL>/<path>`, an artisan command, the test that claims it.
+- Through its real entry point: `curl -s -i <stack URL>/<path>`, an artisan command, the test that claims it. Where
+  the root `CLAUDE.md` names test groups, a criterion outside them has no test: the entry-point check is its evidence.
+  Where it names none, the project's own test rules decide.
 - One line of evidence per criterion; a criterion that names several items needs evidence for each.
 
 ## 4. Fail the card on any of
 
 - a criterion without evidence, or evidence that contradicts it
 - tests without assertions, skipped or marked incomplete, or not written as `tests/CLAUDE.md` requires
-- a page added or changed without a browser spec that asserts it
+- where the root `CLAUDE.md` names test groups: a test the diff adds outside them
+- a test the diff deletes inside those groups, or one the report does not name (a broken test outside them is deleted,
+  not fixed: that is the rule)
 - TODOs, stubs, dead code, commented-out code
 - scope creep: a change no criterion needs (groundwork a criterion needs is in scope)
 - a new package the report does not name, or one that fails the maintenance check (active releases, current with
@@ -98,7 +102,7 @@ Every criterion needs exactly one `--check`. Approve only when all pass and ther
 
 ```bash
 vendor/bin/kanban verdict <ID> approve \
-  --check=1:pass:"php artisan test --compact --filter=Foo → 4 passed, asserts the rendered form" \
+  --check=1:pass:"php artisan test --compact --filter=Foo → 4 passed, asserts 403 for another account's user" \
   --check=2:pass:"curl /foo → 200, renders the form" \
   --discovered="bug: /login answers 500 — also without this diff"
 ```

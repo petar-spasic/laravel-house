@@ -2,6 +2,7 @@
 
 use PetarSpasic\LaravelHouse\Kanban\Console\Install\Steps;
 use PetarSpasic\LaravelHouse\Kanban\Support\Json;
+use PetarSpasic\LaravelHouse\Tests\Support\CodeSandbox;
 use PetarSpasic\LaravelHouse\Tests\Support\Origin;
 use PetarSpasic\LaravelHouse\Tests\Support\Sandbox;
 use Symfony\Component\Process\Process;
@@ -253,6 +254,85 @@ it('adds the card-stack lines to a compose file written before them, once, and l
         ], $before))
         ->and($again)->not->toContain('fix: added to')
         ->and(file_get_contents($file))->toBe($after);
+});
+
+it('has card and merge stacks build from Dockerfile.agent once main holds it: --fix makes the compose file read KANBAN_DOCKERFILE, once', function () {
+    $sandbox = doctorSandbox();
+    $file = $sandbox->root.'/docker-compose.local.yml';
+    $before = file_get_contents($file);
+    $local = doctor($sandbox)->getOutput();
+    CodeSandbox::agentImage($sandbox->root);
+
+    $warned = doctor($sandbox)->getOutput();
+    $fixed = doctor($sandbox, ['--fix'])->getOutput();
+    $after = file_get_contents($file);
+    $again = doctor($sandbox, ['--fix'])->getOutput();
+
+    expect($local)->not->toContain('Dockerfile.agent')
+        ->and($warned)->toContain('warn docker-compose.local.yml builds the app from a fixed Dockerfile, so card and merge stacks ignore Dockerfile.agent (`vendor/bin/kanban doctor --fix` makes it `dockerfile: ${KANBAN_DOCKERFILE:-Dockerfile.local}`)'."\n")
+        ->and($fixed)->toContain("fix: added to docker-compose.local.yml: the app's Dockerfile as KANBAN_DOCKERFILE (commit it: card and merge stacks read the compose file from main's commits)\n")
+        ->toContain("ok docker-compose.local.yml builds card and merge stacks from Dockerfile.agent\n")
+        ->and($after)->toBe(str_replace("      dockerfile: Dockerfile.local\n", "      dockerfile: \${KANBAN_DOCKERFILE:-Dockerfile.local}\n", $before))
+        ->and($again)->not->toContain('fix: added to')
+        ->and(file_get_contents($file))->toBe($after);
+});
+
+it('patches only the app service\'s Dockerfile and leaves a file whose app builds none of its own for a hand edit', function () {
+    $sandbox = doctorSandbox();
+    $file = $sandbox->root.'/docker-compose.local.yml';
+    $worker = "  worker:\n    build:\n      context: .\n      dockerfile: Dockerfile.local\n";
+    file_put_contents($file, str_replace("  postgres:\n", $worker."  postgres:\n", file_get_contents($file)));
+    $before = file_get_contents($file);
+    CodeSandbox::agentImage($sandbox->root);
+
+    doctor($sandbox, ['--fix']);
+    $patched = file_get_contents($file);
+    file_put_contents($file, str_replace("      dockerfile: \${KANBAN_DOCKERFILE:-Dockerfile.local}\n", "      dockerfile: Dockerfile.base\n", $patched));
+    $workerOnly = file_get_contents($file);
+    $fixed = doctor($sandbox, ['--fix'])->getOutput();
+
+    expect($patched)->toBe(preg_replace('#      dockerfile: Dockerfile\.local\n#', "      dockerfile: \${KANBAN_DOCKERFILE:-Dockerfile.local}\n", $before, 1))
+        ->toContain($worker)
+        ->and($fixed)->toContain('so card and merge stacks ignore Dockerfile.agent (set the app service\'s build to `dockerfile: ${KANBAN_DOCKERFILE:-Dockerfile.local}` by hand)')
+        ->not->toContain('fix: added to')
+        ->and(file_get_contents($file))->toBe($workerOnly);
+});
+
+it('names what of the agent image\'s files is missing or old, and that card and merge stacks keep Dockerfile.local until they are merged together', function () {
+    $sandbox = doctorSandbox();
+    $file = $sandbox->root.'/docker-compose.local.yml';
+    file_put_contents($file, str_replace('dockerfile: Dockerfile.local', 'dockerfile: ${KANBAN_DOCKERFILE:-Dockerfile.local}', file_get_contents($file)));
+    CodeSandbox::agentImage($sandbox->root, [
+        'docker/docker-entrypoint-local.sh' => "#!/bin/bash\nprogram php-fpm \"php-fpm -F\"\n",
+        'docker/Caddyfile.local' => "# Local front server.\n{\n\tadmin off\n}\n\n:8080 {\n}\n",
+    ]);
+    unlink($sandbox->root.'/docker/Caddyfile.agent');
+    $warning = 'warn docker/Caddyfile.agent is missing; docker/docker-entrypoint-local.sh is old (no Octane mode, `octane:frankenphp`); '
+        .'docker/Caddyfile.local is old (its own global options block): card and merge stacks keep Dockerfile.local until Dockerfile.agent, '
+        .'docker/Caddyfile.agent, docker/Caddyfile.fpm, docker/Caddyfile.local and docker/docker-entrypoint-local.sh are merged together '
+        ."from the laravel-deployment skill's templates (its Procedure)\n";
+
+    $partial = doctor($sandbox)->getOutput();
+    CodeSandbox::agentImage($sandbox->root);
+    $complete = doctor($sandbox)->getOutput();
+    CodeSandbox::agentImage($sandbox->root, ['docker/Caddyfile.local' => "# Local sites.\n\n:8080 {\n\tphp_fastcgi 127.0.0.1:9000\n}\n"]);
+    $fpm = doctor($sandbox)->getOutput();
+
+    expect($partial)->toContain($warning)
+        ->not->toContain('builds card and merge stacks from Dockerfile.agent')
+        ->and($complete)->not->toContain('merged together')
+        ->toContain("ok docker-compose.local.yml builds card and merge stacks from Dockerfile.agent\n")
+        ->and($fpm)->toContain('warn docker/Caddyfile.local is old (no `import php`): card and merge stacks keep Dockerfile.local until ');
+});
+
+it('warns that card and merge stacks build from Dockerfile.local while the compose file reads KANBAN_DOCKERFILE and Dockerfile.agent is missing', function () {
+    $sandbox = doctorSandbox();
+    $file = $sandbox->root.'/docker-compose.local.yml';
+    file_put_contents($file, str_replace('dockerfile: Dockerfile.local', 'dockerfile: ${KANBAN_DOCKERFILE:-Dockerfile.local}', file_get_contents($file)));
+    $warning = "warn Dockerfile.agent is missing, so card and merge stacks build from Dockerfile.local (the laravel-deployment skill ships it)\n";
+
+    expect(doctor($sandbox)->getOutput())->toContain($warning)
+        ->and(doctor($sandbox, env: ['KANBAN_AGENT_SHELL' => 'host'])->getOutput())->toContain($warning);
 });
 
 it('fails without a suite in finish.check and warns about one written as a host command', function (array $check, string $line) {

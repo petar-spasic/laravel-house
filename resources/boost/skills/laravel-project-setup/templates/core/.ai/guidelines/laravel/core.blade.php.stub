@@ -25,5 +25,5 @@
 @scoped(['tests/**'])
 ## Testing
 
-- Tests are E2E only (top of this file). An E2E test seeds its world with the factories and drives the real entry point.
+- Tests are E2E, and only where a failure hurts (top of this file). An E2E test seeds its world with the factories and drives the real entry point.
 @endscoped

@@ -217,7 +217,8 @@ final class MainCheckout
     {
         $stack = (array) ($this->config['stack'] ?? []);
         $compose = $stack['compose_file'] ?? 'docker-compose.yml';
-        if (($rebuild = MergeCheck::rebuildFiles($files, $compose)) === []) {
+        // main's stack builds from Dockerfile.local: only card and merge stacks read the agent image
+        if (($rebuild = array_values(array_diff(MergeCheck::rebuildFiles($files, $compose), [EnvWriter::AGENT_IMAGE]))) === []) {
             return true;
         }
         $command = "docker compose -f {$compose} build && docker compose -f {$compose} up -d --force-recreate --wait";

@@ -8,7 +8,7 @@ use PetarSpasic\LaravelHouse\Kanban\Support\Git;
 final class MergeCheck
 {
     /** Files whose change means a stack must be rebuilt and recreated; a lockfile at any depth. */
-    public const REBUILD = ['composer.lock', 'package-lock.json', 'Dockerfile.local', 'docker/'];
+    public const REBUILD = ['composer.lock', 'package-lock.json', 'Dockerfile.local', 'Dockerfile.agent', 'docker/'];
 
     private const LOCKFILES = ['composer.lock', 'package-lock.json'];
 

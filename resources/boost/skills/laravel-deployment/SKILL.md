@@ -1,33 +1,37 @@
 ---
 name: laravel-deployment
 description: >-
-  House hosting for a Laravel app in Docker, Caddy in front in both tiers: a local image (Caddy + php-fpm + Xdebug +
-  the Vite or SvelteKit dev server, bind-mounted source) and a production image (FrankenPHP + Octane, non-root), each
-  running the web server, the scheduler and Horizon under supervisor next to Postgres and Redis. Ships the
-  Dockerfiles, entrypoints, compose files, healthcheck, Caddyfiles and supervisor and Xdebug configs as templates
-  rendered per module, plus the boot order, the queue timeout chain, worktree stacks from one compose, forced phpunit
-  env and the traps behind a container that boots but serves nothing. Module references: Reverb, spa (SvelteKit on
-  Node, browser tests), tenancy database roles. Use when dockerizing a Laravel project, writing or debugging its
-  Docker, compose or Caddy files, or filling the Hosting section of its CLAUDE.md. Triggers — Laravel Docker,
-  docker-compose Laravel, Caddy Laravel, FrankenPHP, Octane deploy, Reverb deploy, adapter-node deploy, supervisord
-  Laravel.
+  House hosting for a Laravel app in Docker in three images: local (Caddy + php-fpm + Xdebug + the Vite or SvelteKit
+  dev server, bind-mounted source), agent (the same with Octane in place of php-fpm, no Xdebug: card and merge-queue
+  stacks) and production (FrankenPHP + Octane, non-root), each running the web server, the scheduler and Horizon under
+  supervisor next to Postgres and Redis. Ships the Dockerfiles, entrypoints, compose files, Caddyfiles and configs as
+  templates rendered per module, plus the boot order, the queue timeout chain, worktree stacks from one compose,
+  forced phpunit env and the traps behind a container that boots but serves nothing. Module references: Reverb, spa,
+  tenancy database roles. Use when dockerizing a Laravel project, writing or debugging its Docker, compose or Caddy
+  files, or filling the Hosting section of its CLAUDE.md. Triggers — Laravel Docker, docker-compose Laravel, Caddy
+  Laravel, FrankenPHP, Octane deploy, Reverb deploy, adapter-node deploy, supervisord Laravel.
 ---
 
 # Laravel deployment
 
-One repo ships two images of one stack. Caddy is the web server in both. Each image runs the web server, the scheduler
-and Horizon under supervisor in one app container, next to Postgres 16 and Redis 7 sidecars. The local stack is the dev
-environment: no `artisan serve`, no `composer run dev`, no sqlite, and no driver that differs between the tiers.
+One repo ships three images of one stack. Caddy is the web server in each. Each image runs the web server, the
+scheduler and Horizon under supervisor in one app container, next to Postgres 16 and Redis 7 sidecars. The local stack
+is the dev environment: no `artisan serve`, no `composer run dev`, no sqlite, and no driver that differs between the
+tiers.
 
-## Two tiers
+## Images
 
-| Tier | Files | Front | Behind it |
+| Image | Files | Front | Behind it |
 |---|---|---|---|
 | local | `Dockerfile.local`, `docker-compose.local.yml` | Caddy on container port 8080 | php-fpm with Xdebug on 127.0.0.1:9000; the `vite` dev server on 127.0.0.1:5173 (Vite, or SvelteKit with spa) |
+| agent | `Dockerfile.agent`, `docker-compose.local.yml` | FrankenPHP's Caddy on container port 8080 | Octane workers (`--watch`), no Xdebug; the same `vite` dev server |
 | prod | `Dockerfile`, `docker-compose.yml`, `.env.prod` | FrankenPHP's Caddy on container port 8080 | Octane workers as www-data; with spa, Node SSR (`ssr`) on 127.0.0.1:3000 |
 
 Local runs php-fpm: each request is a fresh PHP process, so Xdebug breakpoints always fire (under Octane only a worker's
-first request breaks). Local bind-mounts the source. Prod keeps workers warm; TLS ends at the host's reverse proxy.
+first request breaks). Local bind-mounts the source. The agent image is local's environment on prod's runtime: the
+stacks of card clones and the merge queue build it (Many stacks, below), so the card agents test on warm workers,
+where request state leaks as in prod. Main's own stack stays local. Prod keeps workers warm; TLS ends at the host's
+reverse proxy.
 
 ## Templates
 
@@ -40,13 +44,16 @@ resolves. A row marked with a module belongs to that module only.
 |---|---|
 | `Dockerfile` | composer stage (ignores only `ext-pcntl`) → node stage (whole tree + `vendor/`, for Tailwind's `@source`) → runtime: extensions, `composer check-platform-reqs`, `USER www-data` |
 | `Dockerfile.local` | php-fpm, Caddy (binary from `caddy:2`), NodeSource 24, git, openssh-client, unzip, Xdebug; www-data re-homed to `HOST_UID`/`HOST_GID` |
-| `docker-compose.local.yml` | the many-stacks shape, hardcoded wiring and drivers, `LOCAL_APP_URL`, host cache binds |
+| `Dockerfile.agent` | prod's FrankenPHP runtime with `Dockerfile.local`'s tools, users and caches, no Xdebug; opcache revalidates each file |
+| `docker-compose.local.yml` | the many-stacks shape, hardcoded wiring and drivers, `LOCAL_APP_URL`, host cache binds; the image from `KANBAN_DOCKERFILE` |
 | `docker-compose.yml` | loopback publish, `restart`, log rotation, Redis `noeviction` + AOF, `stop_grace_period` |
-| `docker/docker-entrypoint.sh`, `docker/docker-entrypoint-local.sh` | the boot order below |
-| `docker/healthcheck.sh`, `docker/supervisord.conf` | `/up` plus every process of the tier; supervisor non-root, socket and pid in `/tmp`, the mandatory `[include]` |
+| `docker/docker-entrypoint.sh`, `docker/docker-entrypoint-local.sh` | the boot order below; the local one also boots the agent image (`octane`) |
+| `docker/healthcheck.sh`, `docker/supervisord.conf` | `/up` plus every process the entrypoint configured; supervisor non-root, socket and pid in `/tmp`, the mandatory `[include]` |
 | `docker/Caddyfile` | prod: files off disk (`/build/*` immutable), the rest to the worker |
-| `docker/Caddyfile.local` | local: Vite's paths and HMR socket to 127.0.0.1:5173, the rest to php-fpm |
+| `docker/Caddyfile.local` | the local and agent sites: Vite's paths and HMR socket to 127.0.0.1:5173, the rest to `(php)` |
+| `docker/Caddyfile.fpm`, `docker/Caddyfile.agent` | each image's global options and `(php)`, then `import` of `Caddyfile.local`: php-fpm, or Octane's worker |
 | `docker/Caddyfile.frontend`, `docker/e2e.sh` (spa) | SvelteKit's build: files off disk, the rest to Node; browser tests on `{{app}}_test` |
+| `docker/php-fpm-e2e.conf` (spa) | the e2e sites' php-fpm on 127.0.0.1:9001, started with Xdebug off |
 | `docker/xdebug.ini`, `docker/postgres/init-test-db.sql` | Xdebug on trigger; `{{app}}_test` on a fresh volume |
 | `docker/postgres/roles.sql` (tenancy) | the app's database role `{{app}}_app` and its grants |
 | `tests/bootstrap.php` | forced phpunit `<env>` mirrored into `$_SERVER`; one test run at a time (a lock the next run waits on) |
@@ -75,8 +82,10 @@ The modules are the project's, as laravel-project-setup chose them: `htmx`, `isl
    - The files it lists as skipped already exist. Leave them for step 2.
 2. **Merge.** Run the same command with `--render-to="$(mktemp -d)"` in place of `--dry-run`. It writes nothing into the
    repo, and its first output line names `<dir>`. Diff each skipped file against `<dir>`'s copy and merge, keeping what
-   is project-specific. Show the owner. With the owner's OK, remove any `docker/` file that no template ships and
-   nothing references: no Dockerfile, compose file, entrypoint or Caddyfile `import`.
+   is project-specific. Merge `Dockerfile.agent`, `docker/Caddyfile.agent`, `docker/Caddyfile.fpm`,
+   `docker/Caddyfile.local` and `docker/docker-entrypoint-local.sh` together. Card stacks switch to the agent image only
+   once `vendor/bin/kanban doctor` reports that set complete. Show the owner. With the owner's OK, remove any `docker/`
+   file that no template ships and nothing references: no Dockerfile, compose file, entrypoint or Caddyfile `import`.
 3. **Snippets.** Merge `<dir>/snippets/` as `references/project-files.md` lists. Never copy a raw template or snippet:
    their blocks and placeholders are unresolved.
 4. **Hosting.** Fill `{{hosting}}` in the root `CLAUDE.md` from `<dir>/snippets/hosting-section.md`, adjusted to what
@@ -93,11 +102,12 @@ Each module's blocks carry its changes. Its reference holds the why, the traps a
 | `reverb` | `references/reverb.md` | a `reverb` program on 8081, its env and its browser address |
 | `spa` | `references/spa.md` | SvelteKit on Node behind Caddy: the path split, the `ssr` program, browser tests |
 | `tenancy` | `references/tenancy.md` | the app connects as `{{app}}_app`; migrations run as the owner |
-| API-only | none | no dev server. Commit the root `package-lock.json` (`npm install` on the host): both images run `npm ci`, and the local boot stops without it |
+| API-only | none | no dev server. Commit the root `package-lock.json` (`npm install` on the host): every image runs `npm ci`, and the local boot stops without it |
 
 ## Boot order
 
 Both entrypoints run these steps in order, so healthy means migrated and seeded. Their comments give the reasons.
+"Local" is `docker-entrypoint-local.sh`, which boots the local image and, with the argument `octane`, the agent image.
 
 1. **Prepare.** Local: `.env` from `.env.example` when missing; `composer install` and `npm ci` (in `.` and `frontend/`)
    only when a lockfile's sha256 changed; `key:generate` when `APP_KEY` is empty. Prod: refuse a bad `OCTANE_WORKERS`
@@ -113,15 +123,16 @@ Both entrypoints run these steps in order, so healthy means migrated and seeded.
 7. **Build caches** (prod): `config:cache`, `route:cache`, `event:cache`, `view:cache` (with spa, only when
    `resources/views` exists).
 8. **Start supervisor.** The entrypoint writes one supervisor `[program]` block per process (name, command, optional
-   `stopwaitsecs` and directory under `/app`), then runs `exec supervisord -n`. Local: php-fpm, caddy,
-   `rm -f public/hot`, then at most one dev server, `vite` on 127.0.0.1:5173 (htmx: the root Vite; spa: `frontend/`'s once
-   it exists; API-only: none). Prod:
-   web, plus `ssr` with spa. Both: scheduler, and horizon with `stopwaitsecs` 70. Both group every program as `app`
-   (`app:web`, `app:caddy`, …), so a stop takes the longest `stopwaitsecs`, not their sum.
+   `stopwaitsecs` and directory under `/app`), then runs `exec supervisord -n`. Local: php-fpm (and with spa
+   `php-fpm-e2e`, Xdebug off, for the e2e sites), caddy; the agent image: web, Octane with `--watch`, two workers and
+   `docker/Caddyfile.agent`, after refusing a project without Octane or a watch list. Then `rm -f public/hot` and at
+   most one dev server, `vite` on 127.0.0.1:5173 (htmx: the root Vite; spa: `frontend/`'s once it exists; API-only:
+   none). Prod: web, plus `ssr` with spa. All: scheduler, and horizon with `stopwaitsecs` 70. Each groups every
+   program as `app` (`app:web`, `app:caddy`, …), so a stop takes the longest `stopwaitsecs`, not their sum.
 
 ## Processes and limits
 
-- Horizon owns the worker pool (`config/horizon.php`); never `queue:work`. Both images have `pcntl` (Horizon needs it).
+- Horizon owns the worker pool (`config/horizon.php`); never `queue:work`. Every image has `pcntl` (Horizon needs it).
 - Queue chain: Redis `retry_after` (`REDIS_QUEUE_RETRY_AFTER`, 90) > Horizon's `timeout` (60) > the longest job's
   `$timeout`. Horizon's `stopwaitsecs` (70) > that timeout. Compose `stop_grace_period` (80) > the largest
   `stopwaitsecs` in the `app` group. A longer job raises all of them, in that order; otherwise a running job is
@@ -142,6 +153,10 @@ Both entrypoints run these steps in order, so healthy means migrated and seeded.
 - The app also mounts `./` at `${KANBAN_WORKTREE_PATH:-/app}`: a card stack has its worktree at the host path too,
   where the card agents' shells run. `GIT_SSH_COMMAND` is `${KANBAN_GIT_SSH_COMMAND-…}`, which a worktree's `.env` sets
   empty, so only main's stack pushes the board.
+- `build.dockerfile` is `${KANBAN_DOCKERFILE:-Dockerfile.local}`. The package writes `KANBAN_DOCKERFILE=Dockerfile.agent`
+  into a card's and the merge queue's `.env` when their clone and main hold the agent image's files as the templates
+  ship them (`doctor` names what is missing or old); main's `.env` never sets it. An edit to `Dockerfile.agent` or
+  `docker/` rebuilds those stacks.
 - The dev server ignores `./.claude/worktrees`, `./docs` and `./vendor`. `phpunit.xml` never sets `DB_HOST`/`DB_PORT`.
 - The generated worktree `.env`, the port pool and Docker address pools: the house README, "Worktree Stacks".
 
@@ -170,30 +185,47 @@ Where a value lives and the drift to fix on sight: `references/project-files.md`
   `XDG_CONFIG_HOME=/config`. Run `docker compose --env-file .env.prod exec -e XDG_CONFIG_HOME=/tmp app php artisan tinker`.
 - **`php artisan test` in the container empties the dev database** → compose's env sits in `$_SERVER`, which Laravel
   reads before PHPUnit's `<env>`. `tests/bootstrap.php` mirrors the forced values (`references/project-files.md`).
+- **`php artisan test --parallel` fails most tests with `SQLSTATE[53200]` "out of shared memory", while a serial run
+  passes** → each worker's database reset locks every table, index and sequence in one transaction, and all workers
+  share Postgres's lock table. The local compose starts Postgres with `max_locks_per_transaction=256`; raise it as the
+  schema grows. It is a server setting: `up -d` recreates the container and keeps the volume.
 - **Scheduled mail, webhooks or paid API calls fire several times** → every local and worktree stack runs
   `schedule:work`. Outbound schedules stay off outside production, or behind a flag.
 
 **Serving**
-- **`/.htaccess` or `/.env` is served** → a file matcher that skips dotfiles is not enough: `php_server` (prod) and
-  `file_server` (local) serve any existing file. Each Caddyfile answers them 404 first (`@hidden`).
+- **`/.htaccess` or `/.env` is served** → a file matcher that skips dotfiles is not enough: `php_server` (prod, agent)
+  and `file_server` (local) serve any existing file. Each Caddyfile answers them 404 first (`@hidden`).
 - **HMR never connects; edits need a manual reload** → the socket reached php-fpm. `server.ws.path: '/__vite_hmr'` in
   `vite.config.js` and the same path in Caddy's `@vite` matcher go together (Vite 8.1+).
 - **An asset or font answers 403, or Laravel's 404 page** → Vite may not serve it, or Caddy does not route it to Vite.
   See the comment above `@vite` in `docker/Caddyfile.local`.
 - **Vite answers 403 "Blocked request", or module scripts fail CORS, under a `.test` or other name** →
   `server.allowedHosts` and `server.cors` must list it. IPs and localhost always pass. Never `true`.
-- **Octane's status, reload or stop fail in prod** → the prod Caddyfile has `admin off`. Octane drives FrankenPHP
-  through Caddy's admin API, so `admin off` belongs in `docker/Caddyfile.local` only.
+- **Octane's status, reload or stop fail in prod or a card stack** → that Caddyfile has `admin off`. Octane drives
+  FrankenPHP through Caddy's admin API, so `admin off` belongs in `docker/Caddyfile.fpm` only.
+
+**The agent image** (card and merge-queue stacks)
+- **A card stack serves the old code after an edit** → `--watch` restarts the workers only for what
+  `config/octane.php`'s `watch` lists (`app`, `bootstrap`, `config`, `database`, `public`, `resources`, `routes`,
+  `composer.lock`, `.env`; never `vendor/` or `node_modules/`). Anything else, a Caddyfile edit included, takes
+  `supervisorctl restart app:web`.
+- **Every PHP request to a card stack hangs after an edit** → the workers cannot boot: a parse error, or an exception
+  while the app boots. The log says only "worker script has not reached frankenphp_handle_request()"; `php artisan
+  about` in the container shows the error. FrankenPHP keeps retrying (`max_consecutive_failures -1` in
+  `docker/Caddyfile.agent`), so the next watched edit that fixes it serves again, with no restart.
+- **A flow works on main's stack and fails, or shows another request's data, in a card stack** → request state in a
+  shared position, which only a warm worker keeps (laravel-project-setup's `app/CLAUDE.md`, Octane).
 
 **From another machine**
 - **The page loads from another machine but every asset fails with `ERR_CONNECTION_REFUSED`** → `public/hot` names
   `localhost`. Vite writes `APP_URL` into it at start; compose sets `APP_URL` from `LOCAL_APP_URL`. Set `LOCAL_APP_URL`
   to the URL the browser uses and apply it with `up -d` (a `restart` keeps the old env). Verify from that URL.
 - **Anyone on the LAN opens `/horizon`** → Horizon admits every request in `local`, and the stack listens on the LAN.
-  The gate (laravel-project-setup) admits only the host: loopback or the Docker gateway. Caddy hands php-fpm the TCP
+  The gate (laravel-project-setup) admits only the host: loopback or the Docker gateway. Caddy hands PHP the TCP
   peer as `REMOTE_ADDR`, so keep that address honest:
   - Laravel trusts `X-Forwarded-For` only from `TRUSTED_PROXIES: 127.0.0.1`, Caddy only from `127.0.0.1/8`. Never
-    `private_ranges` in `Caddyfile.local`: the LAN and the gateway are private ranges, so a LAN client could forge it.
+    `private_ranges` in `Caddyfile.fpm` or `Caddyfile.agent`: the LAN and the gateway are private ranges, so a LAN
+    client could forge it.
   - Docker must keep the client's source address, as native Linux Docker does. The host's own requests to the LAN URL
     then get 403; use `localhost` there. Rootless Docker's builtin port driver, and possibly Docker Desktop, hand every
     client over as the gateway: there set `WEB_BIND=127.0.0.1`.
@@ -224,3 +256,6 @@ Image builds take minutes: run them in the background. `dc` stands for `docker c
    `immutable` `/build/*` asset, the 404s of `/frankenphp-worker.php` and `/index.php`, the caches and the `app:*`
    programs. Behind the outer proxy, `request()->ip()` is the browser's address.
 5. **Modules.** spa: `references/spa.md`, Verify. tenancy: `references/tenancy.md`, Verify.
+6. **The agent image.** In a card's clone, whose `.env` names `KANBAN_DOCKERFILE=Dockerfile.agent`,
+   `docker/verify.sh` prints nothing; it expects `app:web` in place of php-fpm and caddy. In that stack `php -m` lists
+   no Xdebug, a route edit answers within seconds with `app:web`'s uptime unbroken, and `php artisan test` passes.

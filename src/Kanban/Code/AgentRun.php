@@ -94,12 +94,14 @@ final class AgentRun
             ...($tools === [] ? [] : ['--allowedTools', implode(',', $tools)]),
             '--output-format', 'json', $resume === null ? '--session-id' : '--resume', $session, $prompt];
         $dir = $this->paths->ensureRuntime('runs');
+        // before the spawn, whose redirect truncates the result file: reap() tells an earlier run's result by its age
+        $started = Clock::now();
         $process = Process::fromShellCommandline('setsid nohup '.implode(' ', array_map('escapeshellarg', $args))
             .' > '.escapeshellarg("{$dir}/{$session}.json").' 2> '.escapeshellarg("{$dir}/{$session}.log").' < /dev/null & echo $!',
             $this->paths->main, ['KANBAN_SESSION' => false, 'KANBAN_TRANSCRIPT' => false, ...self::INHERITED]);
         $process->mustRun();
         $run = [
-            'pid' => (int) trim($process->getOutput()), 'card' => $card->id(), 'type' => $type, 'started' => Clock::now(),
+            'pid' => (int) trim($process->getOutput()), 'card' => $card->id(), 'type' => $type, 'started' => $started, 'boot' => self::boot(),
             'stage' => $card->stage(), 'approved' => $card->work()['approved']['head'] ?? null, 'planned' => $card->planned()['at'] ?? null,
         ] + $settings;
         file_put_contents("{$dir}/{$session}.pid", json_encode($run));
@@ -324,8 +326,14 @@ final class AgentRun
         if (! @unlink($this->paths->runtime("runs/{$session}.pid"))) {
             return null;
         }
-        $result = json_decode((string) @file_get_contents($this->paths->runtime("runs/{$session}.json")), true);
+        $file = $this->paths->runtime("runs/{$session}.json");
+        clearstatcache(true, $file);
+        // a result older than the run is an earlier run's of its session: a crash may lose the truncate of the resume
+        $stale = isset($run['started']) && ($at = @filemtime($file)) !== false && $at < Clock::parse((string) $run['started'])->getTimestamp() - 1;
+        $result = $stale ? null : json_decode((string) @file_get_contents($file), true);
         $result = is_array($result) ? $result : [];
+        // the machine restarted under the run: it crashed, whatever its result file says
+        $crash = ($run['boot'] ?? '') !== '' && self::boot() !== '' && $run['boot'] !== self::boot();
         $usage = (array) ($result['usage'] ?? []);
         // a resumed session reports what the whole session cost so far: this run's share is the difference
         $total = (float) ($result['total_cost_usd'] ?? 0);
@@ -336,7 +344,7 @@ final class AgentRun
             'tokens' => array_sum(array_map('intval', array_intersect_key($usage, array_flip(['input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens', 'output_tokens'])))),
             'cost_usd' => round($total >= $before ? $total - $before : $total, 6), 'session_cost_usd' => $total,
             'error' => $result === [] ? 'no result' : (empty($result['is_error']) ? null : (string) ($result['subtype'] ?? 'error')),
-            'limit' => self::limit($result),
+            'limit' => ! $crash && self::limit($result), 'crash' => $crash,
         ];
         file_put_contents($this->paths->runtime('runs.jsonl'), json_encode($line, JSON_UNESCAPED_SLASHES)."\n", FILE_APPEND | LOCK_EX);
         // an error ends the session without its Stop hook, which would have marked the agent stopped
@@ -391,6 +399,12 @@ final class AgentRun
     {
         return ! empty($result['is_error']) && (in_array($result['api_error_status'] ?? null, [429, 529], true)
             || preg_match('/limit|overloaded/i', ($result['subtype'] ?? '').' '.(is_string($result['result'] ?? null) ? $result['result'] : '')) === 1);
+    }
+
+    /** This boot of the machine, or '' where no boot_id tells. */
+    private static function boot(): string
+    {
+        return trim((string) @file_get_contents('/proc/sys/kernel/random/boot_id'));
     }
 
     /** @return array<string, array<string, mixed>> */

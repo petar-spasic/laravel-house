@@ -178,6 +178,8 @@ Class names below are relative to `PetarSpasic\LaravelHouse\Kanban` (`src/Kanban
   - A `finish` that `kanban run` starts detached exits 6 → `run` makes up its session (`run:<host>`) without
     exporting it, so the child meets the orchestrator lease as a stranger → pass `['KANBAN_SESSION' => …]` to
     `MergeRun::start` and `MergeBeat::ensure`.
+  - pint reformatted a file under `resources/` although `pint.json` excludes `resources` → an explicit path overrides
+    the exclude → pass pint only paths outside `resources/`.
   - A Process that timed out left its command running (in the card's container) → Symfony's `stop()` signals only the
     shell of `fromShellCommandline`, and dash does not exec a lone command, so the shell's children (`kanban-exec` and
     its `docker exec`) live on → run it through `Gates::wait` with a timeout, which ends the whole tree.
@@ -289,8 +291,9 @@ grep -rlE '<!-- (if|unless):|<!-- endif' "$r" && echo "✗ render-to markers"; r
 A new placeholder joins `sets` here and setup's step 4; `InstallScriptTest` fails on one its skill does not name.
 
 Then render laravel-deployment for every module combination, through the same script. Each render leaves no
-placeholder or marker, passes `bash -n`, `caddy adapt` (the prod Caddyfile in FrankenPHP's image) and
-`docker compose config`, and carries a module's text exactly when the module is on:
+placeholder or marker, passes `bash -n`, `caddy adapt` (the prod and agent Caddyfiles in FrankenPHP's image; the
+shared `Caddyfile.local` through each entry that imports it) and `docker compose config`, and carries a module's text
+exactly when the module is on:
 
 ```bash
 inst=resources/boost/skills/laravel-project-setup/scripts/install.php
@@ -305,15 +308,17 @@ for fe in '' htmx htmx,islands spa; do for rv in '' reverb; do for tn in '' tena
   grep -rnE '<!-- (if|unless):|<!-- endif|^\s*# (if|unless):|^\s*# endif' "$r" && echo "✗ markers [$m]"
   for f in "$r"/docker/*.sh; do bash -n "$f" || echo "✗ bash $f [$m]"; [ -x "$f" ] || echo "✗ not executable $f [$m]"; done
   for f in "$r"/snippets/*.php "$r"/tests/*.php; do [ -e "$f" ] || continue; php -l "$f" >/dev/null 2>&1 || echo "✗ lint $f [$m]"; done
-  docker run --rm -v "$r:/app:ro" caddy:2 caddy adapt --config /app/docker/Caddyfile.local --adapter caddyfile >/dev/null 2>&1 || echo "✗ Caddyfile.local [$m]"
+  docker run --rm -v "$r:/app:ro" caddy:2 caddy adapt --config /app/docker/Caddyfile.fpm --adapter caddyfile >/dev/null 2>&1 || echo "✗ Caddyfile.fpm [$m]"
   docker run --rm -v "$r:/app:ro" -e APP_PUBLIC_PATH=/app/public -e CADDY_SERVER_ADMIN_HOST=localhost -e CADDY_SERVER_ADMIN_PORT=2019 -e CADDY_SERVER_LOG_LEVEL=INFO -e CADDY_SERVER_LOGGER=json -e CADDY_SERVER_SERVER_NAME=:8080 dunglas/frankenphp frankenphp adapt --config /app/docker/Caddyfile --adapter caddyfile >/dev/null 2>&1 || echo "✗ Caddyfile [$m]"
+  docker run --rm -v "$r:/app:ro" -e APP_PUBLIC_PATH=/app/public -e CADDY_SERVER_ADMIN_HOST=localhost -e CADDY_SERVER_ADMIN_PORT=2019 -e 'CADDY_GLOBAL_OPTIONS=auto_https disable_redirects' -e 'CADDY_SERVER_WORKER_DIRECTIVE=num 2' -e 'CADDY_SERVER_WATCH_DIRECTIVES=watch /app/routes' dunglas/frankenphp frankenphp adapt --config /app/docker/Caddyfile.agent --adapter caddyfile >/dev/null 2>&1 || echo "✗ Caddyfile.agent [$m]"
+  grep -qE 'install-php-extensions.*xdebug|zz-xdebug' "$r/Dockerfile.agent" && echo "✗ xdebug in the agent image [$m]"
   printf 'COMPOSE_PROJECT_NAME=acme-local\nREVERB_APP_KEY=k\n' > "$r/.env"; printf 'APP_URL=https://example.com\nDB_PASSWORD=x\nDB_OWNER_PASSWORD=y\n' > "$r/.env.prod"
   (cd "$r" && HOME=/nonexistent docker compose -f docker-compose.local.yml config -q) || echo "✗ local compose [$m]"
   (cd "$r" && docker compose --env-file .env.prod -f docker-compose.yml config -q) || echo "✗ prod compose [$m]"
   rm "$r/.env" "$r/.env.prod"
   case ",$m," in *,tenancy,*) [ -f "$r/docker/postgres/roles.sql" ] || echo "✗ roles.sql [$m]" ;; *) grep -rliE 'tenan(t|cy)|acme_app|pgsql_owner|DB_OWNER|roles\.sql' "$r" && echo "✗ tenancy text [$m]" ;; esac
   case ",$m," in *,reverb,*) grep -q 'reverb:start' "$r/docker/healthcheck.sh" || echo "✗ reverb missing [$m]" ;; *) grep -rli 'reverb' "$r" && echo "✗ reverb text [$m]" ;; esac
-  case ",$m," in *,spa,*) [ -f "$r/docker/e2e.sh" ] || echo "✗ e2e.sh [$m]" ;; *) grep -rliE 'sveltekit|adapter-node|\bssr\b|frontend/|playwright|APP_E2E|8090' "$r" && echo "✗ spa text [$m]" ;; esac
+  case ",$m," in *,spa,*) [ -f "$r/docker/e2e.sh" ] && [ -f "$r/docker/php-fpm-e2e.conf" ] || echo "✗ e2e.sh or php-fpm-e2e.conf [$m]" ;; *) grep -rliE 'sveltekit|adapter-node|\bssr\b|frontend/|playwright|APP_E2E|8090' "$r" && echo "✗ spa text [$m]" ;; esac
   rm -rf "$r" "$t"
 done; done; done
 ```

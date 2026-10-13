@@ -41,7 +41,7 @@ Who is who: the root `CLAUDE.md`, Hosting (its tenancy part).
     the worker's database, gives it `roles.sql`'s grants and default privileges (again on each run, so an older one is
     repaired), and points `pgsql_owner` at it. The name is `pgsql_owner`'s own database plus `_test_<token>`, as
     Laravel names it. Laravel then finds the database and moves the default connection to it.
-- Both Dockerfiles copy the entrypoint into the image: on a running stack, apply the change with `up -d --build`,
+- Every Dockerfile copies the entrypoint into the image: on a running stack, apply the change with `up -d --build`,
   never a bare `up -d`.
 
 The Octane reset of `app.tenant_id` (`config/octane.php`) comes with its listener class, in the tenancy foundation

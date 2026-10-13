@@ -146,6 +146,18 @@ it("rebuilds main's stack when the merge touches lockfiles, docker files or the 
         ->and(collect(array_slice($code->calls(), $before))->contains(fn ($call) => str_contains($call, ' -p acme-local up -d --force-recreate')))->toBeFalse();
 });
 
+it("leaves main's stack up when the merge touches only Dockerfile.agent, which main's stack never builds from", function () {
+    $code = $this->code;
+    ($this->configure)(['finish' => ['install' => []]]);
+    $id = $code->started('Slim the agent image');
+    $code->commit($id, 'Dockerfile.agent', "FROM php\n");
+    $code->approve($id);
+
+    $before = count($code->calls());
+    expect($code->ok(['finish', $id], $this->env))->toContain("merged {$id} into main")->not->toContain('rebuild main')
+        ->and(collect(array_slice($code->calls(), $before))->contains(fn ($call) => str_contains($call, ' -p acme-local up -d --force-recreate')))->toBeFalse();
+});
+
 it('warns about untracked files left in the main checkout', function () {
     $code = $this->code;
     $id = $code->started('Leftovers');

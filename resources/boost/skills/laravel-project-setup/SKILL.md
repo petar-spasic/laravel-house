@@ -2,8 +2,8 @@
 name: laravel-project-setup
 description: >-
   House rules for a Laravel project: the CLAUDE.md rule system (root + one per
-  layer directory), Stripe-style prefixed ids, E2E-only tests (Pest through
-  real routes, Playwright with spa; Boost's unit/feature guidance overridden),
+  layer directory), Stripe-style prefixed ids, E2E tests only where a failure
+  hurts (Pest, Playwright with spa; Boost's test guidance overridden),
   core auth in every app (Fortify, Socialite, Sanctum), the Horizon gate, the
   four-seeder standard, the PHP minor and host ports, plus modules chosen per
   project: Blade + htmx, Svelte islands, a SvelteKit SSR app (adapter-node) in
@@ -39,7 +39,7 @@ span between `house:begin` and `house:end` in each layer `CLAUDE.md`, and the `.
 - Postgres and Redis in every tier, Octane on FrankenPHP in production, and Horizon.
 - Core auth: Fortify, Socialite and Sanctum. The API lives under `/api/v1` behind `auth:sanctum`. Only `spa` lets the
   session cookie authenticate the API; every other module's API takes tokens only.
-- Pest, running end-to-end tests only.
+- Pest, running end-to-end tests only where a failure hurts (root `CLAUDE.md`).
 - Boost (dev), with Claude Code as the only agent.
 - Stripe-style prefixed ids.
 - Flat layers, each with its own `CLAUDE.md`; the house rules rendered on every `composer update`.
@@ -91,7 +91,7 @@ This table owns the combination rules. `install.php` enforces them and refuses a
 
    Settle these yourself and state them in the batch:
    - **PHP minor** `{{php_version}}`: the newest this Laravel release supports. It is the same on the host, in the
-     lock and in both images. Composer resolves the lock on the host, so `php -v` must show it; ask if it does not.
+     lock and in every image. Composer resolves the lock on the host, so `php -v` must show it; ask if it does not.
      Never take it from composer.json's `php` floor: the lock's dependencies may need more.
    - **Host ports** `{{web_port}}`, `{{db_port}}`, `{{redis_port}}`, plus `{{ws_port}}` with `reverb` but not `spa`:
      `php "${CLAUDE_SKILL_DIR}/scripts/ports.php" --modules=…` prints them as `--set` arguments. It skips listening

@@ -111,8 +111,9 @@ client; reusable filter → ListQuery** (`app/Services/CLAUDE.md`). Every extern
 
 ## Octane: no request state in shared position
 
-Production runs **FrankenPHP + Octane**, so the app stays in memory between requests; the local php-fpm does not.
-State discarded per request locally leaks in production, across requests and *users*. Only a warm worker shows it.
+Production and the card and merge-queue stacks run **FrankenPHP + Octane**, so the app stays in memory between
+requests; main's local php-fpm does not. State discarded per request there leaks under Octane, across requests and
+*users*. Only a warm worker shows it.
 
 - **Never** keep request-specific state in a singleton, a static property or a captured closure variable.
   Per-request services are `$this->app->scoped()`, never `singleton()`; a binding never captures the current request

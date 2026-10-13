@@ -692,6 +692,136 @@ it('stops launching after a usage limit until the pause ends', function () {
         ->and($this->code->sandbox->read($id)['blocked'] ?? null)->toBeNull();
 });
 
+/**
+ * A worker launched for a new ready card, then killed with every process it runs, as a power loss leaves it: no result.
+ * The fake worker then does its usual work again. Returns [card id, session, the run's pid file].
+ */
+function killedWorker(CodeSandbox $code, string $claude): array
+{
+    $work = (string) file_get_contents("{$claude}/kanban-worker.sh");
+    runAgent($claude, 'worker', 'echo $$ > "$FAKE_CLAUDE_DIR/live.pid"; sleep 300');
+    $id = $code->sandbox->readyCard('Add login page');
+    [$agent] = liveAgent($code, $claude, "{$claude}/live.pid");
+    $pidFile = (glob($code->root().'/.git/laravel-house/runs/*.pid') ?: [''])[0];
+    // setsid made the run its own group's leader
+    posix_kill(-$agent, SIGKILL);
+    for ($until = microtime(true) + 10; processAlive($agent) && microtime(true) < $until;) {
+        usleep(50_000);
+    }
+    runAgent($claude, 'worker', $work);
+    expect($agent)->toBeGreaterThan(0)->and(processAlive($agent))->toBeFalse();
+
+    return [$id, basename($pidFile, '.pid'), $pidFile];
+}
+
+/** @return array<string, mixed> run.json */
+function runState(CodeSandbox $code): array
+{
+    return (array) json_decode((string) @file_get_contents($code->root().'/.git/laravel-house/run.json'), true);
+}
+
+it('resumes an agent killed mid-run with no result, without a pause, and says what it recovered', function () {
+    [$id, $session] = killedWorker($this->code, $this->claude);
+
+    $out = runPass($this->code, $this->claude);
+
+    expect($out)->toMatch("/ {$id} worker ".substr($session, 0, 8).' ended with no result: /')
+        ->toContain(" {$id} worker ".substr($session, 0, 8).' resumed ')
+        ->toContain(" recovered: 1 dead agents, 0 stacks brought up\n")
+        ->not->toContain('paused until')
+        ->and(runState($this->code)['paused_until'] ?? null)->toBeNull()
+        ->and(array_slice(runLaunches($this->claude)[1], -2, 1))->toBe([$session])
+        ->and($this->code->sandbox->read($id)['stage'])->toBe('review');
+});
+
+it('takes a limit result older than the run for no result: the run ended it did not write it', function () {
+    [$id, $session] = killedWorker($this->code, $this->claude);
+    $result = $this->code->root()."/.git/laravel-house/runs/{$session}.json";
+    file_put_contents($result, json_encode(['type' => 'result', 'subtype' => 'success', 'is_error' => true, 'api_error_status' => 429, 'result' => "You've hit your limit"]));
+    touch($result, time() - 3600);
+
+    $out = runPass($this->code, $this->claude);
+
+    expect($out)->toContain(" {$id} worker ".substr($session, 0, 8).' ended with no result: ')
+        ->not->toContain('paused until')
+        ->and(runState($this->code)['paused_until'] ?? null)->toBeNull()
+        ->and(runLaunches($this->claude))->toHaveCount(2);
+});
+
+it('takes a run of an earlier boot for a crash: no limit, no strike, its agent resumed', function () {
+    [$id, $session, $pidFile] = killedWorker($this->code, $this->claude);
+    file_put_contents($pidFile, json_encode(['boot' => 'an-earlier-boot'] + json_decode((string) file_get_contents($pidFile), true)));
+    // what a limit wrote before the restart, its age lost with it
+    file_put_contents($this->code->root()."/.git/laravel-house/runs/{$session}.json",
+        json_encode(['type' => 'result', 'subtype' => 'success', 'is_error' => true, 'api_error_status' => 429, 'result' => "You've hit your limit"]));
+
+    $out = runPass($this->code, $this->claude);
+
+    expect($out)->toContain(" {$id} worker ".substr($session, 0, 8).' ended with success (the machine restarted): ')
+        ->toContain(" {$id} worker ".substr($session, 0, 8).' resumed ')
+        ->toContain(" recovered: 1 dead agents, 0 stacks brought up\n")
+        ->not->toContain('paused until')
+        ->and(runState($this->code)['paused_until'] ?? null)->toBeNull()
+        ->and(runState($this->code)['strikes'][$id] ?? 0)->toBe(0);
+});
+
+it('brings a card stack that went down with the machine back up before its agent resumes, uncommitted changes and all', function () {
+    [$id, $session] = killedWorker($this->code, $this->claude);
+    $wt = $this->code->worktree($id);
+    file_put_contents("{$wt}/README.md", "edited\n", FILE_APPEND);
+    $project = $this->code->sandbox->read($id)['work']['stack']['project'];
+    $state = json_decode(file_get_contents($this->code->docker.'/state.json'), true);
+    posix_kill((int) ($state['projects'][$project]['pid'] ?? 0), SIGTERM);
+    unset($state['projects'][$project]);
+    file_put_contents($this->code->docker.'/state.json', json_encode($state));
+
+    $out = runPass($this->code, $this->claude);
+
+    $up = strpos($out, " {$id} stack {$project} brought up\n");
+    $resumed = strpos($out, " {$id} worker ".substr($session, 0, 8).' resumed ');
+    expect($up)->toBeInt()->and($resumed)->toBeInt()->and($up)->toBeLessThan($resumed)
+        ->and($out)->toContain(" recovered: 1 dead agents, 1 stacks brought up\n")->toContain('main not merged: uncommitted changes in its clone')
+        ->and(json_decode(file_get_contents($this->code->docker.'/state.json'), true)['projects'])->toHaveKey($project)
+        ->and($this->code->sandbox->read($id)['stage'])->toBe('review');
+});
+
+it('counts no dead agent for a run a stop ended', function () {
+    [$id, $session] = killedWorker($this->code, $this->claude);
+    @mkdir($this->code->root().'/.git/laravel-house/stopping', 0775, true);
+    touch($this->code->root()."/.git/laravel-house/stopping/{$id}");
+
+    $out = runPass($this->code, $this->claude);
+
+    expect($out)->toContain(" {$id} worker ".substr($session, 0, 8).' ended with no result: ')
+        ->not->toContain('recovered:')
+        ->and(runLaunches($this->claude))->toHaveCount(1);
+});
+
+it('leaves the resume to a later pass while docker cannot tell whether the stack runs, and says so once', function () {
+    [$id, $session] = killedWorker($this->code, $this->claude);
+
+    $out = runPass($this->code, $this->claude, env: ['FAKE_DOCKER_FAIL' => 'ps']);
+
+    expect(substr_count($out, " {$id} waits: docker cannot tell whether its stack runs\n"))->toBe(1)
+        ->and($out)->not->toContain(' resumed ')
+        ->and(runLaunches($this->claude))->toHaveCount(1)
+        ->and($this->code->sandbox->read($id)['blocked'] ?? null)->toBeNull();
+
+    expect(runPass($this->code, $this->claude))->toContain(" {$id} worker ".substr($session, 0, 8).' resumed ');
+});
+
+it('names the pause on the idle line, and waits it out instead of asking for attention', function () {
+    $until = time() + 900;
+    @mkdir($this->code->root().'/.git/laravel-house', 0775, true);
+    file_put_contents($this->code->root().'/.git/laravel-house/run.json', json_encode(['paused_until' => $until]));
+
+    $out = runPass($this->code, $this->claude, ['--until-attention', '--timeout=0']);
+
+    expect($out)->toContain(' idle: paused until '.date('H:i', $until).": usage limit\n")
+        ->not->toContain('no card can start')
+        ->not->toContain('attention:');
+});
+
 it('refuses to run without card containers', function () {
     $this->code->configure(['gates' => ['report' => []], 'agents' => ['shell' => 'host']]);
 

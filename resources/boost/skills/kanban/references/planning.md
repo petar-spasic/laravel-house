@@ -17,8 +17,8 @@ in one session, and no smaller.
 - **A shared contract** that several areas use (a type, a validation rule, an enum, an event) is one small card on its
   own area, done first; the cards that use it depend on it.
 - **An open question on part of a card** moves that part to its own narrow card, so the rest can start.
-- **Criteria are grouped per surface**: one criterion can name several pages or endpoints when one test proves the same
-  fact on each ("The body and the criteria").
+- **Criteria are grouped per surface**: one criterion can name several pages or endpoints when one test or check
+  proves the same fact on each ("The body and the criteria").
 
 ## The body and the criteria
 
@@ -33,8 +33,10 @@ body and the criteria close to ASD-STE100 Simplified Technical English:
 
 The body says what changes and why: the outcome that the owner sees. Files, steps, traps and commands go in the plan.
 
-A criterion is one fact that the evaluator can check. It names the page, endpoint or command where the fact shows. It
-names the test or browser spec that proves it. It never says how to build the change.
+A criterion is one fact that the evaluator can check. It names the page, endpoint or command where the fact shows.
+It names the test that proves it only where the project's test rules ask for one (in a house project, the root
+`CLAUDE.md`'s test rule); the evaluator checks any other fact at that page, endpoint or command. It never says how to
+build the change.
 
 Before:
 
@@ -45,7 +47,9 @@ After, as two criteria:
 
 > An uploaded CSV with a byte-order mark and Windows line endings imports all rows (`tests/E2E/ImportTest.php`).
 >
-> A CSV with a bad row shows an error message on `/import`; the page does not fail (`frontend/e2e/import.spec.ts`).
+> A CSV with a bad row shows an error message on `/import`; the page does not fail.
+
+The first is data validity and names its test; the evaluator checks the second on `/import`.
 
 `new` and `set` print a `hint:` for a body sentence or a criterion over 25 words. The hint skips code, tables and the
 sections that the board writes (`## Folded from`, `## Owner answer`, the questions). It refuses nothing.
@@ -79,8 +83,8 @@ Planned for agents instead:
 
 | Card | Area | Criteria |
 |---|---|---|
-| Design primitives and the page frame | `area:design-system` | the primitives, the header and footer, each with a browser spec |
-| Home and index pages in the design | `area:public-browse` | home sections, A–Z index, category pages, one spec per page |
+| Design primitives and the page frame | `area:design-system` | the primitives, the header and footer |
+| Home and index pages in the design | `area:public-browse` | home sections, A–Z index, category pages |
 | Detail pages in the design | `area:public-detail` | template and guide pages, the account and 404 pages |
 
 The second and third cards depend on the first and then run side by side: three agents, three reviews, and no card

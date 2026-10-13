@@ -7,7 +7,7 @@ that does not broadcast keeps the container unhealthy for good.
 
 Conflating these is the recurring Reverb bug. Stock `install:broadcasting` writes `REVERB_HOST=localhost` and
 `REVERB_PORT=8080`, and the framework's broadcaster is `null`: nothing below exists until the module sets it. 8080
-belongs to Caddy (local) or Octane (prod).
+belongs to Caddy (local) or Octane (agent, prod).
 
 | Address | Who dials it | Set |
 |---|---|---|
@@ -27,7 +27,7 @@ The `reverb` blocks add a `reverb` program to both entrypoints, its healthcheck 
 they also publish `8081` on `WS_PORT` (`{{ws_port}}`, main's host port, chosen with the other ports) and expose it.
 Each worktree stack gets its own `WS_PORT` from its block of ports (house README, "Worktree Stacks", "Preparing Your
 Compose File"). In prod the host's reverse proxy sends the public WebSocket host (or the `/app/*` and
-`/apps/*` paths) to `127.0.0.1:${WS_PORT}`. Both Dockerfiles copy the entrypoint and the healthcheck into the image,
+`/apps/*` paths) to `127.0.0.1:${WS_PORT}`. Every Dockerfile copies the entrypoint and the healthcheck into the image,
 so on a running stack apply the change with `up -d --build`, never a bare `up -d`.
 
 ## With spa

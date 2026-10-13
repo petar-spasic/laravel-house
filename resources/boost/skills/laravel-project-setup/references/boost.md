@@ -47,15 +47,15 @@ change here, except a path its `config/house.php` lists under `overrides`.
 - `.ai/guidelines/foundation`, `laravel/core` and `boost/core` are Boost 2.10.3's with these hunks changed. After an
   upgrade, carry the new upstream text over and keep only these:
   - `foundation`: the JS packages line (`frontend/package.json` with spa); dependencies (convention 6); Verification
-    Scripts (E2E only); Frontend Bundling (the stack's dev server, and `frontend/` with spa);
-  - `laravel/core`: Testing (E2E only);
+    Scripts (the root test rule); Frontend Bundling (the stack's dev server, and `frontend/` with spa);
+  - `laravel/core`: Testing (the root test rule);
   - `boost/core`: the worktree database line under Tools; Project Rules (the `CLAUDE.md` system, no `@if`); Tinker
     without "prefer tests with factories".
 - The others, and what each counters:
 
 | Override | Counters |
 |---|---|
-| `.ai/guidelines/enforce-tests`, `pest/core` | Boost's unit/feature test guidance |
+| `.ai/guidelines/enforce-tests`, `pest/core` | Boost's unit/feature test guidance and its "do not delete tests" |
 | `.ai/guidelines/deployments/core` (renders empty) | the Laravel Cloud pointer Boost ≥ 2.10 always adds (`GuidelineComposer::getCoreGuidelines()`) |
 | `config/boost.php` | Claude Code's guidelines going to `AGENTS.md` (`src/Install/Agents/ClaudeCode.php`); `rules.enabled` (the `record-rule` tool and `.ai/rules`); with spa, `browser_logs_watcher` (its logger has no Laravel page to inject into) |
 | `.ai/skills/testing-best-practices` | Boost's testing skill; `.ai/skills/` is merged last, keyed by `name` |

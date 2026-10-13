@@ -114,7 +114,8 @@ If `vendor/bin/kanban status` shows the pre-restart session holding the lease, r
 - **Path (b):** laravel-deployment built it worktree-ready. Step 6 only checks it.
 - **Path (a):** bring compose, entrypoints, Caddy, Vite and phpunit to laravel-deployment's shapes ("Many stacks from
   one local compose": its Procedure renders them), and the seeders to laravel-project-setup's seeding standard.
-  `doctor --fix` adds the card-stack lines to a local compose file written before them. Dropping `container_name` and
+  `doctor --fix` adds the card-stack lines to a local compose file written before them, and the app's
+  `dockerfile: ${KANBAN_DOCKERFILE:-Dockerfile.local}` once `Dockerfile.agent` is there. Dropping `container_name` and
   volume `name:`s renames main's volumes, so the data moves once (about 2 minutes of downtime):
 
   ```bash

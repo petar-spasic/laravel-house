@@ -53,8 +53,11 @@ every guess you pass on is a mistake it builds.
 - Verify every name the plan gives: grep the route, class, method, config key, translation key, column and event;
   `php artisan route:list --name=…`, `php artisan model:show …`, `php artisan db:table …`, read-only tinker queries. A
   name you did not see in the code or the stack goes into the plan only when the plan creates it.
-- Check each criterion against the code: where it shows (a route, a page, a command) and how it is proven (the test
-  technique `tests/CLAUDE.md` requires, the browser spec for a page).
+- Check each criterion against the code: where it shows (a route, a page, a command) and how it is proven. Inside the
+  root `CLAUDE.md`'s test groups: the E2E test `tests/CLAUDE.md` requires. Outside them: a check at its entry point (a
+  curl, the page read in the browser, an artisan command), never a new test, even when the criterion names one: the
+  rule outranks its wording, and the Criteria line says so. A root `CLAUDE.md` that names no test groups leaves this
+  to the project's own test rules.
 - Run single existing tests to learn how the suite works here, never the whole suite: the worker runs that.
 - Scope is the criteria and the groundwork they need. Decide nothing they do not ask for.
 
@@ -84,11 +87,11 @@ One or two lines: what the card delivers.
 - read `app/Models/Invoice.php` — the casts and the `issued()` scope the export reuses
 - change `routes/web.php` — the export route, after `invoices.index`
 - create `app/Http/Controllers/InvoiceExportController.php` — invokable, shaped like `ReportExportController`
-- create `tests/E2E/InvoiceExportTest.php` — criteria 1 and 2
+- create `tests/E2E/InvoiceExportTest.php` — criteria 1 and 2 (access and money: inside the test groups)
 
 ## Rules
 - `app/Http/CLAUDE.md`: controllers are invokable; validation lives in form requests
-- `tests/CLAUDE.md`: E2E only, against the real database
+- `tests/CLAUDE.md`: E2E only, against the real database, and only in the root rule's groups
 
 ## Steps
 1. Add `Route::get('/invoices.csv', InvoiceExportController::class)->name('invoices.export')` after `invoices.index`.
@@ -96,9 +99,11 @@ One or two lines: what the card delivers.
 2. …
 
 ## Criteria
-- 1: `tests/E2E/InvoiceExportTest.php` `it lists the month's invoices`: 3 issued and 1 draft → 3 rows;
-  `php artisan test --compact --filter=InvoiceExport`
+- 1: `tests/E2E/InvoiceExportTest.php` `it totals the month's issued invoices`: 3 issued and 1 draft → the sum of the
+  3; `php artisan test --compact --filter=InvoiceExport`
 - 2: …
+- 3: no test (outside the groups): `/invoices` shows an Export link to `/invoices.csv`; the page read in the browser,
+  signed in as `DevSeeder`'s user
 
 ## Facts
 - `invoices.issued_at` is a date column, UTC; a draft has it null
@@ -111,10 +116,10 @@ One or two lines: what the card delivers.
   one path from the repository root. `change`, `delete` and `read` name paths in your clone's HEAD, `create` a path that
   is not: `kanban plan` checks each one in git.
 - Steps are numbered in the order the worker takes them, one change each, ending with the command that shows it worked
-  and what it prints. Name the database commands, the browser spec of a page, and last the tests the criteria name and
+  and what it prints. Name the database commands, and last the tests and checks the criteria name and
   `vendor/bin/kanban gates`.
-- Criteria: one line per criterion of the card, `- N: …`: the test (file and name) or entry point that proves it, what
-  it asserts, and the command, in code spans.
+- Criteria: one line per criterion of the card, `- N: …`: the test (file and name), or the entry-point check outside
+  the test groups, what it asserts, and the command, in code spans.
 - Rules: the lines of the governing `CLAUDE.md` files the work meets, quoted short. Facts: what you verified that the
   worker would otherwise look up, and only what the steps use. Traps: what goes wrong when it is done the obvious way.
 
@@ -158,7 +163,7 @@ vendor/bin/kanban plan <ID> --plan-file=.tmp/plan.md \
 ```
 
 ```bash
-vendor/bin/kanban plan <ID> --status=blocked --reason="Criterion 3 asks for … but tests/CLAUDE.md forbids …"
+vendor/bin/kanban plan <ID> --status=blocked --reason="Criterion 3 asks for … but app/CLAUDE.md forbids …"
 ```
 
 - `plan` checks the sections, every path and every criterion, and refuses with what to fix: fix the file, run it again.

@@ -28,7 +28,9 @@ whose).
    The default only satisfies the type check outside the stack. `svelte-check` type-checks the specs and
    `playwright.config.ts` through the include in Config; `--list` only loads them (no `globalSetup`, no `webServer`),
    which transpiles without checking types. No script runs `playwright install`.
-4. `src/hooks.server.ts` with the `handle` in Guards, `/healthz` first. If
+4. `src/lib/zod.ts`, whose one statement is `z.config({ jitless: true })`, as the first import of `src/hooks.client.ts`
+   and of `src/hooks.server.ts` (Content Security Policy). `src/hooks.server.ts` also has the `handle` in Guards,
+   `/healthz` first. If
    `php artisan route:list --path=api/v1/auth/me` lists nothing, the same change adds the session probe and its
    `UserResource` (`routes/CLAUDE.md`, `app/Resources/CLAUDE.md`): `handle` calls it.
 5. `vite.config.ts` per Config; `components.json`, `src/lib/utils.ts`, the CSS and `scripts/check-ui.mjs` per
@@ -335,6 +337,11 @@ csp: {
 
 - **`'unsafe-inline'` is for styles only** (server-rendered `style=` attributes). Scripts never get it, nor
   `unsafe-eval`.
+- **Zod runs jitless.** Zod 4 probes `new Function` when it builds an object schema. Without `unsafe-eval` the browser
+  blocks the probe and reports a violation on every page with a form, although Zod catches the error.
+  `z.config({ jitless: true })` skips the probe. It must run before any schema is built, so `src/lib/zod.ts` is the
+  first import of both hooks files (First frontend change, step 4). Look for violations with the
+  `securitypolicyviolation` event, never the console alone: a check on console messages can miss one.
 - **No inline script in `app.html`, never `%sveltekit.nonce%`** (any prerendered route fails the build). A script goes
   in a component or under `static/`.
 - **`frame-ancestors` on prerendered pages**: a `<meta>` policy drops it, so Caddy adds `frame-ancestors 'none'` for
@@ -428,5 +435,6 @@ The tenant appears in a body only as the `_tenant` marker or the switcher's `ten
 - Always `npm run check`, in the app container or on the host (First frontend change): it runs
   `validation:export --check` first, so it needs php.
 - `npm run check:ui` when `ui/`, `components.json` or the `shadcn-svelte` pin changed.
-- The Playwright flows and Pest tests the change touches (`tests/CLAUDE.md`).
+- The Playwright flows and Pest tests the change touches (`tests/CLAUDE.md`). A page change outside the root rule's
+  test groups gets no new spec: read the page in the browser and cite that.
 <!-- house:end -->

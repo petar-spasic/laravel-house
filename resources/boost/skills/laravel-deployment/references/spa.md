@@ -17,7 +17,7 @@ Setup writes only `frontend/CLAUDE.md`. Until the first frontend change commits 
 ## The split
 
 ```
-browser → Caddy :8080 ─┬─ @backend                     → Laravel (php-fpm locally, Octane in prod)
+browser → Caddy :8080 ─┬─ @backend                     → Laravel (php-fpm locally, Octane in card stacks and prod)
                        ├─ /app/* (reverb module)        → Reverb on 127.0.0.1:8081
                        ├─ a file of frontend/build      → off disk (prod and the e2e site)
                        └─ everything else               → SvelteKit (vite dev locally, node build in prod)
@@ -40,16 +40,17 @@ php artisan route:list --json | php -r 'foreach (json_decode(stream_get_contents
 
 ## Ports
 
-| Port in the container | Listener | Tier |
+| Port in the container | Listener | Image |
 |---|---|---|
-| 8080 | Caddy (local), FrankenPHP (prod); the only published port | both |
+| 8080 | Caddy (local), FrankenPHP (agent, prod); the only published port | all |
 | 9000 | php-fpm, loopback | local |
-| 5173 | the `vite` program: `vite dev` in `frontend/`, loopback | local |
-| 3000 | adapter-node, loopback: the `ssr` program in prod; locally only the e2e run's `node build` | both |
-| 8090 | the e2e site, the browser's origin in browser tests; loopback, never published | local |
-| 8091 | the e2e backend, SvelteKit's `API_INTERNAL_URL` in browser tests; loopback, never published | local |
-| 8081 | Reverb (reverb module), reached through Caddy's `/app/*` | both |
-| 2019 | FrankenPHP's admin API, which Octane's status, reload and stop use | prod |
+| 9001 | the e2e sites' php-fpm (`php-fpm-e2e`, Xdebug off), loopback | local |
+| 5173 | the `vite` program: `vite dev` in `frontend/`, loopback | local, agent |
+| 3000 | adapter-node, loopback: the `ssr` program in prod; in local and agent only the e2e run's `node build` | all |
+| 8090 | the e2e site, the browser's origin in browser tests; loopback, never published | local, agent |
+| 8091 | the e2e backend, SvelteKit's `API_INTERNAL_URL` in browser tests; loopback, never published | local, agent |
+| 8081 | Reverb (reverb module), reached through Caddy's `/app/*` | all |
+| 2019 | FrankenPHP's admin API, which Octane's status, reload and stop use | agent, prod |
 
 **`API_INTERNAL_URL`'s origin never equals a page's origin.** SvelteKit answers a server-side fetch to its own origin
 itself, and it has no `/api` routes. So `API_INTERNAL_URL` is `http://127.0.0.1:8080` in dev and prod and
@@ -59,15 +60,19 @@ calls :8091, never :8090.
 ## What the blocks hold
 
 - `docker/Caddyfile.local`: the split on :8080, plus two loopback sites for browser tests, :8090 (the browser's
-  origin) and :8091 (the e2e backend). All three import `(laravel_root)`. The e2e sites import `(e2e_php)`, the one
-  list of the test env; its comment says why each value is there.
+  origin) and :8091 (the e2e backend). All three import `(laravel_root)`. The e2e sites import `(e2e_php)`, which
+  each image's entry defines around `(e2e_env)`, the one list of the test env; its comment says why each value is
+  there. `docker/Caddyfile.fpm` sends them to their own php-fpm (`docker/php-fpm-e2e.conf`, which the local
+  entrypoint starts with `XDEBUG_MODE=off`: Xdebug reads its mode once, at the master's start). `docker/Caddyfile.agent`
+  runs them in FrankenPHP without the worker, so each request boots on the test env.
 - `docker-compose.local.yml`: `API_INTERNAL_URL`, `PUBLIC_APP_URL` and `SANCTUM_STATEFUL_DOMAINS`, and
   `shm_size: 1gb` for Chromium. `TRUSTED_PROXIES: 127.0.0.1` stays, because SvelteKit's server-side calls arrive from
   loopback carrying the browser's address.
 - `docker/docker-entrypoint-local.sh`: refuses a web port of 8080. `config/sanctum.php` (laravel-project-setup's
   `config-sanctum.php` snippet) adds `APP_URL`'s host:port to the origins `SANCTUM_STATEFUL_DOMAINS` lists, in every
   process, `docker compose exec` included.
-- `Dockerfile.local`: the headless Chromium for the exact `@playwright/test` pin, installed at build as root.
+- `Dockerfile.local` and `Dockerfile.agent`: the headless Chromium for the exact `@playwright/test` pin, installed at
+  build as root.
 - Prod: `Dockerfile`'s frontend stage and Node binary, the `ssr` program, the boot checks and a `view:cache` that
   skips a missing `resources/views` (git keeps no empty directory) in `docker/docker-entrypoint.sh`, the
   `docker/Caddyfile` split, the build arg in `docker-compose.yml`, and `.dockerignore` and `.env.prod.example` lines.
@@ -75,7 +80,8 @@ calls :8091, never :8090.
 ## Browser tests on `{{app}}_test`
 
 Neither `.env.testing` nor `--env` can switch the database: Laravel's env repository is immutable, and `DB_*` are real
-container env vars. So the e2e sites pass the test env as FastCGI params. SSR needs its own Node process too, because
+container env vars. So the e2e sites pass the test env per request: FastCGI params under php-fpm, `php_server`'s
+`env` under FrankenPHP. SSR needs its own Node process too, because
 the dev server's SSR calls the dev database. A run therefore uses the production build of `frontend/` behind the real
 prod split (`Caddyfile.frontend`). The e2e sites coexist with the dev stack.
 
@@ -104,7 +110,7 @@ host (Docker Desktop's file sharing may not carry host locks).
 
 **One switch.** The e2e site sets `APP_E2E`, and the app reads it as `config('app.e2e')`: every named rate limiter
 answers `Limit::none()` under it (`app/Providers/CLAUDE.md`), so back-to-back sign-ins never wait out a 429, and a
-test-only behaviour, such as a faked outside system, reads it too. `(e2e_php)` never gains a line per feature. The prod
+test-only behaviour, such as a faked outside system, reads it too. `(e2e_env)` never gains a line per feature. The prod
 entrypoint refuses `APP_E2E`.
 
 **The CSRF token path.** Laravel 13 passes a write carrying `Sec-Fetch-Site: same-origin` without checking its token,
@@ -183,7 +189,7 @@ it exists. `dc` stands for `docker compose -f docker-compose.local.yml`.
 1. **Healthy, before and after `frontend/` exists.** `docker/verify.sh` prints nothing; it expects the `vite` program
    only once `frontend/package.json` exists. After: `cat /ms-playwright/.version` in the container equals the
    lockfile's `@playwright/test`.
-2. **Config.** `caddy adapt --config /app/docker/Caddyfile.local` in the container succeeds, and the route-coverage
+2. **Config.** `caddy adapt --config /app/docker/Caddyfile.fpm` in the container succeeds, and the route-coverage
    command prints nothing.
 3. **From another machine's URL.** `/` is SvelteKit's HTML, and a `.svelte` edit hot-updates. `/up` and an `/api/v1`
    route answer from Laravel, `/healthz` answers 404, and `/kanban` answers 200. An Xdebug breakpoint in an `/api`

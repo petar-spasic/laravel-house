@@ -382,7 +382,7 @@ it('renders each module\'s guideline text exactly when the module is on', functi
         + array_fill_keys(HOUSE_TOPICS, '');
     $text = implode("\n", $topics);
 
-    expect($topics['core'])->toStartWith('## TESTS ARE END TO END OR NOT AT ALL')->toContain('**Laravel 13**, PHP 8.5')->toContain('`acme_test`')
+    expect($topics['core'])->toStartWith('## TESTS ARE END TO END, AND ONLY WHERE A FAILURE HURTS')->toContain('**Laravel 13**, PHP 8.5')->toContain('`acme_test`')
         ->and($topics['auth'])->toStartWith('## Auth')
         ->and($text)->not->toMatch('/\{\{|\}\}|@(end|unless)?houserules|___/')
         ->and($topics['tenancy'] !== '')->toBe($on('tenancy'))

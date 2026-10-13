@@ -1,0 +1,46 @@
+# The agent image's Caddy (Dockerfile.agent), started by `octane:frankenphp --caddyfile`: PHP in FrankenPHP's worker
+# mode, the sites from docker/Caddyfile.local. Octane fills the {$…} values.
+{
+	{$CADDY_GLOBAL_OPTIONS}
+
+	# Octane's status, reload and stop use it; loopback in the container.
+	admin {$CADDY_SERVER_ADMIN_HOST}:{$CADDY_SERVER_ADMIN_PORT}
+	persist_config off
+	servers {
+		# Never private_ranges: a card's web port is LAN-visible like main's (SKILL trap: Anyone on the LAN opens
+		# /horizon).
+		trusted_proxies static 127.0.0.1/8
+		trusted_proxies_strict
+	}
+
+	frankenphp {
+		worker {
+			file "{$APP_PUBLIC_PATH}/frankenphp-worker.php"
+			{$CADDY_SERVER_WORKER_DIRECTIVE}
+			# --watch: config/octane.php's watch list.
+			{$CADDY_SERVER_WATCH_DIRECTIVES}
+			# Keep retrying a worker that fails at boot: otherwise FrankenPHP exits, supervisor gives up, and a stack
+			# whose tree broke at start (the merge stack's, a card's) never serves the fix.
+			max_consecutive_failures -1
+		}
+	}
+}
+
+(php) {
+	php_server {
+		index frankenphp-worker.php
+		try_files {path} frankenphp-worker.php
+	}
+}
+# if:spa
+
+# The e2e sites run PHP without the worker: each request boots on the test env, as under php-fpm. index.php is not
+# the worker's file, so the worker never answers here.
+(e2e_php) {
+	php_server {
+		import e2e_env
+	}
+}
+# endif
+
+import /app/docker/Caddyfile.local

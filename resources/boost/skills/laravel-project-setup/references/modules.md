@@ -77,6 +77,6 @@ table. On a fresh skeleton, `install.php --fresh` makes each module's deletions 
 ## API-only (neither htmx nor spa)
 
 - It keeps the skeleton's root Node toolchain.
-- **Command:** `npm install`, so `package-lock.json` exists. Both images run `npm ci`, and the local boot stops on a
+- **Command:** `npm install`, so `package-lock.json` exists. Every image runs `npm ci`, and the local boot stops on a
   `package.json` without a lockfile.
 - **Checks:** none beyond SKILL.md step 8.

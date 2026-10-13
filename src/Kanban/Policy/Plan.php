@@ -11,11 +11,11 @@ use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Invalid;
  *     ## Files                    every path the work reads or touches, each looked up in git
  *     - read `app/Models/Note.php` — what the work reuses there
  *     - change `routes/web.php` — what changes
- *     - create `tests/Feature/ExportTest.php` — what it holds
+ *     - create `tests/E2E/ExportTest.php` — what it holds
  *     ## Steps                    numbered, each ending with the command that checks it
  *     1. …
  *     ## Criteria                 one item per acceptance criterion, its proof in a code span
- *     - 1: `tests/Feature/ExportTest.php` asserts …; `php artisan test --compact --filter=Export`
+ *     - 1: `tests/E2E/ExportTest.php` asserts …; `php artisan test --compact --filter=Export`
  *
  * It says what to build, where, in which order and how to check it; the worker writes the code. hints() names where a
  * plan runs long, writes the code or runs docker, and never refuses one: the planner judges.

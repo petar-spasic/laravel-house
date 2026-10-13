@@ -126,7 +126,7 @@ if (preg_match('#<laravel-boost-guidelines>(.*)</laravel-boost-guidelines>\s*$#s
         $fail("CLAUDE.md keeps the house section \"{$heading}\" above Boost's block: delete it, or move a project rule into a section of its own (references/adopt.md, Rendered rules)");
     }
 }
-str_contains($read('.claude/skills/testing-best-practices/SKILL.md'), 'end to end or not at all')
+str_contains($read('.claude/skills/testing-best-practices/SKILL.md'), 'only where a failure hurts')
     || $fail('.claude/skills/testing-best-practices is not the house one (references/boost.md)');
 
 $phpunit = $read('phpunit.xml');

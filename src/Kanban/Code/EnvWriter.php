@@ -12,11 +12,39 @@ use PetarSpasic\LaravelHouse\Kanban\Support\Paths;
  * placeholders resolved ({project}, {name}, {app}, {scheme}, {host} and every `stack.ports` key), and the
  * card stack's own keys: KANBAN_WORKTREE_PATH (the compose file also mounts the worktree there, so an agent's shell
  * runs in the container at the path it sees), KANBAN_TMPDIR (the card's `.tmp`, so scratch files go with the card),
- * and KANBAN_GIT_SSH_COMMAND and KANBAN_GIT_TOKEN empty (only main's stack syncs the board).
+ * KANBAN_GIT_SSH_COMMAND and KANBAN_GIT_TOKEN empty (only main's stack syncs the board), and KANBAN_DOCKERFILE=Dockerfile.agent
+ * in a clone (a card's or the merge clone; never main or a `claude -w` worktree) while both it and main hold the agent
+ * image's files as the templates ship them (agentImageGaps), which the local compose file then builds the app from
+ * instead of Dockerfile.local.
  */
 final class EnvWriter
 {
     public const MARKER = '# laravel-house kanban worktree stack (managed: rewritten by kanban, edit config/kanban.php stack.env instead)';
+
+    /** The image card agents and the merge queue run on, at the project root next to Dockerfile.local. */
+    public const AGENT_IMAGE = 'Dockerfile.agent';
+
+    public const DOCKERFILE = 'KANBAN_DOCKERFILE';
+
+    /**
+     * What the agent image runs from: an update that took only some of them from the laravel-deployment templates
+     * boots an entrypoint without its Octane mode, or sites that set php-fpm's global options or call php-fpm themselves,
+     * in FrankenPHP's image.
+     */
+    public const AGENT_FILES = [self::AGENT_IMAGE, 'docker/Caddyfile.agent', self::ENTRYPOINT, self::SITES];
+
+    /** The files merged together from the templates: AGENT_FILES and the local image's Caddyfile.fpm. */
+    public const MERGED_TOGETHER = [self::AGENT_IMAGE, 'docker/Caddyfile.agent', 'docker/Caddyfile.fpm', self::SITES, self::ENTRYPOINT];
+
+    private const ENTRYPOINT = 'docker/docker-entrypoint-local.sh';
+
+    /** The agent image's web program, which only the entrypoint's Octane mode starts. */
+    private const ENTRYPOINT_MARKER = 'octane:frankenphp';
+
+    private const SITES = 'docker/Caddyfile.local';
+
+    /** How the sites reach PHP: each image's `(php)` snippet, php-fpm or Octane's worker. */
+    private const SITES_MARKER = 'import php';
 
     /** @param  array<string, mixed>  $config  the whole `kanban` config */
     public function __construct(private readonly string $main, private readonly array $config) {}
@@ -59,8 +87,9 @@ final class EnvWriter
     public function write(string $worktree, array $ports): void
     {
         $real = realpath($worktree) ?: $worktree;
-        $own = ['KANBAN_WORKTREE_PATH' => $real, 'KANBAN_TMPDIR' => $real.'/.tmp', 'KANBAN_GIT_SSH_COMMAND' => '', 'KANBAN_GIT_TOKEN' => ''];
-        $managed = array_merge(array_keys($ports), array_keys((array) ($this->config['stack']['env'] ?? [])), array_keys($own));
+        $own = ['KANBAN_WORKTREE_PATH' => $real, 'KANBAN_TMPDIR' => $real.'/.tmp', 'KANBAN_GIT_SSH_COMMAND' => '', 'KANBAN_GIT_TOKEN' => '']
+            + ($this->agentImage($worktree) ? [self::DOCKERFILE => self::AGENT_IMAGE] : []);
+        $managed = array_merge(array_keys($ports), array_keys((array) ($this->config['stack']['env'] ?? [])), array_keys($own), [self::DOCKERFILE]);
         $lines = [];
         $source = is_file($this->main.'/.env') ? (string) file_get_contents($this->main.'/.env') : '';
         foreach (preg_split('/\R/', $source) as $line) {
@@ -86,6 +115,37 @@ final class EnvWriter
         }
 
         Json::write($worktree.'/.env', ($lines === [] ? '' : implode("\n", $lines)."\n\n").implode("\n", $block)."\n");
+    }
+
+    /**
+     * What keeps $root's agent image from booting: a missing file of AGENT_FILES, an entrypoint without the Octane
+     * mode, or a Caddyfile.local that opens with its own global options block or never imports the image's `(php)`.
+     * Empty once the set is complete.
+     *
+     * @return list<string>
+     */
+    public static function agentImageGaps(string $root): array
+    {
+        $gaps = [];
+        foreach (self::AGENT_FILES as $file) {
+            $content = is_file($root.'/'.$file) ? (string) file_get_contents($root.'/'.$file) : null;
+            $gaps[] = match (true) {
+                $content === null => "{$file} is missing",
+                $file === self::ENTRYPOINT && ! str_contains($content, self::ENTRYPOINT_MARKER) => "{$file} is old (no Octane mode, `".self::ENTRYPOINT_MARKER.'`)',
+                $file === self::SITES && preg_match('/\A(?:[ \t\r]*(?:#[^\n]*)?\n)*[ \t]*\{[ \t\r]*(?:#[^\n]*)?$/m', $content) === 1 => "{$file} is old (its own global options block)",
+                $file === self::SITES && ! str_contains($content, self::SITES_MARKER) => "{$file} is old (no `".self::SITES_MARKER.'`)',
+                default => null,
+            };
+        }
+
+        return array_values(array_filter($gaps));
+    }
+
+    /** A clone's stack builds from the agent image while the clone and main both hold its complete set. */
+    private function agentImage(string $worktree): bool
+    {
+        return is_dir($worktree.'/.git') && realpath($worktree) !== realpath($this->main)
+            && self::agentImageGaps($worktree) === [] && self::agentImageGaps($this->main) === [];
     }
 
     /** @return array<string, string> */

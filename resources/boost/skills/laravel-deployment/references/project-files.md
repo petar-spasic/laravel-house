@@ -13,8 +13,8 @@ they do.
 
 ## vite.config.js: the dev server behind Caddy
 
-Vite runs in the local container on 127.0.0.1:5173. Caddy sends it Vite's dev paths and the HMR socket, and sends
-everything else to php-fpm (`docker/Caddyfile.local`). `server.ws` needs Vite 8.1 or later. The HMR client takes its
+Vite runs in the local and agent containers on 127.0.0.1:5173. Caddy sends it Vite's dev paths and the HMR socket,
+and sends everything else to PHP (`docker/Caddyfile.local`). `server.ws` needs Vite 8.1 or later. The HMR client takes its
 scheme, host and port from the origin in `public/hot`, so no `clientPort` is set. Keep the anchored `unwatched` paths:
 a glob such as `**/docs/**` would also skip `resources/docs`.
 

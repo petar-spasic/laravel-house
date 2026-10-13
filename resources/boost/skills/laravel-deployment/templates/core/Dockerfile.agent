@@ -1,0 +1,67 @@
+# {{app}} — agent image: the stack of a card's clone and of the merge queue (the package writes
+# KANBAN_DOCKERFILE=Dockerfile.agent into their .env). Prod's runtime, FrankenPHP + Octane in worker mode, with the
+# local environment: bind-mounted source, dev dependencies installed on start, APP_ENV=local, no Xdebug, and the tools
+# the card agents run here (composer, npm, git, the tests).
+# unless:spa
+# The root Vite dev server stays, as in the local image.
+# endif
+# if:spa
+# SvelteKit's dev server and the browser tests stay, as in the local image.
+# endif
+# The PHP extension list mirrors the prod Dockerfile (+ zip for composer).
+# if:spa
+# The @playwright/test version frontend/package-lock.json pins, as in Dockerfile.local: the browser layer rebuilds
+# only when it changes.
+FROM node:24-bookworm-slim AS playwright-version
+COPY composer.json fronten[d]/package-lock.jso[n] /tmp/ctx/
+RUN if [ -f /tmp/ctx/package-lock.json ]; then node -p "require('/tmp/ctx/package-lock.json').packages['node_modules/@playwright/test']?.version ?? ''"; fi > /tmp/playwright-version
+
+# endif
+FROM dunglas/frankenphp:php{{php_version}}
+WORKDIR /app
+
+# NodeSource: Debian's nodejs is older than the frontend's tooling needs. git + unzip: composer; openssh-client: git
+# in the container.
+RUN apt-get update && apt-get install -y --no-install-recommends supervisor curl git openssh-client unzip procps postgresql-client ca-certificates gnupg \
+    && curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+RUN install-php-extensions pcntl pdo_pgsql redis opcache intl zip
+# No php.ini, as in the local image: errors show. Opcache revalidates every file on each include: the source is
+# bind-mounted and edited, and a worker restarted by --watch must load the new code.
+RUN printf 'memory_limit = 512M\nopcache.enable=1\nopcache.validate_timestamps=1\nopcache.revalidate_freq=0\n' > "$PHP_INI_DIR/conf.d/zz-{{app}}.ini"
+# if:spa
+# Headless Chromium, its libraries and fonts, installed as root (they need apt), as in Dockerfile.local.
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+COPY --from=playwright-version /tmp/playwright-version /tmp/playwright-version
+RUN v=$(cat /tmp/playwright-version) && mkdir -p /ms-playwright \
+    && if [ -n "$v" ]; then npx -y "playwright@$v" install --with-deps --only-shell chromium; fi \
+    && echo "$v" > /ms-playwright/.version && chmod -R a+rX /ms-playwright \
+    && rm -rf /var/lib/apt/lists/* /root/.npm /tmp/playwright-version
+# endif
+
+COPY docker/supervisord.conf /etc/supervisor/supervisord.conf
+COPY docker/docker-entrypoint-local.sh /usr/local/bin/docker-entrypoint-local.sh
+COPY docker/healthcheck.sh /usr/local/bin/healthcheck.sh
+
+# www-data takes the host user's uid/gid, as in Dockerfile.local: bind-mounted files stay writable on both sides, and
+# a card agent's shell runs here as the host user.
+ARG HOST_UID=1000
+ARG HOST_GID=1000
+RUN chmod +x /usr/local/bin/docker-entrypoint-local.sh /usr/local/bin/healthcheck.sh \
+    && groupmod -o -g "$HOST_GID" www-data && usermod -o -u "$HOST_UID" -g "$HOST_GID" www-data \
+    && mkdir -p /var/www/.config /var/www/.local/share /cache/composer /cache/npm /etc/supervisor/conf.d \
+    && chown -R www-data:www-data /var/www /cache /etc/supervisor
+
+# Bind-mounted from the host (docker-compose.local.yml), shared by every stack.
+ENV COMPOSER_CACHE_DIR=/cache/composer npm_config_cache=/cache/npm
+# Caddy's data and config dirs, in www-data's home. Not the image's /config: psysh (tinker) refuses it.
+ENV XDG_DATA_HOME=/var/www/.local/share XDG_CONFIG_HOME=/var/www/.config
+EXPOSE 8080
+# if:reverb
+# unless:spa
+EXPOSE 8081
+# endif
+# endif
+HEALTHCHECK --interval=30s --timeout=15s --retries=3 --start-period=180s --start-interval=2s CMD /usr/local/bin/healthcheck.sh
+ENTRYPOINT ["docker-entrypoint-local.sh", "octane"]

@@ -28,7 +28,7 @@
 # .env never defines are substitutable (COMPOSE_PROJECT_NAME, LOCAL_APP_URL,
 # WEB_PORT, WEB_BIND, DB_HOST_PORT, REDIS_HOST_PORT, SIDECAR_BIND,
 # HOST_UID, HOST_GID, DATABASE_SEED, XDEBUG_MODE, XDEBUG_SERVER_NAME,
-# KANBAN_WORKTREE_PATH, KANBAN_TMPDIR, KANBAN_GIT_SSH_COMMAND, KANBAN_GIT_TOKEN).
+# KANBAN_WORKTREE_PATH, KANBAN_TMPDIR, KANBAN_GIT_SSH_COMMAND, KANBAN_GIT_TOKEN, KANBAN_DOCKERFILE).
 # if:reverb
 # unless:spa
 # WS_PORT too: Reverb's host port, one more worktree port.
@@ -47,7 +47,8 @@ services:
   app:
     build:
       context: .
-      dockerfile: Dockerfile.local
+      # A card's and the merge queue's .env set Dockerfile.agent (Octane, no Xdebug); main's never does.
+      dockerfile: ${KANBAN_DOCKERFILE:-Dockerfile.local}
       args: { HOST_UID: "${HOST_UID:-1000}", HOST_GID: "${HOST_GID:-1000}" }
     user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     working_dir: /app
@@ -158,6 +159,8 @@ services:
 
   postgres:
     image: postgres:16-alpine
+    # Lock room for `php artisan test --parallel`: the deployment skill's trap "out of shared memory" says why.
+    command: ["postgres", "-c", "max_locks_per_transaction=256"]
     # Loopback by default: Postgres's superuser password is the slug, Redis has none.
     environment:
       POSTGRES_DB: {{app}}

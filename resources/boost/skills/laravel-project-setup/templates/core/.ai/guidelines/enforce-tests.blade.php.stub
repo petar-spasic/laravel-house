@@ -1,4 +1,4 @@
 # Tests
 
-- No unit or component tests: none are written, run or updated.
-- When a test is worth writing it is an E2E test of a whole flow through its real entry point; fake only paid or outside systems.
+- No unit, component or feature tests: none are written, run or updated.
+- An E2E test of a whole flow through its real entry point is written only where the top of this file says a failure hurts; fake only paid or outside systems. Anything else is checked on the real thing, and the check is cited.

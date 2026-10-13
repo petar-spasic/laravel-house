@@ -220,6 +220,39 @@ final class CodeSandbox
         return trim($this->sandbox->git('rev-parse', 'HEAD'));
     }
 
+    /**
+     * The agent image's files as the laravel-deployment templates ship them, written into $root, with $old taking a
+     * file's place (an update that took only some of them); returns the paths written.
+     *
+     * @param  array<string, string>  $old
+     * @return list<string>
+     */
+    public static function agentImage(string $root, array $old = []): array
+    {
+        $files = array_merge([
+            'Dockerfile.agent' => "FROM scratch\nENTRYPOINT [\"docker-entrypoint-local.sh\", \"octane\"]\n",
+            'docker/Caddyfile.agent' => "{\n\tfrankenphp\n}\n\nimport /app/docker/Caddyfile.local\n",
+            'docker/Caddyfile.fpm' => "{\n\tadmin off\n}\n\nimport /app/docker/Caddyfile.local\n",
+            'docker/Caddyfile.local' => "# Local sites.\n\n:8080 {\n\timport php\n}\n",
+            'docker/docker-entrypoint-local.sh' => "#!/bin/bash\nprogram web \"php artisan octane:frankenphp --caddyfile=/app/docker/Caddyfile.agent\"\n",
+        ], $old);
+        foreach ($files as $file => $content) {
+            @mkdir(dirname($root.'/'.$file), 0775, true);
+            file_put_contents($root.'/'.$file, $content);
+        }
+
+        return array_keys($files);
+    }
+
+    /** CodeSandbox::agentImage() committed on main in the main checkout. */
+    public function commitAgentImage(array $old = []): string
+    {
+        $this->sandbox->git('add', ...self::agentImage($this->root(), $old));
+        $this->sandbox->git('commit', '-q', '-m', 'main: the agent image');
+
+        return trim($this->sandbox->git('rev-parse', 'HEAD'));
+    }
+
     /** Puts the card in review with an approval of the branch head (what report + verdict do), committed on the board. */
     public function approve(string $id, ?string $head = null, ?string $at = null): void
     {

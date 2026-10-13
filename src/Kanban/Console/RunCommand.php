@@ -24,6 +24,7 @@ use PetarSpasic\LaravelHouse\Kanban\Protocol\MergeState;
 use PetarSpasic\LaravelHouse\Kanban\Protocol\Runtime;
 use PetarSpasic\LaravelHouse\Kanban\Store\Actor;
 use PetarSpasic\LaravelHouse\Kanban\Store\Card;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\Conflict;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\LockTimeout;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\LostClaim;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
@@ -102,6 +103,15 @@ class RunCommand extends Command
 
     /** Done cards whose leftovers here were tidied in this run, once each. @var array<string, true> */
     private array $tidied = [];
+
+    /** What this pass found dead and brought back: agents whose process died with no result, card stacks it brought up. */
+    private array $recovered = ['agents' => 0, 'stacks' => 0];
+
+    /** Cards told in this run that docker cannot say whether their stack runs, until it can: id => true. @var array<string, true> */
+    private array $dockerWaits = [];
+
+    /** Docker failed to answer in this pass: the other cards' stack checks wait for the next one. */
+    private bool $dockerSilent = false;
 
     protected function perform(): int
     {
@@ -207,8 +217,13 @@ class RunCommand extends Command
         // although its start failed. No session or UI may be pulling for this machine
         $this->gitStore()?->maybeSync(wait: true);
         $state = $this->state();
+        $this->recovered = ['agents' => 0, 'stacks' => 0];
+        $this->dockerSilent = false;
         // ended() has logged and forgotten every run: one that fails here must not take the others' outcome with it
         foreach ($this->agents->ended() as $run) {
+            // a run a `stop` ended, or a merger's, which merger() counts, is no dead agent
+            ($run['crash'] || ($run['error'] === 'no result' && $run['type'] !== AgentRun::MERGER && ! $this->agents->stopping((string) $run['card'])))
+                && $this->recovered['agents']++;
             try {
                 $state = $this->reaped($run, $state);
             } catch (LockTimeout $e) {
@@ -266,6 +281,9 @@ class RunCommand extends Command
                 // merges. Untracked files stay out of a merge, and the stop gate catches one folded into it
                 $merge = $resume !== null || self::lastMove($card) === 'merge';
                 $dirty = $this->changed($card);
+                if (! $this->stackUp($card)) {
+                    continue;
+                }
                 if ($merge && ! $dirty && ! in_array(($refresh = $this->kanban(['refresh', $card->id()]))->getExitCode(), [0, 5], true)) {
                     // an agent of the card not started headless still runs: it is waited for
                     str_contains($refresh->getErrorOutput(), RefreshCommand::LIVE) || $this->block($card->id(), $refresh);
@@ -297,6 +315,9 @@ class RunCommand extends Command
             } elseif (! $paused) {
                 // no plan yet, or one the card has outgrown: its planner (re)writes it, on main as it is now
                 $resume = $this->resumable($runtime, $card, AgentRun::PLANNER);
+                if (! $this->stackUp($card)) {
+                    continue;
+                }
                 if ($resume !== null && ! ($refresh = $this->kanban(['refresh', $card->id()]))->isSuccessful()) {
                     str_contains($refresh->getErrorOutput(), RefreshCommand::LIVE) || $this->block($card->id(), $refresh);
 
@@ -337,6 +358,9 @@ class RunCommand extends Command
             }
         }
 
+        if ($this->recovered !== ['agents' => 0, 'stacks' => 0]) {
+            $this->log("recovered: {$this->recovered['agents']} dead agents, {$this->recovered['stacks']} stacks brought up");
+        }
         if ($acted || $this->agents->running() !== []) {
             $this->published = false;
         } elseif (! $this->published) {
@@ -346,6 +370,8 @@ class RunCommand extends Command
             $waiting = count($this->queued($this->store()->snapshot()));
             match (true) {
                 $this->draining() => null,
+                // raised when the limit was met: the run waits it out
+                $paused => $this->log('idle: paused until '.date('H:i', (int) $state['paused_until']).': usage limit'),
                 $waiting > 0 => $this->log("idle: {$waiting} approved cards wait for the merge queue"),
                 default => $this->notice('idle: '.($this->capped !== null ? "no card can start: {$this->capped}" : 'no agent runs and no card can start: plan or promote cards')),
             };
@@ -880,7 +906,7 @@ class RunCommand extends Command
 
     /**
      * An ended run: a usage limit pauses every launch; a run that left its card as it found it is a strike, and the
-     * third in a row blocks the card.
+     * third in a row blocks the card. A run the machine's restart ended is neither: its agent is resumed.
      *
      * @param  array<string, mixed>  $run
      * @param  array<string, mixed>  $state
@@ -890,15 +916,15 @@ class RunCommand extends Command
     {
         $id = (string) $run['card'];
         $this->log("{$id} ".str_replace('kanban-', '', (string) $run['type']).' '.substr((string) $run['session'], 0, 8).' ended'
-            .($run['error'] !== null ? " with {$run['error']}" : '').": {$run['turns']} turns, {$run['tokens']} tokens, $".number_format((float) $run['cost_usd'], 2));
+            .($run['error'] !== null ? " with {$run['error']}" : '').($run['crash'] ? ' (the machine restarted)' : '').": {$run['turns']} turns, {$run['tokens']} tokens, $".number_format((float) $run['cost_usd'], 2));
         if ($run['limit']) {
             $state['paused_until'] = time() + self::PAUSE_SECONDS;
             $this->notice('paused until '.date('H:i', $state['paused_until']).': usage limit; then the card resumes');
 
             return $this->saveState($state);
         }
-        if ($this->agents->stopping($id) || $run['type'] === AgentRun::MERGER) {
-            // ended by a `stop`, or a merger, whose runs without a result merger() counts: no strike against the card
+        if ($this->agents->stopping($id) || $run['type'] === AgentRun::MERGER || $run['crash']) {
+            // ended by a `stop`, a merger, whose runs without a result merger() counts, or a restart of the machine: no strike against the card
             return $state;
         }
         $card = $this->store()->snapshot()->card($id);
@@ -1016,9 +1042,15 @@ class RunCommand extends Command
         return true;
     }
 
-    /** The session of the agent launched for the card, or null when a `stop` under way refuses it: the pass goes on with the next card. */
+    /**
+     * The session of the agent launched for the card, or null when a `stop` under way refuses it or its stack does not come
+     * up: the pass goes on with the next card.
+     */
     private function launch(Card $card, string $type, ?string $resume = null, ?string $worktree = null): ?string
     {
+        if ($type !== AgentRun::MERGER && ! $this->stackUp($card)) {
+            return null;
+        }
         try {
             return $this->agents->launch($card, $type, $resume, $worktree);
         } catch (PolicyRefused $e) {
@@ -1033,6 +1065,42 @@ class RunCommand extends Command
 
             return null;
         }
+    }
+
+    /**
+     * `stack <id> wait` for a card whose registered stack runs no container (the machine restarted, or someone took it
+     * down), before its agent, whose shell runs there. Still starting (75) or mid-merge (5): its agent goes on. Docker
+     * that cannot say yet leaves the launch to a later pass; a stack that fails to come up blocks the card. Whether the
+     * agent may go on.
+     */
+    private function stackUp(Card $card): bool
+    {
+        $path = $this->paths()->main.'/'.($card->work()['worktree'] ?? "\0");
+        if (! $this->worktrees->stackEnabled() || ($entry = $this->worktrees->registry()->find($path)) === null || ! is_dir($path)) {
+            return true;
+        }
+        $idle = $this->dockerSilent ? null : $this->worktrees->stack($path, (string) $entry['project'])->idle();
+        if ($idle === null) {
+            $this->dockerSilent = true;
+            isset($this->dockerWaits[$card->id()]) || $this->log("{$card->id()} waits: docker cannot tell whether its stack runs");
+            $this->dockerWaits[$card->id()] = true;
+
+            return false;
+        }
+        unset($this->dockerWaits[$card->id()]);
+        if ($idle === false) {
+            return true;
+        }
+        $wait = $this->kanban(['stack', $card->id(), 'wait']);
+        if (! in_array($wait->getExitCode(), [0, 75, Conflict::EXIT], true)) {
+            $this->block($card->id(), $wait);
+
+            return false;
+        }
+        $this->recovered['stacks']++;
+        $this->log("{$card->id()} stack {$entry['project']} brought up");
+
+        return true;
     }
 
     /** Skips starting a card whose start was refused for the rest of this run: a full stack pool or a lost claim passes. */

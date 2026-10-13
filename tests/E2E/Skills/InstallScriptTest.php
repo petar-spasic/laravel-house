@@ -2,6 +2,7 @@
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Vite;
+use PetarSpasic\LaravelHouse\Kanban\Code\EnvWriter;
 use PetarSpasic\LaravelHouse\Tests\Support\Sandbox;
 use Symfony\Component\Process\Process;
 
@@ -81,8 +82,47 @@ it('renders laravel-deployment for every module set with nothing unresolved', fu
         ->and(is_executable("{$out}/docker/docker-entrypoint.sh"))->toBeTrue()
         ->and(file_exists("{$out}/docker/postgres/roles.sql"))->toBe(str_contains($modules, 'tenancy'))
         ->and(file_exists("{$out}/docker/e2e.sh"))->toBe(str_contains($modules, 'spa'))
-        ->and(str_contains($text, 'reverb:start'))->toBe(str_contains($modules, 'reverb'));
+        ->and(str_contains($text, 'reverb:start'))->toBe(str_contains($modules, 'reverb'))
+        // the set a card stack switches to the agent image on
+        ->and(EnvWriter::agentImageGaps($out))->toBe([]);
 })->with(['', 'htmx,islands', 'htmx,reverb,tenancy', 'spa', 'spa,reverb,tenancy']);
+
+it('builds card and merge stacks from the agent image only when their .env names it, and runs the e2e sites without Xdebug', function (string $modules) {
+    $out = deployment($modules);
+    $spa = str_contains($modules, 'spa');
+    $agent = file_get_contents("{$out}/Dockerfile.agent");
+    $local = file_get_contents("{$out}/docker/docker-entrypoint-local.sh");
+
+    expect(file_get_contents("{$out}/docker-compose.local.yml"))->toContain("      dockerfile: \${KANBAN_DOCKERFILE:-Dockerfile.local}\n")
+        ->and($agent)->toContain("\nFROM dunglas/frankenphp:php8.5\n")->toContain('ENTRYPOINT ["docker-entrypoint-local.sh", "octane"]')
+        ->toContain('opcache.validate_timestamps=1')->not->toContain('xdebug')
+        ->and(str_contains($agent, 'playwright'))->toBe($spa)
+        ->and(file_get_contents("{$out}/Dockerfile.local"))->toContain('ENTRYPOINT ["docker-entrypoint-local.sh"]')
+        ->and($local)->toContain('octane:frankenphp --host=0.0.0.0 --port=8080 --workers=2 --max-requests=250 --watch --caddyfile=/app/docker/Caddyfile.agent')
+        ->toContain('caddy run --config /app/docker/Caddyfile.fpm')
+        ->and(file_get_contents("{$out}/docker/Caddyfile.agent"))->toContain('import /app/docker/Caddyfile.local')->toContain("trusted_proxies static 127.0.0.1/8\n")
+        ->and(file_get_contents("{$out}/docker/Caddyfile.fpm"))->toContain('import /app/docker/Caddyfile.local')
+        ->and(file_exists("{$out}/docker/php-fpm-e2e.conf"))->toBe($spa)
+        ->and(str_contains($local, 'program php-fpm-e2e "env XDEBUG_MODE=off php-fpm -F -y /app/docker/php-fpm-e2e.conf"'))->toBe($spa)
+        ->and(str_contains(file_get_contents("{$out}/docker/Caddyfile.fpm"), 'php_fastcgi 127.0.0.1:9001'))->toBe($spa);
+    if ($spa) {
+        expect(file_get_contents("{$out}/docker/php-fpm-e2e.conf"))->toContain("listen = 127.0.0.1:9001\n")->toContain("clear_env = no\n")
+            ->not->toMatch('/^include/m');
+    }
+})->with(['', 'htmx,reverb', 'spa', 'spa,reverb,tenancy']);
+
+it('reads the e2e test env from the one snippet both images import', function () {
+    $out = deployment('spa');
+    $script = file_get_contents("{$out}/docker/e2e.sh");
+    preg_match('/^mapfile -t pairs .*$/m', $script, $line);
+
+    $run = new Process(['bash', '-c', $line[0]."\nprintf '%s\\n' \"\${pairs[@]}\""], $out);
+    $run->mustRun();
+
+    expect($run->getOutput())->toContain("APP_E2E=true\n")->toContain("DB_DATABASE=acme_test\n")->toContain("APP_URL=http://localhost:8090\n")
+        ->and(file_get_contents("{$out}/docker/Caddyfile.fpm"))->toContain("import e2e_env\n")
+        ->and(file_get_contents("{$out}/docker/Caddyfile.agent"))->toContain("import e2e_env\n");
+});
 
 /** laravel-deployment rendered with $modules into a fresh directory. */
 function deployment(string $modules): string
@@ -111,6 +151,11 @@ it('gives every stack its own session cookie and the https token helper, and see
         ->and($local)->toContain('false) php artisan db:seed --class=ReferenceDataSeeder --force ;;')
         ->and(file_get_contents("{$out}/snippets/env.dotenv"))->toContain('# KANBAN_GIT_TOKEN=');
 })->with(['', 'htmx', 'spa,reverb,tenancy']);
+
+it('gives the local Postgres lock room for parallel tests', function () {
+    expect(file_get_contents(deployment('').'/docker-compose.local.yml'))
+        ->toMatch('/^  postgres:\n    image: postgres:16-alpine\n(    #.*\n)*    command: \["postgres", "-c", "max_locks_per_transaction=256"\]$/m');
+});
 
 it('answers git with KANBAN_GIT_TOKEN through the local compose credential helper for origin\'s host only', function () {
     preg_match("/GIT_CONFIG_VALUE_0: '(.*)'$/m", file_get_contents(deployment('htmx').'/docker-compose.local.yml'), $m);
@@ -551,6 +596,14 @@ it('probes the local stack with the deployment Verify steps a script can take', 
 
     expect($failed->getExitCode())->toBe(1)
         ->and($failed->getOutput())->toBe("✗ /.env answers 200, not 404\n✗ supervisor program app:reverb is not RUNNING\n");
+});
+
+it('expects Octane in place of php-fpm and Caddy in a stack whose .env names the agent image', function () {
+    $agent = stackVerify('reverb', ['FAKE_RUNNING' => 'app:web app:scheduler app:horizon app:reverb'], "KANBAN_DOCKERFILE=Dockerfile.agent\n");
+    $local = stackVerify('reverb', ['FAKE_RUNNING' => 'app:web app:scheduler app:horizon app:reverb']);
+
+    expect($agent->getOutput())->toBe('')->and($agent->getExitCode())->toBe(0)
+        ->and($local->getOutput())->toBe("✗ supervisor program app:php-fpm is not RUNNING\n✗ supervisor program app:caddy is not RUNNING\n");
 });
 
 it('follows the board page\'s token redirect to the page', function () {

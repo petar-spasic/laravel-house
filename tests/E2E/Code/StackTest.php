@@ -232,6 +232,69 @@ it('recreates a running stack on wait once its docker files changed, and only th
         ->and($recreates())->toBe(1);
 });
 
+it('builds a card stack from Dockerfile.agent while its clone and main hold the agent image\'s files, and never main\'s stack', function () {
+    $code = $this->code;
+    $early = $code->worktree($code->started('Before the agent image'));
+    $code->commitAgentImage();
+    $id = $code->started('On the agent image');
+    $wt = $code->worktree($id);
+    $agent = "\nKANBAN_DOCKERFILE=Dockerfile.agent\n";
+
+    expect(file_get_contents($wt.'/.env'))->toContain("\nKANBAN_GIT_TOKEN={$agent}")
+        ->and(file_get_contents($code->root().'/.env'))->not->toContain('KANBAN_DOCKERFILE');
+
+    // the early clone lacks the file its compose file would build from
+    $code->ok(['stack', 'up'], cwd: $early);
+    expect(file_get_contents($early.'/.env'))->not->toContain('KANBAN_DOCKERFILE');
+
+    CodeSandbox::agentImage($early);
+    $code->ok(['stack', 'up'], cwd: $early);
+    expect(file_get_contents($early.'/.env'))->toContain($agent);
+
+    unlink($code->root().'/Dockerfile.agent');
+    $code->ok(['stack', 'up'], cwd: $wt);
+    expect(file_get_contents($wt.'/.env'))->not->toContain('KANBAN_DOCKERFILE')
+        ->and(file_get_contents($code->root().'/.env'))->not->toContain('KANBAN_DOCKERFILE');
+});
+
+it('keeps a card stack on Dockerfile.local while the agent image\'s files are only partly updated', function (string $file, string $old) {
+    $code = $this->code;
+    $code->commitAgentImage([$file => $old]);
+    $id = $code->started('On a partial agent image');
+    $wt = $code->worktree($id);
+
+    expect(file_get_contents($wt.'/.env'))->not->toContain('KANBAN_DOCKERFILE');
+
+    // the clone takes the template's file, main still has the old one
+    CodeSandbox::agentImage($wt);
+    $code->ok(['stack', 'up'], cwd: $wt);
+    expect(file_get_contents($wt.'/.env'))->not->toContain('KANBAN_DOCKERFILE');
+
+    CodeSandbox::agentImage($code->root());
+    $code->ok(['stack', 'up'], cwd: $wt);
+    expect(file_get_contents($wt.'/.env'))->toContain("\nKANBAN_DOCKERFILE=Dockerfile.agent\n");
+})->with([
+    'an entrypoint without the octane mode' => ['docker/docker-entrypoint-local.sh', "#!/bin/bash\nprogram php-fpm \"php-fpm -F\"\nprogram caddy \"caddy run --config /app/docker/Caddyfile.local\"\n"],
+    'a Caddyfile.local with its own global options' => ['docker/Caddyfile.local', "# Local front server.\n\n{\n\tadmin off\n}\n\n:8080 {\n\tphp_fastcgi 127.0.0.1:9000\n}\n"],
+    'a Caddyfile.local that calls php-fpm itself' => ['docker/Caddyfile.local', "# Local sites.\n\n:8080 {\n\tphp_fastcgi 127.0.0.1:9000\n}\n"],
+]);
+
+it('recreates a running stack on wait once its Dockerfile.agent changed', function () {
+    $code = $this->code;
+    $code->commitMain('Dockerfile.agent', "FROM scratch\n");
+    $id = $code->started('Edit the agent image');
+    $wt = $code->worktree($id);
+    $lc = basename($wt);
+    $web = $code->base + 10;
+    $code->ok(['stack', 'down'], cwd: $wt);
+    $code->ok(['stack', 'wait'], ['FAKE_DOCKER_SERVE' => '1'], $wt);
+
+    file_put_contents($wt.'/Dockerfile.agent', "FROM scratch\nENV OCTANE=1\n");
+
+    expect($code->ok(['stack', 'wait'], cwd: $wt))->toBe("reloaded acme-wt-{$lc}: docker files changed\nready http://127.0.0.1:{$web}/up\n")
+        ->and($code->ok(['stack', 'wait'], cwd: $wt))->toBe("ready http://127.0.0.1:{$web}/up\n");
+});
+
 it('counts a lockfile at any depth among the docker files, and not one under vendor', function () {
     $code = $this->code;
     $id = $code->started('Frontend packages');

@@ -69,11 +69,12 @@ Before a card is created, and before it is promoted:
 - **The body is for people, the plan for agents.** The body says what and why in short, plain sentences: the outcome
   the owner sees. Files, steps, traps and commands go in the plan
   (`references/planning.md`, "The body and the criteria").
-- **One observable outcome per criterion**, up to 24. Each names where it shows and the test that proves it. Never an
-  implementation step or "the full suite passes" (the same section). Check them against the governing `CLAUDE.md`
-  rules (test technique included) and the open questions on the same topic. The planner checks them against the code,
-  and blocks a card whose criterion cannot be done as written.
-- **A page change** names the browser spec that proves it, and the design reference section when the owner decided one.
+- **One observable outcome per criterion**, up to 24. Each names where it shows and how it is proven: a test only
+  where the project's test rules ask for one, else the check at its entry point. Never an implementation step or "the
+  full suite passes" (the same section). Check them against the governing `CLAUDE.md` rules and the open questions on
+  the same topic. The planner checks them against the code, and blocks a card whose criterion cannot be done as
+  written.
+- **A page change** names the design reference section when the owner decided one.
 - **A shared contract** (a type, rule, enum or event several cards use) is its own small card on its own area.
 - **Discovered items** fold into the open card on their area before a new card is made; check each against main first.
 - After a rename lands, grep the open cards' criteria for the old names before their workers start.

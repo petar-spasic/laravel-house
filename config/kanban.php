@@ -81,7 +81,6 @@ return [
             'SESSION_COOKIE' => '{project}-session',
             'XDEBUG_MODE' => 'off',
             'XDEBUG_SERVER_NAME' => '{project}',
-            'HMR_CLIENT_PORT' => '',
             'DATABASE_SEED' => 'auto',
         ],
         'health_path' => '/up',

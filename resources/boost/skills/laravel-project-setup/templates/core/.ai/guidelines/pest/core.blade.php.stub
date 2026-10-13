@@ -1,4 +1,4 @@
 # Pest
 
 - Pest runs the E2E tests, which live in `tests/E2E/`. Only an E2E test is written, and only it is run: `php artisan test --compact tests/E2E/…`.
-- Do not delete test files without approval.
+- Delete a test only as the top of this file says: one outside its groups that a change breaks, named in the report.

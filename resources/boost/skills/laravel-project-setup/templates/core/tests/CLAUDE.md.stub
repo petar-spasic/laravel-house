@@ -1,15 +1,18 @@
 <!-- house:begin: rendered from config/house.php by composer update; this project's rules go after house:end and outrank it -->
 # CLAUDE.md — tests
 
-**Tests are end to end or not at all** (root `CLAUDE.md`). No unit or component tests, no tier ladder, no fail-first
-ritual, nothing in `tests/Unit` or `tests/Feature`.
+**Tests are end to end, and only where a failure hurts** (root `CLAUDE.md`). No unit, component or feature tests, no
+tier ladder, no fail-first ritual, nothing in `tests/Unit` or `tests/Feature`.
 <!-- if:spa -->
 Browser flows live in `frontend/e2e/` under the same rule (Browser flows, below).
 <!-- endif -->
 
 ## What is written
 
-Only E2E tests, in `tests/E2E/`: one whole flow per test through its real entry point (an HTTP request through
+Tests only in the groups the root `CLAUDE.md` names. Anything else is checked on the real thing and the check is cited;
+a test outside the groups that a change breaks is deleted, not fixed, and the report names it.
+
+E2E tests only, in `tests/E2E/`: one whole flow per test through its real entry point (an HTTP request through
 routing, middleware, controller and database; an artisan command), asserting what a person or operator sees:
 <!-- if:htmx -->
 the page, the flash, the payload, the records left behind.
@@ -90,7 +93,8 @@ Each is an E2E flow, written when the piece it proves is built.
 
 ## Browser flows (Playwright)
 
-Pest proves the API; user flows run in a real browser, in `frontend/e2e/*.spec.ts`, against the e2e site: the
+Pest proves the API. A real browser runs only the flows the root rule's groups need there: the session flow (below),
+the auth pages' flows and validation parity. They live in `frontend/e2e/*.spec.ts` and run against the e2e site: the
 frontend's production build behind Caddy on `localhost:8090`, its Laravel side on `{{app}}_test`. Never the dev
 stack. The e2e site runs Laravel's CSRF token path, as a LAN http origin does (laravel-deployment `references/spa.md`).
 
@@ -98,7 +102,7 @@ stack. The e2e site runs Laravel's CSRF token path, as a LAN http origin does (l
   (browser tests). Run the flows only with `docker/e2e.sh` in the app container: it takes the test-database lock,
   resets `{{app}}_test`, builds and runs Playwright. The image holds the browser for the `@playwright/test` pin;
   never `playwright install`.
-- One user flow per test, named for what the user does. Each makes its own data (unique emails) through the UI or
+- One flow per test, named for what the user does. Each makes its own data (unique emails) through the UI or
   Laravel's public API (Playwright's `request` fixture); no shared leftovers, no test-only endpoints. Data no flow
   can make (a record from an outside system, an aged state) comes from one fixtures seeder that throws unless
   `config('app.e2e')`, run by the project's `docker/e2e-reset.sh`, which `docker/e2e.sh` runs when it exists
@@ -107,7 +111,6 @@ stack. The e2e site runs Laravel's CSRF token path, as a LAN http origin does (l
   It sets the tenant of each row it writes: it runs as the app role under row-level security.
 <!-- endif -->
 - Assert what the user sees (`getByRole`, `getByLabel`, text). No selectors into `ui/` internals, no sleeps.
-- A form's flow saves, reloads and asserts every field it renders.
 - Fakes live on the Laravel side, behind `config('app.e2e')`, which only the e2e site sets (Hosting). Never
   `page.route()` or a mocked `fetch`, and never a new env line on the e2e site.
 - **The session flow**, written with the first auth page: sign in through `/login`, then reload an `(app)` page; it

@@ -60,7 +60,7 @@ it('claims the card and creates its worktree, branch, .env, slot and stack', fun
             "WEB_PORT={$web}", 'DB_HOST_PORT='.($web + 1), 'REDIS_HOST_PORT='.($web + 2),
             "COMPOSE_PROJECT_NAME={$project}", 'SIDECAR_BIND=127.0.0.1', 'LOCAL_APP_URL=http://'.CodeSandbox::lanHost().":{$web}",
             "APP_URL=http://localhost:{$web}", 'DB_PORT='.($web + 1), 'REDIS_PORT='.($web + 2), "SESSION_COOKIE={$project}-session",
-            'XDEBUG_MODE=off', "XDEBUG_SERVER_NAME={$project}", 'HMR_CLIENT_PORT=', 'DATABASE_SEED=auto',
+            'XDEBUG_MODE=off', "XDEBUG_SERVER_NAME={$project}", 'DATABASE_SEED=auto',
         ]));
 
     expect($code->stacks())->toHaveCount(1)

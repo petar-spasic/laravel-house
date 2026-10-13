@@ -31,7 +31,7 @@ This project has domain-specific skills available in `**/skills/**`. You MUST ac
 - Check for existing components to reuse before writing a new one.
 
 ## Verification Scripts
-- Verify on the real thing (the flow end to end, a read-only query on the data); tests, when written, are E2E only (see the top of this file).
+- Verify on the real thing (the flow end to end, a read-only query on the data, the page read); a test is written only where the top of this file says, and it is E2E.
 
 ## Application Structure & Architecture
 - Stick to existing directory structure; don't create new base folders without approval.
