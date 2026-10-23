@@ -114,7 +114,7 @@ it('leaves out a finished card\'s open questions but keeps its provisional decis
     applyStop($this->p, $this->wt);
     $this->p->hook('subagent-start', $this->p->payload('subagent-start', ['agent' => 'e1', 'type' => 'kanban-evaluator']));
     $this->p->enter($this->wt, 'e1', 'kanban-evaluator');
-    $this->p->in($this->wt, ['verdict', $done, 'approve', '--check=1:pass:ok', '--check=2:pass:ok'])->mustRun();
+    $this->p->in($this->wt, ['verdict', $done, 'approve', '--summary=Checked both criteria in the card stack.', '--check=1:pass:ok', '--check=2:pass:ok'])->mustRun();
     $this->p->hook('subagent-stop', $this->p->payload('subagent-stop', ['cwd' => $this->wt, 'agent' => 'e1', 'type' => 'kanban-evaluator']))->mustRun();
     // merged by the queue
     $this->p->sandbox->ok(['move', $done, 'done', '--force'], ['KANBAN_SESSION' => 's1']);
@@ -179,7 +179,7 @@ it('lists the morning: merged cards, cards blocked without a question, and open 
     applyStop($this->p, $this->wt);
     $this->p->hook('subagent-start', $this->p->payload('subagent-start', ['agent' => 'e1', 'type' => 'kanban-evaluator']));
     $this->p->enter($this->wt, 'e1', 'kanban-evaluator');
-    $this->p->in($this->wt, ['verdict', $this->id, 'approve', '--check=1:pass:ok', '--check=2:pass:ok'])->mustRun();
+    $this->p->in($this->wt, ['verdict', $this->id, 'approve', '--summary=Checked both criteria in the card stack.', '--check=1:pass:ok', '--check=2:pass:ok'])->mustRun();
     $this->p->hook('subagent-stop', $this->p->payload('subagent-stop', ['cwd' => $this->wt, 'agent' => 'e1', 'type' => 'kanban-evaluator']))->mustRun();
     // merged by the queue
     $this->p->sandbox->ok(['move', $this->id, 'done', '--force'], ['KANBAN_SESSION' => 's1']);

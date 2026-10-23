@@ -87,7 +87,7 @@ if ($rich || $perf) {
     $base = trim($s->git('rev-parse', 'refs/heads/main'));
     // a card reaches ready through its plan: created into planning, then given one
     $ready = function (string $title, array $input = [], string $board = 'work', ?string $plan = null) use ($make, $store, $transitions, $base): string {
-        $id = $make($title, ['body' => 'Build it', 'accept' => ['It works'], 'stage' => 'planning'] + $input, $board);
+        $id = $make($title, ['stage' => 'planning'] + $input + ['body' => 'Build it', 'accept' => ['It works']], $board);
         $transitions->plan($id, $plan ?? Sandbox::planFor(array_column($store->card($id)->acceptance(), 'id')), $base, Actor::owner());
 
         return $id;
@@ -114,7 +114,7 @@ if ($rich) {
     $ids['w1'] = $ready('Wire billing webhooks to the ledger', ['priority' => 'high', 'labels' => ['area:billing', 'backend']]);
     $transitions->start($ids['w1'], $main, null, $stack('billing', 21010));
     $agent('worker-1', $ids['w1'], 240);
-    $ids['w2'] = $ready('Cache the notebook index between requests', ['labels' => ['area:search', 'perf']]);
+    $ids['w2'] = $ready('Cache the notebook index between requests', ['labels' => ['area:search', 'perf'], 'accept' => ['Repeated requests reuse the cached index', 'A new note appears in the index at once']]);
     $transitions->start($ids['w2'], $main, null, $stack('cache', 21020));
     $agent('worker-2', $ids['w2'], 3000, 2400);
     $ids['r1'] = $ready('Paginate the activity feed', ['labels' => ['area:feed', 'frontend']]);
@@ -123,8 +123,9 @@ if ($rich) {
     $agent('worker-3', $ids['r1'], 5400, 60, true);
 
     // the merge queue: a card being merged, and two that wait for main to be fixed, one of which found it red
-    foreach (['m_merging' => ['Import notes from a ZIP file', ['area:sync'], 3600], 'm_queued' => ['Add colours to tags', ['area:auth'], 3000], 'm_held' => ['Archive old notebooks', ['area:export'], 2400]] as $key => [$title, $labels, $ago]) {
-        $ids[$key] = $ready($title, ['labels' => $labels]);
+    $zip = ['A ZIP of notebooks is imported with its tags', 'A damaged ZIP is refused with a message'];
+    foreach (['m_merging' => ['Import notes from a ZIP file', ['area:sync'], 3600, $zip], 'm_queued' => ['Add colours to tags', ['area:auth'], 3000, ['It works']], 'm_held' => ['Archive old notebooks', ['area:export'], 2400, ['It works']]] as $key => [$title, $labels, $ago, $accept]) {
+        $ids[$key] = $ready($title, ['labels' => $labels, 'accept' => $accept]);
         // areas the board already colours (at most ten), so the start goes past their cards in flight
         $transitions->start($ids[$key], $main, null, ['branch' => 'card/'.str_replace('_', '-', $key), 'stack' => null], force: true);
         $transitions->apply($ids[$key], $main);
@@ -149,6 +150,25 @@ if ($rich) {
 
         return $data;
     }, new Actor('worker'));
+
+    // verdicts: an approval with its summary and evidence, a rejection that sent its card back, and one with only its
+    // failures and issues
+    $verdict = fn (string $id, array $entry, array $done) => $store->update($id, function (array $data) use ($entry, $done) {
+        $data['acceptance'] = array_map(fn (array $c) => ['done' => in_array($c['id'], $done, true)] + $c, $data['acceptance']);
+        $data['log'][] = ['event' => 'verdict', 'head' => str_repeat('a', 40)] + $entry;
+
+        return $data;
+    }, new Actor('evaluator'));
+    $verdict($ids['m_merging'], ['decision' => 'approve',
+        'summary' => 'Imported a ZIP of three notebooks in the card\'s stack: every note arrived with its tags, and a damaged file stops the import with a clear message. The tests for both pass.',
+        'passed' => ['1: POST /imports with notes.zip → 302; 3 notebooks and 41 notes, tags kept', '2: php artisan test --compact --filter=ZipImport → 6 passed; a truncated ZIP answers 422 "The file is damaged"']], [1, 2]);
+    $verdict($ids['w2'], ['decision' => 'reject',
+        'summary' => 'The index is cached and the second request is fast, but a new note does not show up until the cache expires. That breaks criterion 2, so the card goes back.',
+        'passed' => ['1: second GET /notebooks takes 12 ms against 340 ms; Redis holds notebooks:index'],
+        'failed' => ['2: created a note, then GET /notebooks → the new note is missing for 10 minutes'],
+        'issues' => ['app/Support/IndexCache.php keeps a debug dump() call'],
+        'note' => 'The cache key ignores the team id: look at it while you fix criterion 2.'], [1]);
+    $verdict($ids['w1'], ['decision' => 'reject', 'failed' => ['1: POST /webhooks/stripe → 500: the ledger table is missing'], 'issues' => ['No test covers a duplicate webhook']], []);
     $store->lease(fn (?array $old) => [['id' => '9f2c41d07a8b3e65', 'card' => $ids['m_merging'], 'by' => 'ana@host-a', 'who' => 'Ana',
         'since' => gmdate('Y-m-d\TH:i:s.000+00:00', time() - 600), 'beat' => gmdate('Y-m-d\TH:i:s.000+00:00', time() - 60)], [], "merge lease {$ids['m_merging']} taken"], $main);
 

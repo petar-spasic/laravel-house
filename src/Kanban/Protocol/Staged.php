@@ -17,6 +17,9 @@ final class Staged
     /** Characters of a verdict's evidence or issue: kept whole, so the worker reads all of it. */
     public const VERDICT_TEXT = 2000;
 
+    /** Characters of a verdict's summary, which the person reviewing the card reads first. */
+    public const VERDICT_SUMMARY = 600;
+
     /**
      * @param  list<string>  $ticks
      * @param  list<string>  $verified
@@ -60,6 +63,7 @@ final class Staged
     }
 
     /**
+     * @param  ?string  $summary  for the person reviewing the card: what was checked, what was found, why the decision
      * @param  list<string>  $checks  `N:pass|fail:evidence`
      * @param  list<string>  $issues
      * @param  list<string>  $discovered  `type: Title — body`; outside the card, so they never decide the verdict
@@ -67,10 +71,17 @@ final class Staged
      * @param  list<array{title: string, body: string}>  $upstream
      * @return array<string, mixed>
      */
-    public static function verdict(Card $card, string $decision, array $checks, array $issues, array $discovered, ?string $note, array $at, array $upstream = []): array
+    public static function verdict(Card $card, string $decision, ?string $summary, array $checks, array $issues, array $discovered, ?string $note, array $at, array $upstream = []): array
     {
         if (! in_array($decision, ['approve', 'reject'], true)) {
             throw new Invalid("the verdict is approve or reject, not '{$decision}'");
+        }
+        $summary = self::text($summary);
+        if ($summary === null) {
+            throw new Invalid('--summary="…" is required: two or three plain sentences for the person who reviews the card, saying what you checked, what you found and why you '.$decision);
+        }
+        if (($length = mb_strlen($summary)) > self::VERDICT_SUMMARY) {
+            throw new Invalid("--summary: {$length} characters, at most ".self::VERDICT_SUMMARY.': the evidence goes in --check');
         }
         $criteria = array_column($card->acceptance(), 'id');
         $parsed = [];
@@ -112,6 +123,7 @@ final class Staged
         return self::seal([
             'card' => $card->id(),
             'decision' => $decision,
+            'summary' => $summary,
             'checks' => array_combine(array_map('strval', array_keys($parsed)), array_values($parsed)),
             'issues' => $issues,
             'discovered' => array_map(fn (string $d) => self::discovered($d), $discovered),

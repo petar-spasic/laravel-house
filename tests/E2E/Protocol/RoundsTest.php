@@ -41,7 +41,7 @@ it('supersedes a verdict staged before a return to doing instead of applying it'
     stopAgent($this->p, $this->wt);
     $this->p->hook('subagent-start', $this->p->payload('subagent-start', ['agent' => 'e1', 'type' => 'kanban-evaluator']));
     $this->p->enter($this->wt, 'e1', 'kanban-evaluator');
-    $this->p->in($this->wt, ['verdict', $this->id, 'reject', '--check=1:pass:ok', '--check=2:fail:"no test"'])->mustRun();
+    $this->p->in($this->wt, ['verdict', $this->id, 'reject', '--summary=Checked both criteria in the card stack.', '--check=1:pass:ok', '--check=2:fail:"no test"'])->mustRun();
     gone($this->p, 'e1');
     $this->p->sandbox->ok(['move', $this->id, 'doing', '--reason=Handle the empty list']);
 
@@ -61,7 +61,7 @@ it('supersedes an approval of a head the branch has left when no evaluator is th
     stopAgent($this->p, $this->wt);
     $this->p->hook('subagent-start', $this->p->payload('subagent-start', ['agent' => 'e1', 'type' => 'kanban-evaluator']));
     $this->p->enter($this->wt, 'e1', 'kanban-evaluator');
-    $this->p->in($this->wt, ['verdict', $this->id, 'approve', '--check=1:pass:ok', '--check=2:pass:ok'])->mustRun();
+    $this->p->in($this->wt, ['verdict', $this->id, 'approve', '--summary=Checked both criteria in the card stack.', '--check=1:pass:ok', '--check=2:pass:ok'])->mustRun();
     $this->p->commit($this->wt, 'more.php');
     gone($this->p, 'e1');
 
@@ -399,7 +399,7 @@ it('applies a reject and its return to doing in one write', function () {
     stopAgent($this->p, $this->wt);
     $this->p->hook('subagent-start', $this->p->payload('subagent-start', ['agent' => 'e1', 'type' => 'kanban-evaluator']));
     $this->p->enter($this->wt, 'e1', 'kanban-evaluator');
-    $this->p->in($this->wt, ['verdict', $this->id, 'reject', '--check=1:pass:ok', '--check=2:fail:"no test"'])->mustRun();
+    $this->p->in($this->wt, ['verdict', $this->id, 'reject', '--summary=Checked both criteria in the card stack.', '--check=1:pass:ok', '--check=2:fail:"no test"'])->mustRun();
     $commits = count($this->p->sandbox->boardLog());
 
     $stop = stopAgent($this->p, $this->wt, 'e1', 'kanban-evaluator');
@@ -426,7 +426,7 @@ it('applies a staged item whose write landed but was not marked applied only onc
         stopAgent($this->p, $this->wt);
         $this->p->hook('subagent-start', $this->p->payload('subagent-start', ['agent' => 'e1', 'type' => 'kanban-evaluator']));
         $this->p->enter($this->wt, 'e1', 'kanban-evaluator');
-        $this->p->in($this->wt, ['verdict', $this->id, 'approve', '--check=1:pass:ok', '--check=2:pass:ok'])->mustRun();
+        $this->p->in($this->wt, ['verdict', $this->id, 'approve', '--summary=Checked both criteria in the card stack.', '--check=1:pass:ok', '--check=2:pass:ok'])->mustRun();
     }
     $staged = $this->p->runtime("staged/{$this->id}.{$kind}.json");
     $bytes = file_get_contents($staged);
@@ -462,7 +462,7 @@ it('applies the same report again once the card moved on from the first', functi
 
 it('applies the same verdict again in a later round, staged with no evaluator bound', function () {
     $this->p->commit($this->wt, 'app.php', "<?php\n", "{$this->id}: clauses");
-    $verdict = ['verdict', $this->id, 'reject', '--check=1:pass:ok', '--check=2:fail:"no test"'];
+    $verdict = ['verdict', $this->id, 'reject', '--summary=Checked both criteria in the card stack.', '--check=1:pass:ok', '--check=2:fail:"no test"'];
     foreach ([1, 2] as $round) {
         $this->p->hook('subagent-start', $this->p->payload('subagent-start'));
         $this->p->enter($this->wt);

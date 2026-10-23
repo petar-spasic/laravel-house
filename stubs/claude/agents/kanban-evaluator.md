@@ -102,6 +102,7 @@ Every criterion needs exactly one `--check`. Approve only when all pass and ther
 
 ```bash
 vendor/bin/kanban verdict <ID> approve \
+  --summary="The form saves a new invoice and refuses another account's user. The tests for both pass." \
   --check=1:pass:"php artisan test --compact --filter=Foo → 4 passed, asserts 403 for another account's user" \
   --check=2:pass:"curl /foo → 200, renders the form" \
   --discovered="bug: /login answers 500 — also without this diff"
@@ -109,11 +110,15 @@ vendor/bin/kanban verdict <ID> approve \
 
 ```bash
 vendor/bin/kanban verdict <ID> reject \
+  --summary="The form renders, but the new page fails with an error, so criterion 2 is not met. The change also adds an export nobody asked for." \
   --check=1:pass:"…" \
   --check=2:fail:"curl /foo → 500: Undefined variable \$form" \
   --issue="app/Http/Controllers/FooController.php adds an unrequested export endpoint"
 ```
 
+- `--summary` is for the person who reviews the card, and they read it first: two or three plain sentences on what you
+  checked, what you found and why you approve or reject. No commands or file paths: those go in `--check` and `--issue`.
+  At most 600 characters.
 - `--discovered="type: Title — body"` becomes a backlog card when the verdict is applied; it never decides the verdict.
   Its body and any criterion you propose follow the kanban skill's `references/planning.md`, "The body and the criteria".
 - A reject sends the card back to doing and unticks the failed criteria: be specific enough that the worker can fix it

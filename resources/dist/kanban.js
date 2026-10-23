@@ -1695,6 +1695,7 @@
         P.props = h('div', { class: 'props' }, P.labels, P.deps, P.work);
 
         P.desc = h('section', { class: 'sec' });
+        P.verdict = h('section', { class: 'sec verdict', hidden: true });
         P.accHead = h('h3');
         P.accList = h('ul', { class: 'check' });
         const accHint = 'hint-' + ++hintSeq;
@@ -1712,7 +1713,7 @@
         P.activity = h('section', { class: 'sec' }, P.logHead, P.log);
         P.facts = h('details', { class: 'sec' });
         P.mark = h('div', { class: 'd-mark', role: 'status', hidden: true });
-        P.body = h('div', { class: 'd-body', tabindex: '-1', role: 'group', 'aria-label': 'Card details' }, P.mark, P.titleBox, P.lockNote, P.controls, P.blocked, P.props, P.desc, P.acc, P.plan, P.activity, P.facts);
+        P.body = h('div', { class: 'd-body', tabindex: '-1', role: 'group', 'aria-label': 'Card details' }, P.mark, P.titleBox, P.lockNote, P.controls, P.blocked, P.props, P.desc, P.verdict, P.acc, P.plan, P.activity, P.facts);
 
         P.note = h('textarea', { class: 'field', rows: '2', maxlength: '5000', placeholder: 'Add a note…', 'aria-label': 'Note',
             oninput: () => { if (P.note.value) drafts.set(P.id + ':note', P.note.value); else drafts.delete(P.id + ':note'); growNote(P); },
@@ -1775,10 +1776,52 @@
         renderDeps(P, c);
         renderWork(P, c);
         renderDescription(P, P.desc, 'Description', 'body', c.body, c.body_html, 'Add a description…');
+        renderVerdict(P, c);
         renderAcceptance(P, c);
         renderPlan(P, c);
         renderFacts(P, c);
         renderLog(P, c);
+    }
+
+    /** The evaluator's last verdict, for the person who reviews the card: the decision, the summary, each criterion's result and evidence. */
+    function renderVerdict(P, c) {
+        const v = c.verdict;
+        P.verdict.hidden = !v;
+        if (!v) { P.verdict.replaceChildren(); return; }
+        const approved = v.decision === 'approve';
+        const since = Date.parse(v.at) / 1000;
+        P.verdict.replaceChildren(
+            h('h3', {}, 'Verdict', h('span', { class: 'tag ' + (approved ? 'green' : 'red') }, svg(approved ? 'check' : 'x'), approved ? 'Approved' : 'Rejected'),
+                h('span', { class: 'v-by', text: logActor(v) + (v.head ? ' · at ' + String(v.head).slice(0, 7) : '') + (Number.isNaN(since) ? '' : ' ·') }),
+                Number.isNaN(since) ? null : h('time', { class: 'v-when', datetime: v.at, data: { since, suffix: ' ago' }, text: age(now() - since) + ' ago' })),
+            ...verdictBody(v, c.acceptance, true).filter(Boolean));
+    }
+
+    /** What a verdict entry says, in reading order: the summary (when asked), each criterion with its result, the issues, the cards filed, the note. */
+    function verdictBody(v, acceptance, summary) {
+        const criteria = new Map(acceptance.map((a) => [a.id, a.text]));
+        const checks = [...(v.passed || []).map((line) => ['pass', line]), ...(v.failed || []).map((line) => ['fail', line])].map(([result, line]) => {
+            const m = /^(\d+):\s*([\s\S]*)$/.exec(String(line));
+            return { result, n: m ? Number(m[1]) : Infinity, evidence: m ? m[2] : String(line) };
+        }).sort((a, b) => a.n - b.n);
+        return [
+            summary && v.summary ? h('p', { class: 'v-summary', text: v.summary }) : null,
+            checks.length ? h('ul', { class: 'v-checks' }, checks.map((check) => h('li', { data: { result: check.result } },
+                h('span', { class: 'v-result' }, svg(check.result === 'pass' ? 'check' : 'x'), check.result === 'pass' ? 'Passed' : 'Failed'),
+                h('div', { class: 'v-check' }, check.n === Infinity ? null : h('span', { class: 'v-crit', text: criteria.get(check.n) || 'Criterion ' + check.n }),
+                    check.evidence ? h('p', { class: 'v-evidence', text: check.evidence }) : null)))) : null,
+            ...entryNotes(v, { issues: 'Issues' }),
+        ];
+    }
+
+    /** The lists, filed cards and note an agent's entry carries: what the Activity line itself leaves out. */
+    function entryNotes(entry, lists) {
+        return [
+            ...Object.entries(lists).map(([key, title]) => (entry[key] || []).length
+                ? h('div', { class: 'v-list v-' + key }, h('h4', { text: title }), h('ul', {}, entry[key].map((item) => h('li', { text: String(item) })))) : null),
+            (entry.discovered || []).length ? h('p', { class: 'v-filed', text: 'Filed as new cards: ' + entry.discovered.join(', ') }) : null,
+            entry.note ? h('p', { class: 'v-note' }, h('strong', { text: 'Note: ' }), entry.note) : null,
+        ];
     }
 
     /** The plan written for the card's worker: folded, rendered, read-only; who wrote it and on which commit of main. */
@@ -2142,6 +2185,9 @@
         if (entry.event === 'plan') return 'could not plan it' + (entry.reason ? ': ' + entry.reason : '');
         if (entry.event === 'conflict') return 'kept the other version of ' + (entry.field === 'flow' ? 'the stage' : entry.field) + ' in a merge';
         if (entry.event === 'main_red') return 'found ' + entry.command + ' failing on main';
+        if (entry.event === 'verdict') return (entry.decision === 'approve' ? 'approved it' : 'rejected it') + (entry.head ? ' at ' + String(entry.head).slice(0, 7) : '');
+        if (entry.event === 'verdict_moot' || entry.event === 'verdict_superseded') return 'gave a verdict (' + entry.decision + ') that no longer applied' + (entry.reason ? ': ' + entry.reason : '');
+        if (entry.event === 'report') return (entry.status === 'review' ? 'reported it ready for review' : 'reported it ' + entry.status) + (entry.head ? ' at ' + String(entry.head).slice(0, 7) : '');
         if (entry.event === 'set') return 'changed ' + (entry.fields || []).join(', ') + (entry.acceptance_removed ? ' (removed criteria ' + entry.acceptance_removed.join(', ') + ')' : '');
         if (entry.event === 'merge') {
             return {
@@ -2158,15 +2204,21 @@
     function renderLog(P, c) {
         P.logHead.replaceChildren('Activity', h('span', { class: 'muted', text: String(c.log_total) }));
         P.log.replaceChildren(...c.log.map((entry) => {
-            const icon = { note: 'note', stage: 'arrow-right', set: 'pencil', conflict: 'alert' }[entry.event] || 'more';
+            const icon = entry.event === 'verdict' ? (entry.decision === 'approve' ? 'check' : 'x') : { note: 'note', stage: 'arrow-right', set: 'pencil', conflict: 'alert', report: 'flag' }[entry.event] || 'more';
             const since = Date.parse(entry.at) / 1000;
-            const quote = entry.event === 'note' ? entry.text : entry.event === 'stage' ? entry.reason || null : entry.event === 'merge' ? entry.note || null : null;
+            const quote = entry.event === 'note' ? entry.text : entry.event === 'stage' ? entry.reason || null : entry.event === 'merge' ? entry.note || null
+                : entry.event === 'verdict' || entry.event === 'report' ? entry.summary || entry.reason || null : null;
+            const folded = (entry.event === 'verdict' ? verdictBody(entry, c.acceptance, false)
+                : entry.event === 'report' ? [entry.summary && entry.reason ? h('p', { class: 'v-note' }, h('strong', { text: 'Reason: ' }), entry.reason) : null,
+                    (entry.ticks || []).length ? h('p', { class: 'v-filed', text: 'Ticked criteria: ' + entry.ticks.join(', ') }) : null, ...entryNotes(entry, { verified: 'Verified' })]
+                : entry.event === 'verdict_moot' || entry.event === 'verdict_superseded' ? entryNotes(entry, {}) : []).filter(Boolean);
             return h('li', {}, h('span', { class: 'log-i' }, svg(icon)),
                 h('div', { class: 'log-b' },
                     h('div', { class: 'log-h' }, h('span', { class: 'who', text: logActor(entry) }), h('span', { text: ' ' + logPhrase(entry) }),
                         Number.isNaN(since) ? null : h('time', { class: 'when', datetime: entry.at, title: text(entry.at).slice(0, 16).replace('T', ' '), data: { since, suffix: ' ago' }, text: age(now() - since) + ' ago' })),
                     quote ? h('q', { text: quote }) : null,
-                    entry.event === 'conflict' && entry.lost ? h('details', { class: 'lost' }, h('summary', { text: 'What was replaced' }), h('q', { text: entry.lost })) : null));
+                    entry.event === 'conflict' && entry.lost ? h('details', { class: 'lost' }, h('summary', { text: 'What was replaced' }), h('q', { text: entry.lost })) : null,
+                    folded.length ? h('details', { class: 'verdict-log' }, h('summary', { text: entry.event === 'verdict' ? 'Checks and issues' : 'Details' }), folded) : null));
         }));
         if (c.log_total > c.log.length) P.log.append(h('li', { class: 'muted more-log', text: (c.log_total - c.log.length) + ' older entries: vendor/bin/kanban show ' + c.id }));
     }

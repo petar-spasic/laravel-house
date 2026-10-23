@@ -116,6 +116,9 @@ class ShowCommand extends Command
                 'stage' => "stage {$entry['from']}→{$entry['to']}".(isset($entry['via']) ? " via {$entry['via']}" : '').(isset($entry['reason']) ? ": {$entry['reason']}" : ''),
                 'set' => 'set '.implode(',', $entry['fields'] ?? []),
                 'note' => 'note: '.($entry['text'] ?? ''),
+                'verdict' => 'verdict '.($entry['decision'] ?? '?').(isset($entry['head']) ? ' at '.substr((string) $entry['head'], 0, 7) : '')
+                    .(isset($entry['summary']) ? ": {$entry['summary']}" : '').(($entry['failed'] ?? []) === [] ? '' : '; failed '.implode('; ', $entry['failed']))
+                    .(($entry['issues'] ?? []) === [] ? '' : '; issues '.implode('; ', $entry['issues'])),
                 'conflict' => 'merge kept the other version of '.($entry['field'] ?? '?').'; replaced: '.mb_strimwidth((string) ($entry['lost'] ?? ''), 0, 200, '…'),
                 default => $entry['event'].($extra === [] ? '' : ' '.json_encode($extra, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)),
             };

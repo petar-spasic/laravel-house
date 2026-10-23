@@ -231,6 +231,7 @@ final class Presenter
                 'updated' => $card->updated(),
                 'stage_since' => $card->stageSince(),
             ],
+            'verdict' => self::verdict($log),
             'log' => array_slice(array_reverse($log), 0, self::LOG_SHOWN),
             'log_total' => count($log),
         ];
@@ -255,6 +256,35 @@ final class Presenter
         }
 
         return $this->queue = ['origin' => $origin, 'cards' => $cards];
+    }
+
+    /**
+     * The card's last verdict while it still speaks for the branch: none once a report, a refresh or a move back to doing
+     * comes after it. A reject's own send-back shares its write's `at`, and may sort on either side of it.
+     *
+     * @param  list<array<string, mixed>>  $log
+     * @return array<string, mixed>|null
+     */
+    private static function verdict(array $log): ?array
+    {
+        $later = [];
+        foreach (array_reverse($log) as $entry) {
+            if (($entry['event'] ?? null) !== 'verdict') {
+                $later[] = $entry;
+
+                continue;
+            }
+            foreach ($later as $after) {
+                $event = $after['event'] ?? null;
+                if ($event === 'report' || $event === 'refresh' || ($event === 'stage' && ($after['to'] ?? null) === 'doing' && ($after['at'] ?? null) !== ($entry['at'] ?? null))) {
+                    return null;
+                }
+            }
+
+            return $entry;
+        }
+
+        return null;
     }
 
     /** Seconds since the epoch of a card timestamp; 0 for one a damaged file holds. */

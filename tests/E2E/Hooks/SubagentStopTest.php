@@ -1,6 +1,7 @@
 <?php
 
 use PetarSpasic\LaravelHouse\Tests\Support\ProtocolSandbox;
+use PetarSpasic\LaravelHouse\Tests\Support\UiSandbox;
 
 beforeEach(function () {
     $this->p = ProtocolSandbox::create();
@@ -113,24 +114,32 @@ it('applies an evaluator approval for the branch HEAD and a rejection back to do
     $none = stop($this->p, $this->wt, 'e1', 'kanban-evaluator');
     expect($none['json']['reason'])->toStartWith("No verdict staged for {$this->id}.");
 
-    $this->p->in($this->wt, ['verdict', $this->id, 'reject', '--check=1:pass:"renders"', '--check=2:fail:"no test for the empty state"', '--issue=TODO left in app.php'])->mustRun();
+    $this->p->in($this->wt, ['verdict', $this->id, 'reject', '--summary=The page renders, but nothing tests the empty state.', '--check=1:pass:"renders"', '--check=2:fail:"no test for the empty state"', '--issue=TODO left in app.php'])->mustRun();
     expect(stop($this->p, $this->wt, 'e1', 'kanban-evaluator')['out'])->toBe('');
     $card = $this->p->card($this->id);
     $verdict = array_values(array_filter($card['log'], fn ($e) => $e['event'] === 'verdict'))[0];
     expect($card['stage'])->toBe('doing')
         ->and(array_column($card['acceptance'], 'done'))->toBe([true, false])
         ->and(collect($card['log'])->where('event', 'stage')->last())->toMatchArray(['from' => 'review', 'to' => 'doing', 'via' => 'reject', 'by' => 'evaluator', 'at' => $verdict['at']])
+        ->and($verdict['summary'])->toBe('The page renders, but nothing tests the empty state.')
+        ->and($verdict['passed'])->toBe(['1: "renders"'])
         ->and($verdict['failed'])->toBe(['2: "no test for the empty state"'])
         ->and($verdict['issues'])->toBe(['TODO left in app.php'])
         ->and($this->p->sandbox->ok(['show', $this->id]))->toContain("SendMessage (its worker, or a fresh one): Evaluator rejected {$this->id}; run `vendor/bin/kanban context`");
+    // the page shows the verdict while it speaks for the branch: until the next report or send-back
+    UiSandbox::boot($this->p->main);
+    $shown = fn () => $this->getJson("/kanban/_api/cards/{$this->id}")->assertOk()->json('card.verdict');
+    expect($shown())->toMatchArray(['decision' => 'reject', 'summary' => 'The page renders, but nothing tests the empty state.', 'passed' => ['1: "renders"']])
+        ->and($this->p->sandbox->ok(['show', $this->id, '--log=5']))->toMatch('/ evaluator( \([^)]*\))? verdict reject at [0-9a-f]{7}: The page renders, but nothing tests the empty state\.; failed 2: "no test for the empty state"; issues TODO left in app\.php\n/');
 
     $head = $this->p->commit($this->wt, 'tests/EmptyStateTest.php', "<?php\n", "{$this->id}: test");
     $this->p->hook('subagent-start', $this->p->payload('subagent-start'));
     $this->p->in($this->wt, ['report', $this->id, '--status=review', '--tick=2', '--summary=Tested'])->mustRun();
     stop($this->p, $this->wt);
+    expect($shown())->toBeNull();
     $this->p->hook('subagent-start', $this->p->payload('subagent-start', ['agent' => 'e2', 'type' => 'kanban-evaluator']));
     $this->p->enter($this->wt, 'e2', 'kanban-evaluator');
-    $this->p->in($this->wt, ['verdict', $this->id, 'approve', '--check=1:pass:ok', '--check=2:pass:ok'])->mustRun();
+    $this->p->in($this->wt, ['verdict', $this->id, 'approve', '--summary=Checked both criteria in the card stack.', '--check=1:pass:ok', '--check=2:pass:ok'])->mustRun();
     expect(stop($this->p, $this->wt, 'e2', 'kanban-evaluator')['out'])->toBe('');
 
     $card = $this->p->card($this->id);
@@ -138,7 +147,10 @@ it('applies an evaluator approval for the branch HEAD and a rejection back to do
         ->and(array_keys($card['work']['approved']))->toBe(['head', 'at'])
         ->and($card['work']['approved']['head'])->toBe($head)
         ->and($card['work']['approved']['at'])->toMatch('/^\d{4}-\d\d-\d\dT/')
-        ->and(array_column($card['acceptance'], 'done'))->toBe([true, true]);
+        ->and(array_column($card['acceptance'], 'done'))->toBe([true, true])
+        ->and($shown())->toMatchArray(['decision' => 'approve', 'passed' => ['1: ok', '2: ok']]);
+    $this->p->sandbox->ok(['move', $this->id, 'doing', '--reason=one more change']);
+    expect($shown())->toBeNull();
 });
 
 it('files an evaluator\'s discovered cards when its approval is applied, once', function () {
@@ -147,7 +159,7 @@ it('files an evaluator\'s discovered cards when its approval is applied, once', 
     stop($this->p, $this->wt);
     $this->p->hook('subagent-start', $this->p->payload('subagent-start', ['agent' => 'e1', 'type' => 'kanban-evaluator']));
     $this->p->enter($this->wt, 'e1', 'kanban-evaluator');
-    $this->p->in($this->wt, ['verdict', $this->id, 'approve', '--check=1:pass:ok', '--check=2:pass:ok',
+    $this->p->in($this->wt, ['verdict', $this->id, 'approve', '--summary=Checked both criteria in the card stack.', '--check=1:pass:ok', '--check=2:pass:ok',
         '--discovered=bug: Login fails on main — /login answers 500 without this change', '--discovered=Export as CSV'])->mustRun();
 
     expect(stop($this->p, $this->wt, 'e1', 'kanban-evaluator')['out'])->toBe('');
@@ -173,7 +185,7 @@ it('refuses an approval whose head is no longer the branch HEAD, filing nothing'
     stop($this->p, $this->wt);
     $this->p->hook('subagent-start', $this->p->payload('subagent-start', ['agent' => 'e1', 'type' => 'kanban-evaluator']));
     $this->p->enter($this->wt, 'e1', 'kanban-evaluator');
-    $this->p->in($this->wt, ['verdict', $this->id, 'approve', '--check=1:pass:ok', '--check=2:pass:ok', '--discovered=bug: Footer overlaps'])->mustRun();
+    $this->p->in($this->wt, ['verdict', $this->id, 'approve', '--summary=Checked both criteria in the card stack.', '--check=1:pass:ok', '--check=2:pass:ok', '--discovered=bug: Footer overlaps'])->mustRun();
     $moved = $this->p->commit($this->wt, 'more.php');
 
     $stop = stop($this->p, $this->wt, 'e1', 'kanban-evaluator');

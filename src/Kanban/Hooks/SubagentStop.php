@@ -104,7 +104,7 @@ final class SubagentStop
                 'report' => "No report staged for {$cardId}. Run: vendor/bin/kanban report {$cardId} --status=review|blocked [--tick=N …] --summary-file=- <<'EOF' … EOF (blocked needs --reason=\"…\"). If vendor/bin/kanban cannot reach the board, end your last message with why: after ".self::MAX_BLOCKS.' refusals the stop goes through and the card is blocked',
                 'plan' => "No plan staged for {$cardId}. Write it to .tmp/plan.md, then run: vendor/bin/kanban plan {$cardId} --plan-file=.tmp/plan.md (blocked: --status=blocked --reason=\"…\", or an Open question in --question-file). If vendor/bin/kanban cannot reach the board, end your last message with why: after ".self::MAX_BLOCKS.' refusals the stop goes through and the card is blocked',
                 'merge' => "No merge result staged for {$cardId}. Run: vendor/bin/kanban merged {$cardId} resolved|fixed|back|main --note=\"…\"",
-                default => "No verdict staged for {$cardId}. Run: vendor/bin/kanban verdict {$cardId} approve|reject --check=N:pass|fail:\"evidence\" … (one --check per criterion)",
+                default => "No verdict staged for {$cardId}. Run: vendor/bin/kanban verdict {$cardId} approve|reject --summary=\"…\" --check=N:pass|fail:\"evidence\" … (one --check per criterion)",
             });
         }
 

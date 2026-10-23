@@ -49,7 +49,7 @@ it('takes a follow-up report on a card in review from its worktree, which clears
     $this->p->hook('subagent-stop', $this->p->payload('subagent-stop', ['cwd' => $this->wt]));
     $this->p->hook('subagent-start', $this->p->payload('subagent-start', ['agent' => 'e1', 'type' => 'kanban-evaluator']));
     $this->p->enter($this->wt, 'e1', 'kanban-evaluator');
-    $this->p->in($this->wt, ['verdict', $this->id, 'approve', '--check=1:pass:ok', '--check=2:pass:ok'])->mustRun();
+    $this->p->in($this->wt, ['verdict', $this->id, 'approve', '--summary=Checked both criteria in the card stack.', '--check=1:pass:ok', '--check=2:pass:ok'])->mustRun();
 
     $this->p->hook('subagent-start', $this->p->payload('subagent-start'));
     $head = $this->p->commit($this->wt, 'tests/AppTest.php', "<?php\n");
@@ -87,7 +87,7 @@ it('stages a verdict only with every criterion covered and a consistent decision
     $this->p->in($this->wt, ['report', $this->id, '--status=review', '--summary=Done'])->mustRun();
     $this->p->hook('subagent-stop', $this->p->payload('subagent-stop', ['cwd' => $this->wt]));
 
-    $early = $this->p->in($this->otherWt, ['verdict', $this->other, 'approve', '--check=1:pass:ok', '--check=2:pass:ok']);
+    $early = $this->p->in($this->otherWt, ['verdict', $this->other, 'approve', '--summary=Checked both criteria in the card stack.', '--check=1:pass:ok', '--check=2:pass:ok']);
     expect($early->getExitCode())->toBe(3)->and($early->getErrorOutput())->toContain('is doing, not review');
 
     $cases = [
@@ -101,16 +101,21 @@ it('stages a verdict only with every criterion covered and a consistent decision
         [['approve', '--check=1:pass:ok', '--check=2:pass:ok', '--discovered=idea: Something'], 'type must be one of feature, bug, chore, spike'],
     ];
     foreach ($cases as [$args, $error]) {
-        $process = $this->p->in($this->wt, ['verdict', $this->id, ...$args]);
+        $process = $this->p->in($this->wt, ['verdict', $this->id, ...$args, '--summary=Checked both criteria.']);
         expect($process->getExitCode())->toBe(2)->and($process->getErrorOutput())->toContain($error);
     }
+    $bare = $this->p->in($this->wt, ['verdict', $this->id, 'approve', '--check=1:pass:ok', '--check=2:pass:ok']);
+    expect($bare->getExitCode())->toBe(2)
+        ->and($bare->getErrorOutput())->toContain('--summary="…" is required: two or three plain sentences for the person who reviews the card, saying what you checked, what you found and why you approve');
+    $wordy = $this->p->in($this->wt, ['verdict', $this->id, 'approve', '--summary='.str_repeat('z', 601), '--check=1:pass:ok', '--check=2:pass:ok']);
+    expect($wordy->getExitCode())->toBe(2)->and($wordy->getErrorOutput())->toContain('--summary: 601 characters, at most 600: the evidence goes in --check');
 
-    $ok = $this->p->in($this->wt, ['verdict', $this->id, 'reject', '--check=1:pass:curl shows it', '--check=2:fail:no test',
+    $ok = $this->p->in($this->wt, ['verdict', $this->id, 'reject', '--summary=Checked both criteria in the card stack.', '--check=1:pass:curl shows it', '--check=2:fail:no test',
         '--discovered=bug: Login fails on main — /login answers 500 without this change']);
     expect($ok->getExitCode())->toBe(0)
         ->and($ok->getOutput())->toMatch("/^staged verdict for {$this->id}: reject at [0-9a-f]{7}, failing 2, 1 discovered\napplied when you stop\n$/");
     $staged = json_decode(file_get_contents($this->p->runtime("staged/{$this->id}.verdict.json")), true);
-    expect($staged)->toMatchArray(['decision' => 'reject', 'checks' => ['1' => ['result' => 'pass', 'evidence' => 'curl shows it'], '2' => ['result' => 'fail', 'evidence' => 'no test']], 'issues' => [],
+    expect($staged)->toMatchArray(['decision' => 'reject', 'summary' => 'Checked both criteria in the card stack.', 'checks' => ['1' => ['result' => 'pass', 'evidence' => 'curl shows it'], '2' => ['result' => 'fail', 'evidence' => 'no test']], 'issues' => [],
         'discovered' => [['type' => 'bug', 'title' => 'Login fails on main', 'body' => '/login answers 500 without this change']]])
         ->and($staged)->not->toHaveKey('base');
 });
@@ -156,14 +161,14 @@ it("keeps a verdict's evidence and issues whole for the worker, and refuses one 
     $evidence = 'curl /clauses → 500. Acceptable shapes: (a) fix the query '.str_repeat('and keep the index ', 70).'(b) end.';
     $issue = 'app/Clauses.php duplicates the parser: '.str_repeat('reuse it ', 120).'end.';
 
-    $long = $this->p->in($this->wt, ['verdict', $this->id, 'reject', '--check=1:pass:ok', '--check=2:fail:'.str_repeat('x', 2001)]);
+    $long = $this->p->in($this->wt, ['verdict', $this->id, 'reject', '--summary=Checked both criteria in the card stack.', '--check=1:pass:ok', '--check=2:fail:'.str_repeat('x', 2001)]);
     expect($long->getExitCode())->toBe(2)
         ->and($long->getErrorOutput())->toContain('--check 2: the evidence is 2001 characters, at most 2000: cut prose, keep the facts');
-    $longIssue = $this->p->in($this->wt, ['verdict', $this->id, 'reject', '--check=1:pass:ok', '--check=2:pass:ok', '--issue='.str_repeat('y', 2001)]);
+    $longIssue = $this->p->in($this->wt, ['verdict', $this->id, 'reject', '--summary=Checked both criteria in the card stack.', '--check=1:pass:ok', '--check=2:pass:ok', '--issue='.str_repeat('y', 2001)]);
     expect($longIssue->getExitCode())->toBe(2)
         ->and($longIssue->getErrorOutput())->toContain('--issue: 2001 characters, at most 2000: cut prose, keep the facts');
 
-    $this->p->in($this->wt, ['verdict', $this->id, 'reject', '--check=1:pass:ok', '--check=2:fail:'.$evidence, '--issue='.$issue])->mustRun();
+    $this->p->in($this->wt, ['verdict', $this->id, 'reject', '--summary=Checked both criteria in the card stack.', '--check=1:pass:ok', '--check=2:fail:'.$evidence, '--issue='.$issue])->mustRun();
     $this->p->sandbox->ok(['apply', $this->id]);
 
     $verdict = collect($this->p->card($this->id)['log'])->last(fn (array $e) => $e['event'] === 'verdict');

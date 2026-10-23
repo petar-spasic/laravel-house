@@ -47,7 +47,7 @@ it('sends a card in review back to doing when a criterion is reworded, dropping 
     $p->hook('subagent-stop', $p->payload('subagent-stop', ['cwd' => $this->wt]));
     $p->hook('subagent-start', $p->payload('subagent-start', ['agent' => 'e1', 'type' => 'kanban-evaluator']));
     $p->enter($this->wt, 'e1', 'kanban-evaluator');
-    $p->in($this->wt, ['verdict', $this->id, 'approve', '--check=1:pass:ok', '--check=2:pass:ok'])->mustRun();
+    $p->in($this->wt, ['verdict', $this->id, 'approve', '--summary=Checked both criteria in the card stack.', '--check=1:pass:ok', '--check=2:pass:ok'])->mustRun();
     $p->hook('subagent-stop', $p->payload('subagent-stop', ['cwd' => $this->wt, 'agent' => 'e1', 'type' => 'kanban-evaluator']));
     expect($p->card($this->id)['work']['approved'])->not->toBeNull();
     $commits = count($p->sandbox->boardLog());

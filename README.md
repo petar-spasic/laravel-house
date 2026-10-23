@@ -593,7 +593,9 @@ Every card follows the same path:
 4. **A worker writes the code.** A background `kanban-worker` agent follows the plan and commits to the card's branch.
    When it is done, it reports back, and the card moves to `review`.
 5. **An evaluator checks it.** A read-only `kanban-evaluator` agent checks the branch as it is against every
-   acceptance criterion, and approves or rejects the work. Rejected work goes back to the worker.
+   acceptance criterion, and approves or rejects the work. Rejected work goes back to the worker. The card's page in
+   `/kanban` shows the verdict above the criteria: a short summary in plain words, then each criterion with its result
+   and evidence.
 6. **Approved work goes through the merge queue.** One merge runs at a time for the whole project. In a merge clone
    with its own Docker stack, the queue merges `main` and the card, runs the gates and your test suite, then pushes
    `main` and marks the card `done`. A conflict or a failing test goes to a `kanban-merger` agent first. See

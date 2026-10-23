@@ -17,7 +17,7 @@ beforeEach(function () {
         vendor/bin/kanban --in="$WORKTREE" report "$CARD" --status=review --tick=1 --summary=Done
         SH);
     runAgent($this->claude, 'evaluator', <<<'SH'
-        vendor/bin/kanban --in="$WORKTREE" verdict "$CARD" approve --check=1:pass:"feature.txt holds it"
+        vendor/bin/kanban --in="$WORKTREE" verdict "$CARD" approve --summary="Checked the feature file." --check=1:pass:"feature.txt holds it"
         SH);
     runAgent($this->claude, 'planner', <<<'SH'
         printf '## Files\n- read `README.md` — the app\n\n## Steps\n1. Add feature.txt. Check: `cat feature.txt`\n\n## Criteria\n- 1: `cat feature.txt` holds it\n' > "$WORKTREE/.tmp/plan.md"
@@ -193,7 +193,7 @@ it('launches each agent on its configured model and effort, whatever the launchi
 
 it('resumes the same worker session after a reject', function () {
     runAgent($this->claude, 'evaluator', <<<'SH'
-        if [ -f "$FAKE_CLAUDE_DIR/rejected" ]; then verdict="approve --check=1:pass:ok"; else touch "$FAKE_CLAUDE_DIR/rejected"; verdict="reject --check=1:fail:missing"; fi
+        if [ -f "$FAKE_CLAUDE_DIR/rejected" ]; then verdict="approve --summary=Checked. --check=1:pass:ok"; else touch "$FAKE_CLAUDE_DIR/rejected"; verdict="reject --summary=Checked. --check=1:fail:missing"; fi
         vendor/bin/kanban --in="$WORKTREE" verdict "$CARD" $verdict
         SH);
     $id = $this->code->sandbox->readyCard('Add login page');
@@ -474,7 +474,7 @@ it('evaluates a review card whose clone holds only untracked leftovers, and fini
 
 it('merges main into a resumed worker whose clone holds only untracked files', function () {
     runAgent($this->claude, 'evaluator', <<<'SH'
-        if [ -f "$FAKE_CLAUDE_DIR/rejected" ]; then verdict="approve --check=1:pass:ok"; else touch "$FAKE_CLAUDE_DIR/rejected"; verdict="reject --check=1:fail:missing"; echo png > "$WORKTREE/screenshot.png"; fi
+        if [ -f "$FAKE_CLAUDE_DIR/rejected" ]; then verdict="approve --summary=Checked. --check=1:pass:ok"; else touch "$FAKE_CLAUDE_DIR/rejected"; verdict="reject --summary=Checked. --check=1:fail:missing"; echo png > "$WORKTREE/screenshot.png"; fi
         vendor/bin/kanban --in="$WORKTREE" verdict "$CARD" $verdict
         SH);
     runAgent($this->claude, 'worker', <<<'SH'
@@ -1135,7 +1135,7 @@ it('reads the agent models at each launch, so a change reaches the next agent of
 
 it('blocks a card its evaluator rejects twice on the same criteria instead of a third round, and resumes it once unblocked', function () {
     runAgent($this->claude, 'evaluator', <<<'SH'
-        vendor/bin/kanban --in="$WORKTREE" verdict "$CARD" reject --check=1:fail:"feature.txt lacks the index: add it after the header"
+        vendor/bin/kanban --in="$WORKTREE" verdict "$CARD" reject --summary="Checked the feature file." --check=1:fail:"feature.txt lacks the index: add it after the header"
         SH);
     $id = $this->code->sandbox->readyCard('Add login page');
     foreach (range(1, 4) as $n) {
@@ -1160,7 +1160,7 @@ it('blocks a card its evaluator rejects twice on the same criteria instead of a 
 
 it('blocks a card on a reject loop in a later pass when the block could not be written at first', function () {
     runAgent($this->claude, 'evaluator', <<<'SH'
-        vendor/bin/kanban --in="$WORKTREE" verdict "$CARD" reject --check=1:fail:"feature.txt lacks the index"
+        vendor/bin/kanban --in="$WORKTREE" verdict "$CARD" reject --summary="Checked the feature file." --check=1:fail:"feature.txt lacks the index"
         SH);
     $id = $this->code->sandbox->readyCard('Add login page');
     foreach (range(1, 4) as $n) {
@@ -1186,7 +1186,7 @@ it('tells the main session about a failure an agent found on main, once for each
         vendor/bin/kanban --in="$WORKTREE" report "$CARD" --status=review --tick=1 --summary=Done --discovered="main: php artisan test — NotesTest fatals"
         SH);
     runAgent($this->claude, 'evaluator', <<<'SH'
-        vendor/bin/kanban --in="$WORKTREE" verdict "$CARD" approve --check=1:pass:"feature.txt holds it" --discovered="main: php artisan test — the same fatal" --discovered="main: npm run lint — eslint fails"
+        vendor/bin/kanban --in="$WORKTREE" verdict "$CARD" approve --summary="Checked the feature file." --check=1:pass:"feature.txt holds it" --discovered="main: php artisan test — the same fatal" --discovered="main: npm run lint — eslint fails"
         SH);
     $id = $this->code->sandbox->readyCard('Add login page');
     $sha = substr(trim($this->code->sandbox->git('rev-parse', 'main')), 0, 7);
@@ -1229,7 +1229,7 @@ it('raises a card promote --auto cannot write once, and promotes the others', fu
 
 it('counts one reject applied twice as one reject', function () {
     runAgent($this->claude, 'evaluator', <<<'SH'
-        vendor/bin/kanban --in="$WORKTREE" verdict "$CARD" reject --check=1:fail:"feature.txt lacks the index"
+        vendor/bin/kanban --in="$WORKTREE" verdict "$CARD" reject --summary="Checked the feature file." --check=1:fail:"feature.txt lacks the index"
         SH);
     $s = $this->code->sandbox;
     $id = $s->readyCard('Add login page');

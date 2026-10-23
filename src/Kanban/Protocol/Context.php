@@ -268,7 +268,7 @@ final class Context
             $lines[] = "protocol: change no code, commit nothing; write the plan to .tmp/plan.md, then `vendor/bin/kanban plan {$card->id()} --plan-file=.tmp/plan.md` (questions: --question-file=.tmp/question.md, their format in your instructions; blocked: --status=blocked --reason=\"…\")";
         } elseif ($evaluate) {
             $criteria = implode(' ', array_map(fn (array $c) => "--check={$c['id']}:pass|fail:\"evidence\"", $card->acceptance()));
-            $lines[] = "protocol: read-only; verify each criterion, then `vendor/bin/kanban verdict {$card->id()} approve|reject {$criteria} [--issue=\"…\"] [--discovered=\"bug: Title — body\"]`";
+            $lines[] = "protocol: read-only; verify each criterion, then `vendor/bin/kanban verdict {$card->id()} approve|reject --summary=\"…\" {$criteria} [--issue=\"…\"] [--discovered=\"bug: Title — body\"]`";
         } else {
             $lines[] = "protocol: work and commit only in this worktree; when done `vendor/bin/kanban report {$card->id()} --status=review --tick=N --summary-file=- <<'EOF' … EOF` (a question: --question-file=.tmp/question.md, its format in your instructions; blocked: --status=blocked --reason=\"…\")";
         }

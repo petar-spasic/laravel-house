@@ -16,7 +16,7 @@ beforeEach(function () {
         vendor/bin/kanban --in="$WORKTREE" report "$CARD" --status=review --tick=1 --summary=Done
         SH);
     runAgent($this->claude, 'evaluator', <<<'SH'
-        vendor/bin/kanban --in="$WORKTREE" verdict "$CARD" approve --check=1:pass:"feature.txt holds it"
+        vendor/bin/kanban --in="$WORKTREE" verdict "$CARD" approve --summary="Checked the feature file." --check=1:pass:"feature.txt holds it"
         SH);
 });
 
@@ -52,7 +52,7 @@ function agentsLaunched(string $claude): array
 it('merges an approved card in a run of its own, after an evaluator judged its branch as it is', function () {
     runAgent($this->claude, 'evaluator', <<<'SH'
         [ -e "$WORKTREE/fix.txt" ] && echo merged > "$FAKE_CLAUDE_DIR/main-seen"
-        vendor/bin/kanban --in="$WORKTREE" verdict "$CARD" approve --check=1:pass:"feature.txt holds it"
+        vendor/bin/kanban --in="$WORKTREE" verdict "$CARD" approve --summary="Checked the feature file." --check=1:pass:"feature.txt holds it"
         SH);
     $id = $this->code->sandbox->readyCard('Add login page');
     runPass($this->code, $this->claude);
@@ -735,7 +735,7 @@ it('brings what another machine merged into a doing card here: the main checkout
         vendor/bin/kanban --in="$WORKTREE" report "$CARD" --status=review --tick=1 --summary=Done
         SH);
     runAgent($this->claude, 'evaluator', <<<'SH'
-        vendor/bin/kanban --in="$WORKTREE" verdict "$CARD" reject --check=1:fail:"app.php drops the header"
+        vendor/bin/kanban --in="$WORKTREE" verdict "$CARD" reject --summary="Checked the feature file." --check=1:fail:"app.php drops the header"
         SH);
     $id = $a->sandbox->readyCard('Tag notes');
     runPass($a, $this->claude);

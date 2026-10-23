@@ -102,7 +102,7 @@ it('prints the card context with the configured gates from its worktree, with --
         ->toMatch("/report 1\\/1 review \\S+ @\\w{7} ticks 1\n  Built it\n  verified: pest → ok\n/")
         ->toContain("this card's changes, diff --stat main...HEAD:\n  app.php | 1 +\n")
         ->toContain("up to 240 s; give those Bash calls timeout 270000):\n  vendor/bin/pint --test --diff=main\n  npm run check\n")
-        ->toContain("protocol: read-only; verify each criterion, then `vendor/bin/kanban verdict {$id} approve|reject --check=1:pass|fail:\"evidence\" --check=2:pass|fail:\"evidence\" [--issue=\"…\"] [--discovered=\"bug: Title — body\"]`");
+        ->toContain("protocol: read-only; verify each criterion, then `vendor/bin/kanban verdict {$id} approve|reject --summary=\"…\" --check=1:pass|fail:\"evidence\" --check=2:pass|fail:\"evidence\" [--issue=\"…\"] [--discovered=\"bug: Title — body\"]`");
 
     $nowhere = $p->sandbox->kanban(['context']);
     expect($nowhere->getExitCode())->toBe(4);

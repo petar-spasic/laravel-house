@@ -45,10 +45,10 @@ it('files what an approval found when the card was finished on an earlier approv
         $p->hook('subagent-start', $p->payload('subagent-start', ['agent' => $agent, 'type' => 'kanban-evaluator']));
     }
     $p->enter($this->wt, 'e1', 'kanban-evaluator');
-    $p->in($this->wt, ['verdict', $this->id, 'approve', '--check=1:pass:ok', '--check=2:pass:ok'])->mustRun();
+    $p->in($this->wt, ['verdict', $this->id, 'approve', '--summary=Checked both criteria in the card stack.', '--check=1:pass:ok', '--check=2:pass:ok'])->mustRun();
     $p->hook('subagent-stop', $p->payload('subagent-stop', ['cwd' => $this->wt, 'agent' => 'e1', 'type' => 'kanban-evaluator']))->mustRun();
     $p->enter($this->wt, 'e2', 'kanban-evaluator');
-    $p->in($this->wt, ['verdict', $this->id, 'approve', '--check=1:pass:ok', '--check=2:pass:ok', '--discovered=chore: Cache the clause list'])->mustRun();
+    $p->in($this->wt, ['verdict', $this->id, 'approve', '--summary=Checked both criteria in the card stack.', '--check=1:pass:ok', '--check=2:pass:ok', '--discovered=chore: Cache the clause list'])->mustRun();
     // merged on the first approval
     $p->sandbox->ok(['move', $this->id, 'done', '--force'], ['KANBAN_SESSION' => 's1']);
 

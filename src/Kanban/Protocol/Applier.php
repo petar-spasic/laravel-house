@@ -354,8 +354,11 @@ final class Applier
             $aside = $this->aside($card, $verdict);
             $checks = (array) ($verdict['checks'] ?? []);
             $failed = array_map('intval', array_keys(array_filter($checks, fn (array $c) => $c['result'] === 'fail')));
+            $passed = array_map('intval', array_keys(array_filter($checks, fn (array $c) => $c['result'] === 'pass')));
             $entry = array_filter([
                 'event' => 'verdict', 'decision' => $verdict['decision'], 'hash' => $hash, 'head' => $verdict['head'] ?? null,
+                'summary' => $verdict['summary'] ?? null,
+                'passed' => array_map(fn (int $n) => $n.': '.($checks[(string) $n]['evidence'] ?? ''), $passed),
                 'failed' => array_map(fn (int $n) => $n.': '.($checks[(string) $n]['evidence'] ?? ''), $failed),
                 'issues' => array_values($verdict['issues'] ?? []),
                 'discovered' => $created, 'known' => $known,
