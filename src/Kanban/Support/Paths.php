@@ -19,7 +19,7 @@ final class Paths
     public const MERGE_CLONE = '_merge';
 
     /**
-     * @param  string  $main  the main checkout (the directory whose .git is a directory)
+     * @param  string  $main  the main checkout (the directory whose .git is a git directory, with a HEAD)
      * @param  string  $cwd  where discovery started
      */
     public function __construct(
@@ -28,16 +28,24 @@ final class Paths
         public readonly bool $inRepo = true,
     ) {}
 
-    /** Walks up from $from to the main checkout; a linked worktree resolves through its commondir. */
+    /**
+     * Walks up from $from to the main checkout; a linked worktree resolves through its commondir. The walk stops at the
+     * home directory, never a project: its `.claude/settings.json` is the user's own, applied to every project.
+     */
     public static function discover(string $from): self
     {
         $start = realpath($from) ?: $from;
         if (($main = self::cloneMainOf($start)) !== null) {
             return new self($main, $start);
         }
+        $home = getenv('HOME');
+        $home = is_string($home) && $home !== '' ? realpath($home) : false;
         for ($dir = $start; ; $dir = dirname($dir)) {
+            if ($dir === $home) {
+                return new self($start, $start, false);
+            }
             $git = $dir.'/.git';
-            if (is_dir($git)) {
+            if (is_file($git.'/HEAD')) {
                 return new self($dir, $start);
             }
             if (is_file($git) && ($main = self::mainOf($git)) !== null) {

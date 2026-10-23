@@ -7,6 +7,7 @@ use PetarSpasic\LaravelHouse\Kanban\Policy\Transitions;
 use PetarSpasic\LaravelHouse\Kanban\Store\Actor;
 use PetarSpasic\LaravelHouse\Kanban\Store\Card;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\KanbanException;
+use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\NotFound;
 use PetarSpasic\LaravelHouse\Kanban\Store\Exceptions\PolicyRefused;
 use PetarSpasic\LaravelHouse\Kanban\Store\Git\GitStore;
 use PetarSpasic\LaravelHouse\Kanban\Store\Priority;
@@ -29,9 +30,16 @@ abstract class Command extends IlluminateCommand
     /** @var array<string, string>|null */
     private ?array $agentStates = null;
 
+    /** Runs outside a project's git checkout too; every other command refuses there and writes nothing. */
+    protected const OUTSIDE_REPO = false;
+
     final public function handle(): int
     {
         try {
+            if (! static::OUTSIDE_REPO && ! $this->paths()->inRepo) {
+                throw new NotFound('not in a project: run vendor/bin/kanban in the git checkout of a project that requires petar-spasic/laravel-house');
+            }
+
             return $this->perform();
         } catch (KanbanException $e) {
             $this->fault($e->getMessage());

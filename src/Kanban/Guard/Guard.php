@@ -441,7 +441,7 @@ final class Guard
     }
 
     /**
-     * The main checkout containing $dir: the directory whose .git is a directory,
+     * The main checkout containing $dir: the directory whose .git is a git directory (with a HEAD),
      * reached through commondir when $dir is inside a linked worktree.
      */
     private static function findMain(string $dir): ?string
@@ -454,7 +454,7 @@ final class Guard
         while ($dir !== null) {
             $git = $dir.'/.git';
 
-            if (is_dir($git)) {
+            if (is_file($git.'/HEAD')) {
                 return $dir;
             }
 

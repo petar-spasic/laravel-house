@@ -22,6 +22,9 @@ class HookCommand extends Command
 
     protected $description = 'Claude Code hook handler (reads the hook JSON from stdin)';
 
+    /** Finds the project from the payload's cwd, and says "not installed" outside one. */
+    protected const OUTSIDE_REPO = true;
+
     private const EVENTS = [
         'session-start' => SessionStart::class,
         'session-end' => SessionEnd::class,

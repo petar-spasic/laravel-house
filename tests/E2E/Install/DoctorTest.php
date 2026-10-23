@@ -434,3 +434,33 @@ it('warns about a card that waits on a steering question, which the merge queue 
     expect($sandbox->read($id))->toMatchArray(['stage' => 'doing', 'blocked' => null])
         ->and($sandbox->read($id)['work']['approved'])->toBeNull();
 });
+
+it('writes nothing outside a project: not in a directory without git, nor through a stray .git, nor in the home directory', function () {
+    $any = Sandbox::create('any');
+    $tree = fn (string $dir) => trim((new Process(['find', $dir, '-mindepth', '1']))->mustRun()->getOutput());
+
+    $plain = Sandbox::tmp();
+    $stray = Sandbox::tmp();
+    mkdir($stray.'/.git/laravel-house', 0775, true);
+    mkdir($stray.'/app');
+    foreach ([[$plain, $plain], [$stray, $stray.'/app']] as [$root, $cwd]) {
+        $before = $tree($root);
+        foreach (['doctor --fix', 'status', 'attach'] as $command) {
+            $process = $any->kanban(explode(' ', $command), cwd: $cwd);
+            expect($process->getExitCode())->toBe(4, $command)
+                ->and($process->getErrorOutput())->toContain('not in a project: run vendor/bin/kanban in the git checkout of a project');
+        }
+        expect($tree($root))->toBe($before);
+    }
+
+    // a home directory under git (dotfiles): its .claude is the user's own settings, which every project reads
+    $home = Sandbox::create('home');
+    mkdir($home->root.'/notes');
+    $before = $tree($home->root);
+    foreach ([$home->root, $home->root.'/notes'] as $cwd) {
+        expect($any->kanban(['doctor', '--fix'], env: ['HOME' => $home->root], cwd: $cwd)->getExitCode())->toBe(4);
+    }
+    $start = $any->kanban(['hook', 'session-start'], env: ['HOME' => $home->root], cwd: $home->root, input: json_encode(['session_id' => 's', 'cwd' => $home->root]));
+    expect($start->getOutput())->toBe("kanban: not installed\n")
+        ->and($tree($home->root))->toBe($before);
+});

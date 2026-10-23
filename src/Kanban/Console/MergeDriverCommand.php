@@ -16,6 +16,9 @@ class MergeDriverCommand extends Command
 
     protected $description = 'git merge driver for board JSON (configured by attach)';
 
+    /** A pure function of the files git names. */
+    protected const OUTSIDE_REPO = true;
+
     protected function perform(): int
     {
         return MergeDriver::run($this->argument('ancestor'), $this->argument('current'), $this->argument('other'), $this->argument('path'));
