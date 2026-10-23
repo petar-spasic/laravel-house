@@ -4,7 +4,8 @@
 # ALWAYS pass --env-file .env.prod — without it compose substitutes ${VAR}
 # from the repo's dev .env. Usage:
 #   cp .env.prod.example .env.prod && edit
-#   docker compose --env-file .env.prod up -d --build
+#   docker compose --env-file .env.prod build --pull --build-arg SYSTEM_UPDATES=$(date +%s)
+#   docker compose --env-file .env.prod up -d
 # Required in .env.prod: APP_KEY, APP_URL, DB_PASSWORD, TRUSTED_PROXIES, OCTANE_WORKERS.
 # if:tenancy
 # Also DB_OWNER_PASSWORD.

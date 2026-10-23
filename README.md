@@ -514,11 +514,17 @@ With the SvelteKit app, browser tests run only through this script:
 docker compose -f docker-compose.local.yml exec app docker/e2e.sh
 ```
 
-The production image reads `.env.prod`. Copy the example, fill it in, then start the image:
+The production image reads `.env.prod`. Copy the example and fill it in:
 
 ```shell
 cp .env.prod.example .env.prod
-docker compose --env-file .env.prod up -d --build --wait
+```
+
+On every deploy, build the image with the newest base image and Debian's latest security fixes, then start it:
+
+```shell
+docker compose --env-file .env.prod build --pull --build-arg SYSTEM_UPDATES=$(date +%s)
+docker compose --env-file .env.prod up -d --wait
 ```
 
 When a container starts but serves nothing, check the Traps in the

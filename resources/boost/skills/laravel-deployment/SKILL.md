@@ -33,6 +33,11 @@ stacks of card clones and the merge queue build it (Many stacks, below), so the 
 where request state leaks as in prod. Main's own stack stays local. Prod keeps workers warm; TLS ends at the host's
 reverse proxy.
 
+The prod image runs `apt-get upgrade` in the layer that installs its packages, so it carries Debian's security fixes,
+not only the base image's. The build cache keeps that layer until something before it changes, so prod is always built
+with `build --pull --build-arg SYSTEM_UPDATES=$(date +%s)`: `--pull` takes the newest base image, and a new
+`SYSTEM_UPDATES` reruns the upgrade. Local and agent images never face the internet and skip it.
+
 ## Templates
 
 `${CLAUDE_SKILL_DIR}/templates/core` mirrors the project root, `templates/modules/<module>` holds a module's own

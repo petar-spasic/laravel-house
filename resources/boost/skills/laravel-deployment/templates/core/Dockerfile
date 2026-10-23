@@ -50,7 +50,11 @@ COPY --from=frontend-builder /usr/local/bin/node /usr/local/bin/node
 RUN node --version
 # endif
 
-RUN apt-get update && apt-get install -y --no-install-recommends supervisor curl procps \
+# Debian's security fixes on top of the base image. A new SYSTEM_UPDATES (the deploy passes the time) reruns this
+# layer, which the build cache would otherwise keep for good.
+ARG SYSTEM_UPDATES
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends supervisor curl procps \
     && rm -rf /var/lib/apt/lists/*
 
 # pcntl is load-bearing: Horizon's job timeouts and Octane's SIGTERM need it.

@@ -27,13 +27,15 @@ waits.
 <!-- unless:spa -->
 ```shell
 docker compose -f docker-compose.local.yml up --build          # http://localhost:{{web_port}} (Caddy → php-fpm and Vite), /horizon
-cp .env.prod.example .env.prod && docker compose --env-file .env.prod up -d --build
+cp .env.prod.example .env.prod                                 # once; then every deploy pulls the base image and Debian's fixes:
+docker compose --env-file .env.prod build --pull --build-arg SYSTEM_UPDATES=$(date +%s) && docker compose --env-file .env.prod up -d
 ```
 <!-- endif -->
 <!-- if:spa -->
 ```shell
 docker compose -f docker-compose.local.yml up --build          # http://localhost:{{web_port}} (Caddy → php-fpm and SvelteKit), /horizon
-cp .env.prod.example .env.prod && docker compose --env-file .env.prod up -d --build
+cp .env.prod.example .env.prod                                 # once; then every deploy pulls the base image and Debian's fixes:
+docker compose --env-file .env.prod build --pull --build-arg SYSTEM_UPDATES=$(date +%s) && docker compose --env-file .env.prod up -d
 ```
 <!-- endif -->
 
